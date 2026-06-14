@@ -1,0 +1,53 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+max_bot_venv/
+max_bot/
+.venv/
+venv/
+
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+*.secret.*
+service-account*.json
+google-credentials*.json
+credentials.json
+
+# Local runtime files
+*.marker
+*.log
+logs/
+tmp/
+.cache/
+
+# Personal exports and sensitive school data
+*.xlsx
+*.xls
+*.csv
+
+# Private planning documents
+DIRECTOR_APPROVAL_PLAN_MAX_BOT.md
+DIRECTOR_BRIEF_MAX_BOT.md
+MASTER_PROMPT_MAX_BOT.md
+MAX_BOT_START_PACK.md
+
+# Frontend artifacts for future mini app
+node_modules/
+dist/
+build/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
