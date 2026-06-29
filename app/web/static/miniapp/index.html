@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Алгоритмика MAX</title>
+    <link rel="stylesheet" href="/miniapp/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <span class="brand-mark">A</span>
+          <div>
+            <p class="eyebrow">MAX mini app</p>
+            <h1>Алгоритмика</h1>
+          </div>
+        </div>
+
+        <div class="tenant-control" aria-label="Контур данных">
+          <label for="tenantSelect">Город / партнер</label>
+          <select id="tenantSelect">
+            <option>Нижний Новгород / Партнер A</option>
+            <option>Нижний Новгород / Партнер B</option>
+            <option>Бор / Партнер A</option>
+          </select>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="rail" aria-label="Роль и раздел">
+          <section class="role-switch" aria-label="Роль">
+            <button class="role-button is-active" data-role="student">Ученик</button>
+            <button class="role-button" data-role="parent">Родитель</button>
+            <button class="role-button" data-role="teacher">Педагог</button>
+            <button class="role-button" data-role="admin">Админ</button>
+          </section>
+
+          <nav class="section-nav" aria-label="Разделы">
+            <button class="nav-button is-active" data-view="dashboard">Обзор</button>
+            <button class="nav-button" data-view="store">Магазин</button>
+            <button class="nav-button" data-view="cart">Корзина</button>
+            <button class="nav-button" data-view="orders">Заказы</button>
+            <button class="nav-button" data-view="wallet">Астрокоины</button>
+            <button class="nav-button" data-view="accrual">Начисления</button>
+            <button class="nav-button" data-view="admin">Операции</button>
+          </nav>
+        </aside>
+
+        <section class="content-area">
+          <div class="status-strip">
+            <div>
+              <p class="label">Профиль</p>
+              <strong id="profileTitle">Алиса, ученик</strong>
+            </div>
+            <div>
+              <p class="label">Ученик для заказа</p>
+              <select id="studentSelect" aria-label="Ученик для заказа"></select>
+            </div>
+            <div>
+              <p class="label">Баланс</p>
+              <strong><span id="balanceValue">1240</span> AC</strong>
+            </div>
+            <button id="openCartButton" class="primary-action" type="button">
+              Корзина <span id="cartCounter">0</span>
+            </button>
+          </div>
+
+          <div id="noticeBar" class="notice-bar" hidden></div>
+
+          <section id="dashboardView" class="view is-active" data-view-panel="dashboard">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Сегодня</p>
+                <h2>Рабочий обзор</h2>
+              </div>
+              <button class="secondary-action" type="button" data-view-jump="store">Открыть магазин</button>
+            </div>
+
+            <div class="summary-grid">
+              <article class="metric">
+                <span id="linkedStudentsCount" class="metric-value">3</span>
+                <span class="metric-label">связанных ученика по Contact ID</span>
+              </article>
+              <article class="metric">
+                <span id="openOrdersCount" class="metric-value">2</span>
+                <span class="metric-label">заказа ждут выдачи</span>
+              </article>
+              <article class="metric">
+                <span id="stockProblemCount" class="metric-value">1</span>
+                <span class="metric-label">резерв требует склада</span>
+              </article>
+            </div>
+
+            <div class="two-column">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Дети и группы</h3>
+                  <select id="studentGroupFilter" aria-label="Группа учеников">
+                    <option value="all">Все группы</option>
+                  </select>
+                </div>
+                <div id="studentList" class="student-list"></div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Заказы к выдаче</h3>
+                </div>
+                <div id="dashboardOrders" class="compact-order-list"></div>
+              </section>
+            </div>
+          </section>
+
+          <section id="storeView" class="view" data-view-panel="store">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Магазин</p>
+                <h2>Каталог подарков</h2>
+              </div>
+              <div class="toolbar">
+                <input id="productSearch" type="search" placeholder="Поиск" />
+                <select id="categoryFilter" aria-label="Категория">
+                  <option value="all">Все категории</option>
+                </select>
+              </div>
+            </div>
+            <div id="productGrid" class="product-grid"></div>
+          </section>
+
+          <section id="cartView" class="view" data-view-panel="cart">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Оформление</p>
+                <h2>Корзина</h2>
+              </div>
+              <button id="placeOrderButton" class="primary-action" type="button">Оформить заказ</button>
+            </div>
+            <div id="cartList" class="cart-list"></div>
+            <div class="total-line">
+              <span>Итого</span>
+              <strong><span id="cartTotal">0</span> AC</strong>
+            </div>
+          </section>
+
+          <section id="ordersView" class="view" data-view-panel="orders">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Заказы</p>
+                <h2>Статусы и выдача</h2>
+              </div>
+            </div>
+            <div id="ordersTable" class="data-table"></div>
+          </section>
+
+          <section id="walletView" class="view" data-view-panel="wallet">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Астрокоины</p>
+                <h2>История операций</h2>
+              </div>
+              <button class="secondary-action" type="button" data-view-jump="accrual">Начисления</button>
+            </div>
+            <div id="ledgerList" class="ledger-list"></div>
+          </section>
+
+          <section id="accrualView" class="view" data-view-panel="accrual">
+            <div class="accrual-page">
+              <div class="accrual-page-head">
+                <h2>Мои ученики</h2>
+                <p>Начисление астрокоинов</p>
+              </div>
+
+              <div class="accrual-filters">
+                <label>
+                  <span>ФИО Ученика</span>
+                  <input id="accrualNameFilter" type="search" />
+                </label>
+                <label>
+                  <span>Выберите группу</span>
+                  <select id="accrualGroupSelect"></select>
+                </label>
+                <button id="applyAccrualFilter" class="secondary-action" type="button">
+                  Применить фильтр
+                </button>
+              </div>
+
+              <div class="accrual-table-wrap">
+                <div id="accrualStudentList" class="accrual-table"></div>
+              </div>
+            </div>
+          </section>
+
+          <section id="adminView" class="view" data-view-panel="admin">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Админ</p>
+                <h2>Товары и остатки</h2>
+              </div>
+            </div>
+
+            <div class="admin-tabs" role="tablist" aria-label="Админские разделы">
+              <button class="admin-tab is-active" data-admin-tab="products">Товары</button>
+              <button class="admin-tab" data-admin-tab="inventory">Остатки</button>
+              <button class="admin-tab" data-admin-tab="warehouses">Склады</button>
+              <button class="admin-tab" data-admin-tab="contacts">Связи</button>
+            </div>
+
+            <div id="adminPanel" class="admin-panel"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="/miniapp/static/app.js"></script>
+  </body>
+</html>

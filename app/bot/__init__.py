@@ -1,4 +1,4 @@
-from __future__ import annotations
+"""MAX bot transport adapter."""
 
 from app.bot.max_long_polling import (
     AccessBackendClient,
@@ -19,7 +19,3 @@ __all__ = [
     "PendingContact",
     "main",
 ]
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

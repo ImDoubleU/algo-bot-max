@@ -5,8 +5,17 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.hypothesis/
+.tox/
+.nox/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
+__pypackages__/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
 
 # Virtual environments
 max_bot_venv/
@@ -19,16 +28,40 @@ venv/
 .env.*
 !.env.example
 *.secret.*
+*.pem
+*.key
+*.crt
+*.p12
 service-account*.json
 google-credentials*.json
 credentials.json
 
 # Local runtime files
+*.tmp
+*.bak
+*.orig
+*.swp
+*.swo
 *.marker
 *.log
+*.pid
 logs/
 tmp/
+output/
 .cache/
+.agents/
+skills-lock.json
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.sqlite-journal
+*.dump
+
+# Local uploads and generated media
+uploads/
+media/
+storage/
 
 # Personal exports and sensitive school data
 *.xlsx
@@ -40,12 +73,16 @@ DIRECTOR_APPROVAL_PLAN_MAX_BOT.md
 DIRECTOR_BRIEF_MAX_BOT.md
 MASTER_PROMPT_MAX_BOT.md
 MAX_BOT_START_PACK.md
-DIRECTOR_APPROVAL_PLAN_MAX_BOT.md
 
 # Frontend artifacts for future mini app
 node_modules/
 dist/
 build/
+coverage/
+playwright-report/
+test-results/
+blob-report/
+.playwright/
 
 # OS/editor noise
 .DS_Store

@@ -1,0 +1,18 @@
+[project]
+name = "algo-bot-max"
+version = "0.1.0"
+description = "MAX bot and mini app backend for Algoritmika city-partner tenants."
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
