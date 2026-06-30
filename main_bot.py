@@ -7,7 +7,9 @@ from app.bot.max_long_polling import (
     MaxApiClient,
     MaxApiError,
     PendingContact,
+    SimulationMaxClient,
     main,
+    simulate_command,
 )
 
 __all__ = [
@@ -17,7 +19,9 @@ __all__ = [
     "MaxApiClient",
     "MaxApiError",
     "PendingContact",
+    "SimulationMaxClient",
     "main",
+    "simulate_command",
 ]
 
 

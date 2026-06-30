@@ -9,21 +9,48 @@ from app.models.enums import (
     AssignmentStatus,
     LedgerDirection,
     OrderStatus,
+    ProductStatus,
     StaffRole,
+    StockMovementType,
     StudentAccessRole,
     WarehouseType,
 )
-from app.models.store import OrderItem, Product, ProductCategory, Warehouse, WarehouseInventory
+from app.models.store import (
+    OrderItem,
+    Product,
+    ProductCategory,
+    StockMovement,
+    Warehouse,
+    WarehouseInventory,
+)
 from app.models.student import AstrocoinLedgerEntry, Student, Wallet
 from app.schemas.access import AccessLinkCreate
-from app.schemas.miniapp import MiniAppAccrualCreate, MiniAppOrderCreate, MiniAppOrderItemCreate
+from app.schemas.miniapp import (
+    MiniAppAccrualCreate,
+    MiniAppInventoryAdjustmentCreate,
+    MiniAppInventoryTransferCreate,
+    MiniAppOrderActionCreate,
+    MiniAppOrderCreate,
+    MiniAppOrderItemCreate,
+    MiniAppProductUpsert,
+    MiniAppWarehouseUpsert,
+)
 from app.services.access import create_contact_access_links
 from app.services.crm_import import CrmStudentRow
 from app.services.crm_sync import CrmSyncDefaults, upsert_crm_student_rows
 from app.services.miniapp import (
+    MiniAppStoreError,
     accrue_miniapp_astrocoins,
+    adjust_miniapp_inventory,
+    cancel_miniapp_order,
     create_miniapp_order,
+    get_miniapp_ops_summary,
+    issue_miniapp_order,
     list_miniapp_catalog,
+    return_miniapp_order,
+    transfer_miniapp_inventory,
+    upsert_miniapp_product,
+    upsert_miniapp_warehouse,
 )
 
 
@@ -146,6 +173,8 @@ async def test_catalog_and_order_reserve_stock_and_debit_wallet(db_session) -> N
 
     assert created.order.status == OrderStatus.RESERVED
     assert created.order.total_astrocoins == 240
+    assert len(created.order.status_history) == 1
+    assert created.order.status_history[0].to_status == OrderStatus.RESERVED
     assert created.balance_after == 760
     assert created.items[0].warehouse_name == "Союзный 45"
 
@@ -160,6 +189,53 @@ async def test_catalog_and_order_reserve_stock_and_debit_wallet(db_session) -> N
     assert len(order_items) == 1
     assert len(ledger_entries) == 1
     assert ledger_entries[0].direction == LedgerDirection.DEBIT
+
+
+async def test_ops_summary_reports_open_orders_and_low_stock(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, _inventory = await seed_product(db_session, student)
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
+    assert account is not None
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    created = await create_miniapp_order(
+        db_session,
+        payload=MiniAppOrderCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            student_id=student.id,
+            items=[MiniAppOrderItemCreate(product_id=product.id, quantity=2)],
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    summary = await get_miniapp_ops_summary(
+        db_session,
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        low_stock_threshold=3,
+    )
+
+    assert summary.staff_role == StaffRole.ADMIN
+    assert summary.total_orders == 1
+    assert summary.open_orders == 1
+    assert summary.pending_issue_orders == 1
+    assert summary.order_statuses[0].status == OrderStatus.RESERVED
+    assert summary.order_statuses[0].count == 1
+    assert summary.recent_open_orders[0].id == created.order.id
+    assert summary.recent_open_orders[0].items[0].product_name == product.name
+    assert summary.low_stock[0].product_id == product.id
+    assert summary.low_stock[0].available_quantity == 3
+    assert summary.total_stock_quantity == 5
+    assert summary.total_reserved_quantity == 2
 
 
 async def test_order_uses_selected_warehouse_when_provided(db_session) -> None:
@@ -207,6 +283,155 @@ async def test_order_uses_selected_warehouse_when_provided(db_session) -> None:
     assert venue_inventory.reserved_quantity == 0
 
 
+async def test_cancel_order_releases_stock_and_refunds_wallet(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, inventory = await seed_product(db_session, student)
+    created = await create_miniapp_order(
+        db_session,
+        payload=MiniAppOrderCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            student_id=student.id,
+            items=[MiniAppOrderItemCreate(product_id=product.id, quantity=2)],
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    cancelled = await cancel_miniapp_order(
+        db_session,
+        order_id=created.order.id,
+        payload=MiniAppOrderActionCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            comment="Передумали",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    await db_session.refresh(inventory)
+    wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
+    entries = (await db_session.scalars(select(AstrocoinLedgerEntry))).all()
+    assert cancelled.order.status == OrderStatus.CANCELLED
+    assert cancelled.balance_after == 1000
+    assert wallet is not None
+    assert wallet.balance == 1000
+    assert inventory.reserved_quantity == 0
+    assert inventory.available_quantity == 5
+    assert [entry.direction for entry in entries] == [
+        LedgerDirection.DEBIT,
+        LedgerDirection.REVERSAL,
+    ]
+
+
+async def test_staff_can_issue_reserved_order(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, inventory = await seed_product(db_session, student)
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
+    assert account is not None
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.TEACHER,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+    created = await create_miniapp_order(
+        db_session,
+        payload=MiniAppOrderCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            student_id=student.id,
+            items=[MiniAppOrderItemCreate(product_id=product.id, quantity=2)],
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    issued = await issue_miniapp_order(
+        db_session,
+        order_id=created.order.id,
+        payload=MiniAppOrderActionCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            comment="Выдано на уроке",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    await db_session.refresh(inventory)
+    wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
+    assert issued.order.status == OrderStatus.ISSUED_TO_STUDENT
+    assert issued.balance_after is None
+    assert wallet is not None
+    assert wallet.balance == 760
+    assert inventory.reserved_quantity == 0
+    assert inventory.available_quantity == 3
+    assert inventory.issued_quantity == 2
+
+
+async def test_staff_can_return_issued_order_and_refund_wallet(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, inventory = await seed_product(db_session, student)
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
+    assert account is not None
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.TEACHER,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+    created = await create_miniapp_order(
+        db_session,
+        payload=MiniAppOrderCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            student_id=student.id,
+            items=[MiniAppOrderItemCreate(product_id=product.id, quantity=2)],
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    await issue_miniapp_order(
+        db_session,
+        order_id=created.order.id,
+        payload=MiniAppOrderActionCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    returned = await return_miniapp_order(
+        db_session,
+        order_id=created.order.id,
+        payload=MiniAppOrderActionCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            comment="Вернули товар",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    await db_session.refresh(inventory)
+    wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
+    entries = (await db_session.scalars(select(AstrocoinLedgerEntry))).all()
+    assert returned.order.status == OrderStatus.RETURNED
+    assert returned.balance_after == 1000
+    assert wallet is not None
+    assert wallet.balance == 1000
+    assert inventory.reserved_quantity == 0
+    assert inventory.available_quantity == 5
+    assert inventory.issued_quantity == 2
+    assert inventory.returned_quantity == 2
+    assert [entry.direction for entry in entries] == [
+        LedgerDirection.DEBIT,
+        LedgerDirection.REVERSAL,
+    ]
+
+
 async def test_staff_can_accrue_astrocoins_from_miniapp(db_session) -> None:
     student = await seed_linked_student(db_session)
     account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
@@ -246,3 +471,254 @@ async def test_staff_can_accrue_astrocoins_from_miniapp(db_session) -> None:
     assert wallet is not None
     assert wallet.balance == 1075
     assert len(entries) == 1
+
+
+async def test_admin_can_adjust_inventory_and_write_stock_movement(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, inventory = await seed_product(db_session, student)
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
+    assert account is not None
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    result = await adjust_miniapp_inventory(
+        db_session,
+        payload=MiniAppInventoryAdjustmentCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            product_id=product.id,
+            warehouse_id=inventory.warehouse_id,
+            available_quantity=8,
+            comment="Ручная инвентаризация",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    await db_session.refresh(inventory)
+    movement = await db_session.scalar(select(StockMovement))
+    assert result.stock_quantity == 8
+    assert result.available_quantity == 8
+    assert inventory.available_quantity == 8
+    assert movement is not None
+    assert movement.movement_type == StockMovementType.ADJUSTMENT
+    assert movement.quantity == 3
+    assert movement.to_warehouse_id == inventory.warehouse_id
+
+
+async def test_inventory_adjustment_rejects_quantity_below_reserved(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, inventory = await seed_product(db_session, student)
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
+    assert account is not None
+    inventory.reserved_quantity = 3
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    with pytest.raises(MiniAppStoreError, match="меньше резерва"):
+        await adjust_miniapp_inventory(
+            db_session,
+            payload=MiniAppInventoryAdjustmentCreate(
+                max_user_id=53364725,
+                tenant_slug="nizhniy-novgorod-partner-a",
+                product_id=product.id,
+                warehouse_id=inventory.warehouse_id,
+                available_quantity=2,
+            ),
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
+
+
+async def test_admin_can_transfer_inventory_between_warehouses(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, source_inventory = await seed_product(db_session, student)
+    target_warehouse = Warehouse(
+        tenant_id=student.tenant_id,
+        slug="common",
+        name="Общий склад",
+        warehouse_type=WarehouseType.COMMON,
+    )
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
+    assert account is not None
+    db_session.add(target_warehouse)
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    result = await transfer_miniapp_inventory(
+        db_session,
+        payload=MiniAppInventoryTransferCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            product_id=product.id,
+            from_warehouse_id=source_inventory.warehouse_id,
+            to_warehouse_id=target_warehouse.id,
+            quantity=2,
+            comment="Перемещение в общий склад",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    await db_session.refresh(source_inventory)
+    target_inventory = await db_session.scalar(
+        select(WarehouseInventory).where(
+            WarehouseInventory.warehouse_id == target_warehouse.id,
+            WarehouseInventory.product_id == product.id,
+        )
+    )
+    movement = await db_session.scalar(
+        select(StockMovement).where(StockMovement.movement_type == StockMovementType.TRANSFER)
+    )
+    assert result.quantity == 2
+    assert result.from_stock_quantity == 3
+    assert result.to_stock_quantity == 2
+    assert source_inventory.available_quantity == 3
+    assert target_inventory is not None
+    assert target_inventory.available_quantity == 2
+    assert movement is not None
+    assert movement.from_warehouse_id == source_inventory.warehouse_id
+    assert movement.to_warehouse_id == target_warehouse.id
+
+
+async def test_admin_can_create_and_update_warehouse_from_miniapp(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
+    assert account is not None
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    created = await upsert_miniapp_warehouse(
+        db_session,
+        payload=MiniAppWarehouseUpsert(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            slug="new-storage",
+            name="Новый склад",
+            warehouse_type=WarehouseType.EXTERNAL,
+            address="Поставщик",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    updated = await upsert_miniapp_warehouse(
+        db_session,
+        payload=MiniAppWarehouseUpsert(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            warehouse_id=created.id,
+            slug="new-storage",
+            name="Новый склад 2",
+            warehouse_type=WarehouseType.PARTNER,
+            address="Партнер",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    warehouse = await db_session.scalar(select(Warehouse).where(Warehouse.id == created.id))
+    assert created.slug == "new-storage"
+    assert updated.name == "Новый склад 2"
+    assert updated.warehouse_type == WarehouseType.PARTNER
+    assert warehouse is not None
+    assert warehouse.address == "Партнер"
+
+
+async def test_admin_can_create_and_update_product_from_miniapp(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
+    assert account is not None
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    created = await upsert_miniapp_product(
+        db_session,
+        payload=MiniAppProductUpsert(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            sku="book-1",
+            name="Книга Python",
+            category_name="Книги",
+            price_astrocoins=500,
+            description="Подарочная книга",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    updated = await upsert_miniapp_product(
+        db_session,
+        payload=MiniAppProductUpsert(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            product_id=created.id,
+            sku="book-1",
+            name="Книга Python 2",
+            category_name="Книги",
+            price_astrocoins=650,
+            status=ProductStatus.HIDDEN,
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    product = await db_session.scalar(select(Product).where(Product.id == created.id))
+    category = await db_session.scalar(
+        select(ProductCategory).where(ProductCategory.name == "Книги")
+    )
+    assert created.sku == "BOOK-1"
+    assert created.category_name == "Книги"
+    assert updated.name == "Книга Python 2"
+    assert updated.price_astrocoins == 650
+    assert updated.status == ProductStatus.HIDDEN
+    assert product is not None
+    assert product.status == ProductStatus.HIDDEN
+    assert category is not None
+
+    public_catalog = await list_miniapp_catalog(
+        db_session,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    assert created.id not in {item.id for item in public_catalog.products}
+
+    with pytest.raises(MiniAppStoreError):
+        await list_miniapp_catalog(
+            db_session,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            include_inactive=True,
+        )
+
+    admin_catalog = await list_miniapp_catalog(
+        db_session,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        max_user_id=53364725,
+        include_inactive=True,
+    )
+    assert created.id in {item.id for item in admin_catalog.products}

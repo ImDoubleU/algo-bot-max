@@ -1,15 +1,18 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
 
+from app.core.config import get_settings, is_placeholder
 from app.services.deep_links import (
     DeepLinkError,
     build_max_bot_deeplink,
@@ -48,8 +51,23 @@ UPDATE_TYPES = "message_created,bot_started,message_callback"
 CALLBACK_HELP = "help"
 CALLBACK_MENU = "menu"
 CALLBACK_MINIAPP = "miniapp:open"
+CALLBACK_STATUS = "status"
+CALLBACK_BALANCE = "balance"
+CALLBACK_LEDGER = "ledger"
+CALLBACK_STUDENTS = "students"
+CALLBACK_CATALOG = "catalog"
+CALLBACK_ORDERS = "orders"
+CALLBACK_OPS = "ops"
 CALLBACK_ROLE_PARENT = "role:parent"
 CALLBACK_ROLE_STUDENT = "role:student"
+logger = logging.getLogger("algo_bot_max.bot")
+
+
+def configure_logging(level: str) -> None:
+    logging.basicConfig(
+        level=getattr(logging, level.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
 
 
 class MaxApiError(RuntimeError):
@@ -79,6 +97,13 @@ class BotResponse:
         if self.attachments:
             body["attachments"] = self.attachments
         return body
+
+
+@dataclass(frozen=True)
+class AccrueCommand:
+    amount: int
+    student_query: str
+    reason: str
 
 
 def callback_button(text: str, payload: str) -> dict[str, str]:
@@ -135,8 +160,20 @@ def main_menu_keyboard(
     tenant_slug: str | None = None,
 ) -> list[dict[str, Any]]:
     rows = [
-        [callback_button("Помощь", CALLBACK_HELP)],
+        [
+            callback_button("Помощь", CALLBACK_HELP),
+            callback_button("Статус", CALLBACK_STATUS),
+        ],
+        [
+            callback_button("Каталог", CALLBACK_CATALOG),
+            callback_button("Баланс", CALLBACK_BALANCE),
+        ],
+        [
+            callback_button("Заказы", CALLBACK_ORDERS),
+            callback_button("Ученики", CALLBACK_STUDENTS),
+        ],
     ]
+    rows.append([callback_button("Операции", CALLBACK_OPS)])
     miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
     if miniapp_url:
         rows.append([link_button("Открыть mini app", miniapp_url)])
@@ -159,7 +196,18 @@ def cabinet_keyboard(
     user_id: int | None = None,
     tenant_slug: str | None = None,
 ) -> list[dict[str, Any]]:
-    rows = [[callback_button("В меню", CALLBACK_MENU)]]
+    rows = [
+        [
+            callback_button("Баланс", CALLBACK_BALANCE),
+            callback_button("Заказы", CALLBACK_ORDERS),
+        ],
+        [
+            callback_button("Каталог", CALLBACK_CATALOG),
+            callback_button("История AC", CALLBACK_LEDGER),
+        ],
+        [callback_button("В меню", CALLBACK_MENU)],
+    ]
+    rows.insert(-1, [callback_button("Операции", CALLBACK_OPS)])
     miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
     if miniapp_url:
         rows.insert(0, [link_button("Открыть mini app", miniapp_url)])
@@ -199,19 +247,23 @@ class AccessBackendClient:
         method: str,
         path: str,
         *,
-        body: dict[str, Any],
+        body: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
         timeout: int = 15,
     ) -> dict[str, Any]:
         url = f"{self.api_base}{path}"
-        data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        clean_params = {key: value for key, value in (params or {}).items() if value is not None}
+        if clean_params:
+            url = f"{url}?{parse.urlencode(clean_params)}"
+        data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
+        headers = {"Accept": "application/json"}
+        if body is not None:
+            headers["Content-Type"] = "application/json"
         req = request.Request(
             url,
             data=data,
             method=method.upper(),
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-            },
+            headers=headers,
         )
 
         try:
@@ -277,6 +329,102 @@ class AccessBackendClient:
                 "role": role,
                 "username": username,
                 "display_name": display_name,
+            },
+        )
+
+    def get_session(
+        self,
+        *,
+        tenant_slug: str,
+        max_user_id: int,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/miniapp/session",
+            params={
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
+            },
+        )
+
+    def get_readiness(self) -> dict[str, Any]:
+        return self._request("GET", "/ready")
+
+    def get_catalog(
+        self,
+        *,
+        tenant_slug: str,
+        max_user_id: int | None = None,
+        include_inactive: bool = False,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/miniapp/catalog",
+            params={
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
+                "include_inactive": "true" if include_inactive else None,
+            },
+        )
+
+    def get_ops_summary(
+        self,
+        *,
+        tenant_slug: str,
+        max_user_id: int,
+        low_stock_threshold: int = 5,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/miniapp/ops/summary",
+            params={
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
+                "low_stock_threshold": low_stock_threshold,
+            },
+        )
+
+    def update_order(
+        self,
+        *,
+        order_id: str,
+        action: str,
+        tenant_slug: str,
+        max_user_id: int,
+        comment: str | None = None,
+    ) -> dict[str, Any]:
+        if action not in {"cancel", "issue", "return"}:
+            raise ValueError(f"Unsupported order action: {action}")
+        return self._request(
+            "POST",
+            f"/miniapp/orders/{parse.quote(str(order_id))}/{action}",
+            body={
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
+                "comment": comment,
+            },
+        )
+
+    def accrue_astrocoins(
+        self,
+        *,
+        tenant_slug: str,
+        max_user_id: int,
+        student_ids: list[str],
+        amount: int,
+        reason: str,
+        comment: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/miniapp/coins/accrue",
+            body={
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
+                "student_ids": student_ids,
+                "amount": amount,
+                "reason": reason,
+                "comment": comment,
             },
         )
 
@@ -405,6 +553,36 @@ class MaxApiClient:
         )
 
 
+class SimulationMaxClient:
+    def __init__(self) -> None:
+        self.sent_messages: list[dict[str, Any]] = []
+
+    def get_me(self) -> dict[str, Any]:
+        return {
+            "user_id": 0,
+            "username": "LocalSimulationBot",
+            "first_name": "Local Simulation",
+        }
+
+    def send_message(
+        self,
+        *,
+        text: str,
+        attachments: list[dict[str, Any]] | None = None,
+        user_id: int | None = None,
+        chat_id: int | None = None,
+    ) -> dict[str, Any]:
+        self.sent_messages.append(
+            {
+                "text": text,
+                "attachments": attachments,
+                "user_id": user_id,
+                "chat_id": chat_id,
+            }
+        )
+        return {}
+
+
 class LongPollingBot:
     def __init__(
         self,
@@ -454,7 +632,7 @@ class LongPollingBot:
         if drop_webhooks:
             for url in urls:
                 self.client.delete_subscription(url)
-                print(f"[info] Удалена webhook-подписка: {url}")
+                logger.info("Удалена webhook-подписка: %s", url)
             return
 
         joined = ", ".join(urls) if urls else "unknown"
@@ -509,11 +687,1249 @@ class LongPollingBot:
             f"Доменный API: {backend_state}\n\n"
             "Пришлите Contact ID сообщением. Я найду связанных учеников и покажу кнопки "
             "для выбора роли.\n\n"
-            "Если нужна диагностика, можно отправить /id или /ping."
+            "Команды:\n"
+            "/catalog [поиск] - активные товары, цены и остатки.\n"
+            "/balance - балансы астрокоинов по связанным ученикам.\n"
+            "/ledger - последние операции с астрокоинами.\n"
+            "/students [поиск] - ученики, роли, группы и балансы.\n"
+            "/access - связи доступа и staff-роли.\n"
+            "/accrue <AC> <ученик> | <причина> - начислить астрокоины staff/admin.\n"
+            "/orders - открытые и последние заказы.\n"
+            "/order <номер> - детали конкретного заказа.\n"
+            "/me - профиль, роли и связанные ученики.\n"
+            "/miniapp - персональная ссылка на магазин.\n"
+            "/stock [порог] - проблемные остатки для staff/admin.\n"
+            "/ops [порог] - операционная сводка заказов и остатков.\n"
+            "/status - состояние бота и backend API.\n"
+            "/ready - readiness backend, БД и seed-данных.\n"
+            "/id - диагностический MAX user_id."
         )
 
     def help_response(self, user_id: int | None = None) -> BotResponse:
         return BotResponse(self.help_text(), self.main_menu_attachments(user_id))
+
+    def unknown_command_response(self, command: str, user_id: int | None = None) -> BotResponse:
+        return BotResponse(
+            (
+                f"Команда `{command}` не поддерживается.\n\n"
+                "Откройте меню кнопками или отправьте /help.\n"
+                "Частые команды: /catalog, /balance, /orders, /students, /miniapp.\n\n"
+                "Если вы хотели войти по Contact ID, отправьте только номер без `/`."
+            ),
+            self.main_menu_attachments(user_id),
+        )
+
+    def status_text(self, user_id: int | None = None) -> str:
+        tenant_slug = self.current_tenant_slug(user_id)
+        marker = self.load_marker()
+        miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
+        return (
+            "Статус MAX-бота\n\n"
+            f"Tenant: {tenant_slug}\n"
+            f"Backend API: {'подключен' if self.backend_client else 'выключен'}\n"
+            f"Miniapp: {'настроен' if miniapp_url else 'не настроен'}\n"
+            f"Marker: {marker if marker is not None else 'нет'}\n"
+            "Polling: long polling"
+        )
+
+    def status_response(self, user_id: int | None = None) -> BotResponse:
+        return BotResponse(self.status_text(user_id), self.main_menu_attachments(user_id))
+
+    def ready_response(self, user_id: int | None = None) -> BotResponse:
+        if self.backend_client is None:
+            return BotResponse(
+                (
+                    "Backend API не подключен, readiness недоступен.\n\n"
+                    "Задайте MAX_BACKEND_API_BASE и перезапустите бота."
+                ),
+                self.main_menu_attachments(user_id),
+            )
+
+        try:
+            report = self.backend_client.get_readiness()
+        except BackendApiError as exc:
+            return BotResponse(
+                (
+                    "Не получилось проверить readiness backend API.\n\n"
+                    f"Причина: {format_backend_error(exc)}"
+                ),
+                self.main_menu_attachments(user_id),
+            )
+
+        return BotResponse(
+            self.format_readiness_text(report),
+            self.main_menu_attachments(user_id),
+        )
+
+    def miniapp_response(self, user_id: int | None = None) -> BotResponse:
+        tenant_slug = self.current_tenant_slug(user_id)
+        miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
+        if not miniapp_url:
+            return BotResponse(
+                (
+                    "Miniapp URL не настроен.\n\n"
+                    "Задайте MAX_MINIAPP_URL в .env или окружении, затем перезапустите бота."
+                ),
+                self.main_menu_attachments(user_id),
+            )
+
+        return BotResponse(
+            (
+                "Miniapp для текущего профиля:\n"
+                f"{miniapp_url}\n\n"
+                f"Tenant: {tenant_slug}"
+            ),
+            self.cabinet_attachments(user_id, tenant_slug),
+        )
+
+    def profile_response(self, user_id: int | None = None) -> BotResponse:
+        session_result = self.load_session_response(user_id=user_id, noun="профиль")
+        if isinstance(session_result, BotResponse):
+            return session_result
+        tenant_slug, session = session_result
+
+        return BotResponse(
+            self.format_profile_text(session, tenant_slug=tenant_slug, user_id=user_id),
+            self.cabinet_attachments(user_id, tenant_slug),
+        )
+
+    def orders_response(self, user_id: int | None = None) -> BotResponse:
+        session_result = self.load_session_response(user_id=user_id, noun="список заказов")
+        if isinstance(session_result, BotResponse):
+            return session_result
+        tenant_slug, session = session_result
+
+        return BotResponse(
+            self.format_orders_text(session, tenant_slug=tenant_slug),
+            self.cabinet_attachments(user_id, tenant_slug),
+        )
+
+    def order_response(self, user_id: int | None = None, order_ref: str = "") -> BotResponse:
+        if not order_ref.strip():
+            return BotResponse(
+                "Укажите номер заказа: /order <номер>",
+                self.main_menu_attachments(user_id),
+            )
+
+        session_result = self.load_session_response(user_id=user_id, noun="заказ")
+        if isinstance(session_result, BotResponse):
+            return session_result
+        tenant_slug, session = session_result
+
+        order = self.find_order(session, order_ref)
+        if order is None:
+            return BotResponse(
+                (
+                    f"Не нашел заказ `{order_ref}` в доступном профиле.\n\n"
+                    "Отправьте /orders, чтобы увидеть доступные номера."
+                ),
+                self.cabinet_attachments(user_id, tenant_slug),
+            )
+
+        return BotResponse(
+            self.format_order_details_text(order, tenant_slug=tenant_slug),
+            self.cabinet_attachments(user_id, tenant_slug),
+        )
+
+    def balance_response(self, user_id: int | None = None) -> BotResponse:
+        session_result = self.load_session_response(user_id=user_id, noun="баланс")
+        if isinstance(session_result, BotResponse):
+            return session_result
+        tenant_slug, session = session_result
+
+        return BotResponse(
+            self.format_balance_text(session, tenant_slug=tenant_slug),
+            self.cabinet_attachments(user_id, tenant_slug),
+        )
+
+    def ledger_response(self, user_id: int | None = None) -> BotResponse:
+        session_result = self.load_session_response(
+            user_id=user_id,
+            noun="историю астрокоинов",
+        )
+        if isinstance(session_result, BotResponse):
+            return session_result
+        tenant_slug, session = session_result
+
+        return BotResponse(
+            self.format_ledger_text(session, tenant_slug=tenant_slug),
+            self.cabinet_attachments(user_id, tenant_slug),
+        )
+
+    def students_response(self, user_id: int | None = None, query: str = "") -> BotResponse:
+        session_result = self.load_session_response(user_id=user_id, noun="список учеников")
+        if isinstance(session_result, BotResponse):
+            return session_result
+        tenant_slug, session = session_result
+
+        return BotResponse(
+            self.format_students_text(session, tenant_slug=tenant_slug, query=query),
+            self.cabinet_attachments(user_id, tenant_slug),
+        )
+
+    def access_response(self, user_id: int | None = None) -> BotResponse:
+        session_result = self.load_session_response(user_id=user_id, noun="связи доступа")
+        if isinstance(session_result, BotResponse):
+            return session_result
+        tenant_slug, session = session_result
+
+        return BotResponse(
+            self.format_access_text(session, tenant_slug=tenant_slug),
+            self.cabinet_attachments(user_id, tenant_slug),
+        )
+
+    def accrue_response(self, user_id: int | None = None, argument: str = "") -> BotResponse:
+        if user_id is None:
+            return BotResponse(
+                "Не получилось определить MAX user_id. Отправьте /id для диагностики.",
+                self.main_menu_attachments(user_id),
+            )
+        if self.backend_client is None:
+            return BotResponse(
+                (
+                    "Backend API не подключен, поэтому начисление астрокоинов недоступно.\n\n"
+                    "Задайте MAX_BACKEND_API_BASE и перезапустите бота."
+                ),
+                self.main_menu_attachments(user_id),
+            )
+
+        parsed = self.parse_accrue_command(argument)
+        if isinstance(parsed, str):
+            return BotResponse(parsed, self.main_menu_attachments(user_id))
+
+        session_result = self.load_session_response(user_id=user_id, noun="список учеников")
+        if isinstance(session_result, BotResponse):
+            return session_result
+        tenant_slug, session = session_result
+
+        matches = [
+            student
+            for student in session.get("students") or []
+            if parsed.student_query.casefold() in self.student_search_text(student)
+        ]
+        if not matches:
+            return BotResponse(
+                (
+                    "Не нашел ученика для начисления.\n\n"
+                    "Уточните имя, группу, площадку или LMS ID: "
+                    "/accrue 50 алиса | За проект"
+                ),
+                self.cabinet_attachments(user_id, tenant_slug),
+            )
+        if len(matches) > 1:
+            lines = [
+                "Нашлось несколько учеников. Уточните запрос, начисление не выполнено.",
+                "",
+            ]
+            for student in matches[:8]:
+                name = student.get("display_name") or student.get("student_id") or "ученик"
+                group = student.get("group_name")
+                venue = student.get("venue_name")
+                details = " / ".join(str(value) for value in (group, venue) if value)
+                suffix = f" - {details}" if details else ""
+                lines.append(f"- {name}{suffix}")
+            if len(matches) > 8:
+                lines.append(f"...и еще {len(matches) - 8}")
+            return BotResponse("\n".join(lines), self.cabinet_attachments(user_id, tenant_slug))
+
+        student = matches[0]
+        student_id = str(student.get("student_id") or "")
+        if not student_id:
+            return BotResponse(
+                "У найденного ученика нет student_id, начисление не выполнено.",
+                self.cabinet_attachments(user_id, tenant_slug),
+            )
+
+        try:
+            result = self.backend_client.accrue_astrocoins(
+                tenant_slug=tenant_slug,
+                max_user_id=user_id,
+                student_ids=[student_id],
+                amount=parsed.amount,
+                reason=parsed.reason,
+                comment="MAX bot /accrue",
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                (
+                    "Не получилось начислить астрокоины через backend API.\n\n"
+                    f"Tenant: {tenant_slug}\n"
+                    f"MAX user_id: {user_id}\n"
+                    f"Причина: {format_backend_error(exc)}"
+                ),
+                self.cabinet_attachments(user_id, tenant_slug),
+            )
+
+        student_name = student.get("display_name") or student_id
+        total = result.get("total_astrocoins", parsed.amount)
+        return BotResponse(
+            (
+                "Астрокоины начислены.\n\n"
+                f"Ученик: {student_name}\n"
+                f"Сумма: +{parsed.amount} AC\n"
+                f"Причина: {parsed.reason}\n"
+                f"Всего начислено: {total} AC"
+            ),
+            self.cabinet_attachments(user_id, tenant_slug),
+        )
+
+    @staticmethod
+    def parse_accrue_command(argument: str) -> AccrueCommand | str:
+        text = argument.strip()
+        usage = "Формат: /accrue <AC> <ученик> | <причина>. Например: /accrue 50 алиса | За проект"
+        if not text:
+            return usage
+        if "|" not in text:
+            return "Добавьте причину после `|`: /accrue 50 алиса | За проект"
+
+        left, reason = (part.strip() for part in text.split("|", 1))
+        amount_text, _, student_query = left.partition(" ")
+        if not amount_text or not student_query.strip():
+            return usage
+        try:
+            amount = int(amount_text)
+        except ValueError:
+            return (
+                "Сумма начисления должна быть целым числом. "
+                "Например: /accrue 50 алиса | За проект"
+            )
+        if amount <= 0 or amount > 10000:
+            return "Сумма начисления должна быть от 1 до 10000 AC."
+        if len(reason) < 2:
+            return "Причина начисления должна быть не короче 2 символов."
+        return AccrueCommand(
+            amount=amount,
+            student_query=student_query.strip(),
+            reason=reason,
+        )
+
+    def load_session_response(
+        self,
+        *,
+        user_id: int | None,
+        noun: str,
+    ) -> tuple[str, dict[str, Any]] | BotResponse:
+        if user_id is None:
+            return BotResponse(
+                "Не получилось определить MAX user_id. Отправьте /id для диагностики.",
+                self.main_menu_attachments(user_id),
+            )
+
+        tenant_slug = self.current_tenant_slug(user_id)
+        if self.backend_client is None:
+            return BotResponse(
+                (
+                    f"Backend API не подключен, поэтому {noun} недоступен.\n\n"
+                    "Задайте MAX_BACKEND_API_BASE и перезапустите бота."
+                ),
+                self.main_menu_attachments(user_id),
+            )
+
+        try:
+            session = self.backend_client.get_session(
+                tenant_slug=tenant_slug,
+                max_user_id=user_id,
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                (
+                    f"Не получилось загрузить {noun} через backend API.\n\n"
+                    f"Tenant: {tenant_slug}\n"
+                    f"MAX user_id: {user_id}\n"
+                    f"Причина: {format_backend_error(exc)}"
+                ),
+                self.main_menu_attachments(user_id),
+            )
+        return tenant_slug, session
+
+    def catalog_response(self, user_id: int | None = None, query: str = "") -> BotResponse:
+        if self.backend_client is None:
+            return BotResponse(
+                (
+                    "Backend API не подключен, поэтому каталог недоступен.\n\n"
+                    "Задайте MAX_BACKEND_API_BASE и перезапустите бота."
+                ),
+                self.main_menu_attachments(user_id),
+            )
+
+        tenant_slug = self.current_tenant_slug(user_id)
+        try:
+            catalog = self.backend_client.get_catalog(
+                tenant_slug=tenant_slug,
+                include_inactive=False,
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                (
+                    "Не получилось загрузить каталог через backend API.\n\n"
+                    f"Tenant: {tenant_slug}\n"
+                    f"Причина: {format_backend_error(exc)}"
+                ),
+                self.main_menu_attachments(user_id),
+            )
+
+        return BotResponse(
+            self.format_catalog_text(catalog, tenant_slug=tenant_slug, query=query),
+            self.cabinet_attachments(user_id, tenant_slug),
+        )
+
+    def stock_response(self, user_id: int | None = None, threshold_text: str = "") -> BotResponse:
+        if user_id is None:
+            return BotResponse(
+                "Не получилось определить MAX user_id. Отправьте /id для диагностики.",
+                self.main_menu_attachments(user_id),
+            )
+        if self.backend_client is None:
+            return BotResponse(
+                (
+                    "Backend API не подключен, поэтому остатки недоступны.\n\n"
+                    "Задайте MAX_BACKEND_API_BASE и перезапустите бота."
+                ),
+                self.main_menu_attachments(user_id),
+            )
+
+        threshold = 5
+        if threshold_text:
+            try:
+                threshold = max(0, min(int(threshold_text.strip()), 999))
+            except ValueError:
+                return BotResponse(
+                    "Порог остатка должен быть числом. Например: /stock 3",
+                    self.main_menu_attachments(user_id),
+                )
+
+        tenant_slug = self.current_tenant_slug(user_id)
+        try:
+            catalog = self.backend_client.get_catalog(
+                tenant_slug=tenant_slug,
+                max_user_id=user_id,
+                include_inactive=True,
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                (
+                    "Не получилось загрузить остатки через backend API.\n\n"
+                    f"Tenant: {tenant_slug}\n"
+                    f"MAX user_id: {user_id}\n"
+                    f"Причина: {format_backend_error(exc)}"
+                ),
+                self.main_menu_attachments(user_id),
+            )
+
+        return BotResponse(
+            self.format_stock_text(catalog, tenant_slug=tenant_slug, threshold=threshold),
+            self.cabinet_attachments(user_id, tenant_slug),
+        )
+
+    def ops_response(self, user_id: int | None = None, threshold_text: str = "") -> BotResponse:
+        if user_id is None:
+            return BotResponse(
+                "Не получилось определить MAX user_id. Отправьте /id для диагностики.",
+                self.main_menu_attachments(user_id),
+            )
+        if self.backend_client is None:
+            return BotResponse(
+                (
+                    "Backend API не подключен, поэтому операционная сводка недоступна.\n\n"
+                    "Задайте MAX_BACKEND_API_BASE и перезапустите бота."
+                ),
+                self.main_menu_attachments(user_id),
+            )
+
+        threshold = 5
+        if threshold_text:
+            try:
+                threshold = max(0, min(int(threshold_text.strip()), 999))
+            except ValueError:
+                return BotResponse(
+                    "Порог остатка должен быть числом. Например: /ops 3",
+                    self.main_menu_attachments(user_id),
+                )
+
+        tenant_slug = self.current_tenant_slug(user_id)
+        try:
+            summary = self.backend_client.get_ops_summary(
+                tenant_slug=tenant_slug,
+                max_user_id=user_id,
+                low_stock_threshold=threshold,
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                (
+                    "Не получилось загрузить операционную сводку через backend API.\n\n"
+                    f"Tenant: {tenant_slug}\n"
+                    f"MAX user_id: {user_id}\n"
+                    f"Причина: {format_backend_error(exc)}"
+                ),
+                self.main_menu_attachments(user_id),
+            )
+
+        return BotResponse(
+            self.format_ops_summary_text(summary, tenant_slug=tenant_slug),
+            self.cabinet_attachments(user_id, tenant_slug),
+        )
+
+    def order_action_response(
+        self,
+        *,
+        user_id: int | None,
+        action: str,
+        order_ref: str,
+    ) -> BotResponse:
+        labels = {
+            "cancel": "отменить",
+            "issue": "выдать",
+            "return": "принять возврат",
+        }
+        if user_id is None:
+            return BotResponse(
+                "Не получилось определить MAX user_id. Отправьте /id для диагностики.",
+                self.main_menu_attachments(user_id),
+            )
+        if not order_ref:
+            command = {"cancel": "/cancel", "issue": "/issue", "return": "/return"}[action]
+            return BotResponse(
+                f"Укажите номер заказа: {command} <номер>",
+                self.main_menu_attachments(user_id),
+            )
+        if self.backend_client is None:
+            return BotResponse(
+                (
+                    "Backend API не подключен, поэтому действие с заказом недоступно.\n\n"
+                    "Задайте MAX_BACKEND_API_BASE и перезапустите бота."
+                ),
+                self.main_menu_attachments(user_id),
+            )
+
+        tenant_slug = self.current_tenant_slug(user_id)
+        try:
+            session = self.backend_client.get_session(
+                tenant_slug=tenant_slug,
+                max_user_id=user_id,
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                (
+                    "Не получилось загрузить список заказов через backend API.\n\n"
+                    f"Tenant: {tenant_slug}\n"
+                    f"MAX user_id: {user_id}\n"
+                    f"Причина: {format_backend_error(exc)}"
+                ),
+                self.main_menu_attachments(user_id),
+            )
+
+        order = self.find_order(session, order_ref)
+        if order is None:
+            return BotResponse(
+                (
+                    f"Не нашел заказ `{order_ref}` в доступном профиле.\n\n"
+                    "Отправьте /orders, чтобы увидеть доступные номера."
+                ),
+                self.cabinet_attachments(user_id, tenant_slug),
+            )
+
+        order_id = str(order.get("id") or "")
+        if not order_id:
+            return BotResponse(
+                "У заказа нет backend id. Откройте miniapp и попробуйте действие там.",
+                self.cabinet_attachments(user_id, tenant_slug),
+            )
+
+        try:
+            result = self.backend_client.update_order(
+                order_id=order_id,
+                action=action,
+                tenant_slug=tenant_slug,
+                max_user_id=user_id,
+                comment=f"MAX bot command: {action}",
+            )
+        except BackendApiError as exc:
+            order_number = order.get("order_number") or order_ref
+            return BotResponse(
+                (
+                    f"Не получилось {labels[action]} заказ №{order_number}.\n\n"
+                    f"Причина: {format_backend_error(exc)}"
+                ),
+                self.cabinet_attachments(user_id, tenant_slug),
+            )
+
+        changed_order = result.get("order") or {}
+        balance_after = result.get("balance_after")
+        balance_text = (
+            f"\nБаланс после операции: {balance_after} AC"
+            if balance_after is not None
+            else ""
+        )
+        return BotResponse(
+            (
+                "Заказ обновлен.\n\n"
+                f"{self.format_order_line(changed_order)}"
+                f"{balance_text}"
+            ),
+            self.cabinet_attachments(user_id, tenant_slug),
+        )
+
+    def format_profile_text(
+        self,
+        session: dict[str, Any],
+        *,
+        tenant_slug: str,
+        user_id: int,
+    ) -> str:
+        account = session.get("account") or {}
+        students = list(session.get("students") or [])
+        staff_roles = [str(role) for role in session.get("staff_roles") or []]
+        student_roles = [str(role) for role in session.get("student_roles") or []]
+        orders = list(session.get("orders") or [])
+        open_statuses = {"created", "reserved", "transferred_to_teacher"}
+        open_orders = [
+            order for order in orders if str(order.get("status") or "") in open_statuses
+        ]
+
+        lines = [
+            "Профиль MAX",
+            "",
+            f"Tenant: {session.get('tenant_slug') or tenant_slug}",
+            f"MAX user_id: {account.get('max_user_id') or user_id}",
+        ]
+        if account.get("display_name"):
+            lines.append(f"Имя: {account['display_name']}")
+        if account.get("username"):
+            lines.append(f"Username: @{account['username']}")
+        if staff_roles:
+            lines.append(f"Staff-роли: {', '.join(staff_roles)}")
+        if student_roles:
+            lines.append(f"Роли доступа: {', '.join(student_roles)}")
+
+        lines.extend(["", "Ученики:"])
+        if students:
+            for index, student in enumerate(students[:8], start=1):
+                details = [
+                    student.get("display_name"),
+                    student.get("group_name"),
+                    student.get("venue_name"),
+                ]
+                label = " / ".join(str(value) for value in details if value)
+                role = student.get("role")
+                balance = student.get("balance")
+                suffix = []
+                if role:
+                    suffix.append(str(role))
+                if balance is not None:
+                    suffix.append(f"{balance} AC")
+                meta = f" ({', '.join(suffix)})" if suffix else ""
+                lines.append(f"{index}. {label or student.get('student_id')}{meta}")
+            if len(students) > 8:
+                lines.append(f"...и еще {len(students) - 8}")
+        else:
+            lines.append("Связанных учеников пока нет.")
+
+        lines.extend(
+            [
+                "",
+                f"Открытые заказы: {len(open_orders)}",
+                f"Всего заказов в профиле: {len(orders)}",
+            ]
+        )
+        if not students and not staff_roles:
+            lines.extend(
+                [
+                    "",
+                    "Чтобы привязать доступ, отправьте Contact ID или откройте "
+                    "deep link от администратора.",
+                ]
+            )
+        return "\n".join(lines)
+
+    def format_orders_text(self, session: dict[str, Any], *, tenant_slug: str) -> str:
+        orders = list(session.get("orders") or [])
+        open_statuses = {"created", "reserved", "transferred_to_teacher"}
+        open_orders = [
+            order for order in orders if str(order.get("status") or "") in open_statuses
+        ]
+        recent_orders = orders[:8]
+
+        lines = [
+            "Заказы MAX",
+            "",
+            f"Tenant: {session.get('tenant_slug') or tenant_slug}",
+            f"Открытые заказы: {len(open_orders)}",
+            f"Всего заказов в профиле: {len(orders)}",
+        ]
+
+        if open_orders:
+            lines.extend(["", "Открытые:"])
+            for order in open_orders[:5]:
+                lines.append(self.format_order_line(order))
+            if len(open_orders) > 5:
+                lines.append(f"...и еще {len(open_orders) - 5} открытых")
+
+        lines.extend(["", "Последние:"])
+        if recent_orders:
+            for order in recent_orders:
+                lines.append(self.format_order_line(order))
+        else:
+            lines.append("Заказов пока нет.")
+
+        lines.extend(
+            [
+                "",
+                "Для выдачи, отмены или возврата откройте miniapp.",
+            ]
+        )
+        return "\n".join(lines)
+
+    def format_order_line(self, order: dict[str, Any]) -> str:
+        order_number = order.get("order_number") or order.get("id") or "-"
+        student = order.get("student_name") or "ученик"
+        status = self.order_status_label(order.get("status"))
+        total = order.get("total_astrocoins")
+        total_text = f", {total} AC" if total is not None else ""
+        return f"№{order_number}: {student}, {status}{total_text}"
+
+    def order_status_label(self, status: Any) -> str:
+        value = str(status or "unknown")
+        return {
+            "created": "создан",
+            "reserved": "зарезервирован",
+            "transferred_to_teacher": "передан преподавателю",
+            "issued_to_student": "выдан ученику",
+            "cancelled": "отменен",
+            "returned": "возврат",
+            "problem": "проблема",
+            "start": "начало",
+        }.get(value, value)
+
+    def format_order_details_text(self, order: dict[str, Any], *, tenant_slug: str) -> str:
+        order_number = order.get("order_number") or order.get("id") or "-"
+        status = str(order.get("status") or "unknown")
+        status_label = self.order_status_label(status)
+        total = order.get("total_astrocoins")
+        created_at = self.format_ledger_date(order.get("created_at"))
+        lines = [
+            f"Заказ №{order_number}",
+            "",
+            f"Tenant: {tenant_slug}",
+            f"Статус: {status_label}",
+            f"Ученик: {order.get('student_name') or order.get('student_id') or 'ученик'}",
+        ]
+        if total is not None:
+            lines.append(f"Сумма: {total} AC")
+        if created_at != "дата неизвестна":
+            lines.append(f"Создан: {created_at}")
+        if order.get("teacher_name"):
+            lines.append(f"Преподаватель: {order['teacher_name']}")
+        if order.get("venue_name"):
+            lines.append(f"Площадка: {order['venue_name']}")
+
+        items = list(order.get("items") or [])
+        if items:
+            lines.extend(["", "Состав:"])
+            for item in items[:10]:
+                product_name = item.get("product_name") or item.get("product_id") or "товар"
+                quantity = int(item.get("quantity") or 0)
+                total_price = int(item.get("total_price_astrocoins") or 0)
+                warehouse_name = item.get("warehouse_name")
+                warehouse_text = f", {warehouse_name}" if warehouse_name else ""
+                lines.append(f"- {product_name} x{quantity}: {total_price} AC{warehouse_text}")
+            if len(items) > 10:
+                lines.append(f"...и еще {len(items) - 10}")
+
+        history = list(order.get("status_history") or [])
+        if history:
+            lines.extend(["", "История статусов:"])
+            for event in history[-5:]:
+                date = self.format_ledger_date(event.get("created_at"))
+                from_status = self.order_status_label(event.get("from_status") or "start")
+                to_status = self.order_status_label(event.get("to_status"))
+                comment = event.get("comment")
+                comment_text = f" - {comment}" if comment else ""
+                lines.append(f"- {date}: {from_status} -> {to_status}{comment_text}")
+
+        action_lines: list[str] = []
+        if status in {"created", "reserved", "transferred_to_teacher"}:
+            action_lines.extend(
+                [
+                    f"/cancel {order_number} - отменить и вернуть астрокоины",
+                    f"/issue {order_number} - выдать заказ ученику",
+                ]
+            )
+        elif status == "issued_to_student":
+            action_lines.append(f"/return {order_number} - принять возврат")
+        if action_lines:
+            lines.extend(["", "Действия:"])
+            lines.extend(action_lines)
+        else:
+            lines.extend(["", "Для этого статуса быстрых действий нет."])
+        return "\n".join(lines)
+
+    def format_balance_text(self, session: dict[str, Any], *, tenant_slug: str) -> str:
+        students = list(session.get("students") or [])
+        total = sum(int(student.get("balance") or 0) for student in students)
+        lines = [
+            "Баланс астрокоинов",
+            "",
+            f"Tenant: {session.get('tenant_slug') or tenant_slug}",
+        ]
+        if not students:
+            lines.extend(
+                [
+                    "Связанных учеников пока нет.",
+                    "",
+                    "Чтобы привязать доступ, отправьте Contact ID или откройте deep link.",
+                ]
+            )
+            return "\n".join(lines)
+
+        lines.append(f"Всего по профилю: {total} AC")
+        lines.extend(["", "Ученики:"])
+        for index, student in enumerate(students[:10], start=1):
+            name = student.get("display_name") or student.get("student_id") or "ученик"
+            group = student.get("group_name")
+            balance = int(student.get("balance") or 0)
+            group_text = f" / {group}" if group else ""
+            lines.append(f"{index}. {name}{group_text}: {balance} AC")
+        if len(students) > 10:
+            lines.append(f"...и еще {len(students) - 10}")
+        return "\n".join(lines)
+
+    def format_ledger_text(self, session: dict[str, Any], *, tenant_slug: str) -> str:
+        students_by_id = {
+            str(student.get("student_id")): student.get("display_name") or "ученик"
+            for student in session.get("students") or []
+        }
+        ledger = list(session.get("ledger") or [])
+        lines = [
+            "История астрокоинов",
+            "",
+            f"Tenant: {session.get('tenant_slug') or tenant_slug}",
+        ]
+
+        if not ledger:
+            lines.extend(
+                [
+                    "Операций пока нет.",
+                    "",
+                    "Когда будут начисления, покупки, отмены или возвраты, они появятся здесь.",
+                ]
+            )
+            return "\n".join(lines)
+
+        lines.extend(["", "Последние операции:"])
+        for entry in ledger[:10]:
+            lines.append(self.format_ledger_line(entry, students_by_id=students_by_id))
+        if len(ledger) > 10:
+            lines.append(f"...и еще {len(ledger) - 10}")
+        return "\n".join(lines)
+
+    def format_ledger_line(
+        self,
+        entry: dict[str, Any],
+        *,
+        students_by_id: dict[str, str],
+    ) -> str:
+        direction = str(entry.get("direction") or "").lower()
+        amount = int(entry.get("amount") or 0)
+        sign = "-" if direction == "debit" else "+"
+        direction_labels = {
+            "credit": "начисление",
+            "debit": "списание",
+            "reversal": "возврат",
+        }
+        label = direction_labels.get(direction, direction or "операция")
+        student = students_by_id.get(str(entry.get("student_id")), "ученик")
+        reason = entry.get("reason") or label
+        created_at = self.format_ledger_date(entry.get("created_at"))
+        comment = entry.get("comment")
+        comment_text = f" ({comment})" if comment else ""
+        return f"- {created_at}: {student}, {label} {sign}{amount} AC - {reason}{comment_text}"
+
+    @staticmethod
+    def format_ledger_date(value: Any) -> str:
+        if isinstance(value, datetime):
+            return value.strftime("%d.%m.%Y")
+        text = str(value or "").strip()
+        if not text:
+            return "дата неизвестна"
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return text[:10]
+        return parsed.strftime("%d.%m.%Y")
+
+    def format_students_text(
+        self,
+        session: dict[str, Any],
+        *,
+        tenant_slug: str,
+        query: str = "",
+    ) -> str:
+        students = list(session.get("students") or [])
+        normalized_query = query.strip().casefold()
+        if normalized_query:
+            students = [
+                student
+                for student in students
+                if normalized_query in self.student_search_text(student)
+            ]
+
+        lines = [
+            "Ученики MAX",
+            "",
+            f"Tenant: {session.get('tenant_slug') or tenant_slug}",
+        ]
+        if query.strip():
+            lines.append(f"Поиск: {query.strip()}")
+        lines.append(f"Найдено учеников: {len(students)}")
+
+        if not students:
+            lines.extend(
+                [
+                    "",
+                    "Подходящих учеников не найдено.",
+                    "Проверьте Contact ID или откройте miniapp для полного профиля.",
+                ]
+            )
+            return "\n".join(lines)
+
+        lines.extend(["", "Список:"])
+        for index, student in enumerate(students[:12], start=1):
+            name = student.get("display_name") or student.get("student_id") or "ученик"
+            details = [
+                student.get("group_name"),
+                student.get("venue_name"),
+                student.get("teacher_name"),
+            ]
+            details_text = " / ".join(str(value) for value in details if value)
+            role = student.get("role")
+            balance = student.get("balance")
+            meta = []
+            if role:
+                meta.append(str(role))
+            if balance is not None:
+                meta.append(f"{int(balance)} AC")
+            meta_text = f" ({', '.join(meta)})" if meta else ""
+            suffix = f" - {details_text}" if details_text else ""
+            lines.append(f"{index}. {name}{meta_text}{suffix}")
+
+        if len(students) > 12:
+            lines.append(f"...и еще {len(students) - 12}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def student_search_text(student: dict[str, Any]) -> str:
+        values = (
+            student.get("display_name"),
+            student.get("group_name"),
+            student.get("course_name"),
+            student.get("venue_name"),
+            student.get("teacher_name"),
+            student.get("lms_student_id"),
+            student.get("student_id"),
+        )
+        return " ".join(str(value or "") for value in values).casefold()
+
+    def format_access_text(self, session: dict[str, Any], *, tenant_slug: str) -> str:
+        access_links = list(session.get("access_links") or [])
+        staff_assignments = list(session.get("staff_assignments") or [])
+        staff_roles = [str(role) for role in session.get("staff_roles") or []]
+        student_roles = [str(role) for role in session.get("student_roles") or []]
+
+        lines = [
+            "Доступы MAX",
+            "",
+            f"Tenant: {session.get('tenant_slug') or tenant_slug}",
+            f"Ваши staff-роли: {', '.join(staff_roles) if staff_roles else 'нет'}",
+            f"Ваши роли у учеников: {', '.join(student_roles) if student_roles else 'нет'}",
+            f"Связей доступа: {len(access_links)}",
+            f"Staff-назначений: {len(staff_assignments)}",
+        ]
+
+        if access_links:
+            lines.extend(["", "Связи доступа:"])
+            for link in access_links[:10]:
+                student = link.get("student_name") or link.get("student_id") or "ученик"
+                group = link.get("group_name")
+                max_user_id = link.get("max_user_id")
+                role = link.get("role") or "role"
+                status = link.get("status") or "status"
+                display_name = link.get("display_name") or link.get("username") or max_user_id
+                group_text = f" / {group}" if group else ""
+                lines.append(
+                    f"- {student}{group_text}: {role}, {status}, MAX {display_name}"
+                )
+            if len(access_links) > 10:
+                lines.append(f"...и еще {len(access_links) - 10}")
+        else:
+            lines.extend(["", "Связей доступа пока нет."])
+
+        if staff_assignments:
+            lines.extend(["", "Staff-роли:"])
+            for assignment in staff_assignments[:10]:
+                max_user_id = assignment.get("max_user_id")
+                display_name = (
+                    assignment.get("display_name")
+                    or assignment.get("username")
+                    or f"MAX {max_user_id}"
+                )
+                role = assignment.get("role") or "role"
+                status = assignment.get("status") or "status"
+                lines.append(f"- {display_name}: {role}, {status}")
+            if len(staff_assignments) > 10:
+                lines.append(f"...и еще {len(staff_assignments) - 10}")
+
+        return "\n".join(lines)
+
+    def format_readiness_text(self, report: dict[str, Any]) -> str:
+        checks = report.get("checks") or {}
+        database = checks.get("database") or {}
+        app_data = checks.get("app_data") or {}
+        errors = [str(value) for value in report.get("errors") or []]
+        warnings = [str(value) for value in report.get("warnings") or []]
+
+        lines = [
+            "Readiness backend",
+            "",
+            f"Status: {report.get('status') or 'unknown'}",
+            f"Environment: {report.get('environment') or '-'}",
+            f"Service: {report.get('service') or '-'}",
+            f"Tenant: {report.get('default_tenant_slug') or '-'}",
+            "",
+            f"Database: {database.get('status') or 'unknown'}",
+        ]
+        if database.get("message"):
+            lines.append(f"- {database['message']}")
+        if database.get("reason"):
+            lines.append(f"- reason: {database['reason']}")
+
+        lines.append(f"App data: {app_data.get('status') or 'unknown'}")
+        if app_data.get("message"):
+            lines.append(f"- {app_data['message']}")
+        counts = [
+            f"{key}={app_data[key]}"
+            for key in ("products", "warehouses", "students", "contacts")
+            if key in app_data
+        ]
+        if counts:
+            lines.append(f"- {', '.join(counts)}")
+        if app_data.get("missing"):
+            lines.append(f"- missing: {', '.join(str(value) for value in app_data['missing'])}")
+        if app_data.get("seed_command"):
+            lines.append(f"- seed: {app_data['seed_command']}")
+
+        if errors:
+            lines.extend(["", "Errors:"])
+            lines.extend(f"- {error_text}" for error_text in errors[:6])
+        if warnings:
+            lines.extend(["", "Warnings:"])
+            lines.extend(f"- {warning_text}" for warning_text in warnings[:6])
+        return "\n".join(lines)
+
+    def format_catalog_text(
+        self,
+        catalog: dict[str, Any],
+        *,
+        tenant_slug: str,
+        query: str = "",
+    ) -> str:
+        products = [
+            product
+            for product in catalog.get("products") or []
+            if str(product.get("status") or "active") == "active"
+        ]
+        normalized_query = query.strip().casefold()
+        if normalized_query:
+            products = [
+                product
+                for product in products
+                if normalized_query
+                in " ".join(
+                    str(value or "")
+                    for value in (
+                        product.get("name"),
+                        product.get("sku"),
+                        product.get("category_name"),
+                    )
+                ).casefold()
+            ]
+
+        products.sort(
+            key=lambda product: (
+                int(product.get("available_quantity") or 0) <= 0,
+                str(product.get("category_name") or ""),
+                str(product.get("name") or product.get("sku") or ""),
+            )
+        )
+
+        lines = [
+            "Каталог магазина",
+            "",
+            f"Tenant: {catalog.get('tenant_slug') or tenant_slug}",
+        ]
+        if query.strip():
+            lines.append(f"Поиск: {query.strip()}")
+        lines.append(f"Найдено товаров: {len(products)}")
+
+        if not products:
+            lines.extend(
+                [
+                    "",
+                    "Подходящих активных товаров не найдено.",
+                    "Откройте miniapp, чтобы посмотреть полный каталог.",
+                ]
+            )
+            return "\n".join(lines)
+
+        lines.extend(["", "Доступные товары:"])
+        for product in products[:10]:
+            name = product.get("name") or product.get("sku") or "товар"
+            sku = product.get("sku")
+            category = product.get("category_name")
+            price = int(product.get("price_astrocoins") or 0)
+            available = int(product.get("available_quantity") or 0)
+            details = [f"{price} AC", f"остаток {available} шт."]
+            if category:
+                details.append(str(category))
+            sku_text = f" ({sku})" if sku else ""
+            lines.append(f"- {name}{sku_text}: {', '.join(details)}")
+
+        if len(products) > 10:
+            lines.append(f"...и еще {len(products) - 10}")
+        lines.extend(["", "Для заказа откройте miniapp кнопкой ниже."])
+        return "\n".join(lines)
+
+    def format_stock_text(
+        self,
+        catalog: dict[str, Any],
+        *,
+        tenant_slug: str,
+        threshold: int,
+    ) -> str:
+        products = list(catalog.get("products") or [])
+        rows: list[tuple[int, str]] = []
+        zero_count = 0
+        low_count = 0
+        inactive_count = 0
+
+        for product in products:
+            status = str(product.get("status") or "active")
+            if status != "active":
+                inactive_count += 1
+            product_name = product.get("name") or product.get("sku") or "товар"
+            warehouses = list(product.get("warehouses") or [])
+            if not warehouses:
+                available = int(product.get("available_quantity") or 0)
+                if available == 0:
+                    zero_count += 1
+                elif available <= threshold:
+                    low_count += 1
+                if available <= threshold:
+                    rows.append((available, f"{product_name}: {available} шт., склад не указан"))
+                continue
+
+            for warehouse in warehouses:
+                available = int(warehouse.get("available_quantity") or 0)
+                if available == 0:
+                    zero_count += 1
+                elif available <= threshold:
+                    low_count += 1
+                if available <= threshold:
+                    warehouse_name = warehouse.get("warehouse_name") or "склад"
+                    rows.append((available, f"{product_name}: {available} шт., {warehouse_name}"))
+
+        rows.sort(key=lambda item: (item[0], item[1]))
+        lines = [
+            "Остатки магазина",
+            "",
+            f"Tenant: {catalog.get('tenant_slug') or tenant_slug}",
+            f"Порог: ≤ {threshold} шт.",
+            f"Товаров в каталоге: {len(products)}",
+            f"Скрытых/архивных: {inactive_count}",
+            f"Нулевых складских позиций: {zero_count}",
+            f"Низких складских позиций: {low_count}",
+        ]
+
+        if rows:
+            lines.extend(["", "Проблемные остатки:"])
+            for _, row in rows[:12]:
+                lines.append(f"- {row}")
+            if len(rows) > 12:
+                lines.append(f"...и еще {len(rows) - 12}")
+        else:
+            lines.extend(["", "Проблемных остатков по выбранному порогу нет."])
+        return "\n".join(lines)
+
+    def format_ops_summary_text(self, summary: dict[str, Any], *, tenant_slug: str) -> str:
+        statuses = {
+            str(item.get("status") or ""): int(item.get("count") or 0)
+            for item in summary.get("order_statuses") or []
+        }
+        low_stock = list(summary.get("low_stock") or [])
+        recent_open_orders = list(summary.get("recent_open_orders") or [])
+        threshold = int(summary.get("low_stock_threshold") or 0)
+        lines = [
+            "Операционная сводка",
+            "",
+            f"Tenant: {summary.get('tenant_slug') or tenant_slug}",
+            f"Роль: {summary.get('staff_role') or 'staff'}",
+            f"Заказов всего: {int(summary.get('total_orders') or 0)}",
+            f"Открытых заказов: {int(summary.get('open_orders') or 0)}",
+            f"Ожидают выдачи: {int(summary.get('pending_issue_orders') or 0)}",
+            f"Активных товаров: {int(summary.get('active_products') or 0)}",
+            f"Складов: {int(summary.get('warehouses') or 0)}",
+            (
+                "Остаток/резерв: "
+                f"{int(summary.get('total_stock_quantity') or 0)} / "
+                f"{int(summary.get('total_reserved_quantity') or 0)} шт."
+            ),
+        ]
+
+        if statuses:
+            lines.extend(["", "Статусы заказов:"])
+            for status, count in sorted(statuses.items()):
+                lines.append(f"- {self.order_status_label(status)}: {count}")
+
+        if recent_open_orders:
+            lines.extend(["", "Ближайшие открытые:"])
+            for order in recent_open_orders[:6]:
+                number = order.get("order_number") or order.get("id") or "?"
+                student = order.get("student_name") or "ученик"
+                status = self.order_status_label(order.get("status"))
+                total = int(order.get("total_astrocoins") or 0)
+                lines.append(f"- #{number}: {student}, {status}, {total} AC")
+            if len(recent_open_orders) > 6:
+                lines.append(f"...и еще {len(recent_open_orders) - 6}")
+
+        if low_stock:
+            lines.extend(["", f"Остатки <= {threshold} шт.:"])
+            for item in low_stock[:8]:
+                product_name = item.get("product_name") or item.get("sku") or "товар"
+                warehouse_name = item.get("warehouse_name") or "склад"
+                available = int(item.get("available_quantity") or 0)
+                reserved = int(item.get("reserved_quantity") or 0)
+                lines.append(
+                    f"- {product_name}: {available} шт., резерв {reserved}, {warehouse_name}"
+                )
+            if len(low_stock) > 8:
+                lines.append(f"...и еще {len(low_stock) - 8}")
+        else:
+            lines.extend(["", f"Остатков <= {threshold} шт. нет."])
+
+        lines.extend(["", "Команды: /orders, /order <номер>, /stock"])
+        return "\n".join(lines)
+
+    def find_order(self, session: dict[str, Any], order_ref: str) -> dict[str, Any] | None:
+        normalized = order_ref.strip().lower().lstrip("#№")
+        if not normalized:
+            return None
+        for order in session.get("orders") or []:
+            candidates = {
+                str(order.get("id") or "").lower(),
+                str(order.get("order_number") or "").lower(),
+            }
+            if normalized in candidates:
+                return order
+        return None
 
     def current_tenant_slug(self, user_id: int | None) -> str:
         if user_id is not None:
@@ -845,8 +2261,42 @@ class LongPollingBot:
                 self.handle_contact_payload_response(payload=argument, user_id=user_id)
                 or self.help_response(user_id=user_id)
             )
-        elif command == "/help":
+        elif command in {"/help", "/menu", "/commands"}:
             response = self.help_response(user_id=user_id)
+        elif command == "/status":
+            response = self.status_response(user_id=user_id)
+        elif command == "/ready":
+            response = self.ready_response(user_id=user_id)
+        elif command == "/me":
+            response = self.profile_response(user_id=user_id)
+        elif command == "/balance":
+            response = self.balance_response(user_id=user_id)
+        elif command in {"/ledger", "/history"}:
+            response = self.ledger_response(user_id=user_id)
+        elif command == "/students":
+            response = self.students_response(user_id=user_id, query=argument)
+        elif command == "/access":
+            response = self.access_response(user_id=user_id)
+        elif command == "/accrue":
+            response = self.accrue_response(user_id=user_id, argument=argument)
+        elif command in {"/catalog", "/shop"}:
+            response = self.catalog_response(user_id=user_id, query=argument)
+        elif command == "/order":
+            response = self.order_response(user_id=user_id, order_ref=argument)
+        elif command == "/orders":
+            response = self.orders_response(user_id=user_id)
+        elif command == "/stock":
+            response = self.stock_response(user_id=user_id, threshold_text=argument)
+        elif command == "/ops":
+            response = self.ops_response(user_id=user_id, threshold_text=argument)
+        elif command in {"/cancel", "/issue", "/return"}:
+            response = self.order_action_response(
+                user_id=user_id,
+                action=command.lstrip("/"),
+                order_ref=argument,
+            )
+        elif command == "/miniapp":
+            response = self.miniapp_response(user_id=user_id)
         elif command == "/ping":
             response = BotResponse(
                 "Все хорошо, бот на связи.",
@@ -895,6 +2345,8 @@ class LongPollingBot:
                 if argument
                 else BotResponse("Выберите роль кнопкой ниже.", role_selection_keyboard())
             )
+        elif command.startswith("/"):
+            response = self.unknown_command_response(command, user_id=user_id)
         else:
             response = self.handle_contact_payload_response(payload=text, user_id=user_id)
             if response is None:
@@ -934,6 +2386,27 @@ class LongPollingBot:
                 display_name=display_name_from_user(user),
             )
             notification = "Роль выбрана"
+        elif payload == CALLBACK_STATUS:
+            response = self.status_response(user_id=user_id)
+            notification = "Статус"
+        elif payload == CALLBACK_BALANCE:
+            response = self.balance_response(user_id=user_id)
+            notification = "Баланс"
+        elif payload == CALLBACK_LEDGER:
+            response = self.ledger_response(user_id=user_id)
+            notification = "История"
+        elif payload == CALLBACK_STUDENTS:
+            response = self.students_response(user_id=user_id)
+            notification = "Ученики"
+        elif payload == CALLBACK_CATALOG:
+            response = self.catalog_response(user_id=user_id)
+            notification = "Каталог"
+        elif payload == CALLBACK_ORDERS:
+            response = self.orders_response(user_id=user_id)
+            notification = "Заказы"
+        elif payload == CALLBACK_OPS:
+            response = self.ops_response(user_id=user_id)
+            notification = "Операции"
         elif payload in {CALLBACK_HELP, CALLBACK_MENU}:
             response = self.help_response(user_id=user_id)
             notification = "Готово"
@@ -975,16 +2448,16 @@ class LongPollingBot:
             self.handle_message_callback(update)
             return
 
-        print(f"[skip] Неподдерживаемый update_type={update_type}")
+        logger.warning("Неподдерживаемый update_type=%s", update_type)
 
     def run(self) -> None:
         marker = self.load_marker()
         bot_name = self.bot_info.get("first_name") or self.bot_info.get("name") or "MAX bot"
         bot_username = self.bot_info.get("username") or "-"
 
-        print(f"[info] Бот запущен: {bot_name} (@{bot_username})")
-        print(f"[info] Файл marker: {MARKER_FILE}")
-        print("[info] Жду события. Для остановки нажмите Ctrl+C.")
+        logger.info("Бот запущен: %s (@%s)", bot_name, bot_username)
+        logger.info("Файл marker: %s", MARKER_FILE)
+        logger.info("Жду события. Для остановки нажмите Ctrl+C.")
 
         while self.running:
             try:
@@ -996,20 +2469,20 @@ class LongPollingBot:
                     try:
                         self.handle_update(update)
                     except Exception as exc:  # noqa: BLE001
-                        print(f"[error] Не получилось обработать событие: {exc}")
+                        logger.exception("Не получилось обработать событие: %s", exc)
 
                 if next_marker is not None:
                     marker = next_marker
                     self.save_marker(marker)
 
             except KeyboardInterrupt:
-                print("\n[info] Остановлено пользователем.")
+                logger.info("Остановлено пользователем.")
                 break
             except MaxApiError as exc:
-                print(f"[error] {exc}")
+                logger.error("%s", exc)
                 time.sleep(3)
             except Exception as exc:  # noqa: BLE001
-                print(f"[error] Неожиданная ошибка: {exc}")
+                logger.exception("Неожиданная ошибка: %s", exc)
                 time.sleep(3)
 
 
@@ -1019,6 +2492,27 @@ def parse_args() -> argparse.Namespace:
         "--check",
         action="store_true",
         help="Проверить токен, данные бота и подписки без запуска polling",
+    )
+    parser.add_argument(
+        "--config-check",
+        action="store_true",
+        help="Проверить локальную конфигурацию без сетевых запросов к MAX API",
+    )
+    parser.add_argument(
+        "--simulate-command",
+        metavar="TEXT",
+        help="Локально обработать текст команды и вывести JSON ответа без запуска polling",
+    )
+    parser.add_argument(
+        "--simulate-user-id",
+        type=int,
+        default=1,
+        help="MAX user_id для --simulate-command",
+    )
+    parser.add_argument(
+        "--simulate-offline",
+        action="store_true",
+        help="Не подключать backend API во время --simulate-command",
     )
     parser.add_argument(
         "--drop-webhooks",
@@ -1033,21 +2527,95 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> int:
-    args = parse_args()
-    token = os.getenv("MAX_BOT_TOKEN")
-
-    if not token:
-        print("Переменная MAX_BOT_TOKEN не задана.", file=sys.stderr)
-        print('Пример PowerShell: $env:MAX_BOT_TOKEN = "your_token_here"', file=sys.stderr)
-        return 1
-
-    client = MaxApiClient(token)
-    backend_client = AccessBackendClient(BACKEND_API_BASE) if BACKEND_API_BASE else None
+def simulate_command(
+    *,
+    command_text: str,
+    user_id: int,
+    backend_client: AccessBackendClient | None,
+    default_tenant_slug: str,
+) -> dict[str, Any]:
+    client = SimulationMaxClient()
     bot = LongPollingBot(
         client,
         backend_client=backend_client,
-        default_tenant_slug=DEFAULT_TENANT_SLUG,
+        default_tenant_slug=default_tenant_slug,
+    )
+    bot.handle_message_created(
+        {
+            "message": {
+                "sender": {
+                    "user_id": user_id,
+                    "username": "local_simulation",
+                    "first_name": "Local",
+                    "last_name": "Simulation",
+                },
+                "recipient": {"chat_id": user_id},
+                "body": {"text": command_text},
+            }
+        }
+    )
+    if not client.sent_messages:
+        raise RuntimeError("Команда не сформировала ответ")
+    return client.sent_messages[-1]
+
+
+def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+
+    args = parse_args()
+    settings = get_settings()
+    configure_logging(settings.log_level)
+
+    if args.config_check:
+        report = settings.safe_config_report()
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0 if not report["errors"] else 1
+
+    if args.simulate_command:
+        backend_client = (
+            None
+            if args.simulate_offline or is_placeholder(settings.max_backend_api_base)
+            else AccessBackendClient(settings.max_backend_api_base)
+        )
+        response = simulate_command(
+            command_text=args.simulate_command,
+            user_id=args.simulate_user_id,
+            backend_client=backend_client,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+        print(json.dumps(response, ensure_ascii=False, indent=2))
+        return 0
+
+    token = settings.max_bot_token
+    if is_placeholder(token):
+        print("Переменная MAX_BOT_TOKEN не задана.", file=sys.stderr)
+        print('Пример PowerShell: $env:MAX_BOT_TOKEN = "your_token_here"', file=sys.stderr)
+        print(
+            "Для локальной проверки без токена: python main_bot.py --config-check",
+            file=sys.stderr,
+        )
+        return 1
+    token_value = token.strip()
+
+    config_errors = settings.bot_config_errors()
+    if config_errors:
+        for message in config_errors:
+            print(f"[config] {message}", file=sys.stderr)
+        return 1
+
+    client = MaxApiClient(token_value, api_base=settings.max_api_base)
+    backend_client = (
+        AccessBackendClient(settings.max_backend_api_base)
+        if not is_placeholder(settings.max_backend_api_base)
+        else None
+    )
+    bot = LongPollingBot(
+        client,
+        backend_client=backend_client,
+        default_tenant_slug=settings.default_tenant_slug,
     )
 
     if args.reset_marker:
@@ -1060,8 +2628,10 @@ def main() -> int:
         subscriptions = client.get_subscriptions().get("subscriptions") or []
         print(json.dumps(bot.bot_info, ensure_ascii=False, indent=2))
         print(f"[info] Активные webhook-подписки: {len(subscriptions)}")
-        print(f"[info] Tenant по умолчанию: {DEFAULT_TENANT_SLUG}")
-        print(f"[info] Backend API: {BACKEND_API_BASE or 'выключен'}")
+        print(f"[info] Tenant по умолчанию: {settings.default_tenant_slug}")
+        print(f"[info] Backend API: {settings.max_backend_api_base or 'выключен'}")
+        for warning in settings.config_warnings():
+            print(f"[warn] {warning}")
         for item in subscriptions:
             url = item.get("url")
             if url:

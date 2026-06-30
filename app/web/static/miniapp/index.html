@@ -149,6 +149,19 @@
                 <p class="eyebrow">Заказы</p>
                 <h2>Статусы и выдача</h2>
               </div>
+              <div class="toolbar">
+                <input id="orderSearch" type="search" placeholder="Поиск заказа" />
+                <select id="orderStatusFilter" aria-label="Статус заказа">
+                  <option value="open">Открытые</option>
+                  <option value="all">Все</option>
+                  <option value="reserved">Зарезервирован</option>
+                  <option value="transferred_to_teacher">Передан педагогу</option>
+                  <option value="issued_to_student">Выдан</option>
+                  <option value="cancelled">Отменен</option>
+                  <option value="returned">Возвращен</option>
+                  <option value="problem">Проблема</option>
+                </select>
+              </div>
             </div>
             <div id="ordersTable" class="data-table"></div>
           </section>
@@ -200,10 +213,12 @@
             </div>
 
             <div class="admin-tabs" role="tablist" aria-label="Админские разделы">
-              <button class="admin-tab is-active" data-admin-tab="products">Товары</button>
+              <button class="admin-tab is-active" data-admin-tab="summary">Сводка</button>
+              <button class="admin-tab" data-admin-tab="products">Товары</button>
               <button class="admin-tab" data-admin-tab="inventory">Остатки</button>
               <button class="admin-tab" data-admin-tab="warehouses">Склады</button>
               <button class="admin-tab" data-admin-tab="contacts">Связи</button>
+              <button class="admin-tab" data-admin-tab="staff">Сотрудники</button>
             </div>
 
             <div id="adminPanel" class="admin-panel"></div>

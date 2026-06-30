@@ -27,6 +27,7 @@ venv/
 .env
 .env.*
 !.env.example
+!.env.sqlite.example
 *.secret.*
 *.pem
 *.key

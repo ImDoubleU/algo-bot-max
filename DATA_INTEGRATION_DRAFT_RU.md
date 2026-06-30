@@ -127,7 +127,9 @@ GOOGLE_SHEETS_ORDERS_SPREADSHEET_ID=spreadsheet_id_from_url
 https://docs.google.com/spreadsheets/d/<spreadsheet_id>/edit
 ```
 
-После этого бот сможет добавлять строки заказов и обновлять статусы через сервис `app.services.google_sheets.GoogleSheetsClient`.
+После этого backend будет добавлять строки заказов и обновлять статусы через сервисы
+`app.services.google_sheets.GoogleSheetsClient` и `app.services.order_sheets`.
+Если Google Sheets не настроен, оформление, выдача и отмена заказов продолжают работать без экспорта.
 
 ## Настройки для чернового запуска
 

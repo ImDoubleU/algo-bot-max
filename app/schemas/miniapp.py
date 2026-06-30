@@ -3,7 +3,16 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import LedgerDirection, OrderStatus, StaffRole, StudentAccessRole
+from app.models.enums import (
+    AssignmentStatus,
+    LedgerDirection,
+    OrderStatus,
+    ProductStatus,
+    StaffRole,
+    StudentAccessRole,
+    StudentAccessStatus,
+    WarehouseType,
+)
 
 
 class MiniAppAccountRead(BaseModel):
@@ -16,24 +25,13 @@ class MiniAppStudentRead(BaseModel):
     student_id: UUID
     lms_student_id: str | None = None
     role: StudentAccessRole
+    access_status: StudentAccessStatus = StudentAccessStatus.ACTIVE
     display_name: str
     group_name: str | None = None
     course_name: str | None = None
     venue_name: str | None = None
     teacher_name: str | None = None
     balance: int
-
-
-class MiniAppOrderRead(BaseModel):
-    id: UUID
-    order_number: int
-    student_id: UUID
-    student_name: str
-    status: OrderStatus
-    total_astrocoins: int
-    teacher_name: str | None = None
-    venue_name: str | None = None
-    created_at: datetime
 
 
 class MiniAppLedgerRead(BaseModel):
@@ -50,7 +48,17 @@ class MiniAppProductWarehouseRead(BaseModel):
     warehouse_id: UUID
     warehouse_name: str
     warehouse_type: str
+    stock_quantity: int
+    reserved_quantity: int
     available_quantity: int
+
+
+class MiniAppWarehouseRead(BaseModel):
+    id: UUID
+    slug: str
+    name: str
+    warehouse_type: WarehouseType
+    address: str | None = None
 
 
 class MiniAppProductRead(BaseModel):
@@ -62,6 +70,7 @@ class MiniAppProductRead(BaseModel):
     category_slug: str | None = None
     category_name: str | None = None
     price_astrocoins: int
+    status: ProductStatus = ProductStatus.ACTIVE
     available_quantity: int
     warehouses: list[MiniAppProductWarehouseRead] = Field(default_factory=list)
 
@@ -69,6 +78,7 @@ class MiniAppProductRead(BaseModel):
 class MiniAppCatalogRead(BaseModel):
     tenant_slug: str
     products: list[MiniAppProductRead]
+    warehouses: list[MiniAppWarehouseRead] = Field(default_factory=list)
 
 
 class MiniAppProductImportRead(BaseModel):
@@ -82,18 +92,24 @@ class MiniAppProductImportRead(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class MiniAppProductUpsert(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    product_id: UUID | None = None
+    sku: str = Field(min_length=2, max_length=120)
+    name: str = Field(min_length=2, max_length=200)
+    category_name: str = Field(default="Без категории", min_length=2, max_length=160)
+    category_slug: str | None = Field(default=None, min_length=2, max_length=100)
+    price_astrocoins: int = Field(ge=0, le=1_000_000)
+    description: str | None = Field(default=None, max_length=1000)
+    photo_url: str | None = Field(default=None, max_length=500)
+    status: ProductStatus = ProductStatus.ACTIVE
+
+
 class MiniAppOrderItemCreate(BaseModel):
     product_id: UUID
     warehouse_id: UUID | None = None
     quantity: int = Field(gt=0, le=20)
-
-
-class MiniAppOrderCreate(BaseModel):
-    max_user_id: int = Field(gt=0)
-    tenant_slug: str | None = None
-    student_id: UUID
-    items: list[MiniAppOrderItemCreate] = Field(min_length=1, max_length=20)
-    comment: str | None = Field(default=None, max_length=500)
 
 
 class MiniAppOrderItemRead(BaseModel):
@@ -106,10 +122,83 @@ class MiniAppOrderItemRead(BaseModel):
     warehouse_name: str | None = None
 
 
+class MiniAppOrderStatusHistoryRead(BaseModel):
+    from_status: OrderStatus | None = None
+    to_status: OrderStatus
+    comment: str | None = None
+    created_at: datetime
+
+
+class MiniAppOrderRead(BaseModel):
+    id: UUID
+    order_number: int
+    student_id: UUID
+    student_name: str
+    status: OrderStatus
+    total_astrocoins: int
+    teacher_name: str | None = None
+    venue_name: str | None = None
+    created_at: datetime
+    items: list[MiniAppOrderItemRead] = Field(default_factory=list)
+    status_history: list[MiniAppOrderStatusHistoryRead] = Field(default_factory=list)
+
+
+class MiniAppOrderCreate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    student_id: UUID
+    items: list[MiniAppOrderItemCreate] = Field(min_length=1, max_length=20)
+    comment: str | None = Field(default=None, max_length=500)
+
+
 class MiniAppOrderCreatedRead(BaseModel):
     order: MiniAppOrderRead
     items: list[MiniAppOrderItemRead]
     balance_after: int
+
+
+class MiniAppOrderActionCreate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    comment: str | None = Field(default=None, max_length=500)
+
+
+class MiniAppOrderActionRead(BaseModel):
+    order: MiniAppOrderRead
+    balance_after: int | None = None
+
+
+class MiniAppOpsOrderStatusCount(BaseModel):
+    status: OrderStatus
+    count: int
+
+
+class MiniAppOpsLowStockRead(BaseModel):
+    product_id: UUID
+    sku: str
+    product_name: str
+    product_status: ProductStatus
+    warehouse_id: UUID
+    warehouse_name: str
+    stock_quantity: int
+    reserved_quantity: int
+    available_quantity: int
+
+
+class MiniAppOpsSummaryRead(BaseModel):
+    tenant_slug: str
+    staff_role: StaffRole
+    total_orders: int
+    open_orders: int
+    pending_issue_orders: int
+    order_statuses: list[MiniAppOpsOrderStatusCount]
+    recent_open_orders: list[MiniAppOrderRead] = Field(default_factory=list)
+    low_stock: list[MiniAppOpsLowStockRead] = Field(default_factory=list)
+    low_stock_threshold: int
+    active_products: int
+    warehouses: int
+    total_stock_quantity: int
+    total_reserved_quantity: int
 
 
 class MiniAppAccrualCreate(BaseModel):
@@ -128,11 +217,109 @@ class MiniAppAccrualRead(BaseModel):
     total_astrocoins: int
 
 
+class MiniAppAccessStatusUpdate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    status: StudentAccessStatus
+
+
+class MiniAppAccessStatusRead(BaseModel):
+    student_id: UUID
+    role: StudentAccessRole
+    status: StudentAccessStatus
+
+
+class MiniAppAccessLinkRead(BaseModel):
+    id: UUID
+    account_id: UUID
+    max_user_id: int
+    username: str | None = None
+    display_name: str | None = None
+    student_id: UUID
+    student_name: str
+    group_name: str | None = None
+    role: StudentAccessRole
+    status: StudentAccessStatus
+
+
+class MiniAppStaffAssignmentRead(BaseModel):
+    id: UUID
+    account_id: UUID
+    max_user_id: int
+    username: str | None = None
+    display_name: str | None = None
+    role: StaffRole
+    status: AssignmentStatus
+
+
+class MiniAppStaffAssignmentUpdate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    target_max_user_id: int = Field(gt=0)
+    role: StaffRole
+    status: AssignmentStatus = AssignmentStatus.ACTIVE
+    username: str | None = Field(default=None, max_length=120)
+    display_name: str | None = Field(default=None, max_length=160)
+
+
+class MiniAppInventoryAdjustmentCreate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    product_id: UUID
+    warehouse_id: UUID
+    available_quantity: int = Field(ge=0)
+    comment: str | None = Field(default=None, max_length=500)
+
+
+class MiniAppInventoryAdjustmentRead(BaseModel):
+    product_id: UUID
+    warehouse_id: UUID
+    warehouse_name: str
+    stock_quantity: int
+    reserved_quantity: int
+    available_quantity: int
+
+
+class MiniAppInventoryTransferCreate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    product_id: UUID
+    from_warehouse_id: UUID
+    to_warehouse_id: UUID
+    quantity: int = Field(gt=0, le=10000)
+    comment: str | None = Field(default=None, max_length=500)
+
+
+class MiniAppInventoryTransferRead(BaseModel):
+    product_id: UUID
+    from_warehouse_id: UUID
+    from_warehouse_name: str
+    from_stock_quantity: int
+    from_available_quantity: int
+    to_warehouse_id: UUID
+    to_warehouse_name: str
+    to_stock_quantity: int
+    to_available_quantity: int
+    quantity: int
+
+
+class MiniAppWarehouseUpsert(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    warehouse_id: UUID | None = None
+    slug: str | None = Field(default=None, min_length=2, max_length=120)
+    name: str = Field(min_length=2, max_length=180)
+    warehouse_type: WarehouseType = WarehouseType.COMMON
+    address: str | None = Field(default=None, max_length=260)
+
+
 class MiniAppSessionRead(BaseModel):
     tenant_slug: str
     account: MiniAppAccountRead | None
     staff_roles: list[StaffRole]
     student_roles: list[StudentAccessRole]
     students: list[MiniAppStudentRead]
+    access_links: list[MiniAppAccessLinkRead] = Field(default_factory=list)
+    staff_assignments: list[MiniAppStaffAssignmentRead] = Field(default_factory=list)
     orders: list[MiniAppOrderRead]
     ledger: list[MiniAppLedgerRead]
