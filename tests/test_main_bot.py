@@ -54,7 +54,11 @@ class FakeBackendClient:
         self.catalog_calls: list[dict[str, Any]] = []
         self.ops_calls: list[dict[str, Any]] = []
         self.order_calls: list[dict[str, Any]] = []
+        self.inventory_adjust_calls: list[dict[str, Any]] = []
+        self.create_order_calls: list[dict[str, Any]] = []
         self.accrue_calls: list[dict[str, Any]] = []
+        self.extra_products: list[dict[str, Any]] = []
+        self.extra_session_students: list[dict[str, Any]] = []
 
     def resolve_contact(
         self,
@@ -142,7 +146,8 @@ class FakeBackendClient:
                     "venue_name": "Союзный 45",
                     "role": "parent",
                     "balance": 760,
-                }
+                },
+                *self.extra_session_students,
             ],
             "access_links": [
                 {
@@ -276,6 +281,59 @@ class FakeBackendClient:
             "balance_after": 1000 if action in {"cancel", "return"} else None,
         }
 
+    def create_order(
+        self,
+        *,
+        tenant_slug: str,
+        max_user_id: int,
+        student_id: str,
+        items: list[dict[str, Any]],
+        comment: str | None = None,
+    ) -> dict[str, Any]:
+        self.create_order_calls.append(
+            {
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
+                "student_id": student_id,
+                "items": items,
+                "comment": comment,
+            }
+        )
+        product_prices = {
+            "product-1": 120,
+            "product-3": 30,
+        }
+        total = sum(
+            product_prices.get(str(item["product_id"]), 0) * int(item["quantity"])
+            for item in items
+        )
+        return {
+            "order": {
+                "id": "order-2",
+                "order_number": 1002,
+                "student_id": student_id,
+                "student_name": "РђР»РёСЃР°",
+                "status": "reserved",
+                "total_astrocoins": total,
+                "created_at": "2026-06-29T00:00:00Z",
+            },
+            "items": [
+                {
+                    "product_id": item["product_id"],
+                    "product_name": "Р СѓС‡РєР°",
+                    "quantity": int(item["quantity"]),
+                    "unit_price_astrocoins": product_prices.get(str(item["product_id"]), 0),
+                    "total_price_astrocoins": (
+                        product_prices.get(str(item["product_id"]), 0) * int(item["quantity"])
+                    ),
+                    "warehouse_id": "warehouse-1",
+                    "warehouse_name": "РћР±С‰РёР№ СЃРєР»Р°Рґ",
+                }
+                for item in items
+            ],
+            "balance_after": 1000 - total,
+        }
+
     def accrue_astrocoins(
         self,
         *,
@@ -338,6 +396,7 @@ class FakeBackendClient:
                 ],
             }
         ]
+        products.extend(self.extra_products)
         if include_inactive:
             products.append(
                 {
@@ -364,6 +423,35 @@ class FakeBackendClient:
             "tenant_slug": tenant_slug,
             "products": products,
             "warehouses": [],
+        }
+
+    def adjust_inventory(
+        self,
+        *,
+        tenant_slug: str,
+        max_user_id: int,
+        product_id: str,
+        warehouse_id: str,
+        available_quantity: int,
+        comment: str | None = None,
+    ) -> dict[str, Any]:
+        self.inventory_adjust_calls.append(
+            {
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
+                "product_id": product_id,
+                "warehouse_id": warehouse_id,
+                "available_quantity": available_quantity,
+                "comment": comment,
+            }
+        )
+        return {
+            "product_id": product_id,
+            "warehouse_id": warehouse_id,
+            "warehouse_name": "РћР±С‰РёР№ СЃРєР»Р°Рґ",
+            "stock_quantity": available_quantity,
+            "reserved_quantity": 0,
+            "available_quantity": available_quantity,
         }
 
     def get_ops_summary(
@@ -826,6 +914,239 @@ def test_accrue_command_requires_reason_without_backend_call() -> None:
     assert backend.accrue_calls == []
 
 
+def test_buy_command_creates_order_for_unique_student_and_sku() -> None:
+    backend = FakeBackendClient()
+    max_client = FakeMaxClient()
+    bot = LongPollingBot(
+        max_client,
+        backend_client=backend,
+        default_tenant_slug="nn-partner-a",
+    )
+
+    bot.handle_message_created(
+        {
+            "message": {
+                "sender": {"user_id": 1, "username": "parent_user"},
+                "recipient": {"chat_id": 10},
+                "body": {
+                    "text": "/buy PEN-LOGO 2 | 11111111-1111-1111-1111-111111111111"
+                },
+            }
+        }
+    )
+
+    sent = max_client.sent_messages[-1]
+    assert "1002" in sent["text"]
+    assert "x2" in sent["text"]
+    assert "240 AC" in sent["text"]
+    assert "/order 1002" in sent["text"]
+    assert backend.session_calls == [{"tenant_slug": "nn-partner-a", "max_user_id": 1}]
+    assert backend.catalog_calls == [
+        {"tenant_slug": "nn-partner-a", "max_user_id": 1, "include_inactive": False}
+    ]
+    assert backend.create_order_calls == [
+        {
+            "tenant_slug": "nn-partner-a",
+            "max_user_id": 1,
+            "student_id": "11111111-1111-1111-1111-111111111111",
+            "items": [{"product_id": "product-1", "quantity": 2}],
+            "comment": "MAX bot /buy",
+        }
+    ]
+
+
+def test_buy_command_creates_multi_item_order() -> None:
+    backend = FakeBackendClient()
+    backend.extra_products.append(
+        {
+            "id": "product-3",
+            "sku": "STICKER-PACK",
+            "name": "Sticker pack",
+            "category_name": "Merch",
+            "price_astrocoins": 30,
+            "status": "active",
+            "available_quantity": 10,
+            "warehouses": [
+                {
+                    "warehouse_id": "warehouse-1",
+                    "warehouse_name": "Main warehouse",
+                    "warehouse_type": "common",
+                    "stock_quantity": 10,
+                    "reserved_quantity": 0,
+                    "available_quantity": 10,
+                }
+            ],
+        }
+    )
+    max_client = FakeMaxClient()
+    bot = LongPollingBot(
+        max_client,
+        backend_client=backend,
+        default_tenant_slug="nn-partner-a",
+    )
+
+    bot.handle_message_created(
+        {
+            "message": {
+                "sender": {"user_id": 1, "username": "parent_user"},
+                "recipient": {"chat_id": 10},
+                "body": {
+                    "text": (
+                        "/buy PEN-LOGO 2, STICKER-PACK 1 | "
+                        "11111111-1111-1111-1111-111111111111"
+                    )
+                },
+            }
+        }
+    )
+
+    sent = max_client.sent_messages[-1]
+    assert "270 AC" in sent["text"]
+    assert "Баланс после заказа: 730 AC" in sent["text"]
+    assert backend.create_order_calls == [
+        {
+            "tenant_slug": "nn-partner-a",
+            "max_user_id": 1,
+            "student_id": "11111111-1111-1111-1111-111111111111",
+            "items": [
+                {"product_id": "product-1", "quantity": 2},
+                {"product_id": "product-3", "quantity": 1},
+            ],
+            "comment": "MAX bot /buy",
+        }
+    ]
+
+
+def test_buy_command_uses_single_linked_student_without_separator() -> None:
+    backend = FakeBackendClient()
+    max_client = FakeMaxClient()
+    bot = LongPollingBot(
+        max_client,
+        backend_client=backend,
+        default_tenant_slug="nn-partner-a",
+    )
+
+    bot.handle_message_created(
+        {
+            "message": {
+                "sender": {"user_id": 1, "username": "parent_user"},
+                "recipient": {"chat_id": 10},
+                "body": {"text": "/buy PEN-LOGO 2"},
+            }
+        }
+    )
+
+    sent = max_client.sent_messages[-1]
+    assert "1002" in sent["text"]
+    assert "240 AC" in sent["text"]
+    assert backend.session_calls == [{"tenant_slug": "nn-partner-a", "max_user_id": 1}]
+    assert backend.catalog_calls == [
+        {"tenant_slug": "nn-partner-a", "max_user_id": 1, "include_inactive": False}
+    ]
+    assert backend.create_order_calls == [
+        {
+            "tenant_slug": "nn-partner-a",
+            "max_user_id": 1,
+            "student_id": "11111111-1111-1111-1111-111111111111",
+            "items": [{"product_id": "product-1", "quantity": 2}],
+            "comment": "MAX bot /buy",
+        }
+    ]
+
+
+def test_buy_command_requires_student_separator_for_multiple_students() -> None:
+    backend = FakeBackendClient()
+    backend.extra_session_students.append(
+        {
+            "student_id": "22222222-2222-2222-2222-222222222222",
+            "display_name": "Ivan",
+            "group_name": "Python Start",
+            "venue_name": "Main venue",
+            "role": "parent",
+            "balance": 1000,
+        }
+    )
+    max_client = FakeMaxClient()
+    bot = LongPollingBot(
+        max_client,
+        backend_client=backend,
+        default_tenant_slug="nn-partner-a",
+    )
+
+    bot.handle_message_created(
+        {
+            "message": {
+                "sender": {"user_id": 1, "username": "parent_user"},
+                "recipient": {"chat_id": 10},
+                "body": {"text": "/buy PEN-LOGO 2"},
+            }
+        }
+    )
+
+    sent = max_client.sent_messages[-1]
+    assert "/buy PEN-LOGO 2 |" in sent["text"]
+    assert "Ivan" in sent["text"]
+    assert backend.catalog_calls == []
+    assert backend.create_order_calls == []
+
+
+def test_buy_command_rejects_insufficient_stock_without_order_call() -> None:
+    backend = FakeBackendClient()
+    max_client = FakeMaxClient()
+    bot = LongPollingBot(
+        max_client,
+        backend_client=backend,
+        default_tenant_slug="nn-partner-a",
+    )
+
+    bot.handle_message_created(
+        {
+            "message": {
+                "sender": {"user_id": 1, "username": "parent_user"},
+                "recipient": {"chat_id": 10},
+                "body": {
+                    "text": "/buy PEN-LOGO 3 | 11111111-1111-1111-1111-111111111111"
+                },
+            }
+        }
+    )
+
+    sent = max_client.sent_messages[-1]
+    assert "3" in sent["text"]
+    assert "2" in sent["text"]
+    assert backend.create_order_calls == []
+
+
+def test_buy_command_aggregates_duplicate_products_before_stock_check() -> None:
+    backend = FakeBackendClient()
+    max_client = FakeMaxClient()
+    bot = LongPollingBot(
+        max_client,
+        backend_client=backend,
+        default_tenant_slug="nn-partner-a",
+    )
+
+    bot.handle_message_created(
+        {
+            "message": {
+                "sender": {"user_id": 1, "username": "parent_user"},
+                "recipient": {"chat_id": 10},
+                "body": {
+                    "text": (
+                        "/buy PEN-LOGO 1, PEN-LOGO 2 | "
+                        "11111111-1111-1111-1111-111111111111"
+                    )
+                },
+            }
+        }
+    )
+
+    sent = max_client.sent_messages[-1]
+    assert "3" in sent["text"]
+    assert "2" in sent["text"]
+    assert backend.create_order_calls == []
+
+
 def test_catalog_command_reports_active_products() -> None:
     backend = FakeBackendClient()
     max_client = FakeMaxClient()
@@ -1017,6 +1338,67 @@ def test_order_command_requires_order_number_without_backend_call() -> None:
     assert backend.session_calls == []
 
 
+def test_repeat_command_creates_new_order_from_existing_order_items() -> None:
+    backend = FakeBackendClient()
+    max_client = FakeMaxClient()
+    bot = LongPollingBot(
+        max_client,
+        backend_client=backend,
+        default_tenant_slug="nn-partner-a",
+    )
+
+    bot.handle_message_created(
+        {
+            "message": {
+                "sender": {"user_id": 1, "username": "parent_user"},
+                "recipient": {"chat_id": 10},
+                "body": {"text": "/repeat 1001"},
+            }
+        }
+    )
+
+    sent = max_client.sent_messages[-1]
+    assert "1002" in sent["text"]
+    assert "1001" in sent["text"]
+    assert "240 AC" in sent["text"]
+    assert "/order 1002" in sent["text"]
+    assert backend.session_calls == [{"tenant_slug": "nn-partner-a", "max_user_id": 1}]
+    assert backend.create_order_calls == [
+        {
+            "tenant_slug": "nn-partner-a",
+            "max_user_id": 1,
+            "student_id": "11111111-1111-1111-1111-111111111111",
+            "items": [{"product_id": "product-1", "quantity": 2}],
+            "comment": "MAX bot /repeat 1001",
+        }
+    ]
+
+
+def test_repeat_command_requires_order_number_without_backend_call() -> None:
+    backend = FakeBackendClient()
+    max_client = FakeMaxClient()
+    bot = LongPollingBot(
+        max_client,
+        backend_client=backend,
+        default_tenant_slug="nn-partner-a",
+    )
+
+    bot.handle_message_created(
+        {
+            "message": {
+                "sender": {"user_id": 1, "username": "parent_user"},
+                "recipient": {"chat_id": 10},
+                "body": {"text": "/repeat"},
+            }
+        }
+    )
+
+    sent = max_client.sent_messages[-1]
+    assert "/repeat <" in sent["text"]
+    assert backend.session_calls == []
+    assert backend.create_order_calls == []
+
+
 def test_order_details_formatter_reports_status_history() -> None:
     bot = LongPollingBot(FakeMaxClient(), default_tenant_slug="nn-partner-a")
 
@@ -1074,6 +1456,121 @@ def test_stock_command_reports_low_inventory() -> None:
     ]
 
 
+def test_setstock_command_adjusts_single_warehouse_product() -> None:
+    backend = FakeBackendClient()
+    max_client = FakeMaxClient()
+    bot = LongPollingBot(
+        max_client,
+        backend_client=backend,
+        default_tenant_slug="nn-partner-a",
+    )
+
+    bot.handle_message_created(
+        {
+            "message": {
+                "sender": {"user_id": 1, "username": "admin_user"},
+                "recipient": {"chat_id": 10},
+                "body": {"text": "/setstock PEN-LOGO 18"},
+            }
+        }
+    )
+
+    sent = max_client.sent_messages[-1]
+    assert "18" in sent["text"]
+    assert backend.catalog_calls == [
+        {"tenant_slug": "nn-partner-a", "max_user_id": 1, "include_inactive": True}
+    ]
+    assert backend.inventory_adjust_calls == [
+        {
+            "tenant_slug": "nn-partner-a",
+            "max_user_id": 1,
+            "product_id": "product-1",
+            "warehouse_id": "warehouse-1",
+            "available_quantity": 18,
+            "comment": "MAX bot /setstock",
+        }
+    ]
+
+
+def test_setstock_command_rejects_invalid_quantity_without_backend_call() -> None:
+    backend = FakeBackendClient()
+    max_client = FakeMaxClient()
+    bot = LongPollingBot(
+        max_client,
+        backend_client=backend,
+        default_tenant_slug="nn-partner-a",
+    )
+
+    bot.handle_message_created(
+        {
+            "message": {
+                "sender": {"user_id": 1, "username": "admin_user"},
+                "recipient": {"chat_id": 10},
+                "body": {"text": "/setstock PEN-LOGO many"},
+            }
+        }
+    )
+
+    sent = max_client.sent_messages[-1]
+    assert "/setstock PEN-LOGO 18" in sent["text"]
+    assert backend.catalog_calls == []
+    assert backend.inventory_adjust_calls == []
+
+
+def test_setstock_command_requires_warehouse_for_multi_warehouse_product() -> None:
+    backend = FakeBackendClient()
+    backend.extra_products.append(
+        {
+            "id": "product-3",
+            "sku": "STICKER-PACK",
+            "name": "Sticker pack",
+            "category_name": "Merch",
+            "price_astrocoins": 30,
+            "status": "active",
+            "available_quantity": 10,
+            "warehouses": [
+                {
+                    "warehouse_id": "warehouse-1",
+                    "warehouse_name": "Main warehouse",
+                    "warehouse_type": "common",
+                    "stock_quantity": 5,
+                    "reserved_quantity": 0,
+                    "available_quantity": 5,
+                },
+                {
+                    "warehouse_id": "warehouse-2",
+                    "warehouse_name": "Venue warehouse",
+                    "warehouse_type": "venue",
+                    "stock_quantity": 5,
+                    "reserved_quantity": 0,
+                    "available_quantity": 5,
+                },
+            ],
+        }
+    )
+    max_client = FakeMaxClient()
+    bot = LongPollingBot(
+        max_client,
+        backend_client=backend,
+        default_tenant_slug="nn-partner-a",
+    )
+
+    bot.handle_message_created(
+        {
+            "message": {
+                "sender": {"user_id": 1, "username": "admin_user"},
+                "recipient": {"chat_id": 10},
+                "body": {"text": "/setstock STICKER-PACK 7"},
+            }
+        }
+    )
+
+    sent = max_client.sent_messages[-1]
+    assert "Main warehouse" in sent["text"]
+    assert "Venue warehouse" in sent["text"]
+    assert backend.inventory_adjust_calls == []
+
+
 def test_ops_command_reports_operational_summary() -> None:
     backend = FakeBackendClient()
     max_client = FakeMaxClient()
@@ -1102,6 +1599,62 @@ def test_ops_command_reports_operational_summary() -> None:
     assert backend.ops_calls == [
         {"tenant_slug": "nn-partner-a", "max_user_id": 1, "low_stock_threshold": 3}
     ]
+
+
+def test_todo_command_reports_pending_order_tasks() -> None:
+    backend = FakeBackendClient()
+    max_client = FakeMaxClient()
+    bot = LongPollingBot(
+        max_client,
+        backend_client=backend,
+        default_tenant_slug="nn-partner-a",
+    )
+
+    bot.handle_message_created(
+        {
+            "message": {
+                "sender": {"user_id": 1, "username": "admin_user"},
+                "recipient": {"chat_id": 10},
+                "body": {"text": "/todo 3"},
+            }
+        }
+    )
+
+    sent = max_client.sent_messages[-1]
+    assert "Задачи магазина" in sent["text"]
+    assert "Открытых заказов: 2" in sent["text"]
+    assert "Ожидают выдачи: 1" in sent["text"]
+    assert "№1001" in sent["text"]
+    assert "/issue 1001" in sent["text"]
+    assert "/order 1001" in sent["text"]
+    assert "Низкие остатки <= 3" in sent["text"]
+    assert backend.ops_calls == [
+        {"tenant_slug": "nn-partner-a", "max_user_id": 1, "low_stock_threshold": 3}
+    ]
+
+
+def test_todo_command_rejects_invalid_threshold_without_backend_call() -> None:
+    backend = FakeBackendClient()
+    max_client = FakeMaxClient()
+    bot = LongPollingBot(
+        max_client,
+        backend_client=backend,
+        default_tenant_slug="nn-partner-a",
+    )
+
+    bot.handle_message_created(
+        {
+            "message": {
+                "sender": {"user_id": 1, "username": "admin_user"},
+                "recipient": {"chat_id": 10},
+                "body": {"text": "/pending soon"},
+            }
+        }
+    )
+
+    sent = max_client.sent_messages[-1]
+    assert "/todo 3" in sent["text"]
+    assert backend.ops_calls == []
 
 
 def test_stock_command_rejects_invalid_threshold_without_backend_call() -> None:

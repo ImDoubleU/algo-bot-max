@@ -100,7 +100,8 @@ class Settings(BaseSettings):
             warnings.append("APP_SECRET_KEY still uses a placeholder value")
         if is_placeholder(self.max_backend_api_base):
             warnings.append(
-                "MAX_BACKEND_API_BASE is empty: bot can parse IDs but cannot create access links"
+                "MAX_BACKEND_API_BASE is empty: bot can show help/status, but profile, "
+                "catalog, orders and staff actions are unavailable"
             )
         if is_placeholder(self.max_miniapp_url):
             warnings.append("MAX_MINIAPP_URL is empty: miniapp link buttons will be disabled")

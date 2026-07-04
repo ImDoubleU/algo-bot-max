@@ -50,10 +50,64 @@ max_bot_venv\Scripts\python.exe -m app.cli.doctor
 max_bot_venv\Scripts\python.exe -m app.cli.bootstrap_superadmin --max-user-id 1
 ```
 
+То же самое одной командой для локальной разработки:
+
+```powershell
+max_bot_venv\Scripts\python.exe -m app.cli.dev_bootstrap --max-user-id 1
+```
+
+По умолчанию команда делает offline-smoke бота. Если backend уже запущен в другом терминале,
+можно добавить проверку связки бот -> backend:
+
+```powershell
+max_bot_venv\Scripts\python.exe -m app.cli.dev_bootstrap --max-user-id 1 --with-backend-smoke
+```
+
+Или дать bootstrap временно поднять backend только на время smoke:
+
+```powershell
+max_bot_venv\Scripts\python.exe -m app.cli.dev_bootstrap --max-user-id 1 --start-backend-smoke --api-port 8010
+```
+
+Сначала можно посмотреть план без изменений файлов и БД:
+
+```powershell
+max_bot_venv\Scripts\python.exe -m app.cli.dev_bootstrap --dry-run
+```
+
+Если нужно использовать SQLite-профиль без перезаписи текущего `.env`:
+
+```powershell
+max_bot_venv\Scripts\python.exe -m app.cli.dev_bootstrap --env-file .env.sqlite.example --max-user-id 1
+```
+
+`dev_bootstrap` по умолчанию останавливается, если текущий `DATABASE_URL` не SQLite.
+Для намеренного запуска на текущей БД используйте явный флаг `--allow-non-sqlite`.
+Значения из `.env` передаются во все дочерние команды bootstrap и перекрывают внешнее окружение
+только внутри этого запуска.
+
 После запуска backend можно проверить команду бота через API:
 
 ```powershell
 max_bot_venv\Scripts\python.exe main_bot.py --simulate-command "/me" --simulate-user-id 1
+```
+
+Быстрая offline-проверка самого бота без backend и без pytest:
+
+```powershell
+max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke
+```
+
+После запуска backend можно проверить основные сценарии через backend API:
+
+```powershell
+max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --with-backend --user-id 1
+```
+
+Для точечной проверки можно передать свои команды и callbacks:
+
+```powershell
+max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --command "/version" --callback "orders:open"
 ```
 
 ```powershell
@@ -99,28 +153,60 @@ max_bot_venv\Scripts\python.exe main_bot.py
 
 Основные команды в MAX:
 
-- `/help` - сценарий входа по Contact ID и подсказки.
-- `/me` - профиль из backend: связанные ученики, балансы, роли и открытые заказы.
-- `/balance` - балансы астрокоинов по связанным ученикам.
-- `/ledger` - последние начисления, списания и возвраты астрокоинов по связанным ученикам.
+- `/help [shop|orders|students|staff|setup]` - сценарий входа по Contact ID, общие команды и короткие разделы помощи.
+- `/me` - профиль из backend: связанные ученики, балансы, роли и открытые заказы; aliases: `/whoami`, `/profile`.
+- `/search <текст>` - общий поиск по товарам, ученикам и заказам; alias: `/find`.
+- `/balance [ученик]` - балансы астрокоинов по связанным ученикам; alias: `/wallet`.
+- `/lowbalance [AC]` - ученики с балансом ниже порога; по умолчанию 200 AC; alias: `/lowwallets`.
+- `/ledger [поиск]` - последние начисления, списания и возвраты; фильтр по ученику, причине, направлению или дате.
 - `/students [поиск]` - список доступных учеников с ролями, группами, площадками и балансами.
+- `/groups [поиск]` - сводка по группам: ученики, суммарный баланс, низкие балансы и открытые заказы; alias: `/classes`.
+- `/leaderboard [поиск]` - топ учеников по балансу AC с фильтром по группе, площадке или преподавателю; aliases: `/top`, `/leaders`.
+- `/student <поиск>` - карточка одного ученика: профиль, баланс, последние заказы и операции.
 - `/access` - обзор связей доступа и staff-ролей, доступных текущему MAX user_id.
+- `/accessoff <id>` и `/accesson <id>` - отозвать или восстановить связь доступа по ID из `/access`; права проверяет backend.
+- `/staffrole <MAX_ID> <role> [active|revoked] [| имя]` - выдать или отозвать staff-роль; aliases: `/staffset`, `/staffoff`, `/staffon`.
 - `/accrue <AC> <ученик> | <причина>` - начислить астрокоины одному найденному ученику; права staff/admin проверяет backend.
 - `/catalog [поиск]` - активные товары магазина с ценами и остатками; поиск работает по названию, SKU и категории.
-- `/orders` - открытые и последние заказы пользователя из backend.
+- `/categories` - разделы каталога с количеством товаров, общим остатком и готовыми поисковыми командами.
+- `/product <SKU или товар>` - карточка товара: цена, описание, остатки по складам и быстрая команда покупки.
+- `/quote <SKU> [шт.][, SKU шт.] [| <ученик>]` - рассчитать корзину, остатки и баланс без создания заказа и списания AC.
+- `/canbuy <SKU> [шт.][, SKU шт.] [| фильтр]` - показать, каким ученикам хватает AC на корзину; alias: `/afford`.
+- `/buy <SKU> [шт.][, SKU шт.] [| <ученик>]` - оформить заказ из чата; если связан один ученик, бот выберет его автоматически, иначе попросит уточнить ученика после `|`.
+- `/orders [open|issued|cancelled|поиск]` - открытые, последние или найденные заказы пользователя из backend.
+- `/myorders` - короткий alias для `/orders`; `/open` - короткий alias для `/orders open`.
 - `/order <номер>` - детальная карточка заказа: статус, состав, сумма и доступные быстрые действия.
-- `/stock [порог]` - проблемные остатки магазина для staff/admin; по умолчанию порог 5 штук.
-- `/ops [порог]` - операционная сводка для staff/admin: статусы заказов, ближайшие открытые заказы и остатки ниже порога.
-- `/cancel <номер>`, `/issue <номер>`, `/return <номер>` - отменить, выдать или принять возврат заказа; права и складские операции проверяет backend.
+- `/last [open|issued|cancelled]` - последняя карточка заказа или ближайший заказ с нужным статусом без поиска номера.
+- `/sales [open|issued|cancelled|all]` - сумма заказов, разрез по статусам и топ товаров; alias: `/revenue`.
+- `/repeat <номер>` - повторить заказ теми же товарами; backend заново проверит остатки, баланс и права.
+- `/productset <SKU> | <название> | <цена> [| категория] [| статус] [| описание]` - создать или обновить товар; статус: `active`, `hidden`, `archived`.
+- `/setprice <SKU или товар> <цена>` - быстро изменить цену существующего товара; alias: `/pricechange`.
+- `/productstatus <SKU или товар> <active|hidden|archived>` - изменить видимость товара; aliases: `/hideproduct`, `/showproduct`, `/archiveproduct`.
+- `/setphoto <SKU или товар> | <url>` - обновить фото товара; `/clearphoto <SKU или товар>` - удалить фото.
+- `/stock [порог]` - проблемные остатки магазина для staff/admin; по умолчанию порог 5 штук; alias: `/lowstock`.
+- `/inventory [порог]` - расширенный список остатков; без порога показывает позиции с остатком до 999 штук.
+- `/warehouses` - склады tenant, slug, типы и суммарные остатки; alias: `/wh`.
+- `/warehouse <slug> | <название> [| type] [| адрес]` - создать или обновить склад; type: `common`, `venue`, `partner`, `external`.
+- `/setstock <SKU> <остаток> [| склад]` - установить фактический остаток товара на складе; права проверяет backend.
+- `/transfer <SKU> <шт> | <откуда> -> <куда>` - переместить свободный остаток между складами; alias: `/move`.
+- `/ops [порог]` - операционная сводка для staff/admin: статусы заказов, ближайшие открытые заказы и остатки ниже порога; aliases: `/dashboard`, `/overview`.
+- `/todo [порог]` - компактный список ближайших заказов к выдаче и низких остатков для staff/admin.
+- `/cancel <номер>`, `/issue <номер>`, `/return <номер>` - отменить, выдать или принять возврат заказа; права и складские операции проверяет backend. Staff aliases: `/void`, `/done`, `/refund`.
+- Для `/repeat`, `/cancel`, `/issue`, `/return` и staff aliases нужен точный номер заказа; слова `last`/`open` не выполняют действие. Сначала откройте `/last open` или `/orders open`, затем используйте номер.
 - `/miniapp` - персональная ссылка на miniapp с текущим tenant и MAX user_id.
-- `/status` - текущий tenant, backend API, miniapp и marker polling.
+- `/status` - текущий/default tenant, MAX/backend/miniapp URL, marker polling и быстрые команды проверки.
+- `/setup` - короткая справка по запуску, `.env`, readiness и диагностическим командам.
+- `/version` или `/about` - версия приложения, revision, окружение и runtime-ссылки для быстрой диагностики.
+- `/config` или `/doctor` - безопасный локальный config report без секретов.
 - `/ready` - readiness backend API: config report, БД и наличие базовых данных miniapp.
-- `/id` - диагностический MAX user_id/chat_id.
-- `/tenant <slug>` - сменить tenant для текущего пользователя.
+- `/id` - диагностический MAX user_id/chat_id, текущий tenant, backend API и miniapp URL.
+- `/tenant <slug|reset>` - сменить tenant для текущего пользователя или вернуть default; slug принимает латинские буквы, цифры, `-` и `_`.
 - `/link <Contact ID>` - создать deep link для входа по Contact ID.
 
-Кнопки меню открывают те же быстрые сценарии: каталог, баланс, заказы, учеников, историю астрокоинов, статус и miniapp.
-Дополнительные alias-команды: `/menu` и `/commands` открывают помощь, `/shop` открывает каталог, `/history` открывает историю астрокоинов. Неизвестная slash-команда возвращает подсказку по командам и не запускает вход по Contact ID.
+Кнопки меню открывают те же быстрые сценарии: каталог, баланс, все заказы, открытые заказы, учеников, группы, рейтинг AC, историю астрокоинов, staff-сводку, заказы к выдаче, проблемные остатки, статус и miniapp.
+Обычный текст без `/` сначала проверяется как Contact ID; если backend не нашел такой Contact ID и текст похож на название/SKU товара, бот покажет поиск по каталогу.
+Дополнительные alias-команды: `/menu` и `/commands` открывают помощь, `/shop` открывает каталог, `/history` открывает историю астрокоинов, `/myorders` открывает заказы, `/open` открывает открытые заказы, `/price` рассчитывает корзину как `/quote`. Неизвестная slash-команда возвращает подсказку по командам и не запускает вход по Contact ID.
+В групповых чатах поддерживаются команды с упоминанием бота, например `/help@BotName shop`; команды, адресованные другому боту, игнорируются.
 
 `MAX_USER_ID` для первичного суперадмина можно узнать командой `/id` в боте.
 `app.cli.seed_store` создает demo tenant, каталог, склад, двух учеников, кошельки по 1000 AC и Contact ID `681`; если передать `--max-user-id`, команда сразу привяжет этот Contact ID к пользователю.
@@ -163,6 +249,11 @@ max_bot_venv\Scripts\python.exe main_bot.py --config-check
 
 ```powershell
 max_bot_venv\Scripts\python.exe main_bot.py --simulate-command "/help" --simulate-offline
+max_bot_venv\Scripts\python.exe main_bot.py --simulate-callback "orders:open" --simulate-offline
+max_bot_venv\Scripts\python.exe main_bot.py --simulate-callback "groups" --simulate-offline
+max_bot_venv\Scripts\python.exe main_bot.py --simulate-callback "leaderboard" --simulate-offline
+max_bot_venv\Scripts\python.exe main_bot.py --simulate-callback "todo" --simulate-offline
+max_bot_venv\Scripts\python.exe main_bot.py --simulate-callback "stock" --simulate-offline
 ```
 
 Когда `MAX_BOT_TOKEN` уже настоящий, можно проверить доступ к MAX API и активные webhook-подписки:
