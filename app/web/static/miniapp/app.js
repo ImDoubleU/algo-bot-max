@@ -6,7 +6,12 @@ const apiContext = {
 
 const state = {
   role: "student",
-  view: "dashboard",
+  availableRoles: ["student", "parent", "teacher", "admin"],
+  view: ["dashboard", "store", "cart", "orders", "wallet", "accrual", "admin"].includes(
+    queryParam("view"),
+  )
+    ? queryParam("view")
+    : "dashboard",
   adminTab: "summary",
   studentGroupFilter: "all",
   orderStatusFilter: "open",
@@ -17,16 +22,25 @@ const state = {
   activeStudentId: "demo-alisa",
   cart: new Map(),
   favorites: new Set(["demo-pen"]),
+  favoritesOnly: false,
+  inStockOnly: false,
+  productSort: "recommended",
+  productCategory: "all",
+  refreshing: false,
+  lastSyncAt: null,
   catalogLoaded: false,
   sessionLoaded: false,
   productImporting: false,
   productImportFile: null,
   productImportFileName: "",
   productSaving: false,
+  productEditorOpen: false,
   editingProductId: "",
   staffSaving: false,
+  staffEditorOpen: false,
   inventorySavingKey: "",
   warehouseSaving: false,
+  warehouseEditorOpen: false,
   editingWarehouseId: "",
   opsSummary: null,
   opsSummaryLoaded: false,
@@ -110,6 +124,7 @@ let products = [
   {
     id: "demo-game",
     name: "Игра Кибертаун",
+    description: "Настольная игра о цифровом городе, логике и командной работе.",
     category: "Игры",
     price: 900,
     stock: 4,
@@ -135,6 +150,7 @@ let products = [
   {
     id: "demo-pen",
     name: "Ручка металл с лого",
+    description: "Металлическая ручка Алгоритмики в подарочной упаковке.",
     category: "Канцелярия",
     price: 120,
     stock: 18,
@@ -160,6 +176,7 @@ let products = [
   {
     id: "demo-bracelet",
     name: "Силиконовый браслет",
+    description: "Фирменный мягкий браслет для учеников Алгоритмики.",
     category: "Браслеты",
     price: 160,
     stock: 2,
@@ -178,6 +195,7 @@ let products = [
   {
     id: "demo-mug",
     name: "Кружка Python. Be the best",
+    description: "Керамическая кружка с принтом Python для будущих разработчиков.",
     category: "Кружки",
     price: 520,
     stock: 0,
@@ -196,6 +214,7 @@ let products = [
   {
     id: "demo-magnet",
     name: "Магнит Roblox",
+    description: "Яркий сувенир для поклонников Roblox и игровой разработки.",
     category: "Магниты",
     price: 90,
     stock: 24,
@@ -214,6 +233,7 @@ let products = [
   {
     id: "demo-pad",
     name: "Коврик для мышки",
+    description: "Большой нескользящий коврик для учебы, игр и домашних проектов.",
     category: "Аксессуары",
     price: 700,
     stock: 3,
@@ -235,40 +255,82 @@ let orders = [
   {
     id: "1357",
     backendId: "demo-order-1357",
+    studentId: "demo-alisa",
     rawStatus: "reserved",
     student: "Алиса",
     item: "Ручка металл с лого",
     warehouse: "Союзный 45",
     status: "Зарезервирован",
     tone: "ok",
+    total: 120,
+    createdAt: "2026-06-16T12:30:00Z",
+    items: [
+      {
+        productName: "Ручка металл с лого",
+        quantity: 1,
+        totalPrice: 120,
+        warehouseName: "Союзный 45",
+      },
+    ],
+    statusHistory: [
+      { fromStatus: "created", toStatus: "reserved", comment: "Товар зарезервирован", createdAt: "2026-06-16T12:30:00Z" },
+    ],
   },
   {
     id: "1358",
     backendId: "demo-order-1358",
+    studentId: "demo-ivan",
     rawStatus: "transferred_to_teacher",
     student: "Иван",
     item: "Кружка Python",
     warehouse: "Общий склад",
     status: "Передан педагогу",
     tone: "warn",
+    total: 520,
+    createdAt: "2026-06-15T16:10:00Z",
+    items: [
+      {
+        productName: "Кружка Python",
+        quantity: 1,
+        totalPrice: 520,
+        warehouseName: "Общий склад",
+      },
+    ],
+    statusHistory: [
+      { fromStatus: "reserved", toStatus: "transferred_to_teacher", comment: "Передано педагогу", createdAt: "2026-06-16T09:00:00Z" },
+    ],
   },
   {
     id: "1359",
     backendId: "demo-order-1359",
+    studentId: "demo-mark",
     rawStatus: "problem",
     student: "Марк",
     item: "Игра Кибертаун",
     warehouse: "Не выбран",
     status: "Проблема",
     tone: "danger",
+    total: 900,
+    createdAt: "2026-06-14T18:45:00Z",
+    items: [
+      {
+        productName: "Игра Кибертаун",
+        quantity: 1,
+        totalPrice: 900,
+        warehouseName: "Не выбран",
+      },
+    ],
+    statusHistory: [
+      { fromStatus: "created", toStatus: "problem", comment: "Требуется выбрать склад", createdAt: "2026-06-14T18:46:00Z" },
+    ],
   },
 ];
 
 let ledger = [
-  ["16.06", "Начисление за проект на уроке", "+120 AC"],
-  ["14.06", "Покупка: ручка металл с лого", "-120 AC"],
-  ["12.06", "Бонус за домашнее задание", "+80 AC"],
-  ["10.06", "Корректировка администратора", "+40 AC"],
+  ["16.06", "Начисление за проект на уроке", "+120 AC", "demo-alisa"],
+  ["14.06", "Покупка: ручка металл с лого", "-120 AC", "demo-alisa"],
+  ["12.06", "Бонус за домашнее задание", "+80 AC", "demo-ivan"],
+  ["10.06", "Корректировка администратора", "+40 AC", "demo-mark"],
 ];
 
 const warehouses = [
@@ -306,6 +368,16 @@ function qsa(selector) {
 
 function queryParam(name) {
   return new URLSearchParams(window.location.search).get(name);
+}
+
+function tenantTitle() {
+  if (apiContext.demoMode) return "Демо-магазин";
+  if (!apiContext.tenantSlug) return "Контур по умолчанию";
+  return apiContext.tenantSlug
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function escapeHtml(value) {
@@ -456,6 +528,123 @@ function cartKey(productId, warehouseId) {
   return `${productId}::${warehouseId || "auto"}`;
 }
 
+function cartStorageKey() {
+  const tenant = apiContext.tenantSlug || (apiContext.demoMode ? "demo" : "default");
+  const user = apiContext.maxUserId || "guest";
+  return `algo-max-cart:${tenant}:${user}`;
+}
+
+function saveCart() {
+  try {
+    localStorage.setItem(cartStorageKey(), JSON.stringify(Array.from(state.cart.values())));
+  } catch (error) {
+    console.warn("Не удалось сохранить корзину", error);
+  }
+}
+
+function restoreCart() {
+  let storedItems = [];
+  try {
+    storedItems = JSON.parse(localStorage.getItem(cartStorageKey()) || "[]");
+  } catch (error) {
+    console.warn("Не удалось восстановить корзину", error);
+    return;
+  }
+  if (!Array.isArray(storedItems)) return;
+
+  storedItems.forEach((item) => {
+    const product = productById(String(item.productId || ""));
+    const warehouse = product ? warehouseById(product, String(item.warehouseId || "")) : null;
+    if (!product || !warehouse || warehouse.available <= 0) return;
+    const quantity = clampQuantity(item.quantity, warehouse.available);
+    state.cart.set(cartKey(product.id, warehouse.id), {
+      productId: product.id,
+      warehouseId: warehouse.id,
+      warehouseName: warehouse.name,
+      quantity,
+    });
+  });
+}
+
+function favoritesStorageKey() {
+  const tenant = apiContext.tenantSlug || (apiContext.demoMode ? "demo" : "default");
+  const user = apiContext.maxUserId || "guest";
+  return `algo-max-favorites:${tenant}:${user}`;
+}
+
+function preferencesStorageKey() {
+  const tenant = apiContext.tenantSlug || (apiContext.demoMode ? "demo" : "default");
+  const user = apiContext.maxUserId || "guest";
+  return `algo-max-preferences:${tenant}:${user}`;
+}
+
+function savePreferences() {
+  try {
+    localStorage.setItem(
+      preferencesStorageKey(),
+      JSON.stringify({
+        activeStudentId: state.activeStudentId,
+        productCategory: state.productCategory,
+        productSort: state.productSort,
+        inStockOnly: state.inStockOnly,
+        favoritesOnly: state.favoritesOnly,
+        orderStatusFilter: state.orderStatusFilter,
+      }),
+    );
+  } catch (error) {
+    console.warn("Не удалось сохранить настройки mini-app", error);
+  }
+}
+
+function restorePreferences() {
+  try {
+    const preferences = JSON.parse(localStorage.getItem(preferencesStorageKey()) || "null");
+    if (!preferences || typeof preferences !== "object") return;
+    if (preferences.activeStudentId) state.activeStudentId = String(preferences.activeStudentId);
+    if (["recommended", "price-asc", "price-desc", "name"].includes(preferences.productSort)) {
+      state.productSort = preferences.productSort;
+    }
+    state.productCategory = String(preferences.productCategory || "all");
+    state.inStockOnly = Boolean(preferences.inStockOnly);
+    state.favoritesOnly = Boolean(preferences.favoritesOnly);
+    if (
+      [
+        "open",
+        "all",
+        "reserved",
+        "transferred_to_teacher",
+        "issued_to_student",
+        "cancelled",
+        "returned",
+        "problem",
+      ].includes(preferences.orderStatusFilter)
+    ) {
+      state.orderStatusFilter = preferences.orderStatusFilter;
+    }
+  } catch (error) {
+    console.warn("Не удалось восстановить настройки mini-app", error);
+  }
+}
+
+function saveFavorites() {
+  try {
+    localStorage.setItem(favoritesStorageKey(), JSON.stringify(Array.from(state.favorites)));
+  } catch (error) {
+    console.warn("Не удалось сохранить избранное", error);
+  }
+}
+
+function restoreFavorites() {
+  try {
+    const value = localStorage.getItem(favoritesStorageKey());
+    if (value === null) return;
+    const productIds = JSON.parse(value);
+    if (Array.isArray(productIds)) state.favorites = new Set(productIds.map(String));
+  } catch (error) {
+    console.warn("Не удалось восстановить избранное", error);
+  }
+}
+
 function cartQuantityFor(productId, warehouseId) {
   return state.cart.get(cartKey(productId, warehouseId))?.quantity || 0;
 }
@@ -466,6 +655,13 @@ function productById(productId) {
 
 function activeProducts() {
   return products.filter((product) => (product.status || "active") === "active");
+}
+
+function productAvailable(product) {
+  return productWarehouses(product).reduce(
+    (total, warehouse) => total + Number(warehouse.available || 0),
+    0,
+  );
 }
 
 function productSearchText(product) {
@@ -753,6 +949,7 @@ function buildLocalOpsSummary() {
       .filter((order) => isOpenOrderStatus(order.rawStatus))
       .slice(0, 8)
       .map((order) => ({
+        id: order.backendId || order.id,
         order_number: order.id,
         student_name: order.student,
         status: order.rawStatus,
@@ -780,6 +977,10 @@ function staffRoleLabel(role) {
     curator: "Куратор",
     teacher: "Педагог",
   }[role] || role;
+}
+
+function accessRoleLabel(role) {
+  return { parent: "Родитель", student: "Ученик" }[role] || role;
 }
 
 function assignmentStatusLabel(status) {
@@ -873,12 +1074,16 @@ function applySession(session) {
   orders = (session.orders || []).map((order) => ({
     id: String(order.order_number),
     backendId: String(order.id),
+    studentId: String(order.student_id),
     rawStatus: order.status,
     student: order.student_name,
     item: `Заказ на ${order.total_astrocoins} AC`,
     warehouse: order.venue_name || "Склад будет выбран",
     status: orderStatusLabel(order.status),
     tone: orderStatusTone(order.status),
+    total: Number(order.total_astrocoins || 0),
+    createdAt: order.created_at || "",
+    teacherName: order.teacher_name || "",
   }));
 
   orders = orders.map((order, index) => {
@@ -891,7 +1096,6 @@ function applySession(session) {
       item: orderItemsSummary(items, order.item),
       items,
       statusHistory,
-      total: Number(sourceOrder.total_astrocoins || 0),
       warehouse: orderWarehouseSummary(items, order.warehouse),
     };
   });
@@ -921,10 +1125,17 @@ function applySession(session) {
     formatDate(entry.created_at),
     entry.reason,
     ledgerAmount(entry),
+    String(entry.student_id),
   ]);
 
   const staffRole = staffRoleToUiRole(session.staff_roles || []);
   const hasParentRole = session.student_roles?.includes("parent");
+  const availableRoles = new Set(session.student_roles || []);
+  if (staffRole) availableRoles.add(staffRole);
+  if (availableRoles.size === 0) availableRoles.add("student");
+  state.availableRoles = Array.from(availableRoles).filter((role) =>
+    ["student", "parent", "teacher", "admin"].includes(role),
+  );
   state.role = staffRole || (hasParentRole ? "parent" : "student");
   state.sessionLoaded = true;
 }
@@ -1031,39 +1242,148 @@ async function refreshCatalogAndOpsSummary() {
   await loadOpsSummary();
 }
 
+function renderSyncStatus() {
+  const label = qs("#lastSyncTime");
+  const button = qs("#refreshDataButton");
+  if (!label || !button) return;
+  if (state.refreshing) {
+    label.textContent = "Обновление";
+  } else if (state.lastSyncAt) {
+    label.textContent = `Обновлено ${state.lastSyncAt.toLocaleTimeString("ru-RU", {
+      hour: "2-digit",
+      minute: "2-digit",
+    })}`;
+  } else {
+    label.textContent = apiContext.demoMode ? "Демо-данные" : "Данные не обновлялись";
+  }
+  button.disabled = state.refreshing;
+  button.classList.toggle("is-loading", state.refreshing);
+  button.setAttribute("aria-busy", String(state.refreshing));
+}
+
+async function refreshAllData() {
+  if (state.refreshing) return;
+  state.refreshing = true;
+  renderSyncStatus();
+
+  const errors = [];
+  const results = await Promise.allSettled([loadSession(), loadCatalog()]);
+  results.forEach((result) => {
+    if (result.status === "rejected") errors.push(result.reason);
+  });
+  try {
+    await loadOpsSummary();
+  } catch (error) {
+    errors.push(error);
+  }
+
+  state.lastSyncAt = new Date();
+  state.refreshing = false;
+  renderAll();
+  renderSyncStatus();
+  if (errors.length > 0) {
+    showNotice(
+      errors[0]?.message || "Часть данных не удалось обновить",
+      "danger",
+    );
+  } else {
+    showNotice(apiContext.demoMode ? "Демо-данные обновлены" : "Данные обновлены");
+  }
+}
+
 function setView(view) {
+  const previousView = state.view;
   state.view = view;
+  const url = new URL(window.location.href);
+  url.searchParams.set("view", view);
+  window.history.replaceState(null, "", url);
+  document.body.dataset.activeView = view;
   qsa(".nav-button").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.view === view);
   });
   qsa("[data-view-panel]").forEach((panel) => {
     panel.classList.toggle("is-active", panel.dataset.viewPanel === view);
   });
+  const mobileMoreButton = qs("#mobileMoreButton");
+  mobileMoreButton?.classList.toggle("is-active", ["wallet", "accrual", "admin"].includes(view));
+  closeMobileMorePanel();
+  if (previousView !== view && window.matchMedia("(max-width: 640px)").matches) {
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }
 }
 
 function setRole(role) {
+  if (!state.availableRoles.includes(role)) return;
   state.role = role;
   qsa(".role-button").forEach((button) => {
+    button.hidden = !state.availableRoles.includes(button.dataset.role);
     button.classList.toggle("is-active", button.dataset.role === role);
   });
+  const roleSwitch = qs(".role-switch");
+  if (roleSwitch) roleSwitch.hidden = state.availableRoles.length <= 1;
 
-  const adminButton = qs('[data-view="admin"]');
-  adminButton.disabled = !["teacher", "admin"].includes(role);
-  if (adminButton.disabled && state.view === "admin") {
+  const adminButtons = qsa('[data-view="admin"]');
+  const staffViewsDisabled = !["teacher", "admin"].includes(role);
+  const adminDisabled = staffViewsDisabled;
+  adminButtons.forEach((button) => {
+    button.disabled = adminDisabled;
+  });
+  qsa('[data-view="accrual"], [data-view-jump="accrual"]').forEach((button) => {
+    button.disabled = staffViewsDisabled;
+  });
+  if (staffViewsDisabled && ["admin", "accrual"].includes(state.view)) {
     setView("dashboard");
   }
   renderStatus();
+  renderOrders();
+  renderAdminPanel();
+  if (
+    !apiContext.demoMode &&
+    !state.opsSummaryLoaded &&
+    ["teacher", "admin"].includes(role)
+  ) {
+    loadOpsSummary()
+      .then(renderAdminPanel)
+      .catch((error) => console.warn(error));
+  }
+}
+
+function closeMobileMorePanel() {
+  const panel = qs("#mobileMorePanel");
+  if (panel) panel.hidden = true;
+}
+
+function toggleMobileMorePanel() {
+  const panel = qs("#mobileMorePanel");
+  if (!panel) return;
+  panel.hidden = !panel.hidden;
 }
 
 function setActiveStudent(studentId) {
   if (!students.some((student) => student.id === studentId)) return;
   state.activeStudentId = studentId;
+  savePreferences();
   renderAll();
 }
 
 function renderStatus() {
   const student = selectedStudent();
   const linkedCount = students.length;
+  const openOrders = orders.filter((order) => isOpenOrderStatus(order.rawStatus));
+  const studentOpenOrders = student
+    ? openOrders.filter((order) =>
+        order.studentId ? order.studentId === student.id : order.student === student.name,
+      )
+    : [];
+  const lowStockProducts = products.filter((product) => {
+    const available = product.warehouses?.length
+      ? product.warehouses.reduce(
+          (total, warehouse) => total + Number(warehouse.available_quantity || 0),
+          0,
+        )
+      : Number(product.stock || 0);
+    return available <= 5;
+  }).length;
   const labels = {
     student: student ? `${student.name}, ученик` : "Ученик",
     parent: linkedCount > 0 ? `Родитель, ${linkedCount} учен.` : "Родитель",
@@ -1074,11 +1394,47 @@ function renderStatus() {
   state.balance = student?.balance || 0;
   qs("#profileTitle").textContent = labels[state.role] || "Профиль";
   qs("#balanceValue").textContent = state.balance;
-  qs("#linkedStudentsCount").textContent = linkedCount;
-  qs("#openOrdersCount").textContent = orders.filter((order) =>
-    isOpenOrderStatus(order.rawStatus),
-  ).length;
-  qs("#stockProblemCount").textContent = orders.filter((order) => order.tone === "danger").length;
+
+  const metricsByRole = {
+    student: {
+      title: "Мой кабинет",
+      values: [state.balance, studentOpenOrders.length, state.favorites.size],
+      labels: ["AC доступно", "моих активных заказов", "товаров в избранном"],
+    },
+    parent: {
+      title: "Семейный кабинет",
+      values: [linkedCount, openOrders.length, state.favorites.size],
+      labels: ["связанных учеников", "активных заказов", "товаров в избранном"],
+    },
+    teacher: {
+      title: "Рабочий обзор",
+      values: [linkedCount, openOrders.length, lowStockProducts],
+      labels: ["учеников доступно", "заказов в работе", "товаров заканчивается"],
+    },
+    admin: {
+      title: "Операционный обзор",
+      values: [linkedCount, openOrders.length, lowStockProducts],
+      labels: ["учеников в контуре", "заказов в работе", "товаров заканчивается"],
+    },
+  };
+  const dashboardMetrics = metricsByRole[state.role] || metricsByRole.student;
+  qs("#dashboardTitle").textContent = dashboardMetrics.title;
+  qs("#dashboardOrdersTitle").textContent = {
+    student: "Мои заказы",
+    parent: "Заказы детей",
+    teacher: "Заказы к выдаче",
+    admin: "Заказы к выдаче",
+  }[state.role] || "Заказы";
+  ["#linkedStudentsCount", "#openOrdersCount", "#stockProblemCount"].forEach(
+    (selector, index) => {
+      qs(selector).textContent = dashboardMetrics.values[index];
+    },
+  );
+  ["#dashboardMetricOneLabel", "#dashboardMetricTwoLabel", "#dashboardMetricThreeLabel"].forEach(
+    (selector, index) => {
+      qs(selector).textContent = dashboardMetrics.labels[index];
+    },
+  );
 
   const select = qs("#studentSelect");
   select.innerHTML = sortedStudents()
@@ -1156,7 +1512,7 @@ function renderDashboardOrders() {
   const list = qs("#dashboardOrders");
   if (!list) return;
 
-  const visible = orders.slice(0, 4);
+  const visible = ordersForCurrentRole().slice(0, 4);
   if (visible.length === 0) {
     list.innerHTML = '<div class="empty-state compact-empty">Заказов пока нет</div>';
     return;
@@ -1165,13 +1521,18 @@ function renderDashboardOrders() {
   list.innerHTML = visible
     .map(
       (order) => `
-        <div class="compact-order">
+        <button
+          class="compact-order"
+          type="button"
+          data-open-order="${escapeHtml(order.backendId || order.id)}"
+          aria-label="Открыть заказ №${escapeHtml(order.id)}"
+        >
           <div>
             <strong>${escapeHtml(order.student)}</strong>
             <div class="student-meta">${escapeHtml(order.item)}</div>
           </div>
           <span class="status-badge ${order.tone}">${escapeHtml(order.status)}</span>
-        </div>
+        </button>
       `,
     )
     .join("");
@@ -1179,7 +1540,7 @@ function renderDashboardOrders() {
 
 function renderCategories() {
   const filter = qs("#categoryFilter");
-  const selected = filter.value || "all";
+  const selected = state.productCategory || filter.value || "all";
   const categories = [...new Set(activeProducts().map((product) => product.category))];
   filter.innerHTML = [
     '<option value="all">Все категории</option>',
@@ -1187,22 +1548,46 @@ function renderCategories() {
       (category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`,
     ),
   ].join("");
-  filter.value = categories.includes(selected) ? selected : "all";
+  state.productCategory = categories.includes(selected) ? selected : "all";
+  filter.value = state.productCategory;
 }
 
 function renderProducts() {
   const search = qs("#productSearch").value.trim().toLowerCase();
   const category = qs("#categoryFilter").value;
+  const sort = qs("#productSort").value;
   const grid = qs("#productGrid");
-  const visible = activeProducts().filter((product) => {
-    const matchesSearch = productMatchesSearch(product, search);
-    const matchesCategory = category === "all" || product.category === category;
-    return matchesSearch && matchesCategory;
-  });
+  state.productSort = sort;
+  state.productCategory = category;
+  state.inStockOnly = qs("#inStockOnly").checked;
+  const visible = activeProducts()
+    .filter((product) => {
+      const matchesSearch = productMatchesSearch(product, search);
+      const matchesCategory = category === "all" || product.category === category;
+      const matchesFavorite = !state.favoritesOnly || state.favorites.has(product.id);
+      const matchesStock = !state.inStockOnly || productAvailable(product) > 0;
+      return matchesSearch && matchesCategory && matchesFavorite && matchesStock;
+    })
+    .sort((left, right) => {
+      if (sort === "price-asc") return left.price - right.price;
+      if (sort === "price-desc") return right.price - left.price;
+      if (sort === "name") return left.name.localeCompare(right.name, "ru");
+      return 0;
+    });
+
+  const favoritesCount = activeProducts().filter((product) =>
+    state.favorites.has(product.id),
+  ).length;
+  const favoritesFilter = qs("#favoritesFilter");
+  favoritesFilter.setAttribute("aria-pressed", String(state.favoritesOnly));
+  qs("#favoritesCount").textContent = favoritesCount;
+  qs("#catalogResultCount").textContent = productCountLabel(visible.length);
 
   grid.classList.toggle("is-empty", visible.length === 0);
   if (visible.length === 0) {
-    grid.innerHTML = '<div class="empty-state">Товары не найдены</div>';
+    grid.innerHTML = state.favoritesOnly
+      ? '<div class="empty-state"><div>В избранном пока ничего нет</div><button class="secondary-action" type="button" data-show-all-products>Показать все товары</button></div>'
+      : '<div class="empty-state">Товары не найдены</div>';
     return;
   }
 
@@ -1217,7 +1602,14 @@ function renderProducts() {
       const stockText = product.stock > 0 ? `Остаток ${product.stock}` : "Нет в наличии";
       return `
         <article class="product-card" data-product-card="${escapeHtml(product.id)}">
-          <div class="product-visual">${escapeHtml(product.mark)}</div>
+          <div class="product-visual ${product.photoUrl ? "has-photo" : ""}">
+            <span class="product-mark">${escapeHtml(product.mark)}</span>
+            ${
+              product.photoUrl
+                ? `<img src="${escapeHtml(product.photoUrl)}" alt="${escapeHtml(product.name)}" loading="lazy" />`
+                : ""
+            }
+          </div>
           <div class="product-body">
             <h3>${escapeHtml(product.name)}</h3>
             <div class="product-meta">
@@ -1263,6 +1655,11 @@ function renderProducts() {
               data-favorite="${escapeHtml(product.id)}"
             >★</button>
             <button
+              class="secondary-action product-details-action"
+              type="button"
+              data-product-details="${escapeHtml(product.id)}"
+            >Подробнее</button>
+            <button
               class="primary-action"
               type="button"
               data-add="${escapeHtml(product.id)}"
@@ -1273,6 +1670,15 @@ function renderProducts() {
       `;
     })
     .join("");
+}
+
+function productCountLabel(count) {
+  const lastTwo = count % 100;
+  const last = count % 10;
+  if (lastTwo >= 11 && lastTwo <= 14) return `${count} товаров`;
+  if (last === 1) return `${count} товар`;
+  if (last >= 2 && last <= 4) return `${count} товара`;
+  return `${count} товаров`;
 }
 
 function cartCount() {
@@ -1289,7 +1695,12 @@ function cartTotal() {
 function renderCart() {
   const list = qs("#cartList");
   if (state.cart.size === 0) {
-    list.innerHTML = '<div class="empty-state">Корзина пока пустая</div>';
+    list.innerHTML = `
+      <div class="empty-state cart-empty-state">
+        <strong>Корзина пока пустая</strong>
+        <button class="primary-action" type="button" data-view-jump="store">Перейти в магазин</button>
+      </div>
+    `;
   } else {
     list.innerHTML = Array.from(state.cart.entries())
       .map(([key, item]) => {
@@ -1338,9 +1749,202 @@ function renderCart() {
   }
 
   const total = cartTotal();
-  qs("#cartCounter").textContent = cartCount();
+  const count = cartCount();
+  const student = selectedStudent();
+  const balance = Number(student?.balance || 0);
+  const remaining = balance - total;
+  const canCheckout = state.cart.size > 0 && Boolean(student) && remaining >= 0;
+  qs("#cartCounter").textContent = count;
+  qsa("[data-cart-count]").forEach((counter) => {
+    counter.textContent = count;
+    counter.hidden = count === 0;
+  });
   qs("#cartTotal").textContent = total;
-  qs("#placeOrderButton").disabled = state.cart.size === 0 || total > state.balance;
+  qs("#cartSummary").hidden = state.cart.size === 0;
+  qs("#cartStudentName").textContent = student?.name || "Ученик не выбран";
+  qs("#cartBalance").textContent = balance;
+  qs("#cartAffordabilityLabel").textContent = remaining >= 0 ? "Останется" : "Не хватает";
+  qs("#cartAffordabilityValue").textContent = Math.abs(remaining);
+  qs("#cartAffordability").classList.toggle("is-danger", remaining < 0);
+  qs("#placeOrderButton").disabled = !canCheckout;
+  qs("#placeOrderButton").textContent = canCheckout
+    ? `Оформить за ${total} AC`
+    : remaining < 0
+    ? `Не хватает ${Math.abs(remaining)} AC`
+    : "Оформить заказ";
+  qs("#storeCartBar").hidden = count === 0;
+  qs("#storeCartCount").textContent = productCountLabel(count);
+  qs("#storeCartTotal").textContent = total;
+  qs("#storeView").classList.toggle("has-cart-dock", count > 0);
+}
+
+function renderCheckoutSummary() {
+  const student = selectedStudent();
+  const total = cartTotal();
+  const summary = qs("#checkoutSummary");
+  if (!student || state.cart.size === 0) {
+    summary.innerHTML = '<div class="empty-state">Корзина пока пустая</div>';
+    return;
+  }
+
+  const items = Array.from(state.cart.values())
+    .map((item) => {
+      const product = productById(item.productId);
+      if (!product) return "";
+      return `
+        <div class="checkout-item">
+          <div>
+            <strong>${escapeHtml(product.name)}</strong>
+            <div class="student-meta">${item.quantity} шт. · ${escapeHtml(item.warehouseName)}</div>
+          </div>
+          <span class="checkout-item-total">${product.price * item.quantity} AC</span>
+        </div>
+      `;
+    })
+    .filter(Boolean)
+    .join("");
+
+  summary.innerHTML = `
+    <div class="checkout-student">
+      <div>
+        <span class="label">Получатель</span>
+        <strong>${escapeHtml(student.name)}</strong>
+        <div class="student-meta">${escapeHtml(student.group)}</div>
+      </div>
+      <div class="checkout-balance">
+        Баланс ${student.balance} AC<br />
+        После заказа ${student.balance - total} AC
+      </div>
+    </div>
+    <div class="checkout-items">${items}</div>
+    <div class="checkout-total">
+      <span>К списанию</span>
+      <strong>${total} AC</strong>
+    </div>
+  `;
+}
+
+function openCheckoutDialog() {
+  const student = selectedStudent();
+  const total = cartTotal();
+  if (!student || state.cart.size === 0) return;
+  if (total > student.balance) {
+    showNotice("Недостаточно астрокоинов для заказа", "danger");
+    return;
+  }
+
+  renderCheckoutSummary();
+  const dialog = qs("#checkoutDialog");
+  dialog.hidden = false;
+  document.body.classList.add("dialog-open");
+  qs("#confirmOrderButton").focus();
+}
+
+function closeCheckoutDialog() {
+  const dialog = qs("#checkoutDialog");
+  if (dialog.hidden) return;
+  dialog.hidden = true;
+  syncDialogBodyClass();
+  qs("#placeOrderButton").focus();
+}
+
+function syncDialogBodyClass() {
+  const hasOpenDialog = qsa(".dialog-backdrop").some((dialog) => !dialog.hidden);
+  document.body.classList.toggle("dialog-open", hasOpenDialog);
+}
+
+function syncProductDialogControls() {
+  const dialog = qs("#productDialog");
+  const product = productById(dialog.dataset.productId || "");
+  if (!product) return;
+
+  const warehouseSelect = qs("#productDialogWarehouse");
+  const quantityInput = qs("#productDialogQuantity");
+  const warehouse = warehouseById(product, warehouseSelect.value);
+  const addButton = qs("#productDialogAddButton");
+  const stock = qs("#productDialogStock");
+  if (!warehouse) {
+    addButton.disabled = true;
+    return;
+  }
+
+  const availableLeft = Math.max(
+    warehouse.available - cartQuantityFor(product.id, warehouse.id),
+    0,
+  );
+  quantityInput.max = String(availableLeft);
+  quantityInput.disabled = availableLeft <= 0;
+  quantityInput.value = availableLeft <= 0
+    ? "0"
+    : String(clampQuantity(quantityInput.value || "1", availableLeft));
+  addButton.disabled = availableLeft <= 0;
+  stock.textContent = availableLeft > 0
+    ? `Доступно ${availableLeft} шт. на складе «${warehouse.name}»`
+    : `На складе «${warehouse.name}» свободного остатка нет`;
+  stock.classList.toggle("is-empty", availableLeft <= 0);
+}
+
+function openProductDialog(productId) {
+  const product = productById(productId);
+  if (!product || (product.status || "active") !== "active") return;
+  const warehouses = productWarehouses(product);
+  const dialog = qs("#productDialog");
+  dialog.dataset.productId = product.id;
+  qs("#productDialogTitle").textContent = product.name;
+  qs("#productDialogContent").innerHTML = `
+    <div class="product-dialog-visual">
+      <span>${escapeHtml(product.mark)}</span>
+      ${
+        product.photoUrl
+          ? `<img src="${escapeHtml(product.photoUrl)}" alt="${escapeHtml(product.name)}" />`
+          : ""
+      }
+    </div>
+    <div class="product-dialog-info">
+      <div class="product-dialog-price">${product.price} AC</div>
+      <div class="product-dialog-meta">
+        ${product.sku ? `<span>${escapeHtml(product.sku)}</span>` : ""}
+        <span>${escapeHtml(product.category)}</span>
+        <span>${warehouseCountLabel(warehouses.length)}</span>
+      </div>
+      <p class="product-dialog-description">${escapeHtml(
+        product.description || "Описание товара пока не добавлено.",
+      )}</p>
+      <div class="product-dialog-controls">
+        <label>
+          <span>Склад</span>
+          <select id="productDialogWarehouse">
+            ${warehouses
+              .map(
+                (warehouse) => `
+                  <option value="${escapeHtml(warehouse.id)}">
+                    ${escapeHtml(warehouse.name)} · ${warehouse.available} шт.
+                  </option>
+                `,
+              )
+              .join("")}
+          </select>
+        </label>
+        <label>
+          <span>Количество</span>
+          <input id="productDialogQuantity" type="number" min="1" value="1" />
+        </label>
+      </div>
+      <div id="productDialogStock" class="product-dialog-stock"></div>
+    </div>
+  `;
+  dialog.hidden = false;
+  syncDialogBodyClass();
+  syncProductDialogControls();
+  qs("#productDialogAddButton").focus();
+}
+
+function closeProductDialog() {
+  const dialog = qs("#productDialog");
+  if (dialog.hidden) return;
+  dialog.hidden = true;
+  dialog.dataset.productId = "";
+  syncDialogBodyClass();
 }
 
 function isOpenOrderStatus(status) {
@@ -1390,18 +1994,30 @@ function orderSearchText(order) {
 
 function filteredOrders() {
   const query = state.orderSearch.trim().toLowerCase();
-  return orders.filter((order) => {
+  return ordersForCurrentRole().filter((order) => {
     if (!orderMatchesStatusFilter(order)) return false;
     return !query || orderSearchText(order).includes(query);
   });
 }
 
-function orderActionButtons(order) {
-  const buttons = [
-    `<button class="secondary-action" type="button" data-open-order="${escapeHtml(
-      order.backendId || order.id,
-    )}">Открыть</button>`,
-  ];
+function ordersForCurrentRole() {
+  const student = selectedStudent();
+  if (state.role !== "student" || !student) return orders;
+  return orders.filter((order) =>
+    order.studentId ? order.studentId === student.id : order.student === student.name,
+  );
+}
+
+function orderActionButtons(order, includeOpen = true) {
+  const buttons = [];
+
+  if (includeOpen) {
+    buttons.push(
+      `<button class="secondary-action" type="button" data-open-order="${escapeHtml(
+        order.backendId || order.id,
+      )}">Подробнее</button>`,
+    );
+  }
 
   if (canIssueOrder(order)) {
     buttons.push(
@@ -1424,7 +2040,24 @@ function orderActionButtons(order) {
       )}">Возврат</button>`,
     );
   }
-  return `<div class="order-actions">${buttons.join("")}</div>`;
+  return buttons.length ? `<div class="order-actions">${buttons.join("")}</div>` : "";
+}
+
+function formatOrderDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function orderTotalValue(order) {
+  if (Number(order.total || 0) > 0) return Number(order.total);
+  return (order.items || []).reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
 }
 
 function renderOrders() {
@@ -1433,7 +2066,7 @@ function renderOrders() {
   if (searchInput) searchInput.value = state.orderSearch;
   if (statusFilter) statusFilter.value = state.orderStatusFilter;
 
-  if (orders.length === 0) {
+  if (ordersForCurrentRole().length === 0) {
     qs("#ordersTable").innerHTML = '<div class="empty-state">Заказов пока нет</div>';
     return;
   }
@@ -1445,42 +2078,90 @@ function renderOrders() {
     return;
   }
 
-  qs("#ordersTable").innerHTML = [
-    '<div class="table-row table-head"><span>№</span><span>Ученик и позиция</span><span>Склад</span><span>Статус</span><span></span></div>',
-    ...visibleOrders.map(
-      (order) => `
-        <div class="table-row">
-          <span>${escapeHtml(order.id)}</span>
-          <div>
-            <strong class="order-title">${escapeHtml(order.student)}</strong>
-            <div class="student-meta">${escapeHtml(order.item)}</div>
+  qs("#ordersTable").innerHTML = visibleOrders
+    .map((order) => {
+      const date = formatOrderDate(order.createdAt);
+      const total = orderTotalValue(order);
+      return `
+        <article class="order-card" data-tone="${escapeHtml(order.tone)}">
+          <div class="order-card-main">
+            <div class="order-card-head">
+              <strong class="order-number">Заказ №${escapeHtml(order.id)}</strong>
+              <span class="status-badge ${order.tone}">${escapeHtml(order.status)}</span>
+            </div>
+            <strong class="order-card-student">${escapeHtml(order.student)}</strong>
+            <div class="order-card-items">${escapeHtml(order.item)}</div>
+            <div class="order-card-meta">
+              <span>Склад: ${escapeHtml(order.warehouse)}</span>
+              ${total ? `<span>Сумма: ${total} AC</span>` : ""}
+              ${date ? `<span>${escapeHtml(date)}</span>` : ""}
+            </div>
           </div>
-          <span>${escapeHtml(order.warehouse)}</span>
-          <span class="status-badge ${order.tone}">${escapeHtml(order.status)}</span>
           ${orderActionButtons(order)}
-        </div>
-      `,
-    ),
-  ].join("");
+        </article>
+      `;
+    })
+    .join("");
 }
 
 function renderLedger() {
-  if (ledger.length === 0) {
-    qs("#ledgerList").innerHTML = '<div class="empty-state">Операций пока нет</div>';
+  const student = selectedStudent();
+  const visibleLedger = ledger.filter(
+    ([, , , studentId]) => !studentId || !student || studentId === student.id,
+  );
+  const amounts = visibleLedger.map(([, , amount]) => ledgerAmountValue(amount));
+  const credited = amounts.filter((amount) => amount > 0).reduce((total, amount) => total + amount, 0);
+  const spent = Math.abs(
+    amounts.filter((amount) => amount < 0).reduce((total, amount) => total + amount, 0),
+  );
+  qs("#walletSummary").innerHTML = `
+    <div class="wallet-stat wallet-stat-balance">
+      <span>Доступно</span>
+      <strong>${state.balance} AC</strong>
+    </div>
+    <div class="wallet-stat wallet-stat-credit">
+      <span>Начислено</span>
+      <strong>+${credited} AC</strong>
+    </div>
+    <div class="wallet-stat wallet-stat-debit">
+      <span>Потрачено</span>
+      <strong>${spent > 0 ? `-${spent}` : "0"} AC</strong>
+    </div>
+    <div class="wallet-stat">
+      <span>Операций</span>
+      <strong>${visibleLedger.length}</strong>
+    </div>
+  `;
+
+  qs("#walletTitle").textContent = student ? `История: ${student.name}` : "История операций";
+
+  if (visibleLedger.length === 0) {
+    qs("#ledgerList").innerHTML = '<div class="empty-state">У выбранного ученика операций пока нет</div>';
     return;
   }
 
-  qs("#ledgerList").innerHTML = ledger
+  qs("#ledgerList").innerHTML = visibleLedger
     .map(
-      ([date, reason, amount]) => `
-        <div class="ledger-row">
-          <span>${escapeHtml(date)}</span>
-          <strong>${escapeHtml(reason)}</strong>
-          <span>${escapeHtml(amount)}</span>
-        </div>
-      `,
-    )
+      ([date, reason, amount]) => {
+        const value = ledgerAmountValue(amount);
+        const tone = value < 0 ? "debit" : "credit";
+        return `
+        <article class="ledger-entry ${tone}">
+          <div class="ledger-entry-mark" aria-hidden="true">${value < 0 ? "−" : "+"}</div>
+          <div class="ledger-entry-content">
+            <strong>${escapeHtml(reason)}</strong>
+            <span>${escapeHtml(date)}</span>
+          </div>
+          <strong class="ledger-entry-amount">${escapeHtml(amount)}</strong>
+        </article>
+      `;
+    })
     .join("");
+}
+
+function ledgerAmountValue(amount) {
+  const value = Number(String(amount).replace(/[^\d,.-]/g, "").replace(",", "."));
+  return Number.isFinite(value) ? value : 0;
 }
 
 function renderAccrual() {
@@ -1501,54 +2182,92 @@ function renderAccrual() {
   groupSelect.value = state.accrualGroup;
   nameFilter.value = state.accrualNameFilter;
 
+  const groupReason = qs("#groupAccrualReason");
+  const groupAmount = qs("#groupAccrualAmount");
+  const selectedGroupReason = groupReason.value;
+  const selectedGroupAmount = groupAmount.value;
+  groupReason.innerHTML = [
+    '<option value="">Выберите причину</option>',
+    ...accrualReasons.map(
+      (reason) => `<option value="${escapeHtml(reason)}">${escapeHtml(reason)}</option>`,
+    ),
+  ].join("");
+  groupAmount.innerHTML = [
+    '<option value="">Выберите сумму</option>',
+    ...accrualAmounts.map((amount) => `<option value="${amount}">+${amount} AC</option>`),
+  ].join("");
+  groupReason.value = selectedGroupReason;
+  groupAmount.value = selectedGroupAmount;
+
   const normalizedName = state.accrualNameFilter.trim().toLowerCase();
   const visibleStudents = studentsForGroup(state.accrualGroup).filter((student) =>
     student.name.toLowerCase().includes(normalizedName),
   );
 
-  const header = `
-    <div class="accrual-table-row accrual-table-head">
-      <span>ID</span>
-      <span>ФИО</span>
-      <span>ГРУППЫ</span>
-      <span>НАЧИСЛИТЬ АСТРОКОИНЫ</span>
-      <span>НАЧИСЛИТЬ АСТРОКОИНЫ</span>
-    </div>
-  `;
-
   if (visibleStudents.length === 0) {
-    studentList.innerHTML = `${header}<div class="empty-state">Ученики не найдены</div>`;
+    studentList.innerHTML = '<div class="empty-state">Ученики не найдены</div>';
     return;
   }
 
-  studentList.innerHTML =
-    header +
-    visibleStudents
-      .map(
-        (student, index) => `
-          <div class="accrual-table-row">
-            <span>${escapeHtml(studentDisplayId(student, index))}</span>
-            <strong>${escapeHtml(student.name)}</strong>
-            <span>${escapeHtml(studentGroupName(student))}</span>
-            <select data-accrual-reason="${escapeHtml(student.id)}">
-              <option value=""></option>
-              ${accrualReasons
-                .map((reason) => `<option value="${escapeHtml(reason)}">${escapeHtml(reason)}</option>`)
-                .join("")}
-            </select>
-            <select data-accrual-amount="${escapeHtml(student.id)}">
-              <option value=""></option>
-              ${accrualAmounts
-                .map((amount) => `<option value="${amount}">+${amount} AC</option>`)
-                .join("")}
-            </select>
+  studentList.innerHTML = visibleStudents
+    .map(
+      (student, index) => `
+        <article class="accrual-card">
+          <div class="accrual-student-head">
+            <div class="accrual-student-mark">${escapeHtml(student.name.slice(0, 1))}</div>
+            <div>
+              <strong>${escapeHtml(student.name)}</strong>
+              <div class="student-meta">ID ${escapeHtml(studentDisplayId(student, index))}</div>
+            </div>
+            <span class="soft-badge">${student.balance} AC</span>
           </div>
-        `,
-      )
-      .join("");
+          <div class="accrual-student-meta">
+            <span>${escapeHtml(studentGroupName(student))}</span>
+            <span>${escapeHtml(student.teacher)}</span>
+          </div>
+          <div class="accrual-card-controls">
+            <label>
+              <span>Причина</span>
+              <select data-accrual-reason="${escapeHtml(student.id)}">
+                <option value="">Выберите причину</option>
+                ${accrualReasons
+                  .map(
+                    (reason) => `<option value="${escapeHtml(reason)}">${escapeHtml(reason)}</option>`,
+                  )
+                  .join("")}
+              </select>
+            </label>
+            <label>
+              <span>Сумма</span>
+              <select data-accrual-amount="${escapeHtml(student.id)}">
+                <option value="">Сумма</option>
+                ${accrualAmounts
+                  .map((amount) => `<option value="${amount}">+${amount} AC</option>`)
+                  .join("")}
+              </select>
+            </label>
+            <button
+              class="primary-action"
+              type="button"
+              data-accrue-student="${escapeHtml(student.id)}"
+            >Начислить</button>
+          </div>
+        </article>
+      `,
+    )
+    .join("");
 }
 
 function renderAdminPanel() {
+  const adminTitles = {
+    summary: "Операционная сводка",
+    products: "Товары",
+    inventory: "Остатки",
+    warehouses: "Склады",
+    contacts: "Связи доступа",
+    staff: "Сотрудники",
+  };
+  qs("#adminViewTitle").textContent = adminTitles[state.adminTab] || "Операции";
   qsa(".admin-tab").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.adminTab === state.adminTab);
   });
@@ -1559,6 +2278,17 @@ function renderAdminPanel() {
     const openOrders = summary.recent_open_orders || [];
     const lowStock = summary.low_stock || [];
     qs("#adminPanel").innerHTML = `
+      <div class="ops-quick-actions">
+        <button class="primary-action" type="button" data-ops-jump="orders">
+          Заказы к выдаче
+        </button>
+        <button class="secondary-action" type="button" data-ops-jump="inventory">
+          Проверить остатки
+        </button>
+        <button class="secondary-action" type="button" data-ops-jump="products">
+          Управление товарами
+        </button>
+      </div>
       <div class="ops-summary-grid">
         <article>
           <span>${Number(summary.open_orders || 0)}</span>
@@ -1609,12 +2339,16 @@ function renderAdminPanel() {
                   .slice(0, 6)
                   .map(
                     (order) => `
-                      <div class="ops-row">
+                      <button
+                        class="ops-row ops-row-action"
+                        type="button"
+                        data-open-order="${escapeHtml(order.id || order.order_number || "")}"
+                      >
                         <span>#${escapeHtml(order.order_number || order.id || "")} ${escapeHtml(
                           order.student_name || "ученик",
                         )}</span>
                         <strong>${escapeHtml(orderStatusLabel(order.status))}</strong>
-                      </div>
+                      </button>
                     `,
                   )
                   .join("")
@@ -1629,12 +2363,12 @@ function renderAdminPanel() {
                   .slice(0, 8)
                   .map(
                     (item) => `
-                      <div class="ops-row">
+                      <button class="ops-row ops-row-action" type="button" data-ops-jump="inventory">
                         <span>${escapeHtml(
                           item.product_name || item.sku || "товар",
                         )} / ${escapeHtml(item.warehouse_name || "склад")}</span>
                         <strong>${Number(item.available_quantity || 0)} шт.</strong>
-                      </div>
+                      </button>
                     `,
                   )
                   .join("")
@@ -1650,8 +2384,21 @@ function renderAdminPanel() {
     const importingDisabled = state.productImporting ? "disabled" : "";
     const savingDisabled = state.productSaving ? "disabled" : "";
     const editing = products.find((product) => product.id === state.editingProductId);
+    const editorOpen = state.productEditorOpen || Boolean(editing);
     qs("#adminPanel").innerHTML = `
-      <div class="product-form">
+      <div class="admin-section-toolbar">
+        <div>
+          <h3>Каталог товаров</h3>
+          <span>${activeProducts().length} активных из ${products.length}</span>
+        </div>
+        ${
+          editorOpen
+            ? ""
+            : '<button id="productCreateButton" class="primary-action" type="button">Добавить товар</button>'
+        }
+      </div>
+      ${editorOpen ? `
+      <div class="product-form admin-editor">
         <label>
           <span>SKU</span>
           <input id="productSku" value="${escapeHtml(editing?.sku || "")}" placeholder="PEN-LOGO" />
@@ -1686,7 +2433,9 @@ function renderAdminPanel() {
         </label>
         <label class="product-form-wide">
           <span>Описание</span>
-          <input id="productDescription" value="${escapeHtml(editing?.description || "")}" />
+          <textarea id="productDescription" rows="3">${escapeHtml(
+            editing?.description || "",
+          )}</textarea>
         </label>
         <button id="productSaveButton" class="primary-action" type="button" ${savingDisabled}>
           ${state.productSaving ? "Сохранение..." : editing ? "Сохранить" : "Создать"}
@@ -1697,6 +2446,7 @@ function renderAdminPanel() {
             : ""
         }
       </div>
+      ` : ""}
       <div class="import-panel">
         <div>
           <h3>Загрузка товаров</h3>
@@ -1709,50 +2459,97 @@ function renderAdminPanel() {
           ${state.productImporting ? "Загрузка..." : "Загрузить"}
         </button>
       </div>
-      <div class="product-admin-row table-head">
-        <span>Товар</span><span>Категория</span><span>Статус</span><span>Склад</span><span>Остаток</span><span>Цена</span>
-      </div>
+      <div class="admin-card-list">
       ${products
         .map(
           (product) => `
-            <div class="product-admin-row">
-              <strong>${escapeHtml(product.name)}</strong>
-              <span>${escapeHtml(product.category)}</span>
-              <span>${escapeHtml(product.status || "active")}</span>
-              <span>${escapeHtml(product.warehouse)}</span>
-              <span>${product.stock} шт.</span>
-              <button class="secondary-action" type="button" data-edit-product="${escapeHtml(
-                product.id,
-              )}">${product.price} AC</button>
-            </div>
+            <article class="admin-entity-card">
+              <div class="admin-product-thumb">
+                <span>${escapeHtml(product.mark)}</span>
+                ${
+                  product.photoUrl
+                    ? `<img src="${escapeHtml(product.photoUrl)}" alt="" loading="lazy" />`
+                    : ""
+                }
+              </div>
+              <div class="admin-entity-main">
+                <div class="admin-entity-title">
+                  <strong>${escapeHtml(product.name)}</strong>
+                  <span class="status-badge ${
+                    (product.status || "active") === "active"
+                      ? "ok"
+                      : (product.status || "active") === "hidden"
+                        ? "warn"
+                        : "danger"
+                  }">${escapeHtml(product.status || "active")}</span>
+                </div>
+                <div class="admin-entity-meta">
+                  ${product.sku ? `<span>${escapeHtml(product.sku)}</span>` : ""}
+                  <span>${escapeHtml(product.category)}</span>
+                  <span>${product.stock} шт.</span>
+                  <span>${escapeHtml(product.warehouse)}</span>
+                </div>
+              </div>
+              <div class="admin-entity-actions">
+                <strong>${product.price} AC</strong>
+                <button class="secondary-action" type="button" data-edit-product="${escapeHtml(
+                  product.id,
+                )}">Редактировать</button>
+              </div>
+            </article>
           `,
         )
         .join("")}
+      </div>
     `;
     return;
   }
 
   if (state.adminTab === "warehouses") {
     const editing = catalogWarehouses.find((item) => item.id === state.editingWarehouseId);
+    const editorOpen = state.warehouseEditorOpen || Boolean(editing);
     const disabled = state.warehouseSaving ? "disabled" : "";
     const rows = allCatalogWarehouses()
       .map(
         (warehouse) => `
-          <div class="warehouse-row">
-            <strong>${escapeHtml(warehouse.name)}</strong>
-            <span>${escapeHtml(warehouse.type || "common")}</span>
-            <span>${escapeHtml(warehouse.address || "Адрес не указан")}</span>
-            <span>${escapeHtml(warehouse.id)}</span>
-            <button class="secondary-action" type="button" data-edit-warehouse="${escapeHtml(
-              warehouse.id,
-            )}">Править</button>
-          </div>
+          <article class="admin-entity-card warehouse-entity-card">
+            <div class="warehouse-type-mark">${escapeHtml(
+              String(warehouse.type || "common").slice(0, 1).toUpperCase(),
+            )}</div>
+            <div class="admin-entity-main">
+              <div class="admin-entity-title">
+                <strong>${escapeHtml(warehouse.name)}</strong>
+                <span class="soft-badge">${escapeHtml(warehouse.type || "common")}</span>
+              </div>
+              <div class="admin-entity-meta">
+                <span>${escapeHtml(warehouse.address || "Адрес не указан")}</span>
+                <span>${escapeHtml(warehouse.slug || warehouse.id)}</span>
+              </div>
+            </div>
+            <div class="admin-entity-actions">
+              <button class="secondary-action" type="button" data-edit-warehouse="${escapeHtml(
+                warehouse.id,
+              )}">Редактировать</button>
+            </div>
+          </article>
         `,
       )
       .join("");
 
     qs("#adminPanel").innerHTML = `
-      <div class="warehouse-form">
+      <div class="admin-section-toolbar">
+        <div>
+          <h3>Склады</h3>
+          <span>${allCatalogWarehouses().length} складов в текущем контуре</span>
+        </div>
+        ${
+          editorOpen
+            ? ""
+            : '<button id="warehouseCreateButton" class="primary-action" type="button">Добавить склад</button>'
+        }
+      </div>
+      ${editorOpen ? `
+      <div class="warehouse-form admin-editor">
         <label>
           <span>Название</span>
           <input id="warehouseName" value="${escapeHtml(editing?.name || "")}" placeholder="Склад на площадке" />
@@ -1786,10 +2583,10 @@ function renderAdminPanel() {
             : ""
         }
       </div>
-      <div class="warehouse-row table-head">
-        <span>Склад</span><span>Тип</span><span>Адрес</span><span>ID</span><span></span>
+      ` : ""}
+      <div class="admin-card-list">
+        ${rows || '<div class="empty-state">Складов пока нет</div>'}
       </div>
-      ${rows || '<div class="empty-state">Складов пока нет</div>'}
     `;
     return;
   }
@@ -1808,103 +2605,183 @@ function renderAdminPanel() {
           .join("");
         return `
           <div class="inventory-row">
-            <strong>${escapeHtml(product.name)}</strong>
-            <span>${escapeHtml(warehouse.name)}</span>
-            <span>${warehouse.reserved} в резерве</span>
-            <span>${warehouse.available} свободно</span>
-            <input
-              data-inventory-quantity="${escapeHtml(key)}"
-              inputmode="numeric"
-              min="${warehouse.reserved}"
-              type="number"
-              value="${warehouse.stock}"
-            />
-            <button
-              class="secondary-action"
-              type="button"
-              data-adjust-inventory="${escapeHtml(key)}"
-              ${saving ? "disabled" : ""}
-            >${saving ? "Сохранение..." : "Сохранить"}</button>
-            <select data-transfer-target="${escapeHtml(key)}">
-              ${targetOptions}
-            </select>
-            <input
-              data-transfer-quantity="${escapeHtml(key)}"
-              inputmode="numeric"
-              min="1"
-              max="${warehouse.available}"
-              type="number"
-              value="${warehouse.available > 0 ? 1 : 0}"
-            />
-            <button
-              class="secondary-action"
-              type="button"
-              data-transfer-inventory="${escapeHtml(key)}"
-              ${saving || warehouse.available <= 0 || !targetOptions ? "disabled" : ""}
-            >Перенести</button>
+            <div class="inventory-item-heading">
+              <strong>${escapeHtml(product.name)}</strong>
+              <span>${escapeHtml(warehouse.name)}</span>
+              <div class="inventory-badges">
+                <span>${warehouse.stock} факт</span>
+                <span>${warehouse.reserved} резерв</span>
+                <span>${warehouse.available} свободно</span>
+              </div>
+            </div>
+            <div class="inventory-action-group">
+              <label>
+                <span>Фактический остаток</span>
+                <input
+                  data-inventory-quantity="${escapeHtml(key)}"
+                  inputmode="numeric"
+                  min="${warehouse.reserved}"
+                  type="number"
+                  value="${warehouse.stock}"
+                />
+              </label>
+              <button
+                class="secondary-action"
+                type="button"
+                data-adjust-inventory="${escapeHtml(key)}"
+                ${saving ? "disabled" : ""}
+              >${saving ? "Сохранение..." : "Обновить"}</button>
+            </div>
+            <div class="inventory-action-group inventory-transfer-group">
+              <label>
+                <span>Перенести на склад</span>
+                <select data-transfer-target="${escapeHtml(key)}">${targetOptions}</select>
+              </label>
+              <label class="inventory-quantity-field">
+                <span>Количество</span>
+                <input
+                  data-transfer-quantity="${escapeHtml(key)}"
+                  inputmode="numeric"
+                  min="1"
+                  max="${warehouse.available}"
+                  type="number"
+                  value="${warehouse.available > 0 ? 1 : 0}"
+                />
+              </label>
+              <button
+                class="secondary-action"
+                type="button"
+                data-transfer-inventory="${escapeHtml(key)}"
+                ${saving || warehouse.available <= 0 || !targetOptions ? "disabled" : ""}
+              >Перенести</button>
+            </div>
           </div>
         `;
       }),
     );
 
     qs("#adminPanel").innerHTML = `
-      <div class="inventory-row table-head">
-        <span>Товар</span><span>Склад</span><span>Резерв</span><span>Свободно</span><span>Факт</span><span></span><span>Куда</span><span>Кол-во</span><span></span>
+      <div class="inventory-list">
+        ${rows.join("") || '<div class="empty-state">Остатков пока нет</div>'}
       </div>
-      ${rows.join("") || '<div class="empty-state">Остатков пока нет</div>'}
     `;
     return;
   }
 
   if (state.adminTab === "contacts") {
-    if (accessLinks.length === 0) {
-      qs("#adminPanel").innerHTML = '<div class="empty-state">Связей доступа пока нет</div>';
-      return;
-    }
-
-    qs("#adminPanel").innerHTML = accessLinks
+    const activeLinks = accessLinks.filter((link) => link.status === "active").length;
+    const rows = accessLinks
       .map(
         (link) => `
-          <div class="contact-row">
-            <strong>${escapeHtml(link.maxUserId)}</strong>
-            <span>${escapeHtml(link.studentName)}</span>
-            <span>${escapeHtml(link.group)}</span>
-            <button class="secondary-action" type="button" data-toggle-contact="${escapeHtml(
-              link.id,
-            )}">${link.status === "revoked" ? "Вернуть" : "Отозвать"}</button>
-          </div>
+          <article class="admin-entity-card access-entity-card">
+            <div class="access-role-mark">${escapeHtml(
+              accessRoleLabel(link.role).slice(0, 1),
+            )}</div>
+            <div class="admin-entity-main">
+              <div class="admin-entity-title">
+                <strong>${escapeHtml(link.studentName)}</strong>
+                <span class="status-badge ${link.status === "active" ? "ok" : "danger"}">
+                  ${link.status === "active" ? "Активна" : "Отозвана"}
+                </span>
+              </div>
+              <div class="admin-entity-meta">
+                <span>${escapeHtml(accessRoleLabel(link.role))}</span>
+                <span>${escapeHtml(link.group)}</span>
+                <span>MAX ID ${escapeHtml(link.maxUserId)}</span>
+                ${
+                  (link.displayName && link.displayName !== accessRoleLabel(link.role)) ||
+                  link.username
+                    ? `<span>${escapeHtml(
+                        link.displayName && link.displayName !== accessRoleLabel(link.role)
+                          ? link.displayName
+                          : `@${link.username}`,
+                      )}</span>`
+                    : ""
+                }
+              </div>
+            </div>
+            <div class="admin-entity-actions">
+              <button
+                class="secondary-action ${link.status === "active" ? "danger-action" : ""}"
+                type="button"
+                data-toggle-contact="${escapeHtml(link.id)}"
+              >${link.status === "revoked" ? "Восстановить" : "Отозвать"}</button>
+            </div>
+          </article>
         `,
       )
       .join("");
+
+    qs("#adminPanel").innerHTML = `
+      <div class="admin-section-toolbar">
+        <div>
+          <h3>Связи доступа</h3>
+          <span>${activeLinks} активных из ${accessLinks.length}</span>
+        </div>
+      </div>
+      <div class="admin-card-list">
+        ${rows || '<div class="empty-state">Связей доступа пока нет</div>'}
+      </div>
+    `;
     return;
   }
 
   const disabled = state.staffSaving ? "disabled" : "";
+  const activeStaff = staffAssignments.filter((item) => item.status === "active").length;
   const rows =
     staffAssignments.length === 0
       ? '<div class="empty-state">Сотрудников пока нет</div>'
       : staffAssignments
           .map(
             (assignment) => `
-              <div class="staff-row">
-                <strong>${escapeHtml(assignment.maxUserId)}</strong>
-                <span>${escapeHtml(
-                  assignment.displayName || assignment.username || "Без имени",
-                )}</span>
-                <span>${escapeHtml(staffRoleLabel(assignment.role))}</span>
-                <span>${escapeHtml(assignmentStatusLabel(assignment.status))}</span>
-                <button class="secondary-action" type="button" data-toggle-staff="${escapeHtml(
-                  assignment.maxUserId,
-                )}" data-staff-role="${escapeHtml(assignment.role)}">
-                  ${assignment.status === "revoked" ? "Вернуть" : "Отозвать"}
-                </button>
-              </div>
+              <article class="admin-entity-card staff-entity-card">
+                <div class="staff-role-mark">${escapeHtml(
+                  staffRoleLabel(assignment.role).slice(0, 1),
+                )}</div>
+                <div class="admin-entity-main">
+                  <div class="admin-entity-title">
+                    <strong>${escapeHtml(
+                      assignment.displayName || assignment.username || "Без имени",
+                    )}</strong>
+                    <span class="status-badge ${
+                      assignment.status === "active" ? "ok" : "danger"
+                    }">${escapeHtml(assignmentStatusLabel(assignment.status))}</span>
+                  </div>
+                  <div class="admin-entity-meta">
+                    <span>${escapeHtml(staffRoleLabel(assignment.role))}</span>
+                    <span>MAX ID ${escapeHtml(assignment.maxUserId)}</span>
+                    ${assignment.username ? `<span>@${escapeHtml(assignment.username)}</span>` : ""}
+                  </div>
+                </div>
+                <div class="admin-entity-actions">
+                  <button
+                    class="secondary-action ${
+                      assignment.status === "active" ? "danger-action" : ""
+                    }"
+                    type="button"
+                    data-toggle-staff="${escapeHtml(assignment.maxUserId)}"
+                    data-staff-role="${escapeHtml(assignment.role)}"
+                  >${assignment.status === "revoked" ? "Восстановить" : "Отозвать"}</button>
+                </div>
+              </article>
             `,
           )
           .join("");
 
   qs("#adminPanel").innerHTML = `
-    <div class="staff-form">
+    <div class="admin-section-toolbar">
+      <div>
+        <h3>Сотрудники</h3>
+        <span>${activeStaff} активных назначений из ${staffAssignments.length}</span>
+      </div>
+      ${
+        state.staffEditorOpen
+          ? ""
+          : '<button id="staffCreateButton" class="primary-action" type="button">Выдать роль</button>'
+      }
+    </div>
+    ${state.staffEditorOpen ? `
+    <div class="staff-form admin-editor">
       <label>
         <span>MAX user_id</span>
         <input id="staffMaxUserId" inputmode="numeric" placeholder="53364725" />
@@ -1926,11 +2803,12 @@ function renderAdminPanel() {
       <button id="staffSaveButton" class="primary-action" type="button" ${disabled}>
         ${state.staffSaving ? "Сохранение..." : "Выдать роль"}
       </button>
+      <button id="staffCancelButton" class="secondary-action" type="button">Отмена</button>
     </div>
-    <div class="staff-row table-head">
-      <span>MAX ID</span><span>Сотрудник</span><span>Роль</span><span>Статус</span><span></span>
+    ` : ""}
+    <div class="admin-card-list">
+      ${rows}
     </div>
-    ${rows}
   `;
 }
 
@@ -2076,6 +2954,7 @@ async function saveProductFromForm() {
     if (existingIndex >= 0) products[existingIndex] = nextProduct;
     else products.unshift(nextProduct);
     state.editingProductId = "";
+    state.productEditorOpen = false;
     showNotice(`Товар "${name}" сохранен`);
     renderAll();
     return;
@@ -2098,6 +2977,7 @@ async function saveProductFromForm() {
 
     const result = await response.json();
     state.editingProductId = "";
+    state.productEditorOpen = false;
     showNotice(`Товар "${result.name}" сохранен`);
     await refreshCatalogAndOpsSummary();
     renderAll();
@@ -2109,19 +2989,11 @@ async function saveProductFromForm() {
   }
 }
 
-function addToCart(productId) {
-  const product = productById(productId);
-  if (!product) return;
-  if ((product.status || "active") !== "active") return;
-  const card = qsa("[data-product-card]").find((item) => item.dataset.productCard === productId);
-  const warehouse = selectedProductWarehouse(product, card);
-  if (!warehouse) return;
-
-  const quantityInput = card?.querySelector("[data-quantity]");
+function addCartItem(product, warehouse, quantityValue) {
   const current = cartQuantityFor(product.id, warehouse.id);
   const availableLeft = Math.max(warehouse.available - current, 0);
-  const quantity = clampQuantity(quantityInput?.value || "1", availableLeft);
-  if (availableLeft <= 0) return;
+  const quantity = clampQuantity(quantityValue || "1", availableLeft);
+  if (availableLeft <= 0) return false;
 
   const key = cartKey(product.id, warehouse.id);
   state.cart.set(key, {
@@ -2130,8 +3002,32 @@ function addToCart(productId) {
     warehouseName: warehouse.name,
     quantity: current + quantity,
   });
+  saveCart();
   renderProducts();
   renderCart();
+  return true;
+}
+
+function addToCart(productId) {
+  const product = productById(productId);
+  if (!product || (product.status || "active") !== "active") return;
+  const card = qsa("[data-product-card]").find((item) => item.dataset.productCard === productId);
+  const warehouse = selectedProductWarehouse(product, card);
+  if (!warehouse) return;
+  const quantityInput = card?.querySelector("[data-quantity]");
+  addCartItem(product, warehouse, quantityInput?.value || "1");
+}
+
+function addProductDialogItemToCart() {
+  const dialog = qs("#productDialog");
+  const product = productById(dialog.dataset.productId || "");
+  if (!product) return;
+  const warehouse = warehouseById(product, qs("#productDialogWarehouse").value);
+  if (!warehouse) return;
+  const added = addCartItem(product, warehouse, qs("#productDialogQuantity").value);
+  if (!added) return;
+  closeProductDialog();
+  showNotice(`${product.name}: добавлено в корзину`);
 }
 
 function createDemoOrder() {
@@ -2144,68 +3040,149 @@ function createDemoOrder() {
   }
 
   const orderNumber = String(1400 + orders.length + 1);
-  const orderSummary = Array.from(state.cart.values())
+  const createdAt = new Date().toISOString();
+  const orderItems = Array.from(state.cart.values())
     .map((item) => {
       const product = productById(item.productId);
-      if (!product) return "";
-      return `${product.name} x${item.quantity}, ${item.warehouseName}`;
+      if (!product) return null;
+      return {
+        productName: product.name,
+        quantity: item.quantity,
+        totalPrice: product.price * item.quantity,
+        warehouseName: item.warehouseName,
+      };
     })
-    .filter(Boolean)
+    .filter(Boolean);
+  const orderSummary = orderItems
+    .map((item) => `${item.productName} x${item.quantity}, ${item.warehouseName}`)
     .join("; ");
   student.balance -= total;
   orders.unshift({
     id: orderNumber,
     backendId: `demo-order-${orderNumber}`,
+    studentId: student.id,
     rawStatus: "reserved",
     student: student.name,
     item: orderSummary || `Заказ на ${total} AC`,
     warehouse: "Выбрано в корзине",
     status: "Зарезервирован",
     tone: "ok",
+    total,
+    createdAt,
+    items: orderItems,
+    statusHistory: [
+      {
+        fromStatus: "created",
+        toStatus: "reserved",
+        comment: "Заказ оформлен, товар зарезервирован",
+        createdAt,
+      },
+    ],
   });
-  ledger.unshift([todayShort(), `Покупка в магазине, заказ №${orderNumber}`, `-${total} AC`]);
+  ledger.unshift([
+    todayShort(),
+    `Покупка в магазине, заказ №${orderNumber}`,
+    `-${total} AC`,
+    student.id,
+  ]);
   state.cart.clear();
+  saveCart();
   showNotice(`Заказ №${orderNumber} оформлен в демо-режиме`);
   setView("orders");
   renderAll();
+}
+
+function renderOrderDialog(order) {
+  const items = Array.isArray(order.items) && order.items.length > 0
+    ? order.items
+        .map(
+          (item) => `
+            <div class="order-detail-item">
+              <div>
+                <strong>${escapeHtml(item.productName || "Товар")}</strong>
+                <div class="student-meta">
+                  ${Number(item.quantity || 0)} шт. · ${escapeHtml(
+                    item.warehouseName || order.warehouse,
+                  )}
+                </div>
+              </div>
+              <strong>${Number(item.totalPrice || 0)} AC</strong>
+            </div>
+          `,
+        )
+        .join("")
+    : `
+        <div class="order-detail-item">
+          <div><strong>${escapeHtml(order.item)}</strong></div>
+          ${orderTotalValue(order) ? `<strong>${orderTotalValue(order)} AC</strong>` : ""}
+        </div>
+      `;
+
+  const history = Array.isArray(order.statusHistory) && order.statusHistory.length > 0
+    ? order.statusHistory
+        .slice()
+        .reverse()
+        .map(
+          (event) => `
+            <div class="order-history-row">
+              <div>
+                <strong>${escapeHtml(orderStatusLabel(event.toStatus))}</strong>
+                <span>${escapeHtml(formatOrderDate(event.createdAt))}</span>
+                ${event.comment ? `<div>${escapeHtml(event.comment)}</div>` : ""}
+              </div>
+            </div>
+          `,
+        )
+        .join("")
+    : `
+        <div class="order-history-row">
+          <div><strong>${escapeHtml(order.status)}</strong><span>Текущий статус</span></div>
+        </div>
+      `;
+
+  qs("#orderDialogTitle").textContent = `Заказ №${order.id}`;
+  qs("#orderDialogContent").innerHTML = `
+    <div class="order-dialog-summary">
+      <div>
+        <span class="status-badge ${escapeHtml(order.tone)}">${escapeHtml(order.status)}</span>
+        <h3>${escapeHtml(order.student)}</h3>
+        <div class="student-meta">
+          ${escapeHtml(order.warehouse)}
+          ${order.createdAt ? ` · ${escapeHtml(formatOrderDate(order.createdAt))}` : ""}
+        </div>
+      </div>
+      <div class="order-dialog-total">${orderTotalValue(order)} AC</div>
+    </div>
+    <section class="order-detail-section">
+      <h3>Состав заказа</h3>
+      ${items}
+    </section>
+    <section class="order-detail-section">
+      <h3>История статусов</h3>
+      <div class="order-history">${history}</div>
+    </section>
+  `;
+  qs("#orderDialogActions").innerHTML = orderActionButtons(order, false);
 }
 
 function openOrderDetails(orderId) {
   const order = orders.find((item) => item.id === orderId || item.backendId === orderId);
   if (!order) return;
   setView("orders");
-  const historyDetails = orderStatusHistoryDetails(order);
-  const historyText = historyDetails ? `\nИстория:\n${historyDetails}` : "";
-  if (historyText) {
-    const itemDetails =
-      Array.isArray(order.items) && order.items.length > 0
-        ? order.items
-            .map((item) => {
-              const warehouse = item.warehouseName ? `, ${item.warehouseName}` : "";
-              return `${item.productName} x${item.quantity}: ${item.totalPrice} AC${warehouse}`;
-            })
-            .join("\n")
-        : order.item;
-    showNotice(
-      `Заказ №${order.id}: ${order.student}\n${itemDetails}\nСклад: ${order.warehouse}\nСтатус: ${order.status}${historyText}`,
-    );
-    return;
-  }
-  if (Array.isArray(order.items) && order.items.length > 0) {
-    const itemDetails = order.items
-      .map((item) => {
-        const warehouse = item.warehouseName ? `, ${item.warehouseName}` : "";
-        return `${item.productName} x${item.quantity}: ${item.totalPrice} AC${warehouse}`;
-      })
-      .join("\n");
-    showNotice(
-      `Заказ №${order.id}: ${order.student}\n${itemDetails}\nСклад: ${order.warehouse}\nСтатус: ${order.status}`,
-    );
-    return;
-  }
-  showNotice(
-    `Заказ №${order.id}: ${order.student}, ${order.item}, склад: ${order.warehouse}, статус: ${order.status}`,
-  );
+  const dialog = qs("#orderDialog");
+  dialog.dataset.orderId = order.backendId || order.id;
+  renderOrderDialog(order);
+  dialog.hidden = false;
+  syncDialogBodyClass();
+  qs("#closeOrderDialogButton").focus();
+}
+
+function closeOrderDialog() {
+  const dialog = qs("#orderDialog");
+  if (dialog.hidden) return;
+  dialog.hidden = true;
+  dialog.dataset.orderId = "";
+  syncDialogBodyClass();
 }
 
 async function updateOrderAction(orderId, action) {
@@ -2213,11 +3190,23 @@ async function updateOrderAction(orderId, action) {
   if (!order) return;
 
   if (orderId.startsWith("demo-") || apiContext.demoMode || !apiContext.maxUserId) {
+    const previousStatus = order.rawStatus;
     if (action === "issue") order.rawStatus = "issued_to_student";
     else if (action === "return") order.rawStatus = "returned";
     else order.rawStatus = "cancelled";
     order.status = orderStatusLabel(order.rawStatus);
     order.tone = orderStatusTone(order.rawStatus);
+    order.statusHistory = order.statusHistory || [];
+    order.statusHistory.push({
+      fromStatus: previousStatus,
+      toStatus: order.rawStatus,
+      comment: {
+        issue: "Заказ выдан ученику",
+        return: "Заказ возвращен",
+        cancel: "Заказ отменен",
+      }[action],
+      createdAt: new Date().toISOString(),
+    });
     showNotice(
       {
         issue: `Заказ №${order.id} отмечен как выданный`,
@@ -2226,6 +3215,7 @@ async function updateOrderAction(orderId, action) {
       }[action],
     );
     renderAll();
+    if (!qs("#orderDialog").hidden) renderOrderDialog(order);
     return;
   }
 
@@ -2259,19 +3249,34 @@ async function updateOrderAction(orderId, action) {
     );
     await refreshOrderAndInventoryState();
     renderAll();
+    if (!qs("#orderDialog").hidden) {
+      const refreshedOrder = orders.find((item) => item.backendId === orderId || item.id === orderId);
+      if (refreshedOrder) renderOrderDialog(refreshedOrder);
+    }
   } catch (error) {
     showNotice(error.message || "Не удалось обновить заказ", "danger");
   }
 }
 
-function accrueGroupCoins() {
-  const amount = 50;
-  students.forEach((student) => {
-    student.balance += amount;
-  });
-  ledger.unshift([todayShort(), `Начисление группе: ${students.length} учен.`, `+${amount} AC`]);
-  showNotice(`Группе начислено по ${amount} AC`);
-  renderAll();
+async function accrueGroupCoins() {
+  const group = qs("#accrualGroupSelect")?.value || "all";
+  const reason = qs("#groupAccrualReason")?.value || "";
+  const amount = Number.parseInt(qs("#groupAccrualAmount")?.value || "0", 10);
+  if (group === "all") {
+    showNotice("Выберите конкретную группу для группового начисления", "danger");
+    return;
+  }
+  if (!reason) {
+    showNotice("Выберите причину группового начисления", "danger");
+    return;
+  }
+  if (!amount || amount <= 0) {
+    showNotice("Выберите сумму группового начисления", "danger");
+    return;
+  }
+
+  state.accrualGroup = group;
+  await accrueStudents(studentsForGroup(group), amount, reason, group);
 }
 
 function cycleProductWarehouse(productId) {
@@ -2321,6 +3326,7 @@ async function saveWarehouseFromForm() {
     if (existingIndex >= 0) catalogWarehouses[existingIndex] = nextWarehouse;
     else catalogWarehouses.push(nextWarehouse);
     state.editingWarehouseId = "";
+    state.warehouseEditorOpen = false;
     showNotice(`Склад "${payload.name}" сохранен`);
     renderAdminPanel();
     return;
@@ -2343,6 +3349,7 @@ async function saveWarehouseFromForm() {
 
     const result = await response.json();
     state.editingWarehouseId = "";
+    state.warehouseEditorOpen = false;
     showNotice(`Склад "${result.name}" сохранен`);
     await refreshCatalogAndOpsSummary();
     renderAll();
@@ -2528,7 +3535,7 @@ async function updateStaffAssignment({ targetMaxUserId, role, status, displayNam
   const maxUserId = String(targetMaxUserId || "").trim();
   if (!/^\d+$/.test(maxUserId)) {
     showNotice("Укажите числовой MAX user_id сотрудника", "danger");
-    return;
+    return false;
   }
 
   if (apiContext.demoMode || !apiContext.maxUserId || maxUserId.startsWith("demo-")) {
@@ -2554,7 +3561,7 @@ async function updateStaffAssignment({ targetMaxUserId, role, status, displayNam
         : `Роль ${staffRoleLabel(role)} отозвана у пользователя ${maxUserId}`,
     );
     renderAdminPanel();
-    return;
+    return true;
   }
 
   state.staffSaving = true;
@@ -2582,8 +3589,10 @@ async function updateStaffAssignment({ targetMaxUserId, role, status, displayNam
     );
     await loadSession();
     renderAll();
+    return true;
   } catch (error) {
     showNotice(error.message || "Не удалось обновить роль сотрудника", "danger");
+    return false;
   } finally {
     state.staffSaving = false;
     renderAdminPanel();
@@ -2594,12 +3603,16 @@ async function saveStaffAssignmentFromForm() {
   const targetMaxUserId = qs("#staffMaxUserId")?.value || "";
   const displayName = qs("#staffDisplayName")?.value.trim() || "";
   const role = qs("#staffRoleSelect")?.value || "teacher";
-  await updateStaffAssignment({
+  const saved = await updateStaffAssignment({
     targetMaxUserId,
     role,
     status: "active",
     displayName,
   });
+  if (saved) {
+    state.staffEditorOpen = false;
+    renderAdminPanel();
+  }
 }
 
 async function toggleStaffAssignment(maxUserId, role) {
@@ -2625,6 +3638,7 @@ function updateCartQuantity(key, value) {
   const maxQuantity = warehouse.available + item.quantity - cartQuantityFor(product.id, item.warehouseId);
   item.quantity = clampQuantity(value, maxQuantity);
   state.cart.set(key, item);
+  saveCart();
   renderProducts();
   renderCart();
 }
@@ -2655,15 +3669,12 @@ function updateCartWarehouse(key, warehouseId) {
     warehouseName: warehouse.name,
     quantity: (existing?.quantity || 0) + Math.min(item.quantity, availableLeft),
   });
+  saveCart();
   renderProducts();
   renderCart();
 }
 
-function selectedAccrualStudents() {
-  return studentsForGroup(state.accrualGroup);
-}
-
-async function accrueStudents(targets, amount, reason) {
+async function accrueStudents(targets, amount, reason, groupLabel = "") {
   if (targets.length === 0) {
     showNotice("Выберите учеников для начисления", "danger");
     return;
@@ -2672,16 +3683,17 @@ async function accrueStudents(targets, amount, reason) {
   if (apiContext.demoMode || !apiContext.maxUserId || targets.some((student) => student.id.startsWith("demo-"))) {
     targets.forEach((student) => {
       student.balance += amount;
+      ledger.unshift([
+        todayShort(),
+        groupLabel ? `${reason}: ${groupLabel}` : `${reason}: ${student.name}`,
+        `+${amount} AC`,
+        student.id,
+      ]);
     });
-    ledger.unshift([
-      todayShort(),
-      targets.length === 1
-        ? `${reason}: ${targets[0].name}`
-        : `${reason}: ${state.accrualGroup}, ${targets.length} учен.`,
-      `+${amount} AC`,
-    ]);
     showNotice(
-      targets.length === 1
+      groupLabel
+        ? `Группе «${groupLabel}» начислено по ${amount} AC`
+        : targets.length === 1
         ? `${targets[0].name}: начислено ${amount} AC`
         : `Группе «${state.accrualGroup}» начислено по ${amount} AC`,
     );
@@ -2706,7 +3718,9 @@ async function accrueStudents(targets, amount, reason) {
 
     const result = await response.json();
     showNotice(
-      targets.length === 1
+      groupLabel
+        ? `Группе «${groupLabel}» начислено по ${amount} AC: ${result.credited_students} учен.`
+        : targets.length === 1
         ? `${targets[0].name}: начислено ${amount} AC`
         : `Группе «${state.accrualGroup}» начислено по ${amount} AC: ${result.credited_students} учен.`,
     );
@@ -2747,6 +3761,7 @@ async function placeOrder() {
   const canUseBackend =
     apiContext.maxUserId && student && !student.id.startsWith("demo-") && state.catalogLoaded;
   if (!canUseBackend) {
+    closeCheckoutDialog();
     createDemoOrder();
     return;
   }
@@ -2763,7 +3778,7 @@ async function placeOrder() {
     comment: "MAX mini app",
   };
 
-  const button = qs("#placeOrderButton");
+  const button = qs("#confirmOrderButton");
   button.disabled = true;
   try {
     const response = await fetch("/api/v1/miniapp/orders", {
@@ -2775,19 +3790,29 @@ async function placeOrder() {
 
     const result = await response.json();
     state.cart.clear();
+    saveCart();
+    closeCheckoutDialog();
     showNotice(`Заказ №${result.order.order_number} оформлен и зарезервирован`);
     await refreshOrderAndInventoryState();
     setView("orders");
     renderAll();
   } catch (error) {
+    closeCheckoutDialog();
     showNotice(error.message || "Не удалось оформить заказ", "danger");
     renderCart();
+  } finally {
+    button.disabled = false;
   }
 }
 
 document.addEventListener("click", (event) => {
   const target = event.target instanceof HTMLElement ? event.target.closest("button") : null;
   if (!target) return;
+
+  if ("mobileMore" in target.dataset) {
+    toggleMobileMorePanel();
+    return;
+  }
 
   const role = target.dataset.role;
   if (role) setRole(role);
@@ -2801,16 +3826,27 @@ document.addEventListener("click", (event) => {
   const addId = target.dataset.add;
   if (addId) addToCart(addId);
 
+  const productDetailsId = target.dataset.productDetails;
+  if (productDetailsId) openProductDialog(productDetailsId);
+
   const favoriteId = target.dataset.favorite;
   if (favoriteId) {
     if (state.favorites.has(favoriteId)) state.favorites.delete(favoriteId);
     else state.favorites.add(favoriteId);
+    saveFavorites();
     renderProducts();
+  }
+
+  if ("showAllProducts" in target.dataset) {
+    state.favoritesOnly = false;
+    renderProducts();
+    savePreferences();
   }
 
   const removeId = target.dataset.remove;
   if (removeId) {
     state.cart.delete(removeId);
+    saveCart();
     renderProducts();
     renderCart();
   }
@@ -2818,6 +3854,16 @@ document.addEventListener("click", (event) => {
   const adminTab = target.dataset.adminTab;
   if (adminTab) {
     state.adminTab = adminTab;
+    renderAdminPanel();
+  }
+
+  const opsJump = target.dataset.opsJump;
+  if (opsJump === "orders") {
+    state.orderStatusFilter = "open";
+    setView("orders");
+    renderOrders();
+  } else if (["inventory", "products"].includes(opsJump)) {
+    state.adminTab = opsJump;
     renderAdminPanel();
   }
 
@@ -2834,17 +3880,30 @@ document.addEventListener("click", (event) => {
     accrueGroupCoins();
   }
 
+  const accrueStudentId = target.dataset.accrueStudent;
+  if (accrueStudentId) {
+    accrueStudentFromRow(accrueStudentId);
+  }
+
   const warehouseName = target.dataset.warehouseAction;
   if (warehouseName) showWarehouseAction(warehouseName);
 
   const editWarehouseId = target.dataset.editWarehouse;
   if (editWarehouseId) {
     state.editingWarehouseId = editWarehouseId;
+    state.warehouseEditorOpen = true;
+    renderAdminPanel();
+  }
+
+  if (target.id === "warehouseCreateButton") {
+    state.editingWarehouseId = "";
+    state.warehouseEditorOpen = true;
     renderAdminPanel();
   }
 
   if (target.id === "warehouseCancelEditButton") {
     state.editingWarehouseId = "";
+    state.warehouseEditorOpen = false;
     renderAdminPanel();
   }
 
@@ -2877,11 +3936,19 @@ document.addEventListener("click", (event) => {
   const editProductId = target.dataset.editProduct;
   if (editProductId) {
     state.editingProductId = editProductId;
+    state.productEditorOpen = true;
+    renderAdminPanel();
+  }
+
+  if (target.id === "productCreateButton") {
+    state.editingProductId = "";
+    state.productEditorOpen = true;
     renderAdminPanel();
   }
 
   if (target.id === "productCancelEditButton") {
     state.editingProductId = "";
+    state.productEditorOpen = false;
     renderAdminPanel();
   }
 
@@ -2893,11 +3960,66 @@ document.addEventListener("click", (event) => {
     saveStaffAssignmentFromForm();
   }
 
+  if (target.id === "staffCreateButton") {
+    state.staffEditorOpen = true;
+    renderAdminPanel();
+  }
+
+  if (target.id === "staffCancelButton") {
+    state.staffEditorOpen = false;
+    renderAdminPanel();
+  }
+
   if (target.id === "applyAccrualFilter") {
     state.accrualNameFilter = qs("#accrualNameFilter")?.value.trim() || "";
     state.accrualGroup = qs("#accrualGroupSelect")?.value || "all";
     renderAccrual();
   }
+
+  if (target.id === "closeCheckoutButton" || target.id === "cancelCheckoutButton") {
+    closeCheckoutDialog();
+  }
+
+  if (target.id === "confirmOrderButton") {
+    placeOrder();
+  }
+
+  if (target.id === "closeProductDialogButton" || target.id === "productDialogBackButton") {
+    closeProductDialog();
+  }
+
+  if (target.id === "productDialogAddButton") {
+    addProductDialogItemToCart();
+  }
+
+  if (target.id === "closeOrderDialogButton") {
+    closeOrderDialog();
+  }
+});
+
+qs("#checkoutDialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) closeCheckoutDialog();
+});
+
+qs("#productDialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) closeProductDialog();
+});
+
+qs("#orderDialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) closeOrderDialog();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (!qs("#productDialog").hidden) {
+    closeProductDialog();
+    return;
+  }
+  if (!qs("#orderDialog").hidden) {
+    closeOrderDialog();
+    return;
+  }
+  if (!qs("#checkoutDialog").hidden) closeCheckoutDialog();
 });
 
 document.addEventListener("change", (event) => {
@@ -2920,23 +4042,15 @@ document.addEventListener("change", (event) => {
   if (target.id === "orderStatusFilter") {
     state.orderStatusFilter = target.value;
     renderOrders();
+    savePreferences();
   }
 
   if (target.matches("[data-warehouse-select]")) {
     syncProductCardControls(target.closest("[data-product-card]"));
   }
 
-  const accrualAmountStudentId = target.dataset.accrualAmount;
-  if (accrualAmountStudentId) {
-    accrueStudentFromRow(accrualAmountStudentId);
-  }
-
-  const accrualReasonStudentId = target.dataset.accrualReason;
-  if (accrualReasonStudentId) {
-    const amountSelected = qsa("[data-accrual-amount]").find(
-      (item) => item.dataset.accrualAmount === accrualReasonStudentId && item.value,
-    );
-    if (amountSelected) accrueStudentFromRow(accrualReasonStudentId);
+  if (target.id === "productDialogWarehouse" || target.id === "productDialogQuantity") {
+    syncProductDialogControls();
   }
 
   const cartQuantityKey = target.dataset.cartQuantity;
@@ -2958,21 +4072,60 @@ document.addEventListener("input", (event) => {
     syncProductCardControls(target.closest("[data-product-card]"));
   }
 
+  if (target.id === "productDialogQuantity") {
+    syncProductDialogControls();
+  }
+
   if (target.id === "orderSearch") {
     state.orderSearch = target.value;
     renderOrders();
   }
 });
 
+document.addEventListener(
+  "error",
+  (event) => {
+    const image = event.target;
+    if (
+      !(image instanceof HTMLImageElement) ||
+      !image.closest(".product-visual, .product-dialog-visual, .admin-product-thumb")
+    ) return;
+    image.remove();
+  },
+  true,
+);
+
 qs("#studentSelect").addEventListener("change", (event) => {
   setActiveStudent(event.target.value);
 });
 qs("#openCartButton").addEventListener("click", () => setView("cart"));
+qs("#refreshDataButton").addEventListener("click", refreshAllData);
 qs("#productSearch").addEventListener("input", renderProducts);
-qs("#categoryFilter").addEventListener("change", renderProducts);
-qs("#placeOrderButton").addEventListener("click", placeOrder);
+qs("#categoryFilter").addEventListener("change", () => {
+  renderProducts();
+  savePreferences();
+});
+qs("#productSort").addEventListener("change", () => {
+  renderProducts();
+  savePreferences();
+});
+qs("#inStockOnly").addEventListener("change", () => {
+  renderProducts();
+  savePreferences();
+});
+qs("#favoritesFilter").addEventListener("click", () => {
+  state.favoritesOnly = !state.favoritesOnly;
+  renderProducts();
+  savePreferences();
+});
+qs("#placeOrderButton").addEventListener("click", openCheckoutDialog);
+qs("#storeCartBar").addEventListener("click", () => setView("cart"));
 
 async function init() {
+  qs("#tenantTitle").textContent = tenantTitle();
+  restorePreferences();
+  qs("#productSort").value = state.productSort;
+  qs("#inStockOnly").checked = state.inStockOnly;
   const results = [];
   results.push(
     await Promise.resolve(loadSession()).then(
@@ -2996,9 +4149,14 @@ async function init() {
     .filter((result) => result.status === "rejected")
     .forEach((result) => console.warn(result.reason));
 
+  if (apiContext.demoMode || state.catalogLoaded) restoreCart();
+  restoreFavorites();
+
   setRole(state.role);
   setView(state.view);
+  state.lastSyncAt = new Date();
   renderAll();
+  renderSyncStatus();
 }
 
 init();

@@ -91,8 +91,15 @@ def database_connection_details(database_url: str) -> dict[str, str]:
     return details
 
 
-def check_config(settings: Any) -> DoctorCheck:
+def check_config(settings: Any, *, allow_missing_bot_token: bool = False) -> DoctorCheck:
     report = settings.safe_config_report()
+    if allow_missing_bot_token and "MAX_BOT_TOKEN is not configured" in report["errors"]:
+        report["errors"] = [
+            item for item in report["errors"] if item != "MAX_BOT_TOKEN is not configured"
+        ]
+        report["warnings"].append(
+            "MAX_BOT_TOKEN is not configured; allowed for local backend/bootstrap checks"
+        )
     if report["errors"]:
         return error("config", "Конфигурация содержит ошибки", errors=report["errors"])
     if report["warnings"]:
@@ -326,6 +333,7 @@ async def run_checks(
     settings: Any | None = None,
     include_db: bool = True,
     static_root: Path = STATIC_ROOT,
+    allow_missing_bot_token: bool = False,
 ) -> list[DoctorCheck]:
     current_settings = settings
     settings_error: DoctorCheck | None = None
@@ -333,7 +341,8 @@ async def run_checks(
         current_settings, settings_error = load_settings()
 
     checks = [
-        settings_error or check_config(current_settings),
+        settings_error
+        or check_config(current_settings, allow_missing_bot_token=allow_missing_bot_token),
         check_miniapp_assets(static_root),
         check_miniapp_js_syntax(static_root),
         check_google_sheets_config(current_settings),
@@ -376,6 +385,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Вывести результат в JSON",
     )
+    parser.add_argument(
+        "--allow-missing-bot-token",
+        action="store_true",
+        help="Allow missing MAX_BOT_TOKEN for local backend/bootstrap checks.",
+    )
     return parser.parse_args()
 
 
@@ -384,7 +398,12 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8")
 
     args = parse_args()
-    checks = asyncio.run(run_checks(include_db=not args.skip_db))
+    checks = asyncio.run(
+        run_checks(
+            include_db=not args.skip_db,
+            allow_missing_bot_token=args.allow_missing_bot_token,
+        )
+    )
     if args.json:
         print(json.dumps([asdict(check) for check in checks], ensure_ascii=False, indent=2))
     else:

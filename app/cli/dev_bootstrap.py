@@ -16,6 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = PROJECT_ROOT / ".env"
 SQLITE_ENV_EXAMPLE = PROJECT_ROOT / ".env.sqlite.example"
 TMP_DIR = PROJECT_ROOT / "tmp"
+BACKEND_SMOKE_PROFILES = ("basic", "store", "ops")
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,6 +54,12 @@ def parse_args() -> argparse.Namespace:
         "--with-backend-smoke",
         action="store_true",
         help="Run bot_smoke through MAX_BACKEND_API_BASE. Requires backend API to be running.",
+    )
+    parser.add_argument(
+        "--backend-smoke-profile",
+        choices=(*BACKEND_SMOKE_PROFILES, "all"),
+        default="basic",
+        help="Read-only bot_smoke profile for backend smoke runs. Use all for every profile.",
     )
     parser.add_argument(
         "--start-backend-smoke",
@@ -211,6 +218,12 @@ def run_command(command: list[str], *, dry_run: bool, env: dict[str, str] | None
         raise SystemExit(message) from None
 
 
+def selected_backend_smoke_profiles(profile: str) -> tuple[str, ...]:
+    if profile == "all":
+        return ("all",)
+    return (profile,)
+
+
 def wait_for_health(
     url: str,
     *,
@@ -236,6 +249,7 @@ def run_backend_smoke_with_temp_api(
     *,
     python: str,
     user_id: int,
+    profile: str,
     port: int,
     timeout: int,
     dry_run: bool,
@@ -253,20 +267,27 @@ def run_backend_smoke_with_temp_api(
         "--port",
         str(port),
     ]
-    smoke_command = [
-        python,
-        "-m",
-        "app.cli.bot_smoke",
-        "--with-backend",
-        "--user-id",
-        str(user_id),
-    ]
+    profiles = selected_backend_smoke_profiles(profile)
     backend_env = {**env, "MAX_BACKEND_API_BASE": api_base}
 
     if dry_run:
         print_step(f"dry-run: start {' '.join(uvicorn_command)}")
         print_step(f"dry-run: wait for {health_url}")
-        run_command(smoke_command, dry_run=True, env=backend_env)
+        for selected_profile in profiles:
+            run_command(
+                [
+                    python,
+                    "-m",
+                    "app.cli.bot_smoke",
+                    "--with-backend",
+                    "--user-id",
+                    str(user_id),
+                    "--profile",
+                    selected_profile,
+                ],
+                dry_run=True,
+                env=backend_env,
+            )
         print_step("dry-run: stop temporary backend")
         return
 
@@ -280,7 +301,21 @@ def run_backend_smoke_with_temp_api(
     )
     try:
         wait_for_health(health_url, timeout=timeout, process=process)
-        run_command(smoke_command, dry_run=False, env=backend_env)
+        for selected_profile in profiles:
+            run_command(
+                [
+                    python,
+                    "-m",
+                    "app.cli.bot_smoke",
+                    "--with-backend",
+                    "--user-id",
+                    str(user_id),
+                    "--profile",
+                    selected_profile,
+                ],
+                dry_run=False,
+                env=backend_env,
+            )
     except RuntimeError as exc:
         raise SystemExit(f"[dev-bootstrap] backend startup failed: {exc}") from None
     finally:
@@ -336,16 +371,32 @@ def main() -> int:
             env=env,
         )
     if not args.skip_doctor:
-        run_command([python, "-m", "app.cli.doctor"], dry_run=args.dry_run, env=env)
+        run_command(
+            [python, "-m", "app.cli.doctor", "--allow-missing-bot-token"],
+            dry_run=args.dry_run,
+            env=env,
+        )
     if not args.skip_smoke:
         smoke_command = [python, "-m", "app.cli.bot_smoke", "--user-id", str(args.max_user_id)]
         if args.with_backend_smoke:
-            smoke_command.append("--with-backend")
-        run_command(smoke_command, dry_run=args.dry_run, env=env)
+            for selected_profile in selected_backend_smoke_profiles(args.backend_smoke_profile):
+                run_command(
+                    [
+                        *smoke_command,
+                        "--with-backend",
+                        "--profile",
+                        selected_profile,
+                    ],
+                    dry_run=args.dry_run,
+                    env=env,
+                )
+        else:
+            run_command(smoke_command, dry_run=args.dry_run, env=env)
     if args.start_backend_smoke:
         run_backend_smoke_with_temp_api(
             python=python,
             user_id=args.max_user_id,
+            profile=args.backend_smoke_profile,
             port=args.api_port,
             timeout=args.api_start_timeout,
             dry_run=args.dry_run,

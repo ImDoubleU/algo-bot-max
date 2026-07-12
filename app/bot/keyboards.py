@@ -22,6 +22,8 @@ CALLBACK_STOCK = "stock"
 CALLBACK_TODO = "todo"
 CALLBACK_ROLE_PARENT = "role:parent"
 CALLBACK_ROLE_STUDENT = "role:student"
+CALLBACK_ORDER_ACTION_PREFIX = "order:action"
+CALLBACK_ORDER_CONFIRM_PREFIX = "order:confirm"
 
 
 def callback_button(text: str, payload: str) -> dict[str, str]:
@@ -51,7 +53,43 @@ def inline_keyboard(rows: list[list[dict[str, str]]]) -> list[dict[str, Any]]:
     ]
 
 
-def build_miniapp_url(user_id: int | None = None, tenant_slug: str | None = None) -> str:
+def order_action_payload(action: str, order_ref: str | int) -> str:
+    encoded_ref = parse.quote(str(order_ref), safe="")
+    return f"{CALLBACK_ORDER_ACTION_PREFIX}:{action}:{encoded_ref}"
+
+
+def order_confirm_payload(action: str, order_ref: str | int) -> str:
+    encoded_ref = parse.quote(str(order_ref), safe="")
+    return f"{CALLBACK_ORDER_CONFIRM_PREFIX}:{action}:{encoded_ref}"
+
+
+def parse_order_action_payload(payload: str) -> tuple[str, str] | None:
+    prefix = f"{CALLBACK_ORDER_ACTION_PREFIX}:"
+    if not payload.startswith(prefix):
+        return None
+    rest = payload[len(prefix) :]
+    action, separator, encoded_ref = rest.partition(":")
+    if not separator or not action or not encoded_ref:
+        return None
+    return action, parse.unquote(encoded_ref)
+
+
+def parse_order_confirm_payload(payload: str) -> tuple[str, str] | None:
+    prefix = f"{CALLBACK_ORDER_CONFIRM_PREFIX}:"
+    if not payload.startswith(prefix):
+        return None
+    rest = payload[len(prefix) :]
+    action, separator, encoded_ref = rest.partition(":")
+    if not separator or not action or not encoded_ref:
+        return None
+    return action, parse.unquote(encoded_ref)
+
+
+def build_miniapp_url(
+    user_id: int | None = None,
+    tenant_slug: str | None = None,
+    view: str | None = None,
+) -> str:
     miniapp_url = os.getenv("MAX_MINIAPP_URL", "").strip()
     if not miniapp_url:
         return ""
@@ -62,6 +100,8 @@ def build_miniapp_url(user_id: int | None = None, tenant_slug: str | None = None
         query["max_user_id"] = str(user_id)
     if tenant_slug:
         query["tenant_slug"] = tenant_slug
+    if view:
+        query["view"] = view
 
     return parse.urlunsplit(
         (
@@ -167,3 +207,51 @@ def cabinet_keyboard(
     else:
         rows.insert(0, [callback_button("Открыть mini app", CALLBACK_MINIAPP)])
     return inline_keyboard(rows)
+
+
+def order_actions_keyboard(
+    order_ref: str | int,
+    *,
+    status: str,
+    user_id: int | None = None,
+    tenant_slug: str | None = None,
+) -> list[dict[str, Any]]:
+    rows: list[list[dict[str, str]]] = [
+        [callback_button("Повторить", order_action_payload("repeat", order_ref))]
+    ]
+    if status in {"created", "reserved", "transferred_to_teacher", "problem"}:
+        rows.append(
+            [
+                callback_button("Выдать", order_action_payload("issue", order_ref)),
+                callback_button("Отменить", order_action_payload("cancel", order_ref)),
+            ]
+        )
+    elif status == "issued_to_student":
+        rows.append([callback_button("Возврат", order_action_payload("return", order_ref))])
+
+    rows.extend(
+        [
+            [
+                callback_button("Открытые", CALLBACK_OPEN_ORDERS),
+                callback_button("Заказы", CALLBACK_ORDERS),
+            ],
+            [callback_button("В меню", CALLBACK_MENU)],
+        ]
+    )
+    miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
+    if miniapp_url:
+        rows.insert(0, [link_button("Открыть mini app", miniapp_url)])
+    return inline_keyboard(rows)
+
+
+def order_confirmation_keyboard(action: str, order_ref: str | int) -> list[dict[str, Any]]:
+    return inline_keyboard(
+        [
+            [callback_button("Подтвердить", order_confirm_payload(action, order_ref))],
+            [
+                callback_button("Открытые", CALLBACK_OPEN_ORDERS),
+                callback_button("Заказы", CALLBACK_ORDERS),
+            ],
+            [callback_button("В меню", CALLBACK_MENU)],
+        ]
+    )

@@ -46,6 +46,9 @@ Callback payloads, кнопки и inline keyboards вынесены в `app.bot
 max_bot_venv\Scripts\python.exe -m app.cli.doctor --skip-db
 max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke
 max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --with-backend --user-id 1
+max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --with-backend --user-id 1 --profile store
+max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --with-backend --user-id 1 --profile ops
+max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --with-backend --user-id 1 --profile all
 max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --command "/version" --callback "orders:open"
 max_bot_venv\Scripts\python.exe main_bot.py --simulate-command "/help" --simulate-offline
 max_bot_venv\Scripts\python.exe main_bot.py --simulate-command "/help staff" --simulate-offline
@@ -89,17 +92,22 @@ max_bot_venv\Scripts\python.exe -m uvicorn app.main:app --reload
 
 `dev_bootstrap` защищает от случайного запуска миграций/seed на non-SQLite БД; для намеренного запуска на текущей БД нужен `--allow-non-sqlite`.
 Значения из `.env` используются как окружение дочерних команд bootstrap; это делает `--force-env` предсказуемым даже при внешних переменных.
+В bootstrap `doctor` запускается с `--allow-missing-bot-token`, чтобы локальная backend/SQLite проверка не требовала реального MAX-токена.
 
 `dev_bootstrap` по умолчанию запускает offline smoke. Для проверки связки через уже запущенный API:
 
 ```powershell
 max_bot_venv\Scripts\python.exe -m app.cli.dev_bootstrap --max-user-id 1 --with-backend-smoke
+max_bot_venv\Scripts\python.exe -m app.cli.dev_bootstrap --max-user-id 1 --with-backend-smoke --backend-smoke-profile store
+max_bot_venv\Scripts\python.exe -m app.cli.dev_bootstrap --max-user-id 1 --with-backend-smoke --backend-smoke-profile all
 ```
 
 Если отдельный `uvicorn` не запущен, bootstrap может временно поднять API для smoke:
 
 ```powershell
 max_bot_venv\Scripts\python.exe -m app.cli.dev_bootstrap --max-user-id 1 --start-backend-smoke --api-port 8010
+max_bot_venv\Scripts\python.exe -m app.cli.dev_bootstrap --max-user-id 1 --start-backend-smoke --backend-smoke-profile store --api-port 8010
+max_bot_venv\Scripts\python.exe -m app.cli.dev_bootstrap --max-user-id 1 --start-backend-smoke --backend-smoke-profile all --api-port 8010
 ```
 
 После старта API можно в другом терминале проверить связку бот -> backend:
@@ -157,7 +165,7 @@ max_bot_venv\Scripts\python.exe main_bot.py --simulate-command "/transfer PEN-LO
 ```
 
 Smoke полного заказа: создать заказ командой `/buy <SKU> [шт.][, SKU шт.] [| <ученик>]` или в miniapp, затем проверить `/orders`, `/order <номер>`,
-`/repeat <номер>`, `/cancel <номер>` или `/void <номер>` и убедиться, что баланс ученика и остаток товара вернулись к исходным значениям.
+кнопки карточки заказа и экран подтверждения, `/repeat <номер>`, `/cancel <номер>` или `/void <номер>` и убедиться, что баланс ученика и остаток товара вернулись к исходным значениям.
 
 После запуска healthcheck:
 
@@ -211,6 +219,8 @@ max_bot_venv\Scripts\python.exe -m alembic revision --autogenerate -m "message"
 Создать `.env` на основе `.env.example` и заполнить:
 
 - `MAX_BOT_TOKEN` - токен MAX-бота.
+- `MAX_API_TIMEOUT_SECONDS` - таймаут обычных запросов к MAX API.
+- `MAX_POLL_TIMEOUT_SECONDS` - long polling timeout для `/updates`.
 - `APP_SECRET_KEY` - длинная случайная строка для внутренних hash/signature.
 - `INITIAL_SUPERADMIN_MAX_USER_ID` - MAX user_id суперадмина.
 - `DATABASE_URL` - async URL PostgreSQL.
@@ -224,8 +234,14 @@ max_bot_venv\Scripts\python.exe -m alembic revision --autogenerate -m "message"
 - `GOOGLE_SERVICE_ACCOUNT_FILE` - путь к JSON service account.
 - `GOOGLE_SHEETS_ORDERS_SPREADSHEET_ID` - ID таблицы заказов.
 - `MAX_BACKEND_API_BASE` - base URL backend API для long polling-бота.
+- `MAX_BACKEND_TIMEOUT_SECONDS` - таймаут запросов бота к backend API.
 - `DEFAULT_TENANT_SLUG` - tenant по умолчанию.
 - `MAX_MINIAPP_URL` - URL miniapp для inline-кнопки.
+- `MAX_DROP_WEBHOOKS_ON_START` - `true`, если long polling-боту нужно удалять активные MAX webhooks при старте.
+- `MAX_ORDER_NOTIFICATIONS_ENABLED` - отправка MAX-уведомлений о создании и смене статуса заказа.
+
+В production-like окружениях (`APP_ENV` не `local/dev/development/test`) placeholder
+`APP_SECRET_KEY=replace_me` считается ошибкой `doctor`.
 
 Первичная staff-роль создается командой:
 

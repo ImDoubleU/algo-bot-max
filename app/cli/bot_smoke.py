@@ -9,9 +9,40 @@ from app.bot.backend_client import AccessBackendClient
 from app.bot.max_long_polling import simulate_callback, simulate_command
 from app.core.config import get_settings, is_placeholder
 
-DEFAULT_OFFLINE_COMMANDS = ("/version", "/help staff")
+DEFAULT_OFFLINE_COMMANDS = ("/version", "/status", "/config", "/help staff")
 DEFAULT_BACKEND_COMMANDS = ("/version", "/me", "/catalog", "/orders")
 DEFAULT_CALLBACKS = ("stock",)
+PROFILE_COMMANDS = {
+    "basic": DEFAULT_BACKEND_COMMANDS,
+    "store": (
+        "/version",
+        "/me",
+        "/catalog",
+        "/categories",
+        "/product PEN-LOGO",
+        "/quote PEN-LOGO 2",
+        "/canbuy PEN-LOGO 2",
+        "/orders",
+        "/last open",
+    ),
+    "ops": (
+        "/version",
+        "/me",
+        "/stock",
+        "/warehouses",
+        "/ops",
+        "/todo",
+        "/access",
+        "/orders open",
+    ),
+}
+PROFILE_CALLBACKS = {
+    "basic": DEFAULT_CALLBACKS,
+    "store": ("categories", "orders:open", "order:action:cancel:1"),
+    "ops": ("stock", "todo", "orders:open"),
+}
+SMOKE_PROFILES = tuple(PROFILE_COMMANDS)
+ALL_PROFILE = "all"
 BACKEND_FAILURE_MARKERS = (
     "Backend API не подключен",
     "Не получилось",
@@ -47,6 +78,25 @@ def response_status(response: dict[str, Any], *, backend_required: bool) -> str:
     if backend_required and any(marker in text for marker in BACKEND_FAILURE_MARKERS):
         return "error"
     return "ok"
+
+
+def profile_checks(profile: str) -> tuple[list[str], list[str]]:
+    profiles = SMOKE_PROFILES if profile == ALL_PROFILE else (profile,)
+    commands = list(
+        dict.fromkeys(
+            command
+            for selected_profile in profiles
+            for command in PROFILE_COMMANDS[selected_profile]
+        )
+    )
+    callbacks = list(
+        dict.fromkeys(
+            payload
+            for selected_profile in profiles
+            for payload in PROFILE_CALLBACKS[selected_profile]
+        )
+    )
+    return commands, callbacks
 
 
 def run_command_check(
@@ -99,13 +149,22 @@ def run_callback_check(
         return error_result(name, str(exc), error_type=exc.__class__.__name__)
 
     status = response_status(response, backend_required=backend_required)
+    callback_id = response.get("callback_id")
+    if not callback_id:
+        status = "error"
     result = {
         "name": name,
         "status": status,
+        "callback_answered": bool(callback_id),
+        "notification": response.get("notification"),
         **response_summary(response),
     }
     if status != "ok":
-        result["text"] = str(response.get("text") or "")
+        result["text"] = (
+            str(response.get("text") or "")
+            if callback_id
+            else "Callback did not use answer_callback"
+        )
     return result
 
 
@@ -113,11 +172,22 @@ def run_smoke(
     *,
     user_id: int,
     with_backend: bool,
+    profile: str,
     commands: list[str] | None = None,
     callbacks: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     settings = get_settings()
     default_tenant_slug = settings.default_tenant_slug
+
+    has_explicit_checks = commands is not None or callbacks is not None
+
+    if profile != "basic" and not with_backend and not has_explicit_checks:
+        return [
+            error_result(
+                "smoke_profile",
+                f"profile '{profile}' requires --with-backend or explicit --command/--callback",
+            )
+        ]
 
     backend_client: AccessBackendClient | None = None
     if with_backend:
@@ -129,13 +199,21 @@ def run_smoke(
                     mode="backend",
                 )
             ]
-        backend_client = AccessBackendClient(settings.max_backend_api_base)
+        backend_client = AccessBackendClient(
+            settings.max_backend_api_base,
+            timeout_seconds=settings.max_backend_timeout_seconds,
+        )
 
     results: list[dict[str, Any]] = []
-    selected_commands = commands or list(
-        DEFAULT_BACKEND_COMMANDS if with_backend else DEFAULT_OFFLINE_COMMANDS
-    )
-    selected_callbacks = callbacks or list(DEFAULT_CALLBACKS)
+    if has_explicit_checks:
+        selected_commands = commands or []
+        selected_callbacks = callbacks or []
+    else:
+        if with_backend:
+            selected_commands, selected_callbacks = profile_checks(profile)
+        else:
+            selected_commands = list(DEFAULT_OFFLINE_COMMANDS)
+            selected_callbacks = list(DEFAULT_CALLBACKS)
 
     for command_text in selected_commands:
         results.append(
@@ -174,6 +252,15 @@ def parse_args() -> argparse.Namespace:
         help="Use MAX_BACKEND_API_BASE and run smoke through the backend API client.",
     )
     parser.add_argument(
+        "--profile",
+        choices=sorted((*SMOKE_PROFILES, ALL_PROFILE)),
+        default="basic",
+        help=(
+            "Read-only smoke profile to run when explicit commands are not provided. "
+            "Use all to run every backend scenario."
+        ),
+    )
+    parser.add_argument(
         "--command",
         action="append",
         dest="commands",
@@ -201,6 +288,7 @@ def main() -> int:
     results = run_smoke(
         user_id=args.user_id,
         with_backend=args.with_backend,
+        profile=args.profile,
         commands=args.commands,
         callbacks=args.callbacks,
     )

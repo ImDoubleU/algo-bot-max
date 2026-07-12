@@ -3,8 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#5a2078" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.15.0" />
   </head>
   <body>
     <div class="app-shell">
@@ -18,12 +20,8 @@
         </div>
 
         <div class="tenant-control" aria-label="Контур данных">
-          <label for="tenantSelect">Город / партнер</label>
-          <select id="tenantSelect">
-            <option>Нижний Новгород / Партнер A</option>
-            <option>Нижний Новгород / Партнер B</option>
-            <option>Бор / Партнер A</option>
-          </select>
+          <span>Город / партнер</span>
+          <strong id="tenantTitle">Текущий контур</strong>
         </div>
       </header>
 
@@ -49,9 +47,13 @@
 
         <section class="content-area">
           <div class="status-strip">
-            <div>
-              <p class="label">Профиль</p>
-              <strong id="profileTitle">Алиса, ученик</strong>
+            <div class="status-profile">
+              <div>
+                <p class="label">Профиль</p>
+                <strong id="profileTitle">Алиса, ученик</strong>
+                <span id="lastSyncTime" class="sync-time">Загрузка данных</span>
+              </div>
+              <button id="refreshDataButton" class="icon-button refresh-button" type="button" title="Обновить данные" aria-label="Обновить данные">↻</button>
             </div>
             <div>
               <p class="label">Ученик для заказа</p>
@@ -72,7 +74,7 @@
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Сегодня</p>
-                <h2>Рабочий обзор</h2>
+                <h2 id="dashboardTitle">Рабочий обзор</h2>
               </div>
               <button class="secondary-action" type="button" data-view-jump="store">Открыть магазин</button>
             </div>
@@ -80,15 +82,15 @@
             <div class="summary-grid">
               <article class="metric">
                 <span id="linkedStudentsCount" class="metric-value">3</span>
-                <span class="metric-label">связанных ученика по Contact ID</span>
+                <span id="dashboardMetricOneLabel" class="metric-label">связанных ученика по Contact ID</span>
               </article>
               <article class="metric">
                 <span id="openOrdersCount" class="metric-value">2</span>
-                <span class="metric-label">заказа ждут выдачи</span>
+                <span id="dashboardMetricTwoLabel" class="metric-label">заказа ждут выдачи</span>
               </article>
               <article class="metric">
                 <span id="stockProblemCount" class="metric-value">1</span>
-                <span class="metric-label">резерв требует склада</span>
+                <span id="dashboardMetricThreeLabel" class="metric-label">резерв требует склада</span>
               </article>
             </div>
 
@@ -105,7 +107,7 @@
 
               <section class="panel">
                 <div class="panel-head">
-                  <h3>Заказы к выдаче</h3>
+                  <h3 id="dashboardOrdersTitle">Заказы к выдаче</h3>
                 </div>
                 <div id="dashboardOrders" class="compact-order-list"></div>
               </section>
@@ -118,14 +120,44 @@
                 <p class="eyebrow">Магазин</p>
                 <h2>Каталог подарков</h2>
               </div>
-              <div class="toolbar">
+              <div class="toolbar catalog-toolbar">
                 <input id="productSearch" type="search" placeholder="Поиск" />
                 <select id="categoryFilter" aria-label="Категория">
                   <option value="all">Все категории</option>
                 </select>
+                <select id="productSort" aria-label="Сортировка">
+                  <option value="recommended">Рекомендуемые</option>
+                  <option value="price-asc">Сначала дешевле</option>
+                  <option value="price-desc">Сначала дороже</option>
+                  <option value="name">По названию</option>
+                </select>
+                <label class="stock-filter">
+                  <input id="inStockOnly" type="checkbox" />
+                  <span>В наличии</span>
+                </label>
+                <button
+                  id="favoritesFilter"
+                  class="secondary-action favorites-filter"
+                  type="button"
+                  aria-pressed="false"
+                >
+                  <span aria-hidden="true">★</span>
+                  Избранное
+                  <span id="favoritesCount" class="filter-count">0</span>
+                </button>
               </div>
             </div>
+            <div class="catalog-meta">
+              <span id="catalogResultCount">0 товаров</span>
+            </div>
             <div id="productGrid" class="product-grid"></div>
+            <button id="storeCartBar" class="store-cart-bar" type="button" hidden>
+              <span>
+                <strong id="storeCartCount">0 товаров</strong>
+                <small><span id="storeCartTotal">0</span> AC</small>
+              </span>
+              <strong>Открыть корзину</strong>
+            </button>
           </section>
 
           <section id="cartView" class="view" data-view-panel="cart">
@@ -134,12 +166,27 @@
                 <p class="eyebrow">Оформление</p>
                 <h2>Корзина</h2>
               </div>
-              <button id="placeOrderButton" class="primary-action" type="button">Оформить заказ</button>
+              <button class="secondary-action" type="button" data-view-jump="store">Продолжить покупки</button>
             </div>
             <div id="cartList" class="cart-list"></div>
-            <div class="total-line">
-              <span>Итого</span>
-              <strong><span id="cartTotal">0</span> AC</strong>
+            <div id="cartSummary" class="cart-summary" hidden>
+              <div class="cart-summary-head">
+                <span>Получатель</span>
+                <strong id="cartStudentName">Ученик</strong>
+              </div>
+              <div class="cart-summary-row">
+                <span>Баланс</span>
+                <strong><span id="cartBalance">0</span> AC</strong>
+              </div>
+              <div class="cart-summary-row cart-summary-total">
+                <span>К списанию</span>
+                <strong><span id="cartTotal">0</span> AC</strong>
+              </div>
+              <div id="cartAffordability" class="cart-summary-row">
+                <span id="cartAffordabilityLabel">Останется</span>
+                <strong><span id="cartAffordabilityValue">0</span> AC</strong>
+              </div>
+              <button id="placeOrderButton" class="primary-action" type="button">Оформить заказ</button>
             </div>
           </section>
 
@@ -163,17 +210,18 @@
                 </select>
               </div>
             </div>
-            <div id="ordersTable" class="data-table"></div>
+            <div id="ordersTable" class="orders-list"></div>
           </section>
 
           <section id="walletView" class="view" data-view-panel="wallet">
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Астрокоины</p>
-                <h2>История операций</h2>
+                <h2 id="walletTitle">История операций</h2>
               </div>
               <button class="secondary-action" type="button" data-view-jump="accrual">Начисления</button>
             </div>
+            <div id="walletSummary" class="wallet-summary"></div>
             <div id="ledgerList" class="ledger-list"></div>
           </section>
 
@@ -198,8 +246,30 @@
                 </button>
               </div>
 
-              <div class="accrual-table-wrap">
-                <div id="accrualStudentList" class="accrual-table"></div>
+              <div class="accrual-bulk">
+                <div>
+                  <h3>Начислить выбранной группе</h3>
+                  <p>Сначала выберите конкретную группу в фильтре.</p>
+                </div>
+                <label>
+                  <span>Причина</span>
+                  <select id="groupAccrualReason">
+                    <option value="">Выберите причину</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Сумма</span>
+                  <select id="groupAccrualAmount">
+                    <option value="">Выберите сумму</option>
+                  </select>
+                </label>
+                <button class="primary-action" type="button" data-group-accrual>
+                  Начислить группе
+                </button>
+              </div>
+
+              <div class="accrual-list-wrap">
+                <div id="accrualStudentList" class="accrual-card-list"></div>
               </div>
             </div>
           </section>
@@ -208,7 +278,7 @@
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Админ</p>
-                <h2>Товары и остатки</h2>
+                <h2 id="adminViewTitle">Операционная сводка</h2>
               </div>
             </div>
 
@@ -225,8 +295,133 @@
           </section>
         </section>
       </main>
+
+      <div id="checkoutDialog" class="dialog-backdrop" hidden>
+        <section
+          class="checkout-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="checkoutDialogTitle"
+        >
+          <div class="dialog-head">
+            <div>
+              <p class="eyebrow">Проверка заказа</p>
+              <h2 id="checkoutDialogTitle">Все верно?</h2>
+            </div>
+            <button
+              id="closeCheckoutButton"
+              class="icon-button dialog-close"
+              type="button"
+              title="Закрыть"
+              aria-label="Закрыть"
+            >×</button>
+          </div>
+          <div id="checkoutSummary" class="checkout-summary"></div>
+          <div class="dialog-actions">
+            <button id="cancelCheckoutButton" class="secondary-action" type="button">
+              Вернуться
+            </button>
+            <button id="confirmOrderButton" class="primary-action" type="button">
+              Подтвердить заказ
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div id="productDialog" class="dialog-backdrop" hidden>
+        <section
+          class="checkout-dialog product-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="productDialogTitle"
+        >
+          <div class="dialog-head">
+            <div>
+              <p class="eyebrow">Карточка товара</p>
+              <h2 id="productDialogTitle">Товар</h2>
+            </div>
+            <button
+              id="closeProductDialogButton"
+              class="icon-button dialog-close"
+              type="button"
+              title="Закрыть"
+              aria-label="Закрыть"
+            >×</button>
+          </div>
+          <div id="productDialogContent" class="product-dialog-content"></div>
+          <div class="dialog-actions product-dialog-actions">
+            <button id="productDialogBackButton" class="secondary-action" type="button">
+              Продолжить выбор
+            </button>
+            <button id="productDialogAddButton" class="primary-action" type="button">
+              Добавить в корзину
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div id="orderDialog" class="dialog-backdrop" hidden>
+        <section
+          class="checkout-dialog order-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="orderDialogTitle"
+        >
+          <div class="dialog-head">
+            <div>
+              <p class="eyebrow">Карточка заказа</p>
+              <h2 id="orderDialogTitle">Заказ</h2>
+            </div>
+            <button
+              id="closeOrderDialogButton"
+              class="icon-button dialog-close"
+              type="button"
+              title="Закрыть"
+              aria-label="Закрыть"
+            >×</button>
+          </div>
+          <div id="orderDialogContent" class="order-dialog-content"></div>
+          <div id="orderDialogActions" class="dialog-actions order-dialog-actions"></div>
+        </section>
+      </div>
+
+      <div id="mobileMorePanel" class="mobile-more-panel" hidden>
+        <button class="mobile-more-action nav-button" type="button" data-view="wallet">
+          Астрокоины
+        </button>
+        <button class="mobile-more-action nav-button" type="button" data-view="accrual">
+          Начисления
+        </button>
+        <button class="mobile-more-action nav-button" type="button" data-view="admin">
+          Операции
+        </button>
+      </div>
+
+      <nav class="mobile-bottom-nav" aria-label="Основные разделы">
+        <button class="nav-button is-active" type="button" data-view="dashboard">
+          <span class="mobile-nav-icon" aria-hidden="true">⌂</span>
+          <span>Обзор</span>
+        </button>
+        <button class="nav-button" type="button" data-view="store">
+          <span class="mobile-nav-icon" aria-hidden="true">▦</span>
+          <span>Магазин</span>
+        </button>
+        <button class="nav-button" type="button" data-view="cart">
+          <span class="mobile-nav-icon" aria-hidden="true">▣</span>
+          <span>Корзина</span>
+          <span class="mobile-nav-count" data-cart-count hidden>0</span>
+        </button>
+        <button class="nav-button" type="button" data-view="orders">
+          <span class="mobile-nav-icon" aria-hidden="true">≡</span>
+          <span>Заказы</span>
+        </button>
+        <button id="mobileMoreButton" class="nav-button" type="button" data-mobile-more>
+          <span class="mobile-nav-icon" aria-hidden="true">•••</span>
+          <span>Еще</span>
+        </button>
+      </nav>
     </div>
 
-    <script src="/miniapp/static/app.js"></script>
+    <script src="/miniapp/static/app.js?v=0.15.0"></script>
   </body>
 </html>

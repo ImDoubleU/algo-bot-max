@@ -12,8 +12,9 @@ class BackendApiError(RuntimeError):
 
 
 class AccessBackendClient:
-    def __init__(self, api_base: str) -> None:
+    def __init__(self, api_base: str, *, timeout_seconds: int = 15) -> None:
         self.api_base = api_base.rstrip("/")
+        self.timeout_seconds = timeout_seconds
 
     def _request(
         self,
@@ -22,7 +23,7 @@ class AccessBackendClient:
         *,
         body: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
-        timeout: int = 15,
+        timeout: int | None = None,
     ) -> dict[str, Any]:
         url = f"{self.api_base}{path}"
         clean_params = {key: value for key, value in (params or {}).items() if value is not None}
@@ -40,7 +41,7 @@ class AccessBackendClient:
         )
 
         try:
-            with request.urlopen(req, timeout=timeout) as response:
+            with request.urlopen(req, timeout=timeout or self.timeout_seconds) as response:
                 raw = response.read()
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
