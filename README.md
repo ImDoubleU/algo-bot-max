@@ -1,6 +1,6 @@
 # MAX-бот и miniapp Алгоритмики
 
-Черновой рабочий проект MAX-бота, backend API и miniapp для входа по Contact ID, магазина подарков, заказов, складов, загрузки товаров и начисления астрокоинов.
+Рабочий проект MAX-бота, backend API и miniapp для входа по Contact ID, магазина подарков, заказов, складов, загрузки товаров и начисления астрокоинов.
 
 ## Что уже работает
 
@@ -10,13 +10,25 @@
 - FastAPI backend с tenant-изоляцией.
 - CRM XLSX import.
 - Настраиваемый rate limit входа: локальная память по умолчанию или Redis для production.
+- MAX-уведомления о создании, отмене, выдаче и возврате заказов.
 - Miniapp:
-  - обзор;
+  - обзор с показателями под роль ученика, родителя, педагога или администратора;
   - магазин;
-  - корзина с выбором склада и количества;
-  - оформление заказа с резервом склада;
-  - история астрокоинов;
-  - начисления в виде таблицы учеников;
+  - мобильная нижняя навигация и компактный интерфейс для MAX WebView;
+  - персональный кошелек выбранного ученика со сводкой баланса, начислений, списаний и историей операций;
+  - ролевые списки заказов: личные для ученика и общие рабочие для сотрудников;
+  - прямое открытие нужного раздела из MAX-уведомлений;
+  - ручное обновление профиля, баланса, заказов, каталога и операционной сводки без перезапуска WebView;
+  - сохранение выбранного ученика, фильтров каталога и заказов между открытиями mini-app;
+  - каталог с фотографиями, поиском, сохраняемым избранным и детальной карточкой товара;
+  - сортировка каталога, фильтр наличия и быстрая панель корзины с суммой заказа;
+  - корзина со сводкой баланса, будущего остатка и понятным сообщением при нехватке AC;
+  - сохраняемая корзина с выбором склада и количества;
+  - подтверждение заказа со сводкой перед резервом склада и списанием AC;
+  - карточки заказов с составом, суммой, складом, историей статусов и staff-действиями;
+  - административная сводка с быстрыми переходами к выдаче, товарам и остаткам;
+  - карточки связей доступа и сотрудников с отзывом, восстановлением и выдачей ролей;
+  - карточки начисления AC ученикам и отдельное начисление выбранной группе;
   - админская загрузка товаров CSV/XLSX.
 
 ## Локальный запуск
@@ -85,6 +97,8 @@ max_bot_venv\Scripts\python.exe -m app.cli.dev_bootstrap --env-file .env.sqlite.
 Для намеренного запуска на текущей БД используйте явный флаг `--allow-non-sqlite`.
 Значения из `.env` передаются во все дочерние команды bootstrap и перекрывают внешнее окружение
 только внутри этого запуска.
+Внутри локального bootstrap `doctor` запускается с `--allow-missing-bot-token`, поэтому backend/SQLite
+подготовка не требует реального MAX-токена.
 
 После запуска backend можно проверить команду бота через API:
 
@@ -104,10 +118,27 @@ max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke
 max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --with-backend --user-id 1
 ```
 
+Доступны read-only профили: `basic`, `store`, `ops`. `store` проходит каталог, категории,
+карточку товара, расчет цены, доступность покупки, карточку последнего открытого заказа и экран подтверждения order action; `ops` проходит складские и операторские команды.
+
+```powershell
+max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --with-backend --user-id 1 --profile store
+max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --with-backend --user-id 1 --profile ops
+max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --with-backend --user-id 1 --profile all
+```
+
 Для точечной проверки можно передать свои команды и callbacks:
 
 ```powershell
 max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --command "/version" --callback "orders:open"
+```
+
+Если передан хотя бы один `--command` или `--callback`, smoke запускает только явно указанные проверки.
+
+Для полного read-only backend smoke через bootstrap:
+
+```powershell
+max_bot_venv\Scripts\python.exe -m app.cli.dev_bootstrap --max-user-id 1 --start-backend-smoke --backend-smoke-profile all --api-port 8010
 ```
 
 ```powershell
@@ -123,6 +154,10 @@ max_bot_venv\Scripts\python.exe -m app.cli.doctor
 ```powershell
 max_bot_venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
+
+Mini-app откроется по адресу `http://127.0.0.1:8000/miniapp?max_user_id=1`.
+Для просмотра интерфейса без MAX и backend-данных используйте demo-режим:
+`http://127.0.0.1:8000/miniapp?demo=1`.
 
 Проверка backend:
 
@@ -143,12 +178,21 @@ http://127.0.0.1:8000/miniapp?demo=1
 
 ```powershell
 $env:MAX_BOT_TOKEN = "..."
+$env:MAX_API_TIMEOUT_SECONDS = "15"
+$env:MAX_POLL_TIMEOUT_SECONDS = "30"
 $env:MAX_BACKEND_API_BASE = "http://127.0.0.1:8000/api/v1"
+$env:MAX_BACKEND_TIMEOUT_SECONDS = "15"
 $env:DEFAULT_TENANT_SLUG = "nizhniy-novgorod-partner-a"
 $env:MAX_MINIAPP_URL = "http://127.0.0.1:8000/miniapp"
+$env:MAX_DROP_WEBHOOKS_ON_START = "false"
+$env:MAX_ORDER_NOTIFICATIONS_ENABLED = "true"
 max_bot_venv\Scripts\python.exe main_bot.py
 ```
 
+`MAX_API_TIMEOUT_SECONDS` задает таймаут обычных запросов к MAX API, `MAX_POLL_TIMEOUT_SECONDS`
+задает long polling timeout, `MAX_BACKEND_TIMEOUT_SECONDS` задает таймаут запросов бота к backend API.
+`MAX_DROP_WEBHOOKS_ON_START=true` разрешает polling-боту удалять активные webhook-подписки при старте; разово то же делает `--drop-webhooks`.
+`MAX_ORDER_NOTIFICATIONS_ENABLED=true` отправляет создателю заказа и связанным родителям/ученикам сообщения MAX при создании, отмене, выдаче и возврате заказа. Кнопка в сообщении сразу открывает вкладку заказов mini-app.
 Для телефона в MAX `MAX_MINIAPP_URL` нужно заменить на публичный HTTPS-адрес.
 
 Основные команды в MAX:
@@ -175,7 +219,7 @@ max_bot_venv\Scripts\python.exe main_bot.py
 - `/buy <SKU> [шт.][, SKU шт.] [| <ученик>]` - оформить заказ из чата; если связан один ученик, бот выберет его автоматически, иначе попросит уточнить ученика после `|`.
 - `/orders [open|issued|cancelled|поиск]` - открытые, последние или найденные заказы пользователя из backend.
 - `/myorders` - короткий alias для `/orders`; `/open` - короткий alias для `/orders open`.
-- `/order <номер>` - детальная карточка заказа: статус, состав, сумма и доступные быстрые действия.
+- `/order <номер>` - детальная карточка заказа: статус, состав, сумма и кнопки быстрых действий.
 - `/last [open|issued|cancelled]` - последняя карточка заказа или ближайший заказ с нужным статусом без поиска номера.
 - `/sales [open|issued|cancelled|all]` - сумма заказов, разрез по статусам и топ товаров; alias: `/revenue`.
 - `/repeat <номер>` - повторить заказ теми же товарами; backend заново проверит остатки, баланс и права.
@@ -192,7 +236,7 @@ max_bot_venv\Scripts\python.exe main_bot.py
 - `/ops [порог]` - операционная сводка для staff/admin: статусы заказов, ближайшие открытые заказы и остатки ниже порога; aliases: `/dashboard`, `/overview`.
 - `/todo [порог]` - компактный список ближайших заказов к выдаче и низких остатков для staff/admin.
 - `/cancel <номер>`, `/issue <номер>`, `/return <номер>` - отменить, выдать или принять возврат заказа; права и складские операции проверяет backend. Staff aliases: `/void`, `/done`, `/refund`.
-- Для `/repeat`, `/cancel`, `/issue`, `/return` и staff aliases нужен точный номер заказа; слова `last`/`open` не выполняют действие. Сначала откройте `/last open` или `/orders open`, затем используйте номер.
+- Для `/repeat`, `/cancel`, `/issue`, `/return`, кнопок карточки заказа и staff aliases нужен точный номер заказа; слова `last`/`open` не выполняют действие. Сначала откройте `/last open` или `/orders open`, затем используйте номер. Кнопки карточки заказа перед изменением заказа показывают отдельное подтверждение.
 - `/miniapp` - персональная ссылка на miniapp с текущим tenant и MAX user_id.
 - `/status` - текущий/default tenant, MAX/backend/miniapp URL, marker polling и быстрые команды проверки.
 - `/setup` - короткая справка по запуску, `.env`, readiness и диагностическим командам.
@@ -238,6 +282,9 @@ REDIS_URL=redis://localhost:6379/0
 RATE_LIMIT_MAX_ATTEMPTS=8
 RATE_LIMIT_WINDOW_SECONDS=900
 ```
+
+Для `APP_ENV` вне `local/dev/development/test` команда `doctor` считает placeholder
+`APP_SECRET_KEY=replace_me` ошибкой, а не предупреждением.
 
 Перед запуском polling можно проверить локальную конфигурацию без сетевых запросов:
 

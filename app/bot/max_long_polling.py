@@ -3,8 +3,9 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
+import signal
 import sys
+import threading
 import time
 from datetime import datetime
 from typing import Any
@@ -44,6 +45,10 @@ from app.bot.keyboards import (
     build_miniapp_url,
     cabinet_keyboard,
     main_menu_keyboard,
+    order_actions_keyboard,
+    order_confirmation_keyboard,
+    parse_order_action_payload,
+    parse_order_confirm_payload,
     role_selection_keyboard,
 )
 from app.bot.max_client import MaxApiClient, MaxApiError, SimulationMaxClient
@@ -56,10 +61,9 @@ from app.services.deep_links import (
     parse_contact_payload,
 )
 
-API_BASE = os.getenv("MAX_API_BASE", "https://platform-api2.max.ru")
-BACKEND_API_BASE = os.getenv("MAX_BACKEND_API_BASE", "").rstrip("/")
-DEFAULT_TENANT_SLUG = os.getenv("DEFAULT_TENANT_SLUG", "nizhniy-novgorod-partner-a").strip().lower()
 logger = logging.getLogger("algo_bot_max.bot")
+POLL_RETRY_INITIAL_SECONDS = 1.0
+POLL_RETRY_MAX_SECONDS = 30.0
 
 
 def display_name_from_user(user: dict[str, Any]) -> str | None:
@@ -99,16 +103,21 @@ class LongPollingBot:
         client: MaxApiClient,
         *,
         backend_client: AccessBackendClient | None = None,
-        default_tenant_slug: str = DEFAULT_TENANT_SLUG,
+        default_tenant_slug: str | None = None,
     ) -> None:
         self.client = client
         self.backend_client = backend_client
-        self.default_tenant_slug = default_tenant_slug
+        self.default_tenant_slug = default_tenant_slug or get_settings().default_tenant_slug
         self.bot_info = self.client.get_me()
         self.bot_user_id = self.bot_info.get("user_id")
         self.pending_contact_ids: dict[int, PendingContact] = {}
         self.user_tenant_slugs: dict[int, str] = {}
         self.running = True
+        self.stop_event = threading.Event()
+
+    def stop(self) -> None:
+        self.running = False
+        self.stop_event.set()
 
     def load_marker(self) -> int | None:
         if not MARKER_FILE.exists():
@@ -149,7 +158,8 @@ class LongPollingBot:
         raise SystemExit(
             "Активна webhook-подписка, поэтому long polling не получит события.\n"
             f"Текущие подписки: {joined}\n"
-            "Запустите `python main_bot.py --drop-webhooks` или удалите webhook в MAX."
+            "Запустите `python main_bot.py --drop-webhooks`, задайте "
+            "`MAX_DROP_WEBHOOKS_ON_START=true` или удалите webhook в MAX."
         )
 
     def target_from_message(self, message: dict[str, Any]) -> tuple[int | None, int | None]:
@@ -419,6 +429,7 @@ class LongPollingBot:
         )
 
     def status_text(self, user_id: int | None = None) -> str:
+        settings = get_settings()
         tenant_slug = self.current_tenant_slug(user_id)
         marker = self.load_marker()
         miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
@@ -429,13 +440,20 @@ class LongPollingBot:
             f"Revision: {APP_REVISION}",
             f"Tenant: {tenant_slug}",
             f"Default tenant: {self.default_tenant_slug}",
-            f"MAX API: {API_BASE}",
+            f"MAX API: {settings.max_api_base}",
+            f"MAX API timeout: {settings.max_api_timeout_seconds}s",
+            f"MAX poll timeout: {settings.max_poll_timeout_seconds}s",
             f"Backend API: {'подключен' if self.backend_client else 'выключен'}",
-            f"Backend URL: {BACKEND_API_BASE or 'не задан'}",
+            f"Backend URL: {settings.max_backend_api_base or 'не задан'}",
+            f"Backend timeout: {settings.max_backend_timeout_seconds}s",
             f"Miniapp: {'настроен' if miniapp_url else 'не настроен'}",
             f"Miniapp URL: {miniapp_url or 'не задан'}",
             f"Marker: {marker if marker is not None else 'нет'}",
             "Polling: long polling",
+            (
+                "Drop webhooks on start: "
+                f"{'да' if settings.max_drop_webhooks_on_start else 'нет'}"
+            ),
         ]
         lines.extend(
             [
@@ -466,7 +484,10 @@ class LongPollingBot:
             f"Tenant: {tenant_slug}",
             f"Default tenant: {self.default_tenant_slug}",
             f"Backend client: {'connected' if self.backend_client else 'offline'}",
-            f"Backend URL: {BACKEND_API_BASE or 'not set'}",
+            f"Backend URL: {settings.max_backend_api_base or 'not set'}",
+            f"Backend timeout: {settings.max_backend_timeout_seconds}s",
+            f"MAX API timeout: {settings.max_api_timeout_seconds}s",
+            f"MAX poll timeout: {settings.max_poll_timeout_seconds}s",
             f"Miniapp URL: {miniapp_url or 'not set'}",
             f"Bot username: @{bot_username}" if bot_username else "Bot username: not set",
             "",
@@ -606,7 +627,7 @@ class LongPollingBot:
 
         return BotResponse(
             self.format_order_details_text(order, tenant_slug=tenant_slug),
-            self.cabinet_attachments(user_id, tenant_slug),
+            self.order_attachments(order, user_id=user_id, tenant_slug=tenant_slug),
         )
 
     def latest_order_response(
@@ -650,7 +671,7 @@ class LongPollingBot:
 
         return BotResponse(
             self.format_order_details_text(orders[0], tenant_slug=tenant_slug),
-            self.cabinet_attachments(user_id, tenant_slug),
+            self.order_attachments(orders[0], user_id=user_id, tenant_slug=tenant_slug),
         )
 
     def sales_response(self, user_id: int | None = None, filter_text: str = "") -> BotResponse:
@@ -1651,6 +1672,7 @@ class LongPollingBot:
         try:
             catalog = self.backend_client.get_catalog(
                 tenant_slug=tenant_slug,
+                max_user_id=user_id,
                 include_inactive=True,
             )
         except BackendApiError as exc:
@@ -2627,7 +2649,39 @@ class LongPollingBot:
                 f"{self.format_order_line(changed_order)}"
                 f"{balance_text}"
             ),
-            self.cabinet_attachments(user_id, tenant_slug),
+            self.order_attachments(
+                changed_order or order,
+                user_id=user_id,
+                tenant_slug=tenant_slug,
+                fallback_ref=order_ref,
+            ),
+        )
+
+    def order_action_confirmation_response(
+        self,
+        *,
+        user_id: int | None,
+        action: str,
+        order_ref: str,
+    ) -> BotResponse:
+        labels = {
+            "repeat": "повторить",
+            "cancel": "отменить",
+            "issue": "выдать",
+            "return": "принять возврат",
+        }
+        label = labels.get(action)
+        if label is None:
+            return BotResponse(
+                "Действие с заказом пока не поддерживается.",
+                self.main_menu_attachments(user_id),
+            )
+        return BotResponse(
+            (
+                f"Подтвердите действие: {label} заказ №{order_ref}.\n\n"
+                "После подтверждения бот изменит заказ, баланс или остатки."
+            ),
+            order_confirmation_keyboard(action, order_ref),
         )
 
     def repeat_order_response(
@@ -4144,9 +4198,16 @@ class LongPollingBot:
             f"Bot mode: {report.get('bot_mode') or '-'}",
             f"Default tenant: {report.get('default_tenant_slug') or '-'}",
             f"MAX API: {report.get('max_api_base') or '-'}",
+            f"MAX API timeout: {report.get('max_api_timeout_seconds') or '-'}s",
+            f"MAX poll timeout: {report.get('max_poll_timeout_seconds') or '-'}s",
             f"MAX bot token: {report.get('max_bot_token') or 'missing'}",
             f"Backend API: {report.get('max_backend_api_base') or 'disabled'}",
+            f"Backend timeout: {report.get('max_backend_timeout_seconds') or '-'}s",
             f"Miniapp URL: {report.get('max_miniapp_url') or 'disabled'}",
+            (
+                "Drop webhooks on start: "
+                f"{'true' if report.get('max_drop_webhooks_on_start') else 'false'}"
+            ),
             f"Database URL: {report.get('database_url') or 'missing'}",
             f"Redis URL: {report.get('redis_url') or 'missing'}",
             f"Rate limit: {report.get('rate_limit_backend') or '-'}",
@@ -4617,6 +4678,29 @@ class LongPollingBot:
         return cabinet_keyboard(
             user_id=user_id,
             tenant_slug=tenant_slug or self.current_tenant_slug(user_id),
+        )
+
+    def order_attachments(
+        self,
+        order: dict[str, Any],
+        *,
+        user_id: int | None,
+        tenant_slug: str,
+        fallback_ref: str | int | None = None,
+    ) -> list[dict[str, Any]]:
+        order_ref = (
+            order.get("order_number")
+            or order.get("id")
+            or fallback_ref
+            or ""
+        )
+        if not order_ref:
+            return self.cabinet_attachments(user_id, tenant_slug)
+        return order_actions_keyboard(
+            order_ref,
+            status=str(order.get("status") or ""),
+            user_id=user_id,
+            tenant_slug=tenant_slug,
         )
 
     def handle_tenant_selection(self, *, user_id: int | None, tenant_slug: str) -> str:
@@ -5278,6 +5362,48 @@ class LongPollingBot:
                 display_name=display_name_from_user(user),
             )
             notification = "Роль выбрана"
+        elif order_confirm := parse_order_confirm_payload(payload):
+            action, order_ref = order_confirm
+            if action == "repeat":
+                response = self.repeat_order_response(user_id=user_id, order_ref=order_ref)
+                notification = "Повтор"
+            elif action in {"cancel", "issue", "return"}:
+                response = self.order_action_response(
+                    user_id=user_id,
+                    action=action,
+                    order_ref=order_ref,
+                )
+                notification = {
+                    "cancel": "Отмена",
+                    "issue": "Выдача",
+                    "return": "Возврат",
+                }[action]
+            else:
+                response = BotResponse(
+                    "Действие с заказом пока не поддерживается. Вернемся к заказам.",
+                    self.cabinet_attachments(user_id, tenant_slug),
+                )
+                notification = "Заказы"
+        elif order_action := parse_order_action_payload(payload):
+            action, order_ref = order_action
+            if action in {"repeat", "cancel", "issue", "return"}:
+                response = self.order_action_confirmation_response(
+                    user_id=user_id,
+                    action=action,
+                    order_ref=order_ref,
+                )
+                notification = {
+                    "repeat": "Подтвердите",
+                    "cancel": "Отмена",
+                    "issue": "Выдача",
+                    "return": "Возврат",
+                }[action]
+            else:
+                response = BotResponse(
+                    "Действие с заказом пока не поддерживается. Вернемся к заказам.",
+                    self.cabinet_attachments(user_id, tenant_slug),
+                )
+                notification = "Заказы"
         elif payload == CALLBACK_STATUS:
             response = self.status_response(user_id=user_id)
             notification = "Статус"
@@ -5371,6 +5497,7 @@ class LongPollingBot:
 
     def run(self) -> None:
         marker = self.load_marker()
+        retry_delay = POLL_RETRY_INITIAL_SECONDS
         bot_name = self.bot_info.get("first_name") or self.bot_info.get("name") or "MAX bot"
         bot_username = self.bot_info.get("username") or "-"
 
@@ -5393,16 +5520,28 @@ class LongPollingBot:
                 if next_marker is not None:
                     marker = next_marker
                     self.save_marker(marker)
+                retry_delay = POLL_RETRY_INITIAL_SECONDS
 
             except KeyboardInterrupt:
                 logger.info("Остановлено пользователем.")
                 break
             except MaxApiError as exc:
-                logger.error("%s", exc)
-                time.sleep(3)
+                logger.error("%s; повтор через %.0f сек.", exc, retry_delay)
+                if self.stop_event.wait(retry_delay):
+                    break
+                retry_delay = min(retry_delay * 2, POLL_RETRY_MAX_SECONDS)
             except Exception as exc:  # noqa: BLE001
-                logger.exception("Неожиданная ошибка: %s", exc)
-                time.sleep(3)
+                logger.exception(
+                    "Неожиданная ошибка: %s; повтор через %.0f сек.",
+                    exc,
+                    retry_delay,
+                )
+                if self.stop_event.wait(retry_delay):
+                    break
+                retry_delay = min(retry_delay * 2, POLL_RETRY_MAX_SECONDS)
+
+        self.stop()
+        logger.info("Long polling завершен.")
 
 
 def parse_args() -> argparse.Namespace:
@@ -5504,6 +5643,7 @@ def simulate_callback(
         {
             "callback": {
                 "payload": payload,
+                "callback_id": "local-simulation-callback",
                 "user": {
                     "user_id": user_id,
                     "username": "local_simulation",
@@ -5538,7 +5678,10 @@ def main() -> int:
         backend_client = (
             None
             if args.simulate_offline or is_placeholder(settings.max_backend_api_base)
-            else AccessBackendClient(settings.max_backend_api_base)
+            else AccessBackendClient(
+                settings.max_backend_api_base,
+                timeout_seconds=settings.max_backend_timeout_seconds,
+            )
         )
         response = simulate_command(
             command_text=args.simulate_command,
@@ -5553,7 +5696,10 @@ def main() -> int:
         backend_client = (
             None
             if args.simulate_offline or is_placeholder(settings.max_backend_api_base)
-            else AccessBackendClient(settings.max_backend_api_base)
+            else AccessBackendClient(
+                settings.max_backend_api_base,
+                timeout_seconds=settings.max_backend_timeout_seconds,
+            )
         )
         response = simulate_callback(
             payload=args.simulate_callback,
@@ -5581,9 +5727,17 @@ def main() -> int:
             print(f"[config] {message}", file=sys.stderr)
         return 1
 
-    client = MaxApiClient(token_value, api_base=settings.max_api_base)
+    client = MaxApiClient(
+        token_value,
+        api_base=settings.max_api_base,
+        timeout_seconds=settings.max_api_timeout_seconds,
+        poll_timeout_seconds=settings.max_poll_timeout_seconds,
+    )
     backend_client = (
-        AccessBackendClient(settings.max_backend_api_base)
+        AccessBackendClient(
+            settings.max_backend_api_base,
+            timeout_seconds=settings.max_backend_timeout_seconds,
+        )
         if not is_placeholder(settings.max_backend_api_base)
         else None
     )
@@ -5597,7 +5751,8 @@ def main() -> int:
         bot.reset_marker()
         print(f"[info] Marker удален: {MARKER_FILE}")
 
-    bot.ensure_polling_available(drop_webhooks=args.drop_webhooks)
+    drop_webhooks = args.drop_webhooks or settings.max_drop_webhooks_on_start
+    bot.ensure_polling_available(drop_webhooks=drop_webhooks)
 
     if args.check:
         subscriptions = client.get_subscriptions().get("subscriptions") or []
@@ -5605,6 +5760,7 @@ def main() -> int:
         print(f"[info] Активные webhook-подписки: {len(subscriptions)}")
         print(f"[info] Tenant по умолчанию: {settings.default_tenant_slug}")
         print(f"[info] Backend API: {settings.max_backend_api_base or 'выключен'}")
+        print(f"[info] Drop webhooks on start: {drop_webhooks}")
         for warning in settings.config_warnings():
             print(f"[warn] {warning}")
         for item in subscriptions:

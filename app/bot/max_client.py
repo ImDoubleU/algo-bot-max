@@ -2,8 +2,15 @@ from __future__ import annotations
 
 import json
 import os
+import ssl
 from typing import Any
 from urllib import error, parse, request
+
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except Exception:
+    pass
 
 API_BASE = os.getenv("MAX_API_BASE", "https://platform-api2.max.ru")
 UPDATE_TYPES = "message_created,bot_started,message_callback"
@@ -14,16 +21,26 @@ class MaxApiError(RuntimeError):
 
 
 class MaxApiClient:
-    def __init__(self, token: str, api_base: str = API_BASE) -> None:
+    def __init__(
+        self,
+        token: str,
+        api_base: str = API_BASE,
+        *,
+        timeout_seconds: int = 15,
+        poll_timeout_seconds: int = 30,
+    ) -> None:
         self.token = token
         self.api_base = api_base.rstrip("/")
+        self.timeout_seconds = timeout_seconds
+        self.poll_timeout_seconds = poll_timeout_seconds
 
     def _build_url(self, path: str, params: dict[str, Any] | None = None) -> str:
         url = f"{self.api_base}{path}"
         if not params:
             return url
 
-        clean_params = {key: value for key, value in params.items() if value is not None}
+        clean_params = {key: value for key,
+                        value in params.items() if value is not None}
         query = parse.urlencode(clean_params)
         return f"{url}?{query}" if query else url
 
@@ -34,7 +51,7 @@ class MaxApiClient:
         *,
         params: dict[str, Any] | None = None,
         body: dict[str, Any] | None = None,
-        timeout: int = 30,
+        timeout: int | None = None,
     ) -> dict[str, Any]:
         url = self._build_url(path, params)
         headers = {
@@ -47,10 +64,16 @@ class MaxApiClient:
             headers["Content-Type"] = "application/json"
             data = json.dumps(body, ensure_ascii=False).encode("utf-8")
 
-        req = request.Request(url, data=data, headers=headers, method=method.upper())
+        req = request.Request(
+            url, data=data, headers=headers, method=method.upper())
+        ssl_context = ssl.create_default_context()
 
         try:
-            with request.urlopen(req, timeout=timeout) as response:
+            with request.urlopen(
+                req,
+                timeout=timeout or self.timeout_seconds,
+                context=ssl_context,
+            ) as response:
                 raw = response.read()
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
@@ -58,7 +81,8 @@ class MaxApiClient:
                 f"HTTP {exc.code} {exc.reason} для {method.upper()} {path}: {detail}"
             ) from exc
         except error.URLError as exc:
-            raise MaxApiError(f"Сетевая ошибка для {method.upper()} {path}: {exc}") from exc
+            raise MaxApiError(
+                f"Сетевая ошибка для {method.upper()} {path}: {exc}") from exc
 
         if not raw:
             return {}
@@ -66,33 +90,34 @@ class MaxApiClient:
         try:
             return json.loads(raw.decode("utf-8"))
         except json.JSONDecodeError as exc:
-            raise MaxApiError(f"MAX API вернул некорректный JSON: {raw!r}") from exc
+            raise MaxApiError(
+                f"MAX API вернул некорректный JSON: {raw!r}") from exc
 
     def get_me(self) -> dict[str, Any]:
-        return self._request("GET", "/me", timeout=15)
+        return self._request("GET", "/me")
 
     def get_subscriptions(self) -> dict[str, Any]:
-        return self._request("GET", "/subscriptions", timeout=15)
+        return self._request("GET", "/subscriptions")
 
     def delete_subscription(self, url: str) -> dict[str, Any]:
         return self._request(
             "DELETE",
             "/subscriptions",
             params={"url": url},
-            timeout=15,
         )
 
     def get_updates(self, marker: int | None) -> dict[str, Any]:
+        request_timeout = self.poll_timeout_seconds + 10
         return self._request(
             "GET",
             "/updates",
             params={
                 "marker": marker,
                 "limit": 100,
-                "timeout": 30,
+                "timeout": self.poll_timeout_seconds,
                 "types": UPDATE_TYPES,
             },
-            timeout=40,
+            timeout=request_timeout,
         )
 
     def send_message(
@@ -115,7 +140,6 @@ class MaxApiClient:
             "/messages",
             params={"chat_id": chat_id, "user_id": user_id},
             body=body,
-            timeout=15,
         )
 
     def answer_callback(
@@ -133,7 +157,6 @@ class MaxApiClient:
             "/answers",
             params={"callback_id": callback_id},
             body=body,
-            timeout=15,
         )
 
 
@@ -162,6 +185,23 @@ class SimulationMaxClient:
                 "attachments": attachments,
                 "user_id": user_id,
                 "chat_id": chat_id,
+            }
+        )
+        return {}
+
+    def answer_callback(
+        self,
+        *,
+        callback_id: str,
+        response: Any,
+        notification: str | None = None,
+    ) -> dict[str, Any]:
+        message = response.as_message_body()
+        self.sent_messages.append(
+            {
+                **message,
+                "callback_id": callback_id,
+                "notification": notification,
             }
         )
         return {}

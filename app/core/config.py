@@ -20,6 +20,10 @@ def is_placeholder(value: str | None) -> bool:
     return value.strip().lower() in PLACEHOLDER_VALUES
 
 
+def is_local_environment(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"local", "dev", "development", "test"}
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -35,13 +39,27 @@ class Settings(BaseSettings):
 
     max_bot_token: str | None = Field(default=None, alias="MAX_BOT_TOKEN")
     max_api_base: str = Field(default="https://platform-api2.max.ru", alias="MAX_API_BASE")
+    max_api_timeout_seconds: int = Field(default=15, alias="MAX_API_TIMEOUT_SECONDS")
+    max_poll_timeout_seconds: int = Field(default=30, alias="MAX_POLL_TIMEOUT_SECONDS")
     max_backend_api_base: str | None = Field(default=None, alias="MAX_BACKEND_API_BASE")
+    max_backend_timeout_seconds: int = Field(
+        default=15,
+        alias="MAX_BACKEND_TIMEOUT_SECONDS",
+    )
     default_tenant_slug: str = Field(
         default="nizhniy-novgorod-partner-a",
         alias="DEFAULT_TENANT_SLUG",
     )
     max_miniapp_url: str | None = Field(default=None, alias="MAX_MINIAPP_URL")
     bot_mode: str = Field(default="long_polling", alias="BOT_MODE")
+    max_drop_webhooks_on_start: bool = Field(
+        default=False,
+        alias="MAX_DROP_WEBHOOKS_ON_START",
+    )
+    max_order_notifications_enabled: bool = Field(
+        default=True,
+        alias="MAX_ORDER_NOTIFICATIONS_ENABLED",
+    )
 
     database_url: str = Field(
         default="postgresql+asyncpg://postgres:postgres@localhost:5432/algo_bot_max",
@@ -84,10 +102,19 @@ class Settings(BaseSettings):
 
     def bot_config_errors(self) -> list[str]:
         errors: list[str] = []
+        production_like = not is_local_environment(self.app_env)
         if is_placeholder(self.max_bot_token):
             errors.append("MAX_BOT_TOKEN is not configured")
+        if production_like and is_placeholder(self.app_secret_key):
+            errors.append("APP_SECRET_KEY must be configured outside local development")
         if is_placeholder(self.default_tenant_slug):
             errors.append("DEFAULT_TENANT_SLUG is not configured")
+        if self.max_api_timeout_seconds < 1:
+            errors.append("MAX_API_TIMEOUT_SECONDS must be greater than 0")
+        if self.max_poll_timeout_seconds < 1:
+            errors.append("MAX_POLL_TIMEOUT_SECONDS must be greater than 0")
+        if self.max_backend_timeout_seconds < 1:
+            errors.append("MAX_BACKEND_TIMEOUT_SECONDS must be greater than 0")
         if self.rate_limit_max_attempts < 1:
             errors.append("RATE_LIMIT_MAX_ATTEMPTS must be greater than 0")
         if self.rate_limit_window_seconds < 1:
@@ -96,7 +123,7 @@ class Settings(BaseSettings):
 
     def config_warnings(self) -> list[str]:
         warnings: list[str] = []
-        if is_placeholder(self.app_secret_key):
+        if is_local_environment(self.app_env) and is_placeholder(self.app_secret_key):
             warnings.append("APP_SECRET_KEY still uses a placeholder value")
         if is_placeholder(self.max_backend_api_base):
             warnings.append(
@@ -109,12 +136,16 @@ class Settings(BaseSettings):
             warnings.append(
                 "INITIAL_SUPERADMIN_MAX_USER_ID is empty: bootstrap_superadmin CLI needs a user id"
             )
+        if self.max_drop_webhooks_on_start:
+            warnings.append(
+                "MAX_DROP_WEBHOOKS_ON_START=true: bot will delete MAX webhooks on start"
+            )
         if self.rate_limit_backend.lower() not in {"memory", "redis"}:
             warnings.append("RATE_LIMIT_BACKEND should be memory or redis")
         if self.rate_limit_backend.lower() == "redis" and is_placeholder(self.redis_url):
             warnings.append("RATE_LIMIT_BACKEND=redis requires REDIS_URL")
         if (
-            self.app_env.lower() not in {"local", "dev", "development", "test"}
+            not is_local_environment(self.app_env)
             and self.max_miniapp_url
             and self.max_miniapp_url.startswith("http://")
         ):
@@ -131,15 +162,20 @@ class Settings(BaseSettings):
             "bot_mode": self.bot_mode,
             "default_tenant_slug": self.default_tenant_slug,
             "max_api_base": self.max_api_base,
+            "max_api_timeout_seconds": self.max_api_timeout_seconds,
+            "max_poll_timeout_seconds": self.max_poll_timeout_seconds,
             "max_bot_token": "configured" if not is_placeholder(self.max_bot_token) else "missing",
             "max_backend_api_base": (
                 self.max_backend_api_base
                 if not is_placeholder(self.max_backend_api_base)
                 else "disabled"
             ),
+            "max_backend_timeout_seconds": self.max_backend_timeout_seconds,
             "max_miniapp_url": (
                 self.max_miniapp_url if not is_placeholder(self.max_miniapp_url) else "disabled"
             ),
+            "max_drop_webhooks_on_start": self.max_drop_webhooks_on_start,
+            "max_order_notifications_enabled": self.max_order_notifications_enabled,
             "database_url": "configured" if not is_placeholder(self.database_url) else "missing",
             "redis_url": "configured" if not is_placeholder(self.redis_url) else "missing",
             "rate_limit_backend": self.rate_limit_backend,

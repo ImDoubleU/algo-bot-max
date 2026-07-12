@@ -67,6 +67,7 @@ from app.schemas.miniapp import (
     MiniAppWarehouseUpsert,
 )
 from app.services.google_sheets import GoogleSheetsClient, GoogleSheetsError
+from app.services.max_notifications import schedule_order_notification
 from app.services.order_sheets import order_item_mapping, upsert_order_sheet_row
 from app.services.product_import import (
     ProductImportError,
@@ -1195,6 +1196,13 @@ async def create_miniapp_order(
         items=sheets_items,
         comment=payload.comment,
     )
+    await schedule_order_notification(
+        db,
+        tenant=tenant,
+        order=order,
+        student=student,
+        balance_after=wallet.balance,
+    )
 
     return MiniAppOrderCreatedRead(
         order=_order_to_read(
@@ -1306,6 +1314,13 @@ async def cancel_miniapp_order(
         account=account,
         comment=payload.comment,
     )
+    await schedule_order_notification(
+        db,
+        tenant=tenant,
+        order=order,
+        student=student,
+        balance_after=wallet.balance,
+    )
     return MiniAppOrderActionRead(
         order=_order_to_read(order, student, status_history=status_history),
         balance_after=wallet.balance,
@@ -1386,6 +1401,12 @@ async def issue_miniapp_order(
         student=student,
         account=account,
         comment=payload.comment,
+    )
+    await schedule_order_notification(
+        db,
+        tenant=tenant,
+        order=order,
+        student=student,
     )
     return MiniAppOrderActionRead(
         order=_order_to_read(order, student, status_history=status_history),
@@ -1490,6 +1511,13 @@ async def return_miniapp_order(
         student=student,
         account=account,
         comment=payload.comment,
+    )
+    await schedule_order_notification(
+        db,
+        tenant=tenant,
+        order=order,
+        student=student,
+        balance_after=wallet.balance,
     )
     return MiniAppOrderActionRead(
         order=_order_to_read(order, student, status_history=status_history),
