@@ -22,6 +22,7 @@ class CrmSyncDefaults:
     fallback_city_name: str = (
         "\u041d\u0438\u0436\u043d\u0438\u0439 \u041d\u043e\u0432\u0433\u043e\u0440\u043e\u0434"
     )
+    tenant_slug: str | None = None
 
 
 @dataclass(frozen=True)
@@ -145,17 +146,23 @@ async def get_or_create_tenant(
     *,
     city: City,
     partner: Partner,
+    tenant_slug: str | None = None,
 ) -> tuple[Tenant, bool]:
     tenant = await db.scalar(
         select(Tenant).where(Tenant.city_id == city.id, Tenant.partner_id == partner.id)
     )
     if tenant:
+        if tenant_slug and tenant.slug != slugify(tenant_slug):
+            raise CrmSyncError(
+                f"City and partner already belong to tenant '{tenant.slug}', "
+                f"not '{slugify(tenant_slug)}'"
+            )
         tenant.name = f"{city.name} / {partner.name}"
         return tenant, False
     tenant = Tenant(
         city_id=city.id,
         partner_id=partner.id,
-        slug=make_tenant_slug(city.name, partner.slug),
+        slug=slugify(tenant_slug) if tenant_slug else make_tenant_slug(city.name, partner.slug),
         name=f"{city.name} / {partner.name}",
     )
     db.add(tenant)
@@ -273,25 +280,55 @@ async def upsert_crm_student_rows(
     *,
     defaults: CrmSyncDefaults,
     commit: bool = True,
+    target_tenant: Tenant | None = None,
 ) -> CrmSyncResult:
     result = CrmSyncResult()
-    partner, created_partner = await get_or_create_partner(
-        db,
-        slug=defaults.partner_slug,
-        name=defaults.partner_name,
-    )
-    if created_partner:
-        result = result.add(created_partners=result.created_partners + 1)
+    partner: Partner | None = None
+    if target_tenant is None and defaults.tenant_slug:
+        requested_slug = slugify(defaults.tenant_slug)
+        target_tenant = await db.scalar(select(Tenant).where(Tenant.slug == requested_slug))
+        if target_tenant is None:
+            city, created_city = await get_or_create_city(db, defaults.fallback_city_name)
+            if created_city:
+                result = result.add(created_cities=result.created_cities + 1)
+            partner, created_partner = await get_or_create_partner(
+                db,
+                slug=defaults.partner_slug,
+                name=defaults.partner_name,
+            )
+            if created_partner:
+                result = result.add(created_partners=result.created_partners + 1)
+            target_tenant, created_tenant = await get_or_create_tenant(
+                db,
+                city=city,
+                partner=partner,
+                tenant_slug=requested_slug,
+            )
+            if created_tenant:
+                result = result.add(created_tenants=result.created_tenants + 1)
+    elif target_tenant is None:
+        partner, created_partner = await get_or_create_partner(
+            db,
+            slug=defaults.partner_slug,
+            name=defaults.partner_name,
+        )
+        if created_partner:
+            result = result.add(created_partners=result.created_partners + 1)
 
     for row in rows:
-        city_name = row.city or defaults.fallback_city_name
-        city, created_city = await get_or_create_city(db, city_name)
-        if created_city:
-            result = result.add(created_cities=result.created_cities + 1)
+        if target_tenant is not None:
+            tenant = target_tenant
+        else:
+            city_name = row.city or defaults.fallback_city_name
+            city, created_city = await get_or_create_city(db, city_name)
+            if created_city:
+                result = result.add(created_cities=result.created_cities + 1)
 
-        tenant, created_tenant = await get_or_create_tenant(db, city=city, partner=partner)
-        if created_tenant:
-            result = result.add(created_tenants=result.created_tenants + 1)
+            if partner is None:
+                raise CrmSyncError("CRM partner is not initialized")
+            tenant, created_tenant = await get_or_create_tenant(db, city=city, partner=partner)
+            if created_tenant:
+                result = result.add(created_tenants=result.created_tenants + 1)
 
         if not row.first_name:
             result = result.add(skipped_rows=result.skipped_rows + 1)

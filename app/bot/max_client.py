@@ -99,6 +99,23 @@ class MaxApiClient:
     def get_subscriptions(self) -> dict[str, Any]:
         return self._request("GET", "/subscriptions")
 
+    def create_subscription(
+        self,
+        *,
+        url: str,
+        update_types: list[str],
+        secret: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/subscriptions",
+            body={
+                "url": url,
+                "update_types": update_types,
+                "secret": secret,
+            },
+        )
+
     def delete_subscription(self, url: str) -> dict[str, Any]:
         return self._request(
             "DELETE",

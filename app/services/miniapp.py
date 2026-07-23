@@ -40,6 +40,7 @@ from app.schemas.miniapp import (
     MiniAppAccrualCreate,
     MiniAppAccrualRead,
     MiniAppCatalogRead,
+    MiniAppCrmImportRead,
     MiniAppInventoryAdjustmentCreate,
     MiniAppInventoryAdjustmentRead,
     MiniAppInventoryTransferCreate,
@@ -66,6 +67,8 @@ from app.schemas.miniapp import (
     MiniAppWarehouseRead,
     MiniAppWarehouseUpsert,
 )
+from app.services.crm_import import CrmImportError, parse_crm_students_content
+from app.services.crm_sync import CrmSyncDefaults, upsert_crm_student_rows
 from app.services.google_sheets import GoogleSheetsClient, GoogleSheetsError
 from app.services.max_notifications import schedule_order_notification
 from app.services.order_sheets import order_item_mapping, upsert_order_sheet_row
@@ -74,6 +77,7 @@ from app.services.product_import import (
     import_products_for_tenant,
     parse_product_rows,
 )
+from app.services.staff import normalize_staff_name
 from app.services.warehouse import (
     WarehouseServiceError,
     available_for_reservation,
@@ -113,6 +117,63 @@ COIN_ACCRUAL_ROLES = STORE_ADMIN_ROLES | {
 }
 
 ORDER_MANAGER_ROLES = COIN_ACCRUAL_ROLES
+STAFF_ROLE_PRIORITY = (
+    StaffRole.SUPERADMIN,
+    StaffRole.PARTNER_DIRECTOR,
+    StaffRole.ADMIN,
+    StaffRole.CURATOR,
+    StaffRole.TEACHER,
+)
+
+
+async def _active_staff_role(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    account_id: UUID,
+    allowed_roles: set[StaffRole],
+) -> StaffRole | None:
+    roles = set(
+        (
+            await db.scalars(
+                select(StaffRoleAssignment.role).where(
+                    StaffRoleAssignment.tenant_id == tenant_id,
+                    StaffRoleAssignment.account_id == account_id,
+                    StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+                    StaffRoleAssignment.role.in_(allowed_roles),
+                )
+            )
+        ).all()
+    )
+    return next((role for role in STAFF_ROLE_PRIORITY if role in roles), None)
+
+
+def _teacher_owns_student(account: MaxAccount, student: Student) -> bool:
+    teacher_name = normalize_staff_name(account.display_name)
+    return bool(
+        teacher_name
+        and teacher_name == normalize_staff_name(student.teacher_name)
+    )
+
+
+async def _teacher_student_ids(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    account: MaxAccount,
+) -> list[UUID]:
+    teacher_name = normalize_staff_name(account.display_name)
+    if not teacher_name:
+        return []
+    rows = (
+        await db.execute(
+            select(Student.id, Student.teacher_name).where(
+                Student.tenant_id == tenant_id,
+                Student.status == StudentStatus.ACTIVE,
+            )
+        )
+    ).all()
+    return [student_id for student_id, name in rows if normalize_staff_name(name) == teacher_name]
 
 
 def _slugify(value: str) -> str:
@@ -368,25 +429,12 @@ async def import_miniapp_products(
     filename: str,
     content: bytes,
 ) -> MiniAppProductImportRead:
-    normalized_tenant_slug = tenant_slug.strip().lower()
-    tenant = await get_tenant_by_slug(db, normalized_tenant_slug)
-    if tenant is None:
-        raise MiniAppStoreError("Tenant не найден", status_code=404)
-
-    account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
-    if account is None:
-        raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
-
-    admin_role = await db.scalar(
-        select(StaffRoleAssignment.role).where(
-            StaffRoleAssignment.tenant_id == tenant.id,
-            StaffRoleAssignment.account_id == account.id,
-            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-            StaffRoleAssignment.role.in_(STORE_ADMIN_ROLES),
-        )
+    tenant, account, admin_role = await _store_admin_context(
+        db,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+        denied_message="Нет прав на загрузку товаров",
     )
-    if admin_role is None:
-        raise MiniAppStoreError("Нет прав на загрузку товаров", status_code=403)
 
     try:
         rows = parse_product_rows(filename, content)
@@ -424,6 +472,119 @@ async def import_miniapp_products(
         updated_inventory=result.updated_inventory,
         skipped_rows=result.skipped_rows,
         errors=result.errors,
+    )
+
+
+async def _store_admin_context(
+    db: AsyncSession,
+    *,
+    max_user_id: int,
+    tenant_slug: str,
+    denied_message: str,
+) -> tuple[Tenant, MaxAccount, StaffRole]:
+    normalized_tenant_slug = tenant_slug.strip().lower()
+    tenant = await get_tenant_by_slug(db, normalized_tenant_slug)
+    if tenant is None:
+        raise MiniAppStoreError("Tenant не найден", status_code=404)
+
+    account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
+    if account is None:
+        raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
+
+    admin_role = await db.scalar(
+        select(StaffRoleAssignment.role).where(
+            StaffRoleAssignment.tenant_id == tenant.id,
+            StaffRoleAssignment.account_id == account.id,
+            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+            StaffRoleAssignment.role.in_(STORE_ADMIN_ROLES),
+        )
+    )
+    if admin_role is None:
+        raise MiniAppStoreError(denied_message, status_code=403)
+    return tenant, account, admin_role
+
+
+async def import_miniapp_crm_students(
+    db: AsyncSession,
+    *,
+    max_user_id: int,
+    tenant_slug: str,
+    filename: str,
+    content: bytes,
+    sheet_name: str,
+    dry_run: bool,
+) -> MiniAppCrmImportRead:
+    tenant, account, admin_role = await _store_admin_context(
+        db,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+        denied_message="Нет прав на импорт учеников",
+    )
+    try:
+        rows = parse_crm_students_content(content, sheet_name=sheet_name)
+    except CrmImportError as exc:
+        raise MiniAppStoreError(str(exc), status_code=400) from exc
+
+    if not rows:
+        raise MiniAppStoreError("Файл не содержит учеников", status_code=400)
+
+    summary = {
+        "parsed_rows": len(rows),
+        "distinct_groups": len({row.group_name for row in rows if row.group_name}),
+        "distinct_courses": len({row.course_name for row in rows if row.course_name}),
+        "distinct_teachers": len({row.teacher_name for row in rows if row.teacher_name}),
+        "rows_without_group": sum(not row.group_name for row in rows),
+        "rows_without_student_name": sum(not row.first_name for row in rows),
+        "rows_with_contacts": sum(bool(row.contact_ids) for row in rows),
+    }
+    if dry_run:
+        return MiniAppCrmImportRead(
+            tenant_slug=tenant.slug,
+            filename=filename,
+            dry_run=True,
+            **summary,
+        )
+
+    result = await upsert_crm_student_rows(
+        db,
+        rows,
+        defaults=CrmSyncDefaults(
+            partner_slug=tenant.slug,
+            partner_name=tenant.name,
+        ),
+        commit=False,
+        target_tenant=tenant,
+    )
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_account_id=account.id,
+            action="miniapp_crm.imported",
+            entity_type="crm_import",
+            entity_id=None,
+            payload={
+                "filename": filename,
+                "parsed_rows": len(rows),
+                "created_students": result.created_students,
+                "updated_students": result.updated_students,
+                "admin_role": admin_role.value,
+            },
+        )
+    )
+    await db.commit()
+
+    return MiniAppCrmImportRead(
+        tenant_slug=tenant.slug,
+        filename=filename,
+        dry_run=False,
+        **summary,
+        created_venues=result.created_venues,
+        created_students=result.created_students,
+        updated_students=result.updated_students,
+        created_wallets=result.created_wallets,
+        created_contacts=result.created_contacts,
+        created_contact_student_links=result.created_contact_student_links,
+        skipped_rows=result.skipped_rows,
     )
 
 
@@ -621,6 +782,16 @@ async def get_miniapp_session(
                 .order_by(Student.group_name, Student.first_name, Student.last_name)
             )
         ).all()
+        has_elevated_role = bool(set(staff_roles) & ELEVATED_STAFF_ROLES)
+        teacher_scoped = StaffRole.TEACHER in staff_roles and not has_elevated_role
+        if teacher_scoped:
+            teacher_name = normalize_staff_name(account.display_name)
+            tenant_students = [
+                student
+                for student in tenant_students
+                if teacher_name
+                and normalize_staff_name(student.teacher_name) == teacher_name
+            ]
         student_ids = [student.id for student in tenant_students]
         balances = await _wallet_balances(db, student_ids)
         students = [
@@ -675,7 +846,7 @@ async def get_miniapp_session(
         db,
         tenant_id=tenant.id,
         account_id=account.id,
-        include_all=bool(staff_roles),
+        include_all=bool(set(staff_roles) & ELEVATED_STAFF_ROLES),
     )
     staff_assignments = await _staff_assignments_for_session(
         db,
@@ -717,21 +888,28 @@ async def get_miniapp_ops_summary(
     if account is None:
         raise MiniAppStoreError("MAX account не найден", status_code=403)
 
-    staff_role = await db.scalar(
-        select(StaffRoleAssignment.role).where(
-            StaffRoleAssignment.tenant_id == tenant.id,
-            StaffRoleAssignment.account_id == account.id,
-            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-            StaffRoleAssignment.role.in_(ORDER_MANAGER_ROLES),
-        )
+    staff_role = await _active_staff_role(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        allowed_roles=ORDER_MANAGER_ROLES,
     )
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на операционную сводку", status_code=403)
 
+    order_filters = [Order.tenant_id == tenant.id]
+    if staff_role == StaffRole.TEACHER:
+        teacher_student_ids = await _teacher_student_ids(
+            db,
+            tenant_id=tenant.id,
+            account=account,
+        )
+        order_filters.append(Order.student_id.in_(teacher_student_ids))
+
     status_rows = (
         await db.execute(
             select(Order.status, func.count(Order.id))
-            .where(Order.tenant_id == tenant.id)
+            .where(*order_filters)
             .group_by(Order.status)
         )
     ).all()
@@ -764,7 +942,7 @@ async def get_miniapp_ops_summary(
                 selectinload(Order.items).selectinload(OrderItem.warehouse),
                 selectinload(Order.status_history),
             )
-            .where(Order.tenant_id == tenant.id, Order.status.in_(open_statuses))
+            .where(*order_filters, Order.status.in_(open_statuses))
             .order_by(Order.created_at.asc())
             .limit(8)
         )
@@ -902,16 +1080,17 @@ async def _load_order_action_context(
         raise MiniAppStoreError("Заказ не найден", status_code=404)
 
     order, student = row
-    staff_role = await db.scalar(
-        select(StaffRoleAssignment.role).where(
-            StaffRoleAssignment.tenant_id == tenant.id,
-            StaffRoleAssignment.account_id == account.id,
-            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-            StaffRoleAssignment.role.in_(ORDER_MANAGER_ROLES),
-        )
+    staff_role = await _active_staff_role(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        allowed_roles=ORDER_MANAGER_ROLES,
     )
     if staff_role is not None:
-        return tenant, account, order, student, staff_role
+        if staff_role != StaffRole.TEACHER or _teacher_owns_student(account, student):
+            return tenant, account, order, student, staff_role
+        if require_manager:
+            raise MiniAppStoreError("Нет доступа к заказу чужой группы", status_code=403)
 
     if require_manager:
         raise MiniAppStoreError("Нет прав на управление заказом", status_code=403)
@@ -985,15 +1164,20 @@ async def create_miniapp_order(
             StudentAccessLink.status == StudentAccessStatus.ACTIVE,
         )
     )
-    active_staff_role = await db.scalar(
-        select(StaffRoleAssignment.id).where(
-            StaffRoleAssignment.tenant_id == tenant.id,
-            StaffRoleAssignment.account_id == account.id,
-            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-        )
+    active_staff_role = await _active_staff_role(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        allowed_roles=set(STAFF_ROLE_PRIORITY),
     )
     if active_student_link is None and active_staff_role is None:
         raise MiniAppStoreError("Нет доступа к выбранному ученику", status_code=403)
+    if (
+        active_student_link is None
+        and active_staff_role == StaffRole.TEACHER
+        and not _teacher_owns_student(account, student)
+    ):
+        raise MiniAppStoreError("Нет доступа к ученику чужой группы", status_code=403)
 
     wallet = await db.scalar(
         select(Wallet).where(Wallet.tenant_id == tenant.id, Wallet.student_id == student.id)
@@ -1542,13 +1726,11 @@ async def accrue_miniapp_astrocoins(
     if account is None:
         raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
 
-    staff_role = await db.scalar(
-        select(StaffRoleAssignment.role).where(
-            StaffRoleAssignment.tenant_id == tenant.id,
-            StaffRoleAssignment.account_id == account.id,
-            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-            StaffRoleAssignment.role.in_(COIN_ACCRUAL_ROLES),
-        )
+    staff_role = await _active_staff_role(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        allowed_roles=COIN_ACCRUAL_ROLES,
     )
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на начисление астрокоинов", status_code=403)
@@ -1566,6 +1748,10 @@ async def accrue_miniapp_astrocoins(
     ).all()
     if len(students) != len(unique_student_ids):
         raise MiniAppStoreError("Один или несколько учеников не найдены", status_code=404)
+    if staff_role == StaffRole.TEACHER and any(
+        not _teacher_owns_student(account, student) for student in students
+    ):
+        raise MiniAppStoreError("Нельзя начислять AC ученикам чужой группы", status_code=403)
 
     wallets = (
         await db.scalars(

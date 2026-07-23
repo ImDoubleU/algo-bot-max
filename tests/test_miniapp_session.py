@@ -143,7 +143,7 @@ async def test_get_miniapp_session_returns_linked_students_wallet_orders_and_led
     assert session.account.username == "parent_user"
     assert session.student_roles == [StudentAccessRole.PARENT]
     assert len(session.students) == 1
-    assert session.students[0].display_name == "Алиса"
+    assert session.students[0].display_name == "Васильева Алиса"
     assert session.students[0].access_status == StudentAccessStatus.ACTIVE
     assert session.students[0].balance == 1240
     assert len(session.access_links) == 1
@@ -170,6 +170,7 @@ async def test_staff_session_returns_tenant_students_sorted_by_group(db_session)
         uuid="uuid-2",
         lms_student_id="ST-002",
         first_name="Борис",
+        last_name="Петров",
         group_name="Scratch, сб 12:00",
         course_name="Scratch",
         venue_name="Гагарина 64",
@@ -189,6 +190,7 @@ async def test_staff_session_returns_tenant_students_sorted_by_group(db_session)
     account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
     assert student is not None
     assert account is not None
+    account.display_name = "Олейник Д"
     db_session.add(
         StaffRoleAssignment(
             tenant_id=student.tenant_id,
@@ -207,7 +209,10 @@ async def test_staff_session_returns_tenant_students_sorted_by_group(db_session)
 
     assert session.staff_roles == [StaffRole.TEACHER]
     assert session.student_roles == [StudentAccessRole.PARENT]
-    assert [student.display_name for student in session.students] == ["Алиса", "Борис"]
+    assert [student.display_name for student in session.students] == [
+        "Васильева Алиса",
+        "Петров Борис",
+    ]
     assert [student.group_name for student in session.students] == [
         "Python Start, вс 10:00",
         "Scratch, сб 12:00",

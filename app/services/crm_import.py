@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -145,6 +146,34 @@ def parse_crm_students(
         raise CrmImportError(f"CRM file not found: {workbook_path}")
 
     workbook = load_workbook(workbook_path, read_only=True, data_only=True)
+    try:
+        return parse_crm_workbook(workbook, sheet_name=sheet_name)
+    finally:
+        workbook.close()
+
+
+def parse_crm_students_content(
+    content: bytes,
+    *,
+    sheet_name: str = "\u0421\u0434\u0435\u043b\u043a\u0438",
+) -> list[CrmStudentRow]:
+    if not content:
+        raise CrmImportError("CRM file is empty")
+    try:
+        workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
+    except Exception as exc:
+        raise CrmImportError("CRM file is not a readable XLSX workbook") from exc
+    try:
+        return parse_crm_workbook(workbook, sheet_name=sheet_name)
+    finally:
+        workbook.close()
+
+
+def parse_crm_workbook(
+    workbook: Any,
+    *,
+    sheet_name: str,
+) -> list[CrmStudentRow]:
     if sheet_name not in workbook.sheetnames:
         raise CrmImportError(f"Sheet not found: {sheet_name}")
 

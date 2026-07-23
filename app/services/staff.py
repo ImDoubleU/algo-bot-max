@@ -15,6 +15,10 @@ class StaffServiceError(RuntimeError):
     pass
 
 
+def normalize_staff_name(value: str | None) -> str:
+    return " ".join((value or "").split()).casefold()
+
+
 @dataclass(frozen=True)
 class StaffRoleBootstrapResult:
     tenant_slug: str

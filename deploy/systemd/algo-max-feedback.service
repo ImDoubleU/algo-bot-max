@@ -1,0 +1,19 @@
+[Unit]
+Description=Algo MAX Bot feedback worker
+After=network-online.target postgresql.service algo-max-api.service
+Requires=algo-max-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=algomax
+Group=algomax
+WorkingDirectory=/opt/algo-max
+EnvironmentFile=/etc/algo-max/algo-max.env
+ExecStartPre=/opt/algo-max/.venv/bin/python -m app.cli.doctor --production
+ExecStart=/opt/algo-max/.venv/bin/python -m app.cli.feedback_worker
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

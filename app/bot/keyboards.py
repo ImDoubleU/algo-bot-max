@@ -117,7 +117,15 @@ def build_miniapp_url(
 def main_menu_keyboard(
     user_id: int | None = None,
     tenant_slug: str | None = None,
+    role: str | None = None,
 ) -> list[dict[str, Any]]:
+    if role:
+        return role_menu_keyboard(
+            role,
+            user_id=user_id,
+            tenant_slug=tenant_slug,
+            compact=False,
+        )
     rows = [
         [
             callback_button("Помощь", CALLBACK_HELP),
@@ -154,6 +162,12 @@ def main_menu_keyboard(
     )
     miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
     if miniapp_url:
+        schedule_url = build_miniapp_url(
+            user_id=user_id,
+            tenant_slug=tenant_slug,
+            view="teaching",
+        )
+        rows.append([link_button("Расписание преподавателя", schedule_url)])
         rows.append([link_button("Открыть mini app", miniapp_url)])
     return inline_keyboard(rows)
 
@@ -173,7 +187,15 @@ def role_selection_keyboard() -> list[dict[str, Any]]:
 def cabinet_keyboard(
     user_id: int | None = None,
     tenant_slug: str | None = None,
+    role: str | None = None,
 ) -> list[dict[str, Any]]:
+    if role:
+        return role_menu_keyboard(
+            role,
+            user_id=user_id,
+            tenant_slug=tenant_slug,
+            compact=True,
+        )
     rows = [
         [
             callback_button("Баланс", CALLBACK_BALANCE),
@@ -203,9 +225,109 @@ def cabinet_keyboard(
     rows.insert(-1, [callback_button("Остатки", CALLBACK_STOCK)])
     miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
     if miniapp_url:
+        schedule_url = build_miniapp_url(
+            user_id=user_id,
+            tenant_slug=tenant_slug,
+            view="teaching",
+        )
+        rows.insert(0, [link_button("Расписание преподавателя", schedule_url)])
         rows.insert(0, [link_button("Открыть mini app", miniapp_url)])
     else:
         rows.insert(0, [callback_button("Открыть mini app", CALLBACK_MINIAPP)])
+    return inline_keyboard(rows)
+
+
+def role_menu_keyboard(
+    role: str,
+    *,
+    user_id: int | None,
+    tenant_slug: str | None,
+    compact: bool,
+) -> list[dict[str, Any]]:
+    miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
+    schedule_url = build_miniapp_url(
+        user_id=user_id,
+        tenant_slug=tenant_slug,
+        view="teaching",
+    )
+    normalized = role.casefold()
+    rows: list[list[dict[str, str]]] = []
+    if miniapp_url:
+        if normalized == "teacher" and schedule_url:
+            rows.append([link_button("Открыть расписание", schedule_url)])
+        else:
+            rows.append([link_button("Открыть mini app", miniapp_url)])
+
+    if normalized == "student":
+        rows.extend(
+            [
+                [
+                    callback_button("Баланс", CALLBACK_BALANCE),
+                    callback_button("Магазин", CALLBACK_CATALOG),
+                ],
+                [
+                    callback_button("Мои заказы", CALLBACK_ORDERS),
+                    callback_button("История AC", CALLBACK_LEDGER),
+                ],
+            ]
+        )
+    elif normalized == "parent":
+        rows.extend(
+            [
+                [
+                    callback_button("Мои дети", CALLBACK_STUDENTS),
+                    callback_button("Балансы", CALLBACK_BALANCE),
+                ],
+                [
+                    callback_button("Магазин", CALLBACK_CATALOG),
+                    callback_button("Заказы", CALLBACK_ORDERS),
+                ],
+                [callback_button("История AC", CALLBACK_LEDGER)],
+            ]
+        )
+    elif normalized == "teacher":
+        rows.extend(
+            [
+                [
+                    callback_button("Ученики", CALLBACK_STUDENTS),
+                    callback_button("Группы", CALLBACK_GROUPS),
+                ],
+                [
+                    callback_button("К выдаче", CALLBACK_TODO),
+                    callback_button("Заказы", CALLBACK_OPEN_ORDERS),
+                ],
+                [
+                    callback_button("Топ AC", CALLBACK_LEADERBOARD),
+                    callback_button("Операции", CALLBACK_OPS),
+                ],
+            ]
+        )
+    else:
+        rows.extend(
+            [
+                [
+                    callback_button("Сводка", CALLBACK_OPS),
+                    callback_button("К выдаче", CALLBACK_TODO),
+                ],
+                [
+                    callback_button("Остатки", CALLBACK_STOCK),
+                    callback_button("Заказы", CALLBACK_OPEN_ORDERS),
+                ],
+                [
+                    callback_button("Ученики", CALLBACK_STUDENTS),
+                    callback_button("Группы", CALLBACK_GROUPS),
+                ],
+            ]
+        )
+    rows.append(
+        [
+            callback_button("Помощь", CALLBACK_HELP),
+            callback_button(
+                "Главное меню" if compact else "Статус",
+                CALLBACK_MENU if compact else CALLBACK_STATUS,
+            ),
+        ]
+    )
     return inline_keyboard(rows)
 
 

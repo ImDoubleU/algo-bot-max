@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -17,6 +18,7 @@ from app.models.student import Student, Wallet
 from app.models.tenant import City, Partner, Tenant
 from app.schemas.access import AccessLinkCreate
 from app.services.access import AccessServiceError, create_contact_access_links
+from app.services.course_import import import_courses_for_tenant
 from app.services.crm_import import CrmStudentRow
 from app.services.crm_sync import CrmSyncDefaults, upsert_crm_student_rows
 
@@ -145,6 +147,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--username", default=None, help="Username MAX для --max-user-id.")
     parser.add_argument("--display-name", default=None, help="Имя MAX для --max-user-id.")
+    parser.add_argument(
+        "--skip-courses",
+        action="store_true",
+        help="Не импортировать каталог курсов и уроков.",
+    )
+    parser.add_argument(
+        "--courses-source",
+        type=Path,
+        default=Path(settings.courses_json_path),
+        help="JSON-файл курсов из предыдущего Telegram-бота.",
+    )
     return parser.parse_args()
 
 
@@ -346,6 +359,15 @@ async def upsert_demo_store_in_session(
                 wallet.balance = args.student_balance
                 wallet_balances_set += 1
 
+    course_result: dict[str, int | str] = {}
+    if not args.skip_courses:
+        course_result = await import_courses_for_tenant(
+            db,
+            tenant=tenant,
+            source_path=args.courses_source,
+            commit=False,
+        )
+
     await db.commit()
 
     access_links = 0
@@ -381,6 +403,10 @@ async def upsert_demo_store_in_session(
         "wallet_balances_set": wallet_balances_set,
         "demo_contact_id": DEMO_CONTACT_ID if not args.skip_students else "",
         "access_links": access_links,
+        "courses": int(course_result.get("created_courses", 0))
+        + int(course_result.get("updated_courses", 0)),
+        "course_lessons": int(course_result.get("created_lessons", 0))
+        + int(course_result.get("updated_lessons", 0)),
     }
 
 

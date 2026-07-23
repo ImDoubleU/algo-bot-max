@@ -12,12 +12,20 @@ PLACEHOLDER_VALUES = {
     "replace_with_local_xlsx_path",
     "replace_with_local_json_path",
 }
+PLACEHOLDER_FRAGMENTS = {
+    "change_db_password",
+    "change_to_",
+    "bot.example.ru",
+}
 
 
 def is_placeholder(value: str | None) -> bool:
     if value is None:
         return True
-    return value.strip().lower() in PLACEHOLDER_VALUES
+    normalized = value.strip().lower()
+    return normalized in PLACEHOLDER_VALUES or any(
+        fragment in normalized for fragment in PLACEHOLDER_FRAGMENTS
+    )
 
 
 def is_local_environment(value: str | None) -> bool:
@@ -52,6 +60,14 @@ class Settings(BaseSettings):
     )
     max_miniapp_url: str | None = Field(default=None, alias="MAX_MINIAPP_URL")
     bot_mode: str = Field(default="long_polling", alias="BOT_MODE")
+    max_webhook_url: str | None = Field(default=None, alias="MAX_WEBHOOK_URL")
+    max_webhook_secret: str | None = Field(default=None, alias="MAX_WEBHOOK_SECRET")
+    max_webhook_queue_size: int = Field(
+        default=500,
+        alias="MAX_WEBHOOK_QUEUE_SIZE",
+        ge=10,
+        le=10000,
+    )
     max_drop_webhooks_on_start: bool = Field(
         default=False,
         alias="MAX_DROP_WEBHOOKS_ON_START",
@@ -59,6 +75,13 @@ class Settings(BaseSettings):
     max_order_notifications_enabled: bool = Field(
         default=True,
         alias="MAX_ORDER_NOTIFICATIONS_ENABLED",
+    )
+    feedback_worker_enabled: bool = Field(default=True, alias="FEEDBACK_WORKER_ENABLED")
+    feedback_worker_interval_seconds: int = Field(
+        default=60,
+        alias="FEEDBACK_WORKER_INTERVAL_SECONDS",
+        ge=15,
+        le=3600,
     )
 
     database_url: str = Field(
@@ -87,6 +110,7 @@ class Settings(BaseSettings):
     crm_departed_export_path: str | None = Field(default=None, alias="CRM_DEPARTED_EXPORT_PATH")
     lms_api_base_url: str | None = Field(default=None, alias="LMS_API_BASE_URL")
     lms_api_token: str | None = Field(default=None, alias="LMS_API_TOKEN")
+    courses_json_path: str = Field(default="data/courses.json", alias="COURSES_JSON_PATH")
 
     google_service_account_file: str | None = Field(
         default=None,
@@ -103,10 +127,13 @@ class Settings(BaseSettings):
     def bot_config_errors(self) -> list[str]:
         errors: list[str] = []
         production_like = not is_local_environment(self.app_env)
+        bot_mode = self.bot_mode.strip().lower()
         if is_placeholder(self.max_bot_token):
             errors.append("MAX_BOT_TOKEN is not configured")
         if production_like and is_placeholder(self.app_secret_key):
             errors.append("APP_SECRET_KEY must be configured outside local development")
+        elif production_like and len(self.app_secret_key.strip()) < 32:
+            errors.append("APP_SECRET_KEY must contain at least 32 characters in production")
         if is_placeholder(self.default_tenant_slug):
             errors.append("DEFAULT_TENANT_SLUG is not configured")
         if self.max_api_timeout_seconds < 1:
@@ -119,6 +146,55 @@ class Settings(BaseSettings):
             errors.append("RATE_LIMIT_MAX_ATTEMPTS must be greater than 0")
         if self.rate_limit_window_seconds < 1:
             errors.append("RATE_LIMIT_WINDOW_SECONDS must be greater than 0")
+        if self.rate_limit_backend.lower() not in {"memory", "redis"}:
+            errors.append("RATE_LIMIT_BACKEND must be memory or redis")
+        if bot_mode not in {"long_polling", "webhook"}:
+            errors.append("BOT_MODE must be long_polling or webhook")
+        if production_like and bot_mode != "webhook":
+            errors.append("BOT_MODE must be webhook outside local development")
+        if production_like and self.app_debug:
+            errors.append("APP_DEBUG must be false outside local development")
+        if production_like:
+            if is_placeholder(self.max_backend_api_base):
+                errors.append("MAX_BACKEND_API_BASE is required outside local development")
+            if is_placeholder(self.max_miniapp_url):
+                errors.append("MAX_MINIAPP_URL is required outside local development")
+            elif not str(self.max_miniapp_url).startswith("https://"):
+                errors.append("MAX_MINIAPP_URL must use HTTPS outside local development")
+            if is_placeholder(self.database_url):
+                errors.append("DATABASE_URL is not configured")
+            elif not self.database_url.startswith("postgresql+asyncpg://"):
+                errors.append("DATABASE_URL must use postgresql+asyncpg in production")
+            if is_placeholder(self.database_sync_url):
+                errors.append("DATABASE_SYNC_URL is not configured")
+            elif not self.database_sync_url.startswith("postgresql+psycopg://"):
+                errors.append("DATABASE_SYNC_URL must use postgresql+psycopg in production")
+            if self.rate_limit_backend.lower() != "redis":
+                errors.append("RATE_LIMIT_BACKEND must be redis in production")
+            elif is_placeholder(self.redis_url):
+                errors.append("REDIS_URL is required in production")
+            if is_placeholder(self.initial_superadmin_max_user_id):
+                errors.append("INITIAL_SUPERADMIN_MAX_USER_ID is required in production")
+            elif (
+                not str(self.initial_superadmin_max_user_id).isdigit()
+                or int(str(self.initial_superadmin_max_user_id)) < 1
+            ):
+                errors.append("INITIAL_SUPERADMIN_MAX_USER_ID must be a positive integer")
+        if bot_mode == "webhook":
+            if is_placeholder(self.max_webhook_url):
+                errors.append("MAX_WEBHOOK_URL is required in webhook mode")
+            elif not str(self.max_webhook_url).startswith("https://"):
+                errors.append("MAX_WEBHOOK_URL must use HTTPS")
+            if is_placeholder(self.max_webhook_secret):
+                errors.append("MAX_WEBHOOK_SECRET is required in webhook mode")
+            else:
+                secret = str(self.max_webhook_secret)
+                if not 5 <= len(secret) <= 256 or not all(
+                    char.isascii() and (char.isalnum() or char in "_-") for char in secret
+                ):
+                    errors.append(
+                        "MAX_WEBHOOK_SECRET must contain 5-256 ASCII letters, digits, _ or -"
+                    )
         return errors
 
     def config_warnings(self) -> list[str]:
@@ -132,7 +208,9 @@ class Settings(BaseSettings):
             )
         if is_placeholder(self.max_miniapp_url):
             warnings.append("MAX_MINIAPP_URL is empty: miniapp link buttons will be disabled")
-        if is_placeholder(self.initial_superadmin_max_user_id):
+        if is_local_environment(self.app_env) and is_placeholder(
+            self.initial_superadmin_max_user_id
+        ):
             warnings.append(
                 "INITIAL_SUPERADMIN_MAX_USER_ID is empty: bootstrap_superadmin CLI needs a user id"
             )
@@ -140,16 +218,8 @@ class Settings(BaseSettings):
             warnings.append(
                 "MAX_DROP_WEBHOOKS_ON_START=true: bot will delete MAX webhooks on start"
             )
-        if self.rate_limit_backend.lower() not in {"memory", "redis"}:
-            warnings.append("RATE_LIMIT_BACKEND should be memory or redis")
         if self.rate_limit_backend.lower() == "redis" and is_placeholder(self.redis_url):
             warnings.append("RATE_LIMIT_BACKEND=redis requires REDIS_URL")
-        if (
-            not is_local_environment(self.app_env)
-            and self.max_miniapp_url
-            and self.max_miniapp_url.startswith("http://")
-        ):
-            warnings.append("MAX_MINIAPP_URL should use HTTPS outside local development")
         return warnings
 
     def safe_config_report(self) -> dict[str, Any]:
@@ -174,11 +244,21 @@ class Settings(BaseSettings):
             "max_miniapp_url": (
                 self.max_miniapp_url if not is_placeholder(self.max_miniapp_url) else "disabled"
             ),
+            "max_webhook_url": (
+                self.max_webhook_url if not is_placeholder(self.max_webhook_url) else "disabled"
+            ),
+            "max_webhook_secret": (
+                "configured" if not is_placeholder(self.max_webhook_secret) else "missing"
+            ),
+            "max_webhook_queue_size": self.max_webhook_queue_size,
             "max_drop_webhooks_on_start": self.max_drop_webhooks_on_start,
             "max_order_notifications_enabled": self.max_order_notifications_enabled,
+            "feedback_worker_enabled": self.feedback_worker_enabled,
+            "feedback_worker_interval_seconds": self.feedback_worker_interval_seconds,
             "database_url": "configured" if not is_placeholder(self.database_url) else "missing",
             "redis_url": "configured" if not is_placeholder(self.redis_url) else "missing",
             "rate_limit_backend": self.rate_limit_backend,
+            "courses_json_path": self.courses_json_path,
             "google_sheets": (
                 "configured"
                 if not is_placeholder(self.google_service_account_file)

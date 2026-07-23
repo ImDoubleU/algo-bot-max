@@ -1,13 +1,28 @@
 const apiContext = {
-  maxUserId: queryParam("max_user_id"),
+  maxUserId: positiveIntegerParam("max_user_id"),
   tenantSlug: queryParam("tenant_slug") || "",
   demoMode: queryParam("demo") === "1",
 };
 
+const ROLE_VIEWS = Object.freeze({
+  student: ["dashboard", "store", "cart", "orders", "wallet"],
+  parent: ["dashboard", "store", "cart", "orders", "wallet"],
+  teacher: ["dashboard", "orders", "wallet", "accrual", "teaching"],
+  admin: ["dashboard", "orders", "wallet", "accrual", "teaching", "admin"],
+});
+
+const ROLE_DASHBOARD_ACTION = Object.freeze({
+  student: { view: "store", label: "Открыть магазин" },
+  parent: { view: "store", label: "Открыть магазин" },
+  teacher: { view: "teaching", label: "Открыть расписание" },
+  admin: { view: "admin", label: "Открыть операции" },
+});
+
 const state = {
   role: "student",
+  account: null,
   availableRoles: ["student", "parent", "teacher", "admin"],
-  view: ["dashboard", "store", "cart", "orders", "wallet", "accrual", "admin"].includes(
+  view: ["dashboard", "store", "cart", "orders", "wallet", "accrual", "teaching", "admin"].includes(
     queryParam("view"),
   )
     ? queryParam("view")
@@ -33,6 +48,10 @@ const state = {
   productImporting: false,
   productImportFile: null,
   productImportFileName: "",
+  crmImporting: false,
+  crmImportFile: null,
+  crmImportFileName: "",
+  crmImportPreview: null,
   productSaving: false,
   productEditorOpen: false,
   editingProductId: "",
@@ -44,13 +63,58 @@ const state = {
   editingWarehouseId: "",
   opsSummary: null,
   opsSummaryLoaded: false,
+  teachingWorkspace: null,
+  teachingLoaded: false,
+  teachingLoading: false,
+  scheduleEditorOpen: false,
+  editingScheduleId: "",
+  scheduleDayFilter: "all",
+  feedbackScheduleId: "",
+  generatedFeedback: "",
+  generatedFeedbackId: "",
+};
+
+const demoTeachingWorkspace = {
+  tenant_slug: "demo",
+  courses: [
+    { id: "demo-python-start", name: "Python Start 1 год", lesson_count: 32 },
+    { id: "demo-game-design", name: "Геймдизайн NEW", lesson_count: 32 },
+    { id: "demo-sites", name: "Создание сайтов", lesson_count: 32 },
+  ],
+  groups: [
+    { name: "Союзный 45, вс 10:00", course_name: "Python Start 1 год", student_count: 8 },
+    { name: "Гагарина 64, сб 18:00", course_name: "Геймдизайн NEW", student_count: 7 },
+  ],
+  schedules: [
+    {
+      id: "demo-schedule-1",
+      group_name: "Союзный 45, вс 10:00",
+      course_id: "demo-python-start",
+      course_name: "Python Start 1 год",
+      lesson_count: 32,
+      first_lesson_date: "2026-01-11",
+      weekday: 6,
+      lesson_time: "10:00:00",
+      duration_minutes: 90,
+      lesson_mode: "group",
+      lesson_place: "Союзный 45",
+      current_lesson_number: 18,
+      lesson_offset: 0,
+      auto_feedback_enabled: true,
+      parent_delivery_enabled: false,
+      is_active: true,
+      next_lesson_date: "2026-05-10",
+      next_lesson_title: "Работа со списками",
+    },
+  ],
+  feedback_outputs: [],
 };
 
 let students = [
   {
     id: "demo-alisa",
     lmsId: "1841",
-    name: "Алиса",
+    name: "Васильева Алиса",
     group: "Союзный 45, вс 10:00",
     teacher: "Олейник Д",
     balance: 1240,
@@ -59,16 +123,16 @@ let students = [
   {
     id: "demo-ivan",
     lmsId: "2417",
-    name: "Иван",
+    name: "Петров Иван",
     group: "Гагарина 64, сб 18:00",
-    teacher: "Мыленкова СН",
+    teacher: "Олейник Д",
     balance: 860,
     contact: "681",
   },
   {
     id: "demo-mark",
     lmsId: "1930",
-    name: "Марк",
+    name: "Соколов Марк",
     group: "Октября 13, пн 16:00",
     teacher: "Сучкина Е",
     balance: 1510,
@@ -83,7 +147,7 @@ let accessLinks = [
     username: "parent_user",
     displayName: "Родитель",
     studentId: "demo-alisa",
-    studentName: "Алиса",
+    studentName: "Васильева Алиса",
     group: "Союзный 45, вс 10:00",
     role: "parent",
     status: "active",
@@ -94,7 +158,7 @@ let accessLinks = [
     username: "parent_user",
     displayName: "Родитель",
     studentId: "demo-ivan",
-    studentName: "Иван",
+    studentName: "Петров Иван",
     group: "Гагарина 64, сб 18:00",
     role: "parent",
     status: "active",
@@ -257,7 +321,7 @@ let orders = [
     backendId: "demo-order-1357",
     studentId: "demo-alisa",
     rawStatus: "reserved",
-    student: "Алиса",
+    student: "Васильева Алиса",
     item: "Ручка металл с лого",
     warehouse: "Союзный 45",
     status: "Зарезервирован",
@@ -281,7 +345,7 @@ let orders = [
     backendId: "demo-order-1358",
     studentId: "demo-ivan",
     rawStatus: "transferred_to_teacher",
-    student: "Иван",
+    student: "Петров Иван",
     item: "Кружка Python",
     warehouse: "Общий склад",
     status: "Передан педагогу",
@@ -305,7 +369,7 @@ let orders = [
     backendId: "demo-order-1359",
     studentId: "demo-mark",
     rawStatus: "problem",
-    student: "Марк",
+    student: "Соколов Марк",
     item: "Игра Кибертаун",
     warehouse: "Не выбран",
     status: "Проблема",
@@ -348,6 +412,19 @@ let catalogWarehouses = [
   { id: "demo-warehouse-partner", name: "Партнерский склад", type: "partner", address: "Партнер" },
 ];
 
+if (!apiContext.demoMode) {
+  state.activeStudentId = "";
+  state.balance = 0;
+  state.favorites.clear();
+  students = [];
+  accessLinks = [];
+  staffAssignments = [];
+  products = [];
+  orders = [];
+  ledger = [];
+  catalogWarehouses = [];
+}
+
 const accrualReasons = [
   "Активность на уроке",
   "Домашнее задание",
@@ -368,6 +445,11 @@ function qsa(selector) {
 
 function queryParam(name) {
   return new URLSearchParams(window.location.search).get(name);
+}
+
+function positiveIntegerParam(name) {
+  const value = queryParam(name)?.trim() || "";
+  return /^[1-9]\d*$/.test(value) ? value : "";
 }
 
 function tenantTitle() {
@@ -409,8 +491,40 @@ function todayShort() {
   return new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
 }
 
+function studentsForCurrentRole() {
+  if (state.role === "admin") return students;
+  if (state.role === "teacher") {
+    if (!apiContext.demoMode) return students;
+    const teacherName = students[0]?.teacher;
+    return students.filter((student) => student.teacher === teacherName);
+  }
+  if (apiContext.demoMode) {
+    return state.role === "student" ? students.slice(0, 1) : students;
+  }
+  const accountMaxUserId = String(state.account?.max_user_id || apiContext.maxUserId || "");
+  const linkedStudentIds = new Set(
+    accessLinks
+      .filter(
+        (link) =>
+          link.status === "active" &&
+          link.role === state.role &&
+          link.maxUserId === accountMaxUserId,
+      )
+      .map((link) => link.studentId),
+  );
+  if (linkedStudentIds.size > 0) {
+    return students.filter((student) => linkedStudentIds.has(student.id));
+  }
+  return students.filter((student) => student.role === state.role);
+}
+
 function selectedStudent() {
-  return students.find((student) => student.id === state.activeStudentId) || students[0] || null;
+  const roleStudents = studentsForCurrentRole();
+  return (
+    roleStudents.find((student) => student.id === state.activeStudentId) ||
+    roleStudents[0] ||
+    null
+  );
 }
 
 function studentGroupName(student) {
@@ -418,7 +532,7 @@ function studentGroupName(student) {
 }
 
 function sortedStudents() {
-  return [...students].sort((left, right) => {
+  return [...studentsForCurrentRole()].sort((left, right) => {
     const groupCompare = studentGroupName(left).localeCompare(studentGroupName(right), "ru");
     if (groupCompare !== 0) return groupCompare;
     return left.name.localeCompare(right.name, "ru");
@@ -657,6 +771,14 @@ function activeProducts() {
   return products.filter((product) => (product.status || "active") === "active");
 }
 
+function productStatusLabel(status) {
+  return {
+    active: "Активен",
+    hidden: "Скрыт",
+    archived: "В архиве",
+  }[status || "active"] || status;
+}
+
 function productAvailable(product) {
   return productWarehouses(product).reduce(
     (total, warehouse) => total + Number(warehouse.available || 0),
@@ -735,10 +857,26 @@ function apiUrl(path, params = {}) {
   return url.toString();
 }
 
+function apiErrorMessage(detail, status) {
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => apiErrorMessage(item, status))
+      .filter(Boolean);
+    if (messages.length > 0) return messages.join("; ");
+  }
+  if (detail && typeof detail === "object") {
+    for (const key of ["message", "msg", "error", "detail"]) {
+      if (detail[key]) return apiErrorMessage(detail[key], status);
+    }
+  }
+  return status ? `Ошибка API: ${status}` : "Не удалось выполнить запрос";
+}
+
 async function parseApiError(response) {
   try {
     const data = await response.json();
-    return data.detail || `Ошибка API: ${response.status}`;
+    return apiErrorMessage(data.detail ?? data, response.status);
   } catch {
     return `Ошибка API: ${response.status}`;
   }
@@ -746,7 +884,7 @@ async function parseApiError(response) {
 
 function showNotice(message, tone = "ok") {
   const notice = qs("#noticeBar");
-  notice.textContent = message;
+  notice.textContent = apiErrorMessage(message);
   notice.hidden = false;
   notice.className = `notice-bar ${tone}`;
 }
@@ -903,7 +1041,7 @@ function staffRoleToUiRole(staffRoles = []) {
 }
 
 function canUseAdminCatalog() {
-  return Boolean(apiContext.maxUserId && ["teacher", "admin"].includes(state.role));
+  return Boolean(apiContext.maxUserId && state.role === "admin");
 }
 
 function buildLocalOpsSummary() {
@@ -1050,9 +1188,9 @@ function orderStatusHistoryDetails(order) {
 }
 
 function applySession(session) {
-  if (!session || !Array.isArray(session.students) || session.students.length === 0) {
-    return;
-  }
+  if (!session || !Array.isArray(session.students)) return;
+
+  state.account = session.account || null;
 
   students = session.students.map((student) => ({
     id: String(student.student_id),
@@ -1067,8 +1205,10 @@ function applySession(session) {
   }));
 
   const previousStudentExists = students.some((student) => student.id === state.activeStudentId);
-  if (!previousStudentExists) {
+  if (!previousStudentExists && students.length > 0) {
     state.activeStudentId = students[0].id;
+  } else if (students.length === 0) {
+    state.activeStudentId = "";
   }
 
   orders = (session.orders || []).map((order) => ({
@@ -1138,6 +1278,24 @@ function applySession(session) {
   );
   state.role = staffRole || (hasParentRole ? "parent" : "student");
   state.sessionLoaded = true;
+}
+
+async function loadTeachingWorkspace() {
+  if (apiContext.demoMode || !apiContext.maxUserId) {
+    state.teachingWorkspace = structuredClone(demoTeachingWorkspace);
+    state.teachingLoaded = true;
+    return;
+  }
+
+  const response = await fetch(
+    apiUrl("/api/v1/teaching/workspace", {
+      max_user_id: apiContext.maxUserId,
+      tenant_slug: apiContext.tenantSlug,
+    }),
+  );
+  if (!response.ok) throw new Error(await parseApiError(response));
+  state.teachingWorkspace = await response.json();
+  state.teachingLoaded = true;
 }
 
 function applyCatalog(catalog) {
@@ -1276,6 +1434,13 @@ async function refreshAllData() {
   } catch (error) {
     errors.push(error);
   }
+  if (["teacher", "admin"].includes(state.role)) {
+    try {
+      await loadTeachingWorkspace();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
 
   state.lastSyncAt = new Date();
   state.refreshing = false;
@@ -1292,29 +1457,57 @@ async function refreshAllData() {
 }
 
 function setView(view) {
+  const allowedViews = ROLE_VIEWS[state.role] || ROLE_VIEWS.student;
+  const nextView = allowedViews.includes(view) ? view : "dashboard";
   const previousView = state.view;
-  state.view = view;
+  state.view = nextView;
   const url = new URL(window.location.href);
-  url.searchParams.set("view", view);
+  url.searchParams.set("view", nextView);
   window.history.replaceState(null, "", url);
   document.body.dataset.activeView = view;
   qsa(".nav-button").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.view === view);
+    button.classList.toggle("is-active", button.dataset.view === nextView);
   });
   qsa("[data-view-panel]").forEach((panel) => {
-    panel.classList.toggle("is-active", panel.dataset.viewPanel === view);
+    panel.classList.toggle("is-active", panel.dataset.viewPanel === nextView);
   });
   const mobileMoreButton = qs("#mobileMoreButton");
-  mobileMoreButton?.classList.toggle("is-active", ["wallet", "accrual", "admin"].includes(view));
+  mobileMoreButton?.classList.toggle(
+    "is-active",
+    ["wallet", "accrual", "teaching", "admin"].includes(nextView),
+  );
   closeMobileMorePanel();
   if (previousView !== view && window.matchMedia("(max-width: 640px)").matches) {
     window.scrollTo({ top: 0, behavior: "auto" });
   }
+  if (nextView === "teaching" && !state.teachingLoaded && !state.teachingLoading) {
+    state.teachingLoading = true;
+    renderTeaching();
+    loadTeachingWorkspace()
+      .then(renderTeaching)
+      .catch((error) => showNotice(error.message || "Не удалось загрузить расписание", "danger"))
+      .finally(() => {
+        state.teachingLoading = false;
+        renderTeaching();
+      });
+  }
+  renderStatus();
 }
 
 function setRole(role) {
   if (!state.availableRoles.includes(role)) return;
+  const roleChanged = state.role !== role;
   state.role = role;
+  if (roleChanged) {
+    state.studentGroupFilter = "all";
+    state.accrualGroup = "all";
+    state.accrualNameFilter = "";
+  }
+  const roleStudents = studentsForCurrentRole();
+  if (!roleStudents.some((student) => student.id === state.activeStudentId)) {
+    state.activeStudentId = roleStudents[0]?.id || "";
+  }
+  document.body.dataset.activeRole = role;
   qsa(".role-button").forEach((button) => {
     button.hidden = !state.availableRoles.includes(button.dataset.role);
     button.classList.toggle("is-active", button.dataset.role === role);
@@ -1322,25 +1515,43 @@ function setRole(role) {
   const roleSwitch = qs(".role-switch");
   if (roleSwitch) roleSwitch.hidden = state.availableRoles.length <= 1;
 
-  const adminButtons = qsa('[data-view="admin"]');
-  const staffViewsDisabled = !["teacher", "admin"].includes(role);
-  const adminDisabled = staffViewsDisabled;
-  adminButtons.forEach((button) => {
-    button.disabled = adminDisabled;
+  const allowedViews = ROLE_VIEWS[role] || ROLE_VIEWS.student;
+  qsa(".nav-button[data-view]").forEach((button) => {
+    const allowed = allowedViews.includes(button.dataset.view);
+    button.disabled = !allowed;
+    button.hidden = !allowed;
   });
-  qsa('[data-view="accrual"], [data-view-jump="accrual"]').forEach((button) => {
-    button.disabled = staffViewsDisabled;
+  qsa("[data-view-jump]").forEach((button) => {
+    const allowed = allowedViews.includes(button.dataset.viewJump);
+    button.disabled = !allowed;
+    button.hidden = !allowed;
   });
-  if (staffViewsDisabled && ["admin", "accrual"].includes(state.view)) {
+
+  const dashboardAction = qs("#dashboardPrimaryAction");
+  const dashboardActionConfig = ROLE_DASHBOARD_ACTION[role] || ROLE_DASHBOARD_ACTION.student;
+  if (dashboardAction) {
+    dashboardAction.dataset.viewJump = dashboardActionConfig.view;
+    dashboardAction.textContent = dashboardActionConfig.label;
+    dashboardAction.hidden = false;
+    dashboardAction.disabled = false;
+  }
+
+  const cartButton = qs("#openCartButton");
+  if (cartButton) cartButton.hidden = !allowedViews.includes("cart");
+  const moreViews = ["wallet", "accrual", "teaching", "admin"];
+  const mobileMoreButton = qs("#mobileMoreButton");
+  if (mobileMoreButton) {
+    mobileMoreButton.hidden = !moreViews.some((view) => allowedViews.includes(view));
+  }
+
+  if (!allowedViews.includes(state.view)) {
     setView("dashboard");
   }
-  renderStatus();
-  renderOrders();
-  renderAdminPanel();
+  renderAll();
   if (
     !apiContext.demoMode &&
     !state.opsSummaryLoaded &&
-    ["teacher", "admin"].includes(role)
+    role === "admin"
   ) {
     loadOpsSummary()
       .then(renderAdminPanel)
@@ -1360,7 +1571,7 @@ function toggleMobileMorePanel() {
 }
 
 function setActiveStudent(studentId) {
-  if (!students.some((student) => student.id === studentId)) return;
+  if (!studentsForCurrentRole().some((student) => student.id === studentId)) return;
   state.activeStudentId = studentId;
   savePreferences();
   renderAll();
@@ -1368,7 +1579,13 @@ function setActiveStudent(studentId) {
 
 function renderStatus() {
   const student = selectedStudent();
-  const linkedCount = students.length;
+  const accountName = state.account?.display_name?.trim() || "";
+  const roleStudents = studentsForCurrentRole();
+  const linkedCount = roleStudents.length;
+  const statusStrip = qs(".status-strip");
+  const studentContext = qs("#studentContext");
+  if (studentContext) studentContext.hidden = linkedCount === 0;
+  if (statusStrip) statusStrip.classList.toggle("has-no-students", linkedCount === 0);
   const openOrders = orders.filter((order) => isOpenOrderStatus(order.rawStatus));
   const studentOpenOrders = student
     ? openOrders.filter((order) =>
@@ -1386,13 +1603,25 @@ function renderStatus() {
   }).length;
   const labels = {
     student: student ? `${student.name}, ученик` : "Ученик",
-    parent: linkedCount > 0 ? `Родитель, ${linkedCount} учен.` : "Родитель",
-    teacher: "Олейник Д, педагог",
-    admin: "Администратор tenant",
+    parent: accountName
+      ? `${accountName}, родитель`
+      : linkedCount > 0
+        ? `Родитель, ${linkedCount} учен.`
+        : "Родитель",
+    teacher: accountName ? `${accountName}, педагог` : "Педагог",
+    admin: accountName ? `${accountName}, администратор` : "Администратор",
   };
 
   state.balance = student?.balance || 0;
   qs("#profileTitle").textContent = labels[state.role] || "Профиль";
+  const contextLabel = qs("#studentContextLabel");
+  if (contextLabel) {
+    contextLabel.textContent = {
+      store: "Получатель заказа",
+      cart: "Получатель",
+      wallet: "История ученика",
+    }[state.view] || "Ученик";
+  }
   qs("#balanceValue").textContent = state.balance;
 
   const metricsByRole = {
@@ -1408,8 +1637,8 @@ function renderStatus() {
     },
     teacher: {
       title: "Рабочий обзор",
-      values: [linkedCount, openOrders.length, lowStockProducts],
-      labels: ["учеников доступно", "заказов в работе", "товаров заканчивается"],
+      values: [linkedCount, openOrders.length, studentGroups().length],
+      labels: ["моих учеников", "заказов в работе", "рабочих групп"],
     },
     admin: {
       title: "Операционный обзор",
@@ -1425,6 +1654,12 @@ function renderStatus() {
     teacher: "Заказы к выдаче",
     admin: "Заказы к выдаче",
   }[state.role] || "Заказы";
+  qs("#studentPanelTitle").textContent = {
+    student: "Мой профиль",
+    parent: "Мои дети",
+    teacher: "Мои ученики",
+    admin: "Ученики и группы",
+  }[state.role] || "Ученики";
   ["#linkedStudentsCount", "#openOrdersCount", "#stockProblemCount"].forEach(
     (selector, index) => {
       qs(selector).textContent = dashboardMetrics.values[index];
@@ -1446,10 +1681,11 @@ function renderStatus() {
     )
     .join("");
   select.value = state.activeStudentId || "";
-  select.disabled = students.length <= 1;
+  select.disabled = roleStudents.length <= 1;
 
   const groupFilter = qs("#studentGroupFilter");
   if (groupFilter) {
+    groupFilter.hidden = state.role === "student";
     const groups = studentGroups();
     if (state.studentGroupFilter !== "all" && !groups.includes(state.studentGroupFilter)) {
       state.studentGroupFilter = "all";
@@ -1464,7 +1700,8 @@ function renderStatus() {
 
 function renderStudents() {
   const list = qs("#studentList");
-  if (students.length === 0) {
+  const roleStudents = studentsForCurrentRole();
+  if (roleStudents.length === 0) {
     list.innerHTML = '<div class="empty-state">Пока нет связанных учеников</div>';
     return;
   }
@@ -1490,12 +1727,20 @@ function renderStudents() {
                 <div class="student-row ${active ? "is-active" : ""}">
                   <div>
                     <strong>${escapeHtml(student.name)}</strong>
-                    <div class="student-meta">${escapeHtml(student.teacher)}</div>
+                    ${
+                      state.role === "teacher"
+                        ? ""
+                        : `<div class="student-meta">${escapeHtml(student.teacher)}</div>`
+                    }
                   </div>
                   <span class="soft-badge">${student.balance} AC</span>
-                  <button class="secondary-action compact" type="button" data-select-student="${escapeHtml(
-                    student.id,
-                  )}">${active ? "Выбран" : "Выбрать"}</button>
+                  ${
+                    roleStudents.length > 1
+                      ? `<button class="secondary-action compact" type="button" data-select-student="${escapeHtml(
+                          student.id,
+                        )}">${active ? "Выбран" : "Выбрать"}</button>`
+                      : ""
+                  }
                 </div>
               `;
             })
@@ -2001,11 +2246,9 @@ function filteredOrders() {
 }
 
 function ordersForCurrentRole() {
-  const student = selectedStudent();
-  if (state.role !== "student" || !student) return orders;
-  return orders.filter((order) =>
-    order.studentId ? order.studentId === student.id : order.student === student.name,
-  );
+  if (state.role === "admin") return orders;
+  const roleStudentIds = new Set(studentsForCurrentRole().map((student) => student.id));
+  return orders.filter((order) => roleStudentIds.has(order.studentId));
 }
 
 function orderActionButtons(order, includeOpen = true) {
@@ -2203,6 +2446,13 @@ function renderAccrual() {
   const visibleStudents = studentsForGroup(state.accrualGroup).filter((student) =>
     student.name.toLowerCase().includes(normalizedName),
   );
+  const groupFilterActive = state.accrualGroup !== "all";
+  const bulkHint = qs(".accrual-bulk p");
+  if (bulkHint) {
+    bulkHint.textContent = groupFilterActive
+      ? `${visibleStudents.length} учен. в выбранной группе`
+      : "Сначала выберите конкретную группу в фильтре.";
+  }
 
   if (visibleStudents.length === 0) {
     studentList.innerHTML = '<div class="empty-state">Ученики не найдены</div>';
@@ -2211,20 +2461,26 @@ function renderAccrual() {
 
   studentList.innerHTML = visibleStudents
     .map(
-      (student, index) => `
-        <article class="accrual-card">
+      (student) => `
+        <article class="accrual-card ${groupFilterActive ? "is-group-filtered" : ""}">
           <div class="accrual-student-head">
             <div class="accrual-student-mark">${escapeHtml(student.name.slice(0, 1))}</div>
             <div>
               <strong>${escapeHtml(student.name)}</strong>
-              <div class="student-meta">ID ${escapeHtml(studentDisplayId(student, index))}</div>
             </div>
             <span class="soft-badge">${student.balance} AC</span>
           </div>
-          <div class="accrual-student-meta">
-            <span>${escapeHtml(studentGroupName(student))}</span>
-            <span>${escapeHtml(student.teacher)}</span>
-          </div>
+          ${
+            groupFilterActive
+              ? ""
+              : `<div class="accrual-student-meta"><span>${escapeHtml(
+                  studentGroupName(student),
+                )}</span>${
+                  state.role === "teacher"
+                    ? ""
+                    : `<span>${escapeHtml(student.teacher)}</span>`
+                }</div>`
+          }
           <div class="accrual-card-controls">
             <label>
               <span>Причина</span>
@@ -2264,6 +2520,7 @@ function renderAdminPanel() {
     products: "Товары",
     inventory: "Остатки",
     warehouses: "Склады",
+    crm: "Импорт учеников и групп",
     contacts: "Связи доступа",
     staff: "Сотрудники",
   };
@@ -2481,7 +2738,7 @@ function renderAdminPanel() {
                       : (product.status || "active") === "hidden"
                         ? "warn"
                         : "danger"
-                  }">${escapeHtml(product.status || "active")}</span>
+                  }">${escapeHtml(productStatusLabel(product.status))}</span>
                 </div>
                 <div class="admin-entity-meta">
                   ${product.sku ? `<span>${escapeHtml(product.sku)}</span>` : ""}
@@ -2501,6 +2758,57 @@ function renderAdminPanel() {
         )
         .join("")}
       </div>
+    `;
+    return;
+  }
+
+  if (state.adminTab === "crm") {
+    const preview = state.crmImportPreview;
+    const busy = state.crmImporting ? "disabled" : "";
+    qs("#adminPanel").innerHTML = `
+      <div class="admin-section-toolbar">
+        <div>
+          <h3>Данные CRM</h3>
+          <span>${escapeHtml(apiContext.tenantSlug || "Текущий филиал")}</span>
+        </div>
+      </div>
+      <div class="import-panel crm-import-panel">
+        <div>
+          <h3>Ученики и группы</h3>
+        </div>
+        <label class="file-picker">
+          <input id="crmImportFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+          <span>${escapeHtml(state.crmImportFileName || "Выбрать XLSX")}</span>
+        </label>
+        <button id="crmPreviewButton" class="secondary-action" type="button" ${busy}>
+          ${state.crmImporting ? "Обработка..." : "Проверить файл"}
+        </button>
+      </div>
+      ${
+        preview
+          ? `
+            <div class="crm-import-result">
+              <div class="ops-summary-grid crm-summary-grid">
+                <article><span>${Number(preview.parsed_rows || 0)}</span><strong>Строк</strong></article>
+                <article><span>${Number(preview.distinct_groups || 0)}</span><strong>Групп</strong></article>
+                <article><span>${Number(preview.distinct_courses || 0)}</span><strong>Курсов</strong></article>
+                <article><span>${Number(preview.distinct_teachers || 0)}</span><strong>Преподавателей</strong></article>
+                <article><span>${Number(preview.rows_with_contacts || 0)}</span><strong>С Contact ID</strong></article>
+                <article><span>${Number(preview.rows_without_group || 0)}</span><strong>Без группы</strong></article>
+              </div>
+              <div class="crm-import-actions">
+                <div>
+                  <strong>${escapeHtml(preview.filename || state.crmImportFileName)}</strong>
+                  <span>Без имени: ${Number(preview.rows_without_student_name || 0)}</span>
+                </div>
+                <button id="crmImportButton" class="primary-action" type="button" ${busy}>
+                  ${state.crmImporting ? "Импорт..." : "Импортировать"}
+                </button>
+              </div>
+            </div>
+          `
+          : ""
+      }
     `;
     return;
   }
@@ -2812,6 +3120,249 @@ function renderAdminPanel() {
   `;
 }
 
+const weekdayNames = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"];
+
+function teachingWorkspace() {
+  return state.teachingWorkspace || { courses: [], groups: [], schedules: [], feedback_outputs: [] };
+}
+
+function formatTeachingDate(value) {
+  if (!value) return "Дата не задана";
+  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long" }).format(
+    new Date(`${value}T12:00:00`),
+  );
+}
+
+function renderTeaching() {
+  const workspace = teachingWorkspace();
+  const summary = qs("#teachingSummary");
+  if (!summary) return;
+  const active = workspace.schedules.filter((item) => item.is_active);
+  const nearest = [...active].sort((a, b) =>
+    `${a.next_lesson_date}${a.lesson_time}`.localeCompare(`${b.next_lesson_date}${b.lesson_time}`),
+  )[0];
+  summary.innerHTML = `
+    <article><strong>${active.length}</strong><span>активных групп</span></article>
+    <article><strong>${active.filter((item) => item.auto_feedback_enabled).length}</strong><span>автоматических ОС</span></article>
+    <article><strong>${nearest ? escapeHtml(nearest.lesson_time.slice(0, 5)) : "--:--"}</strong><span>${nearest ? escapeHtml(nearest.group_name) : "занятий пока нет"}</span></article>`;
+  renderScheduleEditor();
+  renderScheduleList();
+  renderFeedbackHistory();
+}
+
+function renderScheduleEditor() {
+  const editor = qs("#scheduleEditor");
+  if (!editor) return;
+  editor.hidden = !state.scheduleEditorOpen;
+  if (!state.scheduleEditorOpen) return;
+  const workspace = teachingWorkspace();
+  const item = workspace.schedules.find((schedule) => schedule.id === state.editingScheduleId);
+  const today = new Date().toISOString().slice(0, 10);
+  const scheduledGroups = new Set(
+    workspace.schedules
+      .filter((schedule) => schedule.id !== item?.id)
+      .map((schedule) => schedule.group_name),
+  );
+  const groupNames = [...new Set([
+    ...(item?.group_name ? [item.group_name] : []),
+    ...workspace.groups
+      .map((group) => group.name)
+      .filter((groupName) => !scheduledGroups.has(groupName)),
+  ])];
+  const groupField = groupNames.length
+    ? `<select id="scheduleGroupName"><option value="">Выберите группу</option>${groupNames
+        .map(
+          (groupName) =>
+            `<option value="${escapeHtml(groupName)}" ${groupName === item?.group_name ? "selected" : ""}>${escapeHtml(groupName)}</option>`,
+        )
+        .join("")}</select>`
+    : '<input id="scheduleGroupName" value="" placeholder="Название группы" />';
+  editor.innerHTML = `
+    <div class="schedule-editor-head"><div><p class="eyebrow">${item ? "Редактирование" : "Новая группа"}</p><h3>${item ? escapeHtml(item.group_name) : "Добавить занятие"}</h3></div><button class="icon-button" type="button" data-close-schedule title="Закрыть">×</button></div>
+    <div class="schedule-form-grid">
+      <label class="schedule-field-wide"><span>Группа</span>${groupField}</label>
+      <label class="schedule-field-wide"><span>Курс</span><select id="scheduleCourseId">${workspace.courses.map((course) => `<option value="${escapeHtml(course.id)}" ${course.id === item?.course_id ? "selected" : ""}>${escapeHtml(course.name)} · ${course.lesson_count} уроков</option>`).join("")}</select></label>
+      <label><span>Первое занятие</span><input id="scheduleFirstDate" type="date" value="${item?.first_lesson_date || today}" /></label>
+      <label><span>Время</span><input id="scheduleTime" type="time" value="${item?.lesson_time?.slice(0, 5) || "10:00"}" /></label>
+      <label><span>Формат</span><select id="scheduleMode"><option value="group">Группа</option><option value="individual" ${item?.lesson_mode === "individual" ? "selected" : ""}>Индивидуально</option></select></label>
+      <label><span>Место</span><input id="schedulePlace" value="${escapeHtml(item?.lesson_place || "offline")}" placeholder="Адрес или online" /></label>
+      <label><span>Текущий урок</span><input id="scheduleLessonNumber" type="number" min="1" value="${item?.current_lesson_number || 1}" /></label>
+      <label><span>Длительность</span><select id="scheduleDuration"><option value="90">90 минут</option><option value="60" ${item?.duration_minutes === 60 ? "selected" : ""}>60 минут</option><option value="120" ${item?.duration_minutes === 120 ? "selected" : ""}>120 минут</option></select></label>
+    </div>
+    <div class="schedule-toggle-list">
+      <label class="schedule-toggle"><input id="scheduleAutoFeedback" type="checkbox" ${item?.auto_feedback_enabled === false ? "" : "checked"} /><span>Автоматически готовить ОС после занятия</span></label>
+      <label class="schedule-toggle"><input id="scheduleParentDelivery" type="checkbox" ${item?.parent_delivery_enabled ? "checked" : ""} /><span>Отправлять готовую ОС связанным родителям</span></label>
+    </div>
+    <div class="schedule-editor-actions"><button class="secondary-action" type="button" data-close-schedule>Отмена</button><button id="scheduleSaveButton" class="primary-action" type="button">Сохранить расписание</button></div>`;
+}
+
+function renderScheduleList() {
+  const list = qs("#scheduleList");
+  if (!list) return;
+  const items = teachingWorkspace().schedules.filter(
+    (item) => state.scheduleDayFilter === "all" || String(item.weekday) === state.scheduleDayFilter,
+  );
+  if (state.teachingLoading) return void (list.innerHTML = '<div class="empty-state">Загружаем расписание...</div>');
+  if (items.length === 0) return void (list.innerHTML = '<div class="empty-state">Добавьте первую группу и выберите курс.</div>');
+  list.innerHTML = items.map((item) => `
+    <article class="schedule-card ${item.is_active ? "" : "is-paused"}">
+      <div class="schedule-time"><strong>${escapeHtml(item.lesson_time.slice(0, 5))}</strong><span>${escapeHtml(weekdayNames[item.weekday] || "")}</span></div>
+      <div class="schedule-main"><div class="schedule-card-title"><h3>${escapeHtml(item.group_name)}</h3><span class="soft-badge">Урок ${item.current_lesson_number}/${item.lesson_count}</span></div><p>${escapeHtml(item.course_name)}</p><div class="schedule-next"><strong>${formatTeachingDate(item.next_lesson_date)}</strong><span>${escapeHtml(item.next_lesson_title || "Тема будет определена курсом")}</span></div><div class="schedule-flags"><span>${escapeHtml(item.lesson_place)}</span><span>${item.auto_feedback_enabled ? "Авто-ОС включена" : "ОС вручную"}</span><span>${item.parent_delivery_enabled ? "Доставка родителям" : "Без автоотправки"}</span></div></div>
+      <div class="schedule-actions"><button class="primary-action" type="button" data-feedback-schedule="${escapeHtml(item.id)}">Подготовить ОС</button><button class="secondary-action" type="button" data-edit-schedule="${escapeHtml(item.id)}">Изменить</button></div>
+    </article>`).join("");
+}
+
+function renderFeedbackHistory() {
+  const list = qs("#feedbackHistory");
+  if (!list) return;
+  const outputs = teachingWorkspace().feedback_outputs;
+  if (outputs.length === 0) return void (list.innerHTML = '<div class="empty-state">Сформированные обратные связи появятся здесь.</div>');
+  list.innerHTML = outputs.slice(0, 10).map((item) => `<button class="feedback-history-row" type="button" data-open-feedback="${escapeHtml(item.id)}"><span><strong>${escapeHtml(item.group_name)}</strong><small>${formatTeachingDate(item.lesson_date)} · урок ${item.lesson_number}</small></span><span>›</span></button>`).join("");
+}
+
+function openScheduleEditor(scheduleId = "") {
+  state.editingScheduleId = scheduleId;
+  state.scheduleEditorOpen = true;
+  renderTeaching();
+  qs("#scheduleEditor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function closeScheduleEditor() {
+  state.scheduleEditorOpen = false;
+  state.editingScheduleId = "";
+  renderTeaching();
+}
+
+async function saveTeachingSchedule() {
+  const groupName = qs("#scheduleGroupName")?.value.trim();
+  const courseId = qs("#scheduleCourseId")?.value;
+  if (!groupName || !courseId) return showNotice("Укажите группу и курс", "danger");
+  const payload = { max_user_id: Number(apiContext.maxUserId || 1), tenant_slug: apiContext.tenantSlug || null, schedule_id: state.editingScheduleId || null, group_name: groupName, course_id: courseId, first_lesson_date: qs("#scheduleFirstDate").value, lesson_time: qs("#scheduleTime").value, duration_minutes: Number(qs("#scheduleDuration").value), lesson_mode: qs("#scheduleMode").value, lesson_place: qs("#schedulePlace").value.trim() || "offline", current_lesson_number: Number(qs("#scheduleLessonNumber").value || 1), lesson_offset: 0, auto_feedback_enabled: qs("#scheduleAutoFeedback").checked, parent_delivery_enabled: qs("#scheduleParentDelivery").checked, is_active: true };
+  const button = qs("#scheduleSaveButton");
+  button.disabled = true;
+  button.textContent = "Сохраняем...";
+  try {
+    if (apiContext.demoMode || !apiContext.maxUserId) {
+      const index = teachingWorkspace().schedules.findIndex((item) => item.id === payload.schedule_id);
+      const course = teachingWorkspace().courses.find((item) => item.id === courseId);
+      const firstDate = new Date(`${payload.first_lesson_date}T12:00:00`);
+      const saved = { ...payload, id: payload.schedule_id || `demo-schedule-${Date.now()}`, course_name: course.name, lesson_count: course.lesson_count, weekday: (firstDate.getDay() + 6) % 7, next_lesson_date: payload.first_lesson_date, next_lesson_title: "Следующая тема курса" };
+      if (index >= 0) teachingWorkspace().schedules[index] = saved;
+      else teachingWorkspace().schedules.push(saved);
+    } else {
+      const response = await fetch("/api/v1/teaching/schedules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!response.ok) throw new Error(await parseApiError(response));
+      await loadTeachingWorkspace();
+    }
+    closeScheduleEditor();
+    showNotice("Расписание сохранено");
+  } catch (error) {
+    showNotice(error.message || "Не удалось сохранить расписание", "danger");
+    button.disabled = false;
+    button.textContent = "Сохранить расписание";
+  }
+}
+
+function openFeedbackDialog(scheduleId = "", outputId = "") {
+  const output = teachingWorkspace().feedback_outputs.find((item) => item.id === outputId);
+  const schedule = teachingWorkspace().schedules.find((item) => item.id === (scheduleId || output?.schedule_id));
+  if (!schedule && !output) return;
+  state.feedbackScheduleId = schedule?.id || output.schedule_id;
+  state.generatedFeedback = output?.feedback_text || "";
+  state.generatedFeedbackId = output?.id || "";
+  qs("#feedbackDialogTitle").textContent = output ? output.group_name : schedule.group_name;
+  qs("#feedbackDialogContent").innerHTML = output ? `<textarea id="feedbackResult" class="feedback-result" readonly>${escapeHtml(output.feedback_text)}</textarea>` : `<div class="feedback-options"><label><span>Кто отсутствовал</span><input id="feedbackAbsent" placeholder="Имена через запятую" /></label><label class="schedule-toggle"><input id="feedbackRepetition" type="checkbox" /><span>Повторяли прошлую тему</span></label><p>Урок ${schedule.current_lesson_number}: ${escapeHtml(schedule.next_lesson_title || schedule.course_name)}</p></div>`;
+  qs("#copyFeedbackButton").hidden = !state.generatedFeedback;
+  qs("#sendFeedbackButton").hidden = !state.generatedFeedback;
+  qs("#generateFeedbackButton").hidden = Boolean(output);
+  qs("#generateFeedbackButton").disabled = false;
+  qs("#generateFeedbackButton").textContent = "Сформировать ОС";
+  qs("#feedbackDialog").hidden = false;
+}
+
+function closeFeedbackDialog() {
+  qs("#feedbackDialog").hidden = true;
+  state.feedbackScheduleId = "";
+  state.generatedFeedback = "";
+  state.generatedFeedbackId = "";
+}
+
+async function generateTeachingFeedback() {
+  const schedule = teachingWorkspace().schedules.find((item) => item.id === state.feedbackScheduleId);
+  if (!schedule) return;
+  const payload = { max_user_id: Number(apiContext.maxUserId || 1), tenant_slug: apiContext.tenantSlug || null, absent_students: (qs("#feedbackAbsent")?.value || "").split(",").map((name) => name.trim()).filter(Boolean), is_repetition: Boolean(qs("#feedbackRepetition")?.checked), advance_lesson: false };
+  const button = qs("#generateFeedbackButton");
+  button.disabled = true;
+  button.textContent = "Формируем...";
+  try {
+    let output;
+    if (apiContext.demoMode || !apiContext.maxUserId) {
+      output = { id: `demo-feedback-${Date.now()}`, schedule_id: schedule.id, group_name: schedule.group_name, course_name: schedule.course_name, lesson_date: schedule.next_lesson_date, lesson_number: schedule.current_lesson_number, feedback_text: `Обратная связь урок №${String(schedule.current_lesson_number).padStart(2, "0")}\n\nДобрый день, уважаемые родители!\n\nСегодня ученики изучили тему «${schedule.next_lesson_title || schedule.course_name}».\n\nНа платформе доступен материал урока и прогресс ребенка.` };
+      teachingWorkspace().feedback_outputs.unshift(output);
+    } else {
+      const response = await fetch(`/api/v1/teaching/schedules/${encodeURIComponent(schedule.id)}/feedback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!response.ok) throw new Error(await parseApiError(response));
+      output = await response.json();
+      await loadTeachingWorkspace();
+    }
+    state.generatedFeedback = output.feedback_text;
+    state.generatedFeedbackId = output.id;
+    qs("#feedbackDialogContent").innerHTML = `<textarea id="feedbackResult" class="feedback-result" readonly>${escapeHtml(output.feedback_text)}</textarea>`;
+    qs("#copyFeedbackButton").hidden = false;
+    qs("#sendFeedbackButton").hidden = false;
+    button.hidden = true;
+    renderFeedbackHistory();
+  } catch (error) {
+    showNotice(error.message || "Не удалось сформировать ОС", "danger");
+    button.disabled = false;
+    button.textContent = "Сформировать ОС";
+  }
+}
+
+async function copyGeneratedFeedback() {
+  if (!state.generatedFeedback) return;
+  await navigator.clipboard.writeText(state.generatedFeedback);
+  showNotice("Текст ОС скопирован");
+}
+
+async function sendGeneratedFeedback() {
+  if (!state.generatedFeedbackId) return;
+  const button = qs("#sendFeedbackButton");
+  button.disabled = true;
+  button.textContent = "Отправляем...";
+  try {
+    if (apiContext.demoMode || !apiContext.maxUserId) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      showNotice("Демо: ОС отправлена 3 родителям");
+      button.textContent = "Отправлено";
+      return;
+    }
+    const response = await fetch(`/api/v1/teaching/feedback/${encodeURIComponent(state.generatedFeedbackId)}/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ max_user_id: Number(apiContext.maxUserId), tenant_slug: apiContext.tenantSlug || null }),
+    });
+    if (!response.ok) throw new Error(await parseApiError(response));
+    const result = await response.json();
+    if (result.status === "sent") {
+      showNotice(`ОС отправлена: ${result.sent_recipients} получ.`);
+      button.textContent = "Отправлено";
+    } else if (result.status === "delivery_unavailable") {
+      showNotice(`Найдено родителей: ${result.parent_recipients}. Проверьте MAX-токен.`, "danger");
+      button.disabled = false;
+      button.textContent = "Отправить родителям";
+    } else {
+      showNotice("У группы нет связанных MAX-аккаунтов родителей", "danger");
+      button.disabled = false;
+      button.textContent = "Отправить родителям";
+    }
+  } catch (error) {
+    showNotice(error.message || "Не удалось отправить ОС", "danger");
+    button.disabled = false;
+    button.textContent = "Отправить родителям";
+  }
+}
+
 function renderAll() {
   renderStatus();
   renderStudents();
@@ -2822,6 +3373,7 @@ function renderAll() {
   renderOrders();
   renderLedger();
   renderAccrual();
+  renderTeaching();
   renderAdminPanel();
 }
 
@@ -2864,6 +3416,52 @@ async function importProductsFromFile() {
     showNotice(error.message || "Не удалось загрузить товары", "danger");
   } finally {
     state.productImporting = false;
+    renderAll();
+  }
+}
+
+async function importCrmStudents(dryRun) {
+  const input = qs("#crmImportFile");
+  const file = state.crmImportFile || input?.files?.[0] || null;
+  if (!file) {
+    showNotice("Выберите CRM-файл XLSX", "danger");
+    return;
+  }
+  if (apiContext.demoMode || !apiContext.maxUserId) {
+    showNotice("Импорт CRM доступен после входа администратора", "danger");
+    return;
+  }
+
+  const formData = new FormData();
+  formData.set("max_user_id", apiContext.maxUserId);
+  if (apiContext.tenantSlug) formData.set("tenant_slug", apiContext.tenantSlug);
+  formData.set("sheet_name", "Сделки");
+  formData.set("dry_run", String(dryRun));
+  formData.set("file", file);
+
+  state.crmImporting = true;
+  renderAdminPanel();
+  try {
+    const response = await fetch("/api/v1/miniapp/students/import", {
+      method: "POST",
+      body: formData,
+    });
+    if (!response.ok) throw new Error(await parseApiError(response));
+    const result = await response.json();
+    state.crmImportPreview = result;
+    if (dryRun) {
+      showNotice(`Файл проверен: ${result.parsed_rows} строк, ${result.distinct_groups} групп`);
+    } else {
+      await loadSession();
+      state.teachingLoaded = false;
+      showNotice(
+        `Импорт завершен: новых ${result.created_students}, обновлено ${result.updated_students}`,
+      );
+    }
+  } catch (error) {
+    showNotice(error.message || "Не удалось импортировать CRM", "danger");
+  } finally {
+    state.crmImporting = false;
     renderAll();
   }
 }
@@ -3820,6 +4418,24 @@ document.addEventListener("click", (event) => {
   const view = target.dataset.view || target.dataset.viewJump;
   if (view) setView(view);
 
+  if (target.id === "scheduleCreateButton") openScheduleEditor();
+  if ("closeSchedule" in target.dataset) closeScheduleEditor();
+  if (target.id === "scheduleSaveButton") saveTeachingSchedule();
+
+  const editScheduleId = target.dataset.editSchedule;
+  if (editScheduleId) openScheduleEditor(editScheduleId);
+
+  const feedbackScheduleId = target.dataset.feedbackSchedule;
+  if (feedbackScheduleId) openFeedbackDialog(feedbackScheduleId);
+
+  const feedbackOutputId = target.dataset.openFeedback;
+  if (feedbackOutputId) openFeedbackDialog("", feedbackOutputId);
+
+  if (target.id === "closeFeedbackDialogButton") closeFeedbackDialog();
+  if (target.id === "generateFeedbackButton") generateTeachingFeedback();
+  if (target.id === "copyFeedbackButton") copyGeneratedFeedback();
+  if (target.id === "sendFeedbackButton") sendGeneratedFeedback();
+
   const studentId = target.dataset.selectStudent;
   if (studentId) setActiveStudent(studentId);
 
@@ -3933,6 +4549,14 @@ document.addEventListener("click", (event) => {
     importProductsFromFile();
   }
 
+  if (target.id === "crmPreviewButton") {
+    importCrmStudents(true);
+  }
+
+  if (target.id === "crmImportButton") {
+    importCrmStudents(false);
+  }
+
   const editProductId = target.dataset.editProduct;
   if (editProductId) {
     state.editingProductId = editProductId;
@@ -4009,6 +4633,10 @@ qs("#orderDialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) closeOrderDialog();
 });
 
+qs("#feedbackDialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) closeFeedbackDialog();
+});
+
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (!qs("#productDialog").hidden) {
@@ -4017,6 +4645,10 @@ document.addEventListener("keydown", (event) => {
   }
   if (!qs("#orderDialog").hidden) {
     closeOrderDialog();
+    return;
+  }
+  if (!qs("#feedbackDialog").hidden) {
+    closeFeedbackDialog();
     return;
   }
   if (!qs("#checkoutDialog").hidden) closeCheckoutDialog();
@@ -4034,6 +4666,15 @@ document.addEventListener("change", (event) => {
     if (label) label.textContent = state.productImportFileName || "Выбрать файл";
   }
 
+  if (target.id === "crmImportFile") {
+    const file = target.files?.[0] || null;
+    state.crmImportFile = file;
+    state.crmImportFileName = file?.name || "";
+    state.crmImportPreview = null;
+    const label = target.closest(".file-picker")?.querySelector("span");
+    if (label) label.textContent = state.crmImportFileName || "Выбрать XLSX";
+  }
+
   if (target.id === "studentGroupFilter") {
     state.studentGroupFilter = target.value;
     renderStudents();
@@ -4043,6 +4684,11 @@ document.addEventListener("change", (event) => {
     state.orderStatusFilter = target.value;
     renderOrders();
     savePreferences();
+  }
+
+  if (target.id === "scheduleDayFilter") {
+    state.scheduleDayFilter = target.value;
+    renderScheduleList();
   }
 
   if (target.matches("[data-warehouse-select]")) {
@@ -4124,6 +4770,7 @@ qs("#storeCartBar").addEventListener("click", () => setView("cart"));
 async function init() {
   qs("#tenantTitle").textContent = tenantTitle();
   restorePreferences();
+  if (apiContext.demoMode && state.view === "teaching") state.role = "teacher";
   qs("#productSort").value = state.productSort;
   qs("#inStockOnly").checked = state.inStockOnly;
   const results = [];

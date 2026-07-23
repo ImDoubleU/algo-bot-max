@@ -5,6 +5,7 @@ import asyncio
 import json
 from pathlib import Path
 
+import app.db.base  # noqa: F401
 from app.core.config import get_settings
 from app.db.session import AsyncSessionLocal
 from app.services.crm_import import parse_crm_students
@@ -39,6 +40,19 @@ def parse_args() -> argparse.Namespace:
         default="Нижний Новгород",
         help="Город по умолчанию, если в строке CRM нет города.",
     )
+    parser.add_argument(
+        "--tenant-slug",
+        default=None,
+        help=(
+            "Import every row into this tenant. The tenant is created on the first import "
+            "and reused on subsequent imports."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Только разобрать XLSX и показать сводку без записи в БД.",
+    )
     return parser.parse_args()
 
 
@@ -49,6 +63,16 @@ async def run_import(args: argparse.Namespace) -> dict[str, int]:
         raise SystemExit("Укажите --path или заполните CRM_ACTIVE_EXPORT_PATH в .env.")
 
     rows = parse_crm_students(source_path, sheet_name=args.sheet_name)
+    if args.dry_run:
+        return {
+            "parsed_rows": len(rows),
+            "distinct_groups": len({row.group_name for row in rows if row.group_name}),
+            "distinct_courses": len({row.course_name for row in rows if row.course_name}),
+            "distinct_teachers": len({row.teacher_name for row in rows if row.teacher_name}),
+            "rows_without_group": sum(not row.group_name for row in rows),
+            "rows_without_student_name": sum(not row.first_name for row in rows),
+            "rows_with_contacts": sum(bool(row.contact_ids) for row in rows),
+        }
     async with AsyncSessionLocal() as db:
         result = await upsert_crm_student_rows(
             db,
@@ -57,6 +81,7 @@ async def run_import(args: argparse.Namespace) -> dict[str, int]:
                 partner_slug=args.partner_slug,
                 partner_name=args.partner_name,
                 fallback_city_name=args.fallback_city_name,
+                tenant_slug=args.tenant_slug,
             ),
         )
     return result.__dict__
