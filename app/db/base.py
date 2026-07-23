@@ -18,6 +18,7 @@ from app.models.student import (
     StudentAccessLink,
     Wallet,
 )
+from app.models.teaching import Course, CourseLesson, FeedbackOutput, TeachingSchedule
 from app.models.tenant import City, Partner, Tenant, Venue
 
 __all__ = [
@@ -26,6 +27,9 @@ __all__ = [
     "City",
     "Contact",
     "ContactStudentLink",
+    "Course",
+    "CourseLesson",
+    "FeedbackOutput",
     "MaxAccount",
     "Order",
     "OrderItem",
@@ -38,6 +42,7 @@ __all__ = [
     "Student",
     "StudentAccessLink",
     "Tenant",
+    "TeachingSchedule",
     "Venue",
     "Wallet",
     "Warehouse",

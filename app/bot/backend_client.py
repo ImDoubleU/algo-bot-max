@@ -199,6 +199,21 @@ class AccessBackendClient:
             },
         )
 
+    def get_teaching_workspace(
+        self,
+        *,
+        tenant_slug: str,
+        max_user_id: int,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/teaching/workspace",
+            params={
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
+            },
+        )
+
     def update_order(
         self,
         *,

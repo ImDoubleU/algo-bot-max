@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#5a2078" />
+    <meta name="theme-color" content="#ffd52f" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.15.0" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.32.2" />
   </head>
   <body>
     <div class="app-shell">
@@ -41,6 +41,7 @@
             <button class="nav-button" data-view="orders">Заказы</button>
             <button class="nav-button" data-view="wallet">Астрокоины</button>
             <button class="nav-button" data-view="accrual">Начисления</button>
+            <button class="nav-button" data-view="teaching">Расписание</button>
             <button class="nav-button" data-view="admin">Операции</button>
           </nav>
         </aside>
@@ -55,8 +56,8 @@
               </div>
               <button id="refreshDataButton" class="icon-button refresh-button" type="button" title="Обновить данные" aria-label="Обновить данные">↻</button>
             </div>
-            <div>
-              <p class="label">Ученик для заказа</p>
+            <div id="studentContext">
+              <p id="studentContextLabel" class="label">Ученик для заказа</p>
               <select id="studentSelect" aria-label="Ученик для заказа"></select>
             </div>
             <div>
@@ -76,7 +77,7 @@
                 <p class="eyebrow">Сегодня</p>
                 <h2 id="dashboardTitle">Рабочий обзор</h2>
               </div>
-              <button class="secondary-action" type="button" data-view-jump="store">Открыть магазин</button>
+              <button id="dashboardPrimaryAction" class="secondary-action" type="button" data-view-jump="store">Открыть магазин</button>
             </div>
 
             <div class="summary-grid">
@@ -97,7 +98,7 @@
             <div class="two-column">
               <section class="panel">
                 <div class="panel-head">
-                  <h3>Дети и группы</h3>
+                  <h3 id="studentPanelTitle">Дети и группы</h3>
                   <select id="studentGroupFilter" aria-label="Группа учеников">
                     <option value="all">Все группы</option>
                   </select>
@@ -274,6 +275,47 @@
             </div>
           </section>
 
+          <section id="teachingView" class="view" data-view-panel="teaching">
+            <div class="section-heading teaching-heading">
+              <div>
+                <p class="eyebrow">Преподавателю</p>
+                <h2>Расписание и обратная связь</h2>
+              </div>
+              <button id="scheduleCreateButton" class="primary-action" type="button">
+                Добавить группу
+              </button>
+            </div>
+
+            <div id="teachingSummary" class="teaching-summary"></div>
+            <div id="scheduleEditor" class="schedule-editor" hidden></div>
+
+            <div class="teaching-grid">
+              <section class="teaching-column">
+                <div class="panel-head">
+                  <h3>Мои занятия</h3>
+                  <select id="scheduleDayFilter" aria-label="День занятий">
+                    <option value="all">Вся неделя</option>
+                    <option value="0">Понедельник</option>
+                    <option value="1">Вторник</option>
+                    <option value="2">Среда</option>
+                    <option value="3">Четверг</option>
+                    <option value="4">Пятница</option>
+                    <option value="5">Суббота</option>
+                    <option value="6">Воскресенье</option>
+                  </select>
+                </div>
+                <div id="scheduleList" class="schedule-list"></div>
+              </section>
+
+              <section class="teaching-column feedback-history-column">
+                <div class="panel-head">
+                  <h3>Последние ОС</h3>
+                </div>
+                <div id="feedbackHistory" class="feedback-history"></div>
+              </section>
+            </div>
+          </section>
+
           <section id="adminView" class="view" data-view-panel="admin">
             <div class="section-heading">
               <div>
@@ -287,6 +329,7 @@
               <button class="admin-tab" data-admin-tab="products">Товары</button>
               <button class="admin-tab" data-admin-tab="inventory">Остатки</button>
               <button class="admin-tab" data-admin-tab="warehouses">Склады</button>
+              <button class="admin-tab" data-admin-tab="crm">Импорт CRM</button>
               <button class="admin-tab" data-admin-tab="contacts">Связи</button>
               <button class="admin-tab" data-admin-tab="staff">Сотрудники</button>
             </div>
@@ -385,12 +428,38 @@
         </section>
       </div>
 
+      <div id="feedbackDialog" class="dialog-backdrop" hidden>
+        <section
+          class="checkout-dialog feedback-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="feedbackDialogTitle"
+        >
+          <div class="dialog-head">
+            <div>
+              <p class="eyebrow">Обратная связь</p>
+              <h2 id="feedbackDialogTitle">Подготовить ОС</h2>
+            </div>
+            <button id="closeFeedbackDialogButton" class="icon-button dialog-close" type="button" title="Закрыть" aria-label="Закрыть">×</button>
+          </div>
+          <div id="feedbackDialogContent" class="feedback-dialog-content"></div>
+          <div class="dialog-actions feedback-dialog-actions">
+            <button id="copyFeedbackButton" class="secondary-action" type="button" hidden>Копировать</button>
+            <button id="sendFeedbackButton" class="secondary-action" type="button" hidden>Отправить родителям</button>
+            <button id="generateFeedbackButton" class="primary-action" type="button">Сформировать ОС</button>
+          </div>
+        </section>
+      </div>
+
       <div id="mobileMorePanel" class="mobile-more-panel" hidden>
         <button class="mobile-more-action nav-button" type="button" data-view="wallet">
           Астрокоины
         </button>
         <button class="mobile-more-action nav-button" type="button" data-view="accrual">
           Начисления
+        </button>
+        <button class="mobile-more-action nav-button" type="button" data-view="teaching">
+          Расписание
         </button>
         <button class="mobile-more-action nav-button" type="button" data-view="admin">
           Операции
@@ -422,6 +491,6 @@
       </nav>
     </div>
 
-    <script src="/miniapp/static/app.js?v=0.15.0"></script>
+    <script src="/miniapp/static/app.js?v=0.32.5"></script>
   </body>
 </html>

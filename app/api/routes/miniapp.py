@@ -12,6 +12,7 @@ from app.schemas.miniapp import (
     MiniAppAccrualCreate,
     MiniAppAccrualRead,
     MiniAppCatalogRead,
+    MiniAppCrmImportRead,
     MiniAppInventoryAdjustmentCreate,
     MiniAppInventoryAdjustmentRead,
     MiniAppInventoryTransferCreate,
@@ -38,6 +39,7 @@ from app.services.miniapp import (
     create_miniapp_order,
     get_miniapp_ops_summary,
     get_miniapp_session,
+    import_miniapp_crm_students,
     import_miniapp_products,
     issue_miniapp_order,
     list_miniapp_catalog,
@@ -121,6 +123,31 @@ async def miniapp_import_products(
             tenant_slug=tenant_slug or settings.default_tenant_slug,
             filename=file.filename or "products.csv",
             content=content,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/students/import", response_model=MiniAppCrmImportRead)
+async def miniapp_import_crm_students(
+    db: DbSession,
+    max_user_id: Annotated[int, Form(gt=0)],
+    file: Annotated[UploadFile, File()],
+    tenant_slug: Annotated[str | None, Form()] = None,
+    sheet_name: Annotated[str, Form()] = "Сделки",
+    dry_run: Annotated[bool, Form()] = True,
+) -> MiniAppCrmImportRead:
+    settings = get_settings()
+    content = await file.read()
+    try:
+        return await import_miniapp_crm_students(
+            db,
+            max_user_id=max_user_id,
+            tenant_slug=tenant_slug or settings.default_tenant_slug,
+            filename=file.filename or "students.xlsx",
+            content=content,
+            sheet_name=sheet_name,
+            dry_run=dry_run,
         )
     except MiniAppStoreError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

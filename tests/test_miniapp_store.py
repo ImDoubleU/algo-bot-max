@@ -196,6 +196,7 @@ async def test_ops_summary_reports_open_orders_and_low_stock(db_session) -> None
     product, _inventory = await seed_product(db_session, student)
     account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
     assert account is not None
+    account.display_name = "Олейник Д"
     db_session.add(
         StaffRoleAssignment(
             tenant_id=student.tenant_id,
@@ -328,6 +329,7 @@ async def test_staff_can_issue_reserved_order(db_session) -> None:
     product, inventory = await seed_product(db_session, student)
     account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
     assert account is not None
+    account.display_name = "Олейник Д"
     db_session.add(
         StaffRoleAssignment(
             tenant_id=student.tenant_id,
@@ -375,6 +377,7 @@ async def test_staff_can_return_issued_order_and_refund_wallet(db_session) -> No
     product, inventory = await seed_product(db_session, student)
     account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
     assert account is not None
+    account.display_name = "Олейник Д"
     db_session.add(
         StaffRoleAssignment(
             tenant_id=student.tenant_id,
@@ -436,6 +439,7 @@ async def test_staff_can_accrue_astrocoins_from_miniapp(db_session) -> None:
     student = await seed_linked_student(db_session)
     account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
     assert account is not None
+    account.display_name = "Олейник Д"
     db_session.add(
         StaffRoleAssignment(
             tenant_id=student.tenant_id,

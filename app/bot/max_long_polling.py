@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import signal
 import sys
 import threading
 import time
@@ -112,6 +111,7 @@ class LongPollingBot:
         self.bot_user_id = self.bot_info.get("user_id")
         self.pending_contact_ids: dict[int, PendingContact] = {}
         self.user_tenant_slugs: dict[int, str] = {}
+        self.user_menu_roles: dict[tuple[int, str], str] = {}
         self.running = True
         self.stop_event = threading.Event()
 
@@ -250,6 +250,12 @@ class LongPollingBot:
             "ученики": "students",
             "группы": "students",
             "рейтинг": "students",
+            "teaching": "teaching",
+            "teacher": "teaching",
+            "schedule": "teaching",
+            "feedback": "teaching",
+            "расписание": "teaching",
+            "ос": "teaching",
             "setup": "setup",
             "config": "setup",
             "run": "setup",
@@ -330,6 +336,17 @@ class LongPollingBot:
                 "/staffon <MAX_ID> <role> - вернуть.\n"
                 "/id - MAX user_id для выдачи ролей."
             )
+        if resolved_topic == "teaching":
+            return (
+                "Помощь: преподавателю\n\n"
+                "/schedule - ближайшие занятия и ссылка на расписание.\n"
+                "/feedback - открыть подготовку обратных связей.\n"
+                "/groups - группы и состав учеников.\n"
+                "/students - поиск ученика.\n"
+                "/accrue <AC> <ученик> | <причина> - начислить астрокоины.\n\n"
+                "В mini-app можно добавить группу, выбрать курс, дату и время, "
+                "настроить автоматическую ОС и доставку связанным родителям."
+            )
         if resolved_topic == "setup":
             return (
                 "Помощь: запуск и настройка\n\n"
@@ -350,7 +367,7 @@ class LongPollingBot:
             return (
                 f"Раздел помощи `{topic.strip()}` не найден.\n\n"
                 "Доступные разделы: /help shop, /help orders, /help students, "
-                "/help staff, /help setup."
+                "/help teaching, /help staff, /help setup."
             )
         return (
             "Добро пожаловать в MAX-бот Алгоритмики.\n\n"
@@ -413,7 +430,53 @@ class LongPollingBot:
         )
 
     def help_response(self, user_id: int | None = None, topic: str = "") -> BotResponse:
-        return BotResponse(self.help_text(topic), self.main_menu_attachments(user_id))
+        tenant_slug = self.current_tenant_slug(user_id)
+        role = self.menu_role(user_id, tenant_slug)
+        text = self.role_help_text(role) if role and not topic.strip() else self.help_text(topic)
+        return BotResponse(text, self.main_menu_attachments(user_id))
+
+    @staticmethod
+    def role_help_text(role: str) -> str:
+        if role == "student":
+            return (
+                "Личный кабинет ученика\n\n"
+                "• /balance — мой баланс астрокоинов.\n"
+                "• /catalog — магазин подарков.\n"
+                "• /orders — мои заказы.\n"
+                "• /ledger — история астрокоинов.\n"
+                "• /miniapp — открыть полный кабинет.\n\n"
+                "Основные действия доступны кнопками ниже."
+            )
+        if role == "parent":
+            return (
+                "Семейный кабинет\n\n"
+                "• /students — связанные дети.\n"
+                "• /balance — балансы детей.\n"
+                "• /catalog — магазин подарков.\n"
+                "• /orders — семейные заказы.\n"
+                "• /miniapp — открыть полный кабинет.\n\n"
+                "Обратные связи от преподавателя придут отдельными сообщениями."
+            )
+        if role == "teacher":
+            return (
+                "Кабинет преподавателя\n\n"
+                "• /schedule — расписание, курсы и обратные связи.\n"
+                "• /groups — мои рабочие группы.\n"
+                "• /students — ученики.\n"
+                "• /accrue <AC> <ученик> | <причина> — начисление AC.\n"
+                "• /todo — ближайшие заказы к выдаче.\n\n"
+                "Добавление групп и настройка автоматических ОС находятся в расписании."
+            )
+        return (
+            "Кабинет администратора\n\n"
+            "• /ops — операционная сводка.\n"
+            "• /todo — заказы к выдаче.\n"
+            "• /stock — проблемные остатки.\n"
+            "• /groups — группы и ученики.\n"
+            "• /access — связи и роли.\n"
+            "• /miniapp — полный рабочий кабинет.\n\n"
+            "Расширенная справка: /help staff."
+        )
 
     def unknown_command_response(self, command: str, user_id: int | None = None) -> BotResponse:
         return BotResponse(
@@ -682,6 +745,53 @@ class LongPollingBot:
 
         return BotResponse(
             self.format_sales_text(session, tenant_slug=tenant_slug, filter_text=filter_text),
+            self.cabinet_attachments(user_id, tenant_slug),
+        )
+
+    def teaching_response(self, user_id: int | None = None) -> BotResponse:
+        tenant_slug = self.current_tenant_slug(user_id)
+        schedule_url = build_miniapp_url(
+            user_id=user_id,
+            tenant_slug=tenant_slug,
+            view="teaching",
+        )
+        if user_id is None or self.backend_client is None:
+            text = "Расписание доступно в mini-app."
+            if schedule_url:
+                text = f"{text}\n\n{schedule_url}"
+            return BotResponse(text, self.cabinet_attachments(user_id, tenant_slug))
+
+        try:
+            workspace = self.backend_client.get_teaching_workspace(
+                tenant_slug=tenant_slug,
+                max_user_id=user_id,
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                (
+                    "Не получилось открыть расписание преподавателя.\n\n"
+                    f"Причина: {format_backend_error(exc)}"
+                ),
+                self.cabinet_attachments(user_id, tenant_slug),
+            )
+
+        schedules = list(workspace.get("schedules") or [])
+        lines = ["Расписание преподавателя", ""]
+        if not schedules:
+            lines.append("Группы пока не добавлены.")
+        for schedule in schedules[:8]:
+            lesson_time = str(schedule.get("lesson_time") or "")[:5]
+            lines.append(
+                f"• {lesson_time} · {schedule.get('group_name') or 'Группа'}\n"
+                f"  {schedule.get('course_name') or 'Курс'} · урок "
+                f"{schedule.get('current_lesson_number') or 1}"
+            )
+        if len(schedules) > 8:
+            lines.append(f"\nЕще групп: {len(schedules) - 8}")
+        if schedule_url:
+            lines.extend(["", "Добавление групп и подготовка ОС:", schedule_url])
+        return BotResponse(
+            "\n".join(lines),
             self.cabinet_attachments(user_id, tenant_slug),
         )
 
@@ -1594,6 +1704,7 @@ class LongPollingBot:
                 ),
                 self.main_menu_attachments(user_id),
             )
+        self.remember_session_role(user_id, tenant_slug, session)
         return tenant_slug, session
 
     def catalog_response(self, user_id: int | None = None, query: str = "") -> BotResponse:
@@ -4172,6 +4283,8 @@ class LongPollingBot:
             lines.append(f"- missing: {', '.join(str(value) for value in app_data['missing'])}")
         if app_data.get("seed_command"):
             lines.append(f"- seed: {app_data['seed_command']}")
+        if app_data.get("next_step"):
+            lines.append(f"- next: {app_data['next_step']}")
 
         if errors:
             lines.extend(["", "Errors:"])
@@ -4664,10 +4777,48 @@ class LongPollingBot:
             return self.user_tenant_slugs.get(user_id, self.default_tenant_slug)
         return self.default_tenant_slug
 
+    def remember_session_role(
+        self,
+        user_id: int,
+        tenant_slug: str,
+        session: dict[str, Any],
+    ) -> str:
+        staff_roles = {str(role) for role in session.get("staff_roles") or []}
+        student_roles = {str(role) for role in session.get("student_roles") or []}
+        if staff_roles & {"superadmin", "partner_director", "admin"}:
+            role = "admin"
+        elif staff_roles & {"teacher", "curator"}:
+            role = "teacher"
+        elif "parent" in student_roles:
+            role = "parent"
+        else:
+            role = "student"
+        self.user_menu_roles[(user_id, tenant_slug)] = role
+        return role
+
+    def menu_role(self, user_id: int | None, tenant_slug: str) -> str | None:
+        if user_id is None:
+            return None
+        key = (user_id, tenant_slug)
+        if key in self.user_menu_roles:
+            return self.user_menu_roles[key]
+        if self.backend_client is None:
+            return None
+        try:
+            session = self.backend_client.get_session(
+                tenant_slug=tenant_slug,
+                max_user_id=user_id,
+            )
+        except BackendApiError:
+            return None
+        return self.remember_session_role(user_id, tenant_slug, session)
+
     def main_menu_attachments(self, user_id: int | None) -> list[dict[str, Any]]:
+        tenant_slug = self.current_tenant_slug(user_id)
         return main_menu_keyboard(
             user_id=user_id,
-            tenant_slug=self.current_tenant_slug(user_id),
+            tenant_slug=tenant_slug,
+            role=self.menu_role(user_id, tenant_slug),
         )
 
     def cabinet_attachments(
@@ -4675,9 +4826,11 @@ class LongPollingBot:
         user_id: int | None,
         tenant_slug: str | None = None,
     ) -> list[dict[str, Any]]:
+        resolved_tenant = tenant_slug or self.current_tenant_slug(user_id)
         return cabinet_keyboard(
             user_id=user_id,
-            tenant_slug=tenant_slug or self.current_tenant_slug(user_id),
+            tenant_slug=resolved_tenant,
+            role=self.menu_role(user_id, resolved_tenant),
         )
 
     def order_attachments(
@@ -4717,6 +4870,9 @@ class LongPollingBot:
             )
         if normalized in {"reset", "default", "сброс"}:
             self.user_tenant_slugs.pop(user_id, None)
+            self.user_menu_roles = {
+                key: role for key, role in self.user_menu_roles.items() if key[0] != user_id
+            }
             return (
                 f"Tenant сброшен к default: {self.default_tenant_slug}\n\n"
                 "Теперь команды снова используют tenant по умолчанию."
@@ -4731,6 +4887,9 @@ class LongPollingBot:
             )
 
         self.user_tenant_slugs[user_id] = normalized
+        self.user_menu_roles = {
+            key: role for key, role in self.user_menu_roles.items() if key[0] != user_id
+        }
         return (
             f"Tenant выбран: {normalized}\n\n"
             "Теперь отправьте Contact ID сообщением или откройте deep link с Contact ID.\n"
@@ -5020,6 +5179,7 @@ class LongPollingBot:
                 )
 
             links = result.get("links") or []
+            self.user_menu_roles[(user_id, pending.tenant_slug)] = role
             return BotResponse(
                 (
                     "Связи доступа созданы.\n\n"
@@ -5262,6 +5422,8 @@ class LongPollingBot:
             )
         elif command == "/miniapp":
             response = self.miniapp_response(user_id=user_id)
+        elif command in {"/schedule", "/teaching", "/feedback"}:
+            response = self.teaching_response(user_id=user_id)
         elif command == "/ping":
             response = BotResponse(
                 "Все хорошо, бот на связи.",
@@ -5751,16 +5913,13 @@ def main() -> int:
         bot.reset_marker()
         print(f"[info] Marker удален: {MARKER_FILE}")
 
-    drop_webhooks = args.drop_webhooks or settings.max_drop_webhooks_on_start
-    bot.ensure_polling_available(drop_webhooks=drop_webhooks)
-
     if args.check:
         subscriptions = client.get_subscriptions().get("subscriptions") or []
         print(json.dumps(bot.bot_info, ensure_ascii=False, indent=2))
         print(f"[info] Активные webhook-подписки: {len(subscriptions)}")
         print(f"[info] Tenant по умолчанию: {settings.default_tenant_slug}")
         print(f"[info] Backend API: {settings.max_backend_api_base or 'выключен'}")
-        print(f"[info] Drop webhooks on start: {drop_webhooks}")
+        print(f"[info] Bot mode: {settings.bot_mode}")
         for warning in settings.config_warnings():
             print(f"[warn] {warning}")
         for item in subscriptions:
@@ -5768,6 +5927,17 @@ def main() -> int:
             if url:
                 print(f" - {url}")
         return 0
+
+    if settings.bot_mode.strip().lower() == "webhook":
+        print(
+            "BOT_MODE=webhook: события принимает FastAPI endpoint. "
+            "Запустите uvicorn app.main:app.",
+            file=sys.stderr,
+        )
+        return 1
+
+    drop_webhooks = args.drop_webhooks or settings.max_drop_webhooks_on_start
+    bot.ensure_polling_available(drop_webhooks=drop_webhooks)
 
     bot.run()
     return 0

@@ -42,7 +42,9 @@ class Student(TimestampMixin, Base):
 
     @property
     def display_name(self) -> str:
-        return self.first_name
+        return " ".join(
+            part.strip() for part in (self.last_name, self.first_name) if part and part.strip()
+        )
 
 
 class Contact(TimestampMixin, Base):

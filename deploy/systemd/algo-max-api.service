@@ -1,0 +1,20 @@
+[Unit]
+Description=Algo MAX Bot API and Mini App
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=algomax
+Group=algomax
+WorkingDirectory=/opt/algo-max
+EnvironmentFile=/etc/algo-max/algo-max.env
+ExecStartPre=/opt/algo-max/.venv/bin/python -m app.cli.doctor --production
+ExecStart=/opt/algo-max/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=90
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

@@ -92,6 +92,26 @@ class MiniAppProductImportRead(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class MiniAppCrmImportRead(BaseModel):
+    tenant_slug: str
+    filename: str
+    dry_run: bool
+    parsed_rows: int
+    distinct_groups: int
+    distinct_courses: int
+    distinct_teachers: int
+    rows_without_group: int
+    rows_without_student_name: int
+    rows_with_contacts: int
+    created_venues: int = 0
+    created_students: int = 0
+    updated_students: int = 0
+    created_wallets: int = 0
+    created_contacts: int = 0
+    created_contact_student_links: int = 0
+    skipped_rows: int = 0
+
+
 class MiniAppProductUpsert(BaseModel):
     max_user_id: int = Field(gt=0)
     tenant_slug: str | None = None

@@ -257,15 +257,27 @@ async def check_app_data_in_session(db: Any, settings: Any) -> DoctorCheck:
 
     tenant_slug = settings.default_tenant_slug.strip().lower()
     tenant = await db.scalar(select(Tenant).where(Tenant.slug == tenant_slug))
-    seed_command = (
+    local_environment = settings.app_env.strip().lower() in {
+        "local",
+        "dev",
+        "development",
+        "test",
+    }
+    guidance_key = "seed_command" if local_environment else "next_step"
+    guidance = (
         "python -m app.cli.seed_store --max-user-id <MAX_USER_ID>"
+        if local_environment
+        else (
+            "Import students into the selected tenant, then create a warehouse "
+            "and import products in miniapp"
+        )
     )
     if tenant is None:
         return warning(
             "app_data",
             "Default tenant не найден: miniapp будет пустой до импорта CRM или seed_store",
             tenant_slug=tenant_slug,
-            seed_command=seed_command,
+            **{guidance_key: guidance},
         )
 
     product_count = await db.scalar(
@@ -298,7 +310,7 @@ async def check_app_data_in_session(db: Any, settings: Any) -> DoctorCheck:
             "Default tenant найден, но данных недостаточно для рабочего miniapp",
             **details,
             missing=missing,
-            seed_command=seed_command,
+            **{guidance_key: guidance},
         )
 
     return ok("app_data", "Default tenant содержит базовые данные для miniapp", **details)
@@ -390,6 +402,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Allow missing MAX_BOT_TOKEN for local backend/bootstrap checks.",
     )
+    parser.add_argument(
+        "--production",
+        action="store_true",
+        help="Require APP_ENV=production.",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Return a non-zero code for warnings too.",
+    )
     return parser.parse_args()
 
 
@@ -404,11 +426,29 @@ def main() -> int:
             allow_missing_bot_token=args.allow_missing_bot_token,
         )
     )
+    if args.production:
+        settings, settings_error = load_settings()
+        if settings_error is not None or settings is None:
+            checks.insert(0, settings_error or error("environment", "Config is unavailable"))
+        elif settings.app_env.strip().lower() != "production":
+            checks.insert(
+                0,
+                error(
+                    "environment",
+                    "APP_ENV must be production for deployment",
+                    current=settings.app_env,
+                ),
+            )
+        else:
+            checks.insert(0, ok("environment", "APP_ENV is production"))
     if args.json:
         print(json.dumps([asdict(check) for check in checks], ensure_ascii=False, indent=2))
     else:
         print(render_text(checks))
-    return 1 if checks_failed(checks) else 0
+    failed = checks_failed(checks) or (
+        args.strict and any(check.status == "warning" for check in checks)
+    )
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

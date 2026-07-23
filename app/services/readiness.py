@@ -25,14 +25,28 @@ async def check_database_session(db: AsyncSession) -> dict[str, Any]:
 
 async def check_app_data_session(db: AsyncSession, settings: Settings) -> dict[str, Any]:
     tenant_slug = settings.default_tenant_slug.strip().lower()
-    seed_command = "python -m app.cli.seed_store --max-user-id <MAX_USER_ID>"
+    local_environment = settings.app_env.strip().lower() in {
+        "local",
+        "dev",
+        "development",
+        "test",
+    }
+    guidance_key = "seed_command" if local_environment else "next_step"
+    next_step = (
+        "python -m app.cli.seed_store --max-user-id <MAX_USER_ID>"
+        if local_environment
+        else (
+            "Import students into the selected tenant, then create a warehouse "
+            "and import products in miniapp"
+        )
+    )
     tenant = await db.scalar(select(Tenant).where(Tenant.slug == tenant_slug))
     if tenant is None:
         return {
             "status": "warning",
             "message": "Default tenant не найден",
             "tenant_slug": tenant_slug,
-            "seed_command": seed_command,
+            guidance_key: next_step,
         }
 
     product_count = await db.scalar(
@@ -65,5 +79,5 @@ async def check_app_data_session(db: AsyncSession, settings: Settings) -> dict[s
         details["status"] = "warning"
         details["message"] = "Default tenant найден, но данных недостаточно для miniapp"
         details["missing"] = missing
-        details["seed_command"] = seed_command
+        details[guidance_key] = next_step
     return details

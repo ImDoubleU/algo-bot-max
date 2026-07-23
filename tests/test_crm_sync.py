@@ -141,3 +141,21 @@ async def test_upsert_crm_student_rows_updates_existing_student(db_session) -> N
     students = (await db_session.scalars(select(Student))).all()
     assert result.updated_students == 1
     assert len(students) == 1
+
+
+async def test_explicit_tenant_slug_is_reused_on_repeated_import(db_session) -> None:
+    defaults = CrmSyncDefaults(
+        partner_slug="n-novgorod",
+        partner_name="Nizhny Novgorod",
+        tenant_slug="n-novgorod",
+    )
+
+    await upsert_crm_student_rows(db_session, [row()], defaults=defaults)
+    await upsert_crm_student_rows(
+        db_session,
+        [row(lms_student_id="ST-002", first_name="Ivan")],
+        defaults=defaults,
+    )
+
+    tenants = (await db_session.scalars(select(Tenant))).all()
+    assert [tenant.slug for tenant in tenants] == ["n-novgorod"]
