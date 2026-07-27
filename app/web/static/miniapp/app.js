@@ -72,6 +72,7 @@ const state = {
   editingProductId: "",
   staffSaving: false,
   staffEditorOpen: false,
+  staffStatusFilter: "active",
   inventorySavingKey: "",
   warehouseSaving: false,
   warehouseEditorOpen: false,
@@ -3265,10 +3266,21 @@ function renderAdminPanel() {
 
   const disabled = state.staffSaving ? "disabled" : "";
   const activeStaff = staffAssignments.filter((item) => item.status === "active").length;
+  const revokedStaff = staffAssignments.length - activeStaff;
+  const visibleStaffAssignments = staffAssignments.filter(
+    (item) =>
+      state.staffStatusFilter === "all" || item.status === state.staffStatusFilter,
+  );
   const rows =
-    staffAssignments.length === 0
-      ? '<div class="empty-state">Сотрудников пока нет</div>'
-      : staffAssignments
+    visibleStaffAssignments.length === 0
+      ? `<div class="empty-state">${
+          staffAssignments.length === 0
+            ? "Сотрудников пока нет"
+            : state.staffStatusFilter === "revoked"
+              ? "Отозванных назначений нет"
+              : "Активных назначений нет"
+        }</div>`
+      : visibleStaffAssignments
           .map(
             (assignment) => `
               <article class="admin-entity-card staff-entity-card">
@@ -3316,6 +3328,23 @@ function renderAdminPanel() {
           ? ""
           : '<button id="staffCreateButton" class="primary-action" type="button">Выдать роль</button>'
       }
+    </div>
+    <div class="staff-status-filter" role="group" aria-label="Фильтр сотрудников">
+      <button
+        class="staff-filter-button ${state.staffStatusFilter === "active" ? "is-active" : ""}"
+        type="button"
+        data-staff-status-filter="active"
+      >Активные <span>${activeStaff}</span></button>
+      <button
+        class="staff-filter-button ${state.staffStatusFilter === "revoked" ? "is-active" : ""}"
+        type="button"
+        data-staff-status-filter="revoked"
+      >Отозванные <span>${revokedStaff}</span></button>
+      <button
+        class="staff-filter-button ${state.staffStatusFilter === "all" ? "is-active" : ""}"
+        type="button"
+        data-staff-status-filter="all"
+      >Все <span>${staffAssignments.length}</span></button>
     </div>
     ${state.staffEditorOpen ? `
     <div class="staff-form admin-editor">
@@ -4762,6 +4791,12 @@ document.addEventListener("click", (event) => {
   const adminTab = target.dataset.adminTab;
   if (adminTab) {
     state.adminTab = adminTab;
+    renderAdminPanel();
+  }
+
+  const staffStatusFilter = target.dataset.staffStatusFilter;
+  if (["active", "revoked", "all"].includes(staffStatusFilter)) {
+    state.staffStatusFilter = staffStatusFilter;
     renderAdminPanel();
   }
 
