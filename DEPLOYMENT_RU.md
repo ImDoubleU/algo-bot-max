@@ -122,6 +122,7 @@ nano /etc/algo-max/algo-max.env
 
 - `APP_SECRET_KEY`: результат `openssl rand -hex 32`.
 - `MAX_BOT_TOKEN`: токен MAX.
+- `MAX_BOT_USERNAME`: username бота без `@`, который возвращает `GET /me`.
 - `MAX_WEBHOOK_SECRET`: результат `openssl rand -hex 32`.
 - `MINIAPP_TOKEN_TTL_SECONDS`: срок подписанной ссылки mini-app; штатное значение `2592000`.
 - `bot.example.ru`: реальный домен во всех URL.

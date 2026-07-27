@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.keyboards import (
     build_miniapp_url,
     inline_keyboard_with_main_menu,
-    open_app_button,
+    miniapp_button,
 )
 from app.bot.max_client import MaxApiClient
 from app.core.config import get_settings, is_placeholder
@@ -103,7 +103,7 @@ async def _deliver_order_notification(
             tenant_slug=tenant_slug,
             view="orders",
         )
-        rows = [[open_app_button("Открыть заказ")]] if miniapp_url else []
+        rows = [[miniapp_button("Открыть заказ", miniapp_url)]] if miniapp_url else []
         attachments = inline_keyboard_with_main_menu(rows)
         await asyncio.to_thread(
             client.send_message,

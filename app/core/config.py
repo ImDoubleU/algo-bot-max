@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     max_bot_token: str | None = Field(default=None, alias="MAX_BOT_TOKEN")
+    max_bot_username: str | None = Field(default=None, alias="MAX_BOT_USERNAME")
     max_api_base: str = Field(default="https://platform-api2.max.ru", alias="MAX_API_BASE")
     max_api_timeout_seconds: int = Field(default=15, alias="MAX_API_TIMEOUT_SECONDS")
     max_poll_timeout_seconds: int = Field(default=30, alias="MAX_POLL_TIMEOUT_SECONDS")
@@ -220,6 +221,10 @@ class Settings(BaseSettings):
             )
         if is_placeholder(self.max_miniapp_url):
             warnings.append("MAX_MINIAPP_URL is empty: miniapp link buttons will be disabled")
+        if is_placeholder(self.max_bot_username):
+            warnings.append(
+                "MAX_BOT_USERNAME is empty: miniapp buttons will use an external HTTPS link"
+            )
         if is_local_environment(self.app_env) and is_placeholder(
             self.initial_superadmin_max_user_id
         ):
@@ -247,6 +252,11 @@ class Settings(BaseSettings):
             "max_api_timeout_seconds": self.max_api_timeout_seconds,
             "max_poll_timeout_seconds": self.max_poll_timeout_seconds,
             "max_bot_token": "configured" if not is_placeholder(self.max_bot_token) else "missing",
+            "max_bot_username": (
+                self.max_bot_username
+                if not is_placeholder(self.max_bot_username)
+                else "disabled"
+            ),
             "max_backend_api_base": (
                 self.max_backend_api_base
                 if not is_placeholder(self.max_backend_api_base)

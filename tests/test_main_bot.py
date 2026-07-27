@@ -515,6 +515,7 @@ class FakeBackendClient:
 
 def test_build_miniapp_url_keeps_registered_url_exact(monkeypatch) -> None:
     monkeypatch.setenv("MAX_MINIAPP_URL", "https://example.test/miniapp?source=max")
+    monkeypatch.setenv("MAX_BOT_USERNAME", "example_bot")
 
     url = max_bot.build_miniapp_url(
         user_id=53364725,
@@ -528,7 +529,7 @@ def test_build_miniapp_url_keeps_registered_url_exact(monkeypatch) -> None:
         tenant_slug="nizhniy-novgorod-partner-a",
     )[0]["payload"]["buttons"][0][0]
     assert button["type"] == "open_app"
-    assert "web_app" not in button
+    assert button["web_app"] == "example_bot"
 
 
 def test_simulate_command_returns_local_bot_response() -> None:
