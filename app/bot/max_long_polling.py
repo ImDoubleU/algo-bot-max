@@ -172,7 +172,7 @@ class LongPollingBot:
             invite_command
             if invite_command.startswith("/")
             and " " not in invite_command
-            and len(invite_command) >= 8
+            and len(invite_command) >= 3
             else None
         )
         try:

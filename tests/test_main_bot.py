@@ -1957,7 +1957,7 @@ def test_hidden_staff_invite_flow_assigns_role_after_approval() -> None:
         backend_client=backend,
         default_tenant_slug="nn-partner-a",
     )
-    bot.staff_invite_command = "/private_staff_entry"
+    bot.staff_invite_command = "/staff"
     bot.staff_approver_user_id = 42
 
     bot.handle_message_created(
@@ -1970,7 +1970,7 @@ def test_hidden_staff_invite_flow_assigns_role_after_approval() -> None:
                     "last_name": "Иванова",
                 },
                 "recipient": {"chat_id": 77},
-                "body": {"text": "/private_staff_entry"},
+                "body": {"text": "/staff"},
             }
         }
     )
