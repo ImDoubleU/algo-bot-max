@@ -511,12 +511,8 @@ class FakeBackendClient:
         }
 
 
-def test_build_miniapp_url_adds_user_and_tenant(monkeypatch) -> None:
-    monkeypatch.setattr(
-        max_bot,
-        "MAX_MINIAPP_URL",
-        "https://example.test/miniapp?source=max",
-    )
+def test_build_miniapp_url_does_not_embed_user_identity(monkeypatch) -> None:
+    monkeypatch.setenv("MAX_MINIAPP_URL", "https://example.test/miniapp?source=max")
 
     url = max_bot.build_miniapp_url(
         user_id=53364725,
@@ -525,7 +521,7 @@ def test_build_miniapp_url_adds_user_and_tenant(monkeypatch) -> None:
 
     assert (
         url
-        == "https://example.test/miniapp?source=max&max_user_id=53364725&tenant_slug=nizhniy-novgorod-partner-a"
+        == "https://example.test/miniapp?source=max&tenant_slug=nizhniy-novgorod-partner-a"
     )
 
 
@@ -1784,6 +1780,63 @@ def test_role_callback_creates_backend_access_links() -> None:
     sent = max_client.sent_messages[-1]
     assert "Связи доступа созданы." in sent["text"]
     assert backend.link_calls[-1]["role"] == "parent"
+
+
+def test_first_entry_requires_role_and_contact_id() -> None:
+    class EmptySessionBackend(FakeBackendClient):
+        def get_session(
+            self,
+            *,
+            tenant_slug: str,
+            max_user_id: int,
+        ) -> dict[str, Any]:
+            return {
+                "tenant_slug": tenant_slug,
+                "staff_roles": [],
+                "student_roles": [],
+                "students": [],
+            }
+
+    backend = EmptySessionBackend()
+    max_client = FakeMaxClient()
+    bot = LongPollingBot(
+        max_client,
+        backend_client=backend,
+        default_tenant_slug="nn-partner-a",
+    )
+
+    bot.handle_bot_started(
+        {
+            "user": {"user_id": 77, "username": "new_user"},
+            "chat_id": 77,
+        }
+    )
+    first_message = max_client.sent_messages[-1]
+    assert "Первый вход" in first_message["text"]
+    first_buttons = first_message["attachments"][0]["payload"]["buttons"]
+    assert first_buttons[0][0]["payload"] == CALLBACK_ROLE_PARENT
+    assert first_buttons[0][1]["payload"] == CALLBACK_ROLE_STUDENT
+
+    bot.handle_message_callback(
+        {
+            "payload": CALLBACK_ROLE_STUDENT,
+            "user": {"user_id": 77, "username": "new_user"},
+            "chat_id": 77,
+        }
+    )
+    assert "отправьте Contact ID" in max_client.sent_messages[-1]["text"]
+
+    bot.handle_message_created(
+        {
+            "message": {
+                "sender": {"user_id": 77, "username": "new_user"},
+                "recipient": {"chat_id": 77},
+                "body": {"text": "681"},
+            }
+        }
+    )
+    assert "Связи доступа созданы." in max_client.sent_messages[-1]["text"]
+    assert backend.link_calls[-1]["role"] == "student"
 
 
 def test_catalog_callback_opens_catalog_from_menu() -> None:

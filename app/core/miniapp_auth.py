@@ -9,7 +9,8 @@ from dataclasses import dataclass
 
 from app.core.config import get_settings
 
-TOKEN_VERSION = "v1"
+TOKEN_VERSION = "v2"
+TOKEN_AUDIENCE = "max-bot-backend"
 
 
 class MiniAppAuthError(ValueError):
@@ -19,7 +20,7 @@ class MiniAppAuthError(ValueError):
 @dataclass(frozen=True, slots=True)
 class MiniAppIdentity:
     max_user_id: int
-    tenant_slug: str
+    tenant_slug: str | None
     expires_at: int
 
 
@@ -50,7 +51,10 @@ def issue_miniapp_token(
     issued_at = int(time.time() if now is None else now)
     expires_at = issued_at + settings.miniapp_token_ttl_seconds
     normalized_tenant = _normalized_tenant_slug(tenant_slug)
-    payload = f"{TOKEN_VERSION}|{max_user_id}|{normalized_tenant}|{expires_at}"
+    payload = (
+        f"{TOKEN_VERSION}|{TOKEN_AUDIENCE}|"
+        f"{max_user_id}|{normalized_tenant}|{expires_at}"
+    )
     token = f"{payload}|{_signature(payload, settings.app_secret_key)}"
     return base64.urlsafe_b64encode(token.encode("utf-8")).decode("ascii").rstrip("=")
 
@@ -63,20 +67,31 @@ def verify_miniapp_token(
     try:
         padding = "=" * (-len(token) % 4)
         decoded = base64.urlsafe_b64decode(f"{token}{padding}").decode("utf-8")
-        version, user_id_text, tenant_slug, expires_text, supplied_signature = decoded.split(
+        (
+            version,
+            audience,
+            user_id_text,
+            tenant_slug,
+            expires_text,
+            supplied_signature,
+        ) = decoded.split(
             "|",
-            4,
+            5,
         )
         max_user_id = int(user_id_text)
         expires_at = int(expires_text)
     except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
         raise MiniAppAuthError("Некорректная подпись mini-app") from exc
 
-    if version != TOKEN_VERSION or max_user_id < 1:
+    if (
+        version != TOKEN_VERSION
+        or audience != TOKEN_AUDIENCE
+        or max_user_id < 1
+    ):
         raise MiniAppAuthError("Некорректная подпись mini-app")
 
     normalized_tenant = _normalized_tenant_slug(tenant_slug)
-    payload = f"{version}|{max_user_id}|{normalized_tenant}|{expires_at}"
+    payload = f"{version}|{audience}|{max_user_id}|{normalized_tenant}|{expires_at}"
     expected_signature = _signature(payload, get_settings().app_secret_key)
     if not hmac.compare_digest(supplied_signature, expected_signature):
         raise MiniAppAuthError("Некорректная подпись mini-app")

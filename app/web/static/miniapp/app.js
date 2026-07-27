@@ -1,18 +1,15 @@
-const launchMaxUserId = positiveIntegerParam("max_user_id");
+const maxWebAppLaunch = resolveMaxWebAppLaunch();
+const launchMaxUserId =
+  maxWebAppLaunch.userId || positiveIntegerParam("max_user_id");
 const launchTenantSlug = queryParam("tenant_slug") || "";
-const miniappAuth = resolveMiniappAuth(
-  launchMaxUserId,
-  launchTenantSlug,
-  queryParam("miniapp_token") || "",
-);
 const apiContext = {
   maxUserId: launchMaxUserId,
   tenantSlug: launchTenantSlug,
-  token: miniappAuth.token,
+  maxWebAppData: maxWebAppLaunch.initData,
   demoMode: queryParam("demo") === "1",
   demoRole: queryParam("demo_role") || "",
 };
-if (miniappAuth.stripFromUrl) {
+if (queryParam("miniapp_token")) {
   const cleanUrl = new URL(window.location.href);
   cleanUrl.searchParams.delete("miniapp_token");
   window.history.replaceState(null, "", cleanUrl);
@@ -479,21 +476,37 @@ function queryParam(name) {
   return new URLSearchParams(window.location.search).get(name);
 }
 
-function resolveMiniappAuth(maxUserId, tenantSlug, launchToken) {
-  const storageKey = `algo-max:miniapp-token:${maxUserId || "none"}:${tenantSlug || "default"}`;
-  try {
-    if (launchToken) {
-      window.sessionStorage.setItem(storageKey, launchToken);
-      return { token: launchToken, stripFromUrl: true };
+function resolveMaxWebAppLaunch() {
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const initData = String(
+    window.WebApp?.initData || hashParams.get("WebAppData") || "",
+  ).trim();
+  let userId = String(window.WebApp?.initDataUnsafe?.user?.id || "");
+  if (!userId && initData) {
+    const encodedUser = new URLSearchParams(initData).get("user");
+    if (encodedUser) {
+      try {
+        userId = String(JSON.parse(encodedUser)?.id || "");
+      } catch {
+        userId = "";
+      }
     }
-    return {
-      token: window.sessionStorage.getItem(storageKey) || "",
-      stripFromUrl: false,
-    };
+  }
+  if (!/^[1-9]\d*$/.test(userId)) userId = "";
+  return { initData, userId };
+}
+
+function clearLegacyMiniappToken() {
+  try {
+    Object.keys(window.sessionStorage)
+      .filter((key) => key.startsWith("algo-max:miniapp-token:"))
+      .forEach((key) => window.sessionStorage.removeItem(key));
   } catch {
-    return { token: launchToken, stripFromUrl: false };
+    // Storage can be unavailable in a restricted MAX webview.
   }
 }
+
+clearLegacyMiniappToken();
 
 function positiveIntegerParam(name) {
   const value = queryParam(name)?.trim() || "";
@@ -917,7 +930,9 @@ function apiUrl(path, params = {}) {
 
 function apiFetch(input, options = {}) {
   const headers = new Headers(options.headers || {});
-  if (apiContext.token) headers.set("X-Miniapp-Token", apiContext.token);
+  if (apiContext.maxWebAppData) {
+    headers.set("X-Max-WebApp-Data", apiContext.maxWebAppData);
+  }
   return window.fetch(input, { ...options, headers });
 }
 

@@ -65,6 +65,12 @@ class Settings(BaseSettings):
         ge=300,
         le=90 * 24 * 60 * 60,
     )
+    max_webapp_auth_max_age_seconds: int = Field(
+        default=3600,
+        alias="MAX_WEBAPP_AUTH_MAX_AGE_SECONDS",
+        ge=60,
+        le=24 * 60 * 60,
+    )
     bot_mode: str = Field(default="long_polling", alias="BOT_MODE")
     max_webhook_url: str | None = Field(default=None, alias="MAX_WEBHOOK_URL")
     max_webhook_secret: str | None = Field(default=None, alias="MAX_WEBHOOK_SECRET")
@@ -251,6 +257,7 @@ class Settings(BaseSettings):
                 self.max_miniapp_url if not is_placeholder(self.max_miniapp_url) else "disabled"
             ),
             "miniapp_token_ttl_seconds": self.miniapp_token_ttl_seconds,
+            "max_webapp_auth_max_age_seconds": self.max_webapp_auth_max_age_seconds,
             "max_webhook_url": (
                 self.max_webhook_url if not is_placeholder(self.max_webhook_url) else "disabled"
             ),
