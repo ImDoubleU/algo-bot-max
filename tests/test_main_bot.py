@@ -6,6 +6,8 @@ import app.bot.max_long_polling as max_bot
 from app.bot.max_long_polling import (
     CALLBACK_BALANCE,
     CALLBACK_CATALOG,
+    CALLBACK_ONBOARDING_CANCEL,
+    CALLBACK_ONBOARDING_RESTART,
     CALLBACK_OPS,
     CALLBACK_ORDERS,
     CALLBACK_ROLE_PARENT,
@@ -1824,19 +1826,47 @@ def test_first_entry_requires_role_and_contact_id() -> None:
             "chat_id": 77,
         }
     )
-    assert "отправьте Contact ID" in max_client.sent_messages[-1]["text"]
+    role_message = max_client.sent_messages[-1]
+    assert "отправьте Contact ID" in role_message["text"]
+    role_buttons = role_message["attachments"][0]["payload"]["buttons"]
+    assert role_buttons[1][0]["payload"] == CALLBACK_ONBOARDING_CANCEL
 
     bot.handle_message_created(
         {
             "message": {
                 "sender": {"user_id": 77, "username": "new_user"},
-                "recipient": {"chat_id": 77},
+                "recipient": {"chat_id": 77, "user_id": 999},
                 "body": {"text": "681"},
             }
         }
     )
     assert "Связи доступа созданы." in max_client.sent_messages[-1]["text"]
     assert backend.link_calls[-1]["role"] == "student"
+
+
+def test_onboarding_can_be_cancelled() -> None:
+    max_client = FakeMaxClient()
+    bot = LongPollingBot(
+        max_client,
+        backend_client=FakeBackendClient(),
+        default_tenant_slug="nn-partner-a",
+    )
+    bot.handle_role_selection_response(user_id=77, role="parent")
+
+    bot.handle_message_callback(
+        {
+            "payload": CALLBACK_ONBOARDING_CANCEL,
+            "user": {"user_id": 77},
+            "chat_id": 77,
+        }
+    )
+
+    sent = max_client.sent_messages[-1]
+    assert "Вход отменен" in sent["text"]
+    assert 77 not in bot.pending_contact_ids
+    assert 77 not in bot.pending_onboarding_roles
+    buttons = sent["attachments"][0]["payload"]["buttons"]
+    assert buttons[0][0]["payload"] == CALLBACK_ONBOARDING_RESTART
 
 
 def test_catalog_callback_opens_catalog_from_menu() -> None:

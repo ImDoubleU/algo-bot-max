@@ -34,6 +34,8 @@ from app.bot.keyboards import (
     CALLBACK_LEDGER,
     CALLBACK_MENU,
     CALLBACK_MINIAPP,
+    CALLBACK_ONBOARDING_CANCEL,
+    CALLBACK_ONBOARDING_RESTART,
     CALLBACK_OPEN_ORDERS,
     CALLBACK_OPS,
     CALLBACK_ORDERS,
@@ -55,6 +57,8 @@ from app.bot.keyboards import (
     knowledge_menu_keyboard,
     knowledge_section_keyboard,
     main_menu_keyboard,
+    onboarding_cancelled_keyboard,
+    onboarding_contact_keyboard,
     order_actions_keyboard,
     order_confirmation_keyboard,
     parse_feedback_payload,
@@ -201,7 +205,7 @@ class LongPollingBot:
         sender = message.get("sender") or {}
 
         chat_id = recipient.get("chat_id")
-        user_id = recipient.get("user_id") or sender.get("user_id")
+        user_id = sender.get("user_id") or recipient.get("user_id")
         return chat_id, user_id
 
     def send_reply(
@@ -541,6 +545,24 @@ class LongPollingBot:
                 "из CRM и привяжет только доступных вам учеников."
             ),
             role_selection_keyboard(),
+        )
+
+    def restart_onboarding_response(self, user_id: int | None) -> BotResponse:
+        if user_id is not None:
+            self.pending_contact_ids.pop(user_id, None)
+            self.pending_onboarding_roles.pop(user_id, None)
+        return BotResponse(
+            "Выберите роль для входа.",
+            role_selection_keyboard(),
+        )
+
+    def cancel_onboarding_response(self, user_id: int | None) -> BotResponse:
+        if user_id is not None:
+            self.pending_contact_ids.pop(user_id, None)
+            self.pending_onboarding_roles.pop(user_id, None)
+        return BotResponse(
+            "Вход отменен. Данные не сохранены.",
+            onboarding_cancelled_keyboard(),
         )
 
     def knowledge_menu_response(self, user_id: int | None) -> BotResponse:
@@ -5874,7 +5896,7 @@ class LongPollingBot:
                     "Теперь отправьте Contact ID из CRM одним сообщением. "
                     "После проверки бот покажет найденных учеников и создаст связь."
                 ),
-                role_selection_keyboard(),
+                onboarding_contact_keyboard(),
             )
 
         if self.backend_client:
@@ -6246,7 +6268,13 @@ class LongPollingBot:
         if payload not in {CALLBACK_ROLE_PARENT, CALLBACK_ROLE_STUDENT}:
             feedback_action = parse_feedback_payload(payload)
             knowledge_section_id = parse_knowledge_payload(payload)
-            if payload == CALLBACK_KNOWLEDGE:
+            if payload == CALLBACK_ONBOARDING_CANCEL:
+                response = self.cancel_onboarding_response(user_id)
+                notification = "Вход отменен"
+            elif payload == CALLBACK_ONBOARDING_RESTART:
+                response = self.restart_onboarding_response(user_id)
+                notification = "Выбор роли"
+            elif payload == CALLBACK_KNOWLEDGE:
                 response = self.knowledge_menu_response(user_id)
                 notification = "База знаний"
             elif knowledge_section_id:
