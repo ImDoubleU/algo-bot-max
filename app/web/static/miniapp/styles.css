@@ -1064,20 +1064,13 @@ select:focus-visible {
 
 .student-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
   padding: 11px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fffefd;
-}
-
-.student-row.is-active {
-  border-color: rgba(90, 32, 120, 0.26);
-  background:
-    linear-gradient(90deg, rgba(255, 216, 79, 0.28), transparent 46%),
-    #ffffff;
 }
 
 .student-row > .soft-badge {
@@ -4038,12 +4031,6 @@ svg.lucide {
   border-bottom: 0;
 }
 
-.student-row.is-active {
-  border-color: var(--line);
-  background: var(--brand-purple-soft);
-  background-image: none;
-}
-
 .soft-badge,
 .status-badge {
   min-height: 26px;
@@ -4515,11 +4502,6 @@ svg.lucide {
 
   .student-row {
     grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .student-row > .secondary-action {
-    grid-column: 1 / -1;
-    width: 100%;
   }
 
   .catalog-toolbar {

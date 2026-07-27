@@ -1846,9 +1846,8 @@ function renderStudents() {
           <div class="student-group-title">${escapeHtml(group)}</div>
           ${rows
             .map((student) => {
-              const active = student.id === state.activeStudentId;
               return `
-                <div class="student-row ${active ? "is-active" : ""}">
+                <div class="student-row">
                   <div>
                     <strong>${escapeHtml(student.name)}</strong>
                     ${
@@ -1858,13 +1857,6 @@ function renderStudents() {
                     }
                   </div>
                   <span class="soft-badge">${student.balance} AC</span>
-                  ${
-                    roleStudents.length > 1
-                      ? `<button class="secondary-action compact" type="button" data-select-student="${escapeHtml(
-                          student.id,
-                        )}">${active ? "Выбран" : "Выбрать"}</button>`
-                      : ""
-                  }
                 </div>
               `;
             })
@@ -4692,9 +4684,6 @@ document.addEventListener("click", (event) => {
   if (target.id === "generateFeedbackButton") generateTeachingFeedback();
   if (target.id === "copyFeedbackButton") copyGeneratedFeedback();
   if (target.id === "sendFeedbackButton") sendGeneratedFeedback();
-
-  const studentId = target.dataset.selectStudent;
-  if (studentId) setActiveStudent(studentId);
 
   const addId = target.dataset.add;
   if (addId) addToCart(addId);
