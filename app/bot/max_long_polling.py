@@ -26,6 +26,7 @@ from app.bot.keyboards import (
     CALLBACK_BALANCE,
     CALLBACK_CATALOG,
     CALLBACK_CATEGORIES,
+    CALLBACK_FEEDBACK,
     CALLBACK_GROUPS,
     CALLBACK_HELP,
     CALLBACK_LEADERBOARD,
@@ -43,11 +44,16 @@ from app.bot.keyboards import (
     CALLBACK_TODO,
     build_miniapp_url,
     cabinet_keyboard,
+    feedback_drafts_keyboard,
+    feedback_menu_keyboard,
+    feedback_preview_keyboard,
+    feedback_setup_keyboard,
     main_menu_keyboard,
     order_actions_keyboard,
     order_confirmation_keyboard,
     parse_order_action_payload,
     parse_order_confirm_payload,
+    parse_feedback_payload,
     role_selection_keyboard,
 )
 from app.bot.max_client import MaxApiClient, MaxApiError, SimulationMaxClient
@@ -112,6 +118,7 @@ class LongPollingBot:
         self.pending_contact_ids: dict[int, PendingContact] = {}
         self.user_tenant_slugs: dict[int, str] = {}
         self.user_menu_roles: dict[tuple[int, str], str] = {}
+        self.feedback_drafts: dict[int, dict[str, Any]] = {}
         self.running = True
         self.stop_event = threading.Event()
 
@@ -432,62 +439,49 @@ class LongPollingBot:
     def help_response(self, user_id: int | None = None, topic: str = "") -> BotResponse:
         tenant_slug = self.current_tenant_slug(user_id)
         role = self.menu_role(user_id, tenant_slug)
-        text = self.role_help_text(role) if role and not topic.strip() else self.help_text(topic)
-        return BotResponse(text, self.main_menu_attachments(user_id))
+        return BotResponse(
+            self.role_help_text(role),
+            self.main_menu_attachments(user_id),
+        )
+
+    def main_menu_response(self, user_id: int | None = None) -> BotResponse:
+        return BotResponse(
+            "Главное меню\n\nВыберите нужный раздел.",
+            self.main_menu_attachments(user_id),
+        )
 
     @staticmethod
-    def role_help_text(role: str) -> str:
+    def role_help_text(role: str | None) -> str:
         if role == "student":
             return (
                 "Личный кабинет ученика\n\n"
-                "• /balance — мой баланс астрокоинов.\n"
-                "• /catalog — магазин подарков.\n"
-                "• /orders — мои заказы.\n"
-                "• /ledger — история астрокоинов.\n"
-                "• /miniapp — открыть полный кабинет.\n\n"
-                "Основные действия доступны кнопками ниже."
+                "Баланс, магазин, заказы и история AC находятся в личном кабинете.\n\n"
+                "Откройте его кнопкой ниже."
             )
         if role == "parent":
             return (
                 "Семейный кабинет\n\n"
-                "• /students — связанные дети.\n"
-                "• /balance — балансы детей.\n"
-                "• /catalog — магазин подарков.\n"
-                "• /orders — семейные заказы.\n"
-                "• /miniapp — открыть полный кабинет.\n\n"
-                "Обратные связи от преподавателя придут отдельными сообщениями."
+                "Дети, балансы, магазин и заказы находятся в семейном кабинете.\n\n"
+                "Обратная связь от преподавателя приходит отдельным сообщением."
             )
         if role == "teacher":
             return (
-                "Кабинет преподавателя\n\n"
-                "• /schedule — расписание, курсы и обратные связи.\n"
-                "• /groups — мои рабочие группы.\n"
-                "• /students — ученики.\n"
-                "• /accrue <AC> <ученик> | <причина> — начисление AC.\n"
-                "• /todo — ближайшие заказы к выдаче.\n\n"
-                "Добавление групп и настройка автоматических ОС находятся в расписании."
+                "Рабочий кабинет\n\n"
+                "Расписание, ученики, начисления и заказы находятся в mini-app.\n\n"
+                "Для подготовки и отправки сообщения родителям откройте отдельный "
+                "раздел «Обратная связь»."
             )
-        return (
-            "Кабинет администратора\n\n"
-            "• /ops — операционная сводка.\n"
-            "• /todo — заказы к выдаче.\n"
-            "• /stock — проблемные остатки.\n"
-            "• /groups — группы и ученики.\n"
-            "• /access — связи и роли.\n"
-            "• /miniapp — полный рабочий кабинет.\n\n"
-            "Расширенная справка: /help staff."
-        )
+        if role == "admin":
+            return (
+                "Рабочий кабинет\n\n"
+                "Управление, импорт, склады, заказы и пользователи находятся в mini-app.\n\n"
+                "Подготовка сообщений родителям вынесена в раздел «Обратная связь»."
+            )
+        return "Откройте личный кабинет или выберите доступный раздел кнопкой ниже."
 
     def unknown_command_response(self, command: str, user_id: int | None = None) -> BotResponse:
         return BotResponse(
-            (
-                f"Команда `{command}` не поддерживается.\n\n"
-                "Откройте меню кнопками или отправьте /help.\n"
-                "Разделы помощи: /help shop, /help orders, /help staff, /help setup.\n"
-                "Частые команды: /catalog, /balance, /open, /dashboard, "
-                "/setup, /doctor, /version, /miniapp.\n\n"
-                "Если вы хотели войти по Contact ID, отправьте только номер без `/`."
-            ),
+            "Текстовые команды больше не используются. Выберите раздел кнопкой.",
             self.main_menu_attachments(user_id),
         )
 
@@ -794,6 +788,370 @@ class LongPollingBot:
             "\n".join(lines),
             self.cabinet_attachments(user_id, tenant_slug),
         )
+
+    def feedback_menu_response(self, user_id: int | None = None) -> BotResponse:
+        tenant_slug = self.current_tenant_slug(user_id)
+        if user_id is None or self.backend_client is None:
+            return BotResponse(
+                "Раздел обратной связи временно недоступен.",
+                self.main_menu_attachments(user_id),
+            )
+        try:
+            workspace = self.backend_client.get_teaching_workspace(
+                tenant_slug=tenant_slug,
+                max_user_id=user_id,
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                f"Не получилось открыть обратную связь.\n\n{format_backend_error(exc)}",
+                self.main_menu_attachments(user_id),
+            )
+
+        schedules = [
+            schedule
+            for schedule in workspace.get("schedules") or []
+            if schedule.get("is_active", True)
+        ]
+        outputs = list(workspace.get("feedback_outputs") or [])
+        lines = [
+            "Обратная связь",
+            "",
+            "Выберите группу. Затем отметьте отсутствующих и сформируйте текст для родителей.",
+        ]
+        if not schedules:
+            lines.extend(
+                [
+                    "",
+                    "Активных групп с расписанием пока нет.",
+                    "Добавьте расписание в рабочем кабинете, затем вернитесь в этот раздел.",
+                ]
+            )
+        elif len(schedules) > 16:
+            lines.extend(["", f"Показаны первые 16 групп из {len(schedules)}."])
+        unsent_count = sum(
+            1
+            for output in outputs
+            if str(output.get("status") or "") != "sent_to_parents"
+        )
+        if unsent_count:
+            lines.extend(["", f"Готовых черновиков: {unsent_count}."])
+        return BotResponse(
+            "\n".join(lines),
+            feedback_menu_keyboard(schedules, outputs),
+        )
+
+    def feedback_drafts_response(self, user_id: int | None = None) -> BotResponse:
+        tenant_slug = self.current_tenant_slug(user_id)
+        if user_id is None or self.backend_client is None:
+            return self.feedback_menu_response(user_id)
+        try:
+            workspace = self.backend_client.get_teaching_workspace(
+                tenant_slug=tenant_slug,
+                max_user_id=user_id,
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                f"Не получилось загрузить черновики.\n\n{format_backend_error(exc)}",
+                self.main_menu_attachments(user_id),
+            )
+        outputs = [
+            output
+            for output in workspace.get("feedback_outputs") or []
+            if str(output.get("status") or "") != "sent_to_parents"
+        ]
+        text = (
+            "Готовые черновики ОС\n\nВыберите черновик для просмотра и отправки."
+            if outputs
+            else "Готовых черновиков пока нет."
+        )
+        return BotResponse(text, feedback_drafts_keyboard(outputs))
+
+    def feedback_schedule_response(
+        self,
+        *,
+        user_id: int | None,
+        schedule_id: str,
+    ) -> BotResponse:
+        tenant_slug = self.current_tenant_slug(user_id)
+        if user_id is None or self.backend_client is None:
+            return self.feedback_menu_response(user_id)
+        try:
+            workspace = self.backend_client.get_teaching_workspace(
+                tenant_slug=tenant_slug,
+                max_user_id=user_id,
+            )
+            session = self.backend_client.get_session(
+                tenant_slug=tenant_slug,
+                max_user_id=user_id,
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                f"Не получилось открыть группу.\n\n{format_backend_error(exc)}",
+                self.main_menu_attachments(user_id),
+            )
+        schedule = next(
+            (
+                item
+                for item in workspace.get("schedules") or []
+                if str(item.get("id") or "") == str(schedule_id)
+            ),
+            None,
+        )
+        if schedule is None:
+            return BotResponse(
+                "Группа не найдена или больше недоступна.",
+                feedback_menu_keyboard(
+                    list(workspace.get("schedules") or []),
+                    list(workspace.get("feedback_outputs") or []),
+                ),
+            )
+
+        group_name = str(schedule.get("group_name") or "").strip()
+        students = sorted(
+            [
+                student
+                for student in session.get("students") or []
+                if str(student.get("group_name") or "").strip().casefold()
+                == group_name.casefold()
+            ],
+            key=lambda student: str(student.get("display_name") or "").casefold(),
+        )
+        self.feedback_drafts[user_id] = {
+            "tenant_slug": tenant_slug,
+            "schedule": schedule,
+            "students": students,
+            "absent_student_ids": set(),
+            "is_repetition": False,
+        }
+        return self.feedback_draft_response(user_id)
+
+    def feedback_draft_response(self, user_id: int | None) -> BotResponse:
+        if user_id is None:
+            return self.feedback_menu_response(user_id)
+        draft = self.feedback_drafts.get(user_id)
+        if not draft:
+            return BotResponse(
+                "Черновик завершен. Выберите группу заново.",
+                self.main_menu_attachments(user_id),
+            )
+        schedule = draft["schedule"]
+        students = list(draft["students"])
+        absent_ids = set(draft["absent_student_ids"])
+        absent_names = [
+            str(student.get("display_name") or "Ученик")
+            for student in students
+            if str(student.get("student_id") or "") in absent_ids
+        ]
+        lines = [
+            f"ОС · {schedule.get('group_name') or 'Группа'}",
+            "",
+            f"Урок {schedule.get('current_lesson_number') or 1}: "
+            f"{schedule.get('next_lesson_title') or schedule.get('course_name') or 'Тема урока'}",
+            f"Дата: {schedule.get('next_lesson_date') or 'не указана'}",
+            "",
+            "Нажмите на ученика, если он отсутствовал.",
+            (
+                f"Отсутствуют: {', '.join(absent_names)}"
+                if absent_names
+                else "Все были на уроке."
+            ),
+            (
+                "Формат: повторение прошлой темы."
+                if draft["is_repetition"]
+                else "Формат: текущая тема урока."
+            ),
+        ]
+        if len(students) > 24:
+            lines.extend(["", f"Показаны первые 24 ученика из {len(students)}."])
+        return BotResponse(
+            "\n".join(lines),
+            feedback_setup_keyboard(
+                students,
+                absent_student_ids=absent_ids,
+                is_repetition=bool(draft["is_repetition"]),
+            ),
+        )
+
+    def feedback_toggle_absent_response(
+        self,
+        *,
+        user_id: int | None,
+        student_id: str,
+    ) -> BotResponse:
+        if user_id is None or user_id not in self.feedback_drafts:
+            return self.feedback_draft_response(user_id)
+        draft = self.feedback_drafts[user_id]
+        available_ids = {
+            str(student.get("student_id") or "") for student in draft["students"]
+        }
+        if student_id not in available_ids:
+            return BotResponse(
+                "Ученик не найден в выбранной группе.",
+                feedback_setup_keyboard(
+                    list(draft["students"]),
+                    absent_student_ids=set(draft["absent_student_ids"]),
+                    is_repetition=bool(draft["is_repetition"]),
+                ),
+            )
+        absent_ids = set(draft["absent_student_ids"])
+        if student_id in absent_ids:
+            absent_ids.remove(student_id)
+        else:
+            absent_ids.add(student_id)
+        draft["absent_student_ids"] = absent_ids
+        return self.feedback_draft_response(user_id)
+
+    def feedback_toggle_repetition_response(self, user_id: int | None) -> BotResponse:
+        if user_id is None or user_id not in self.feedback_drafts:
+            return self.feedback_draft_response(user_id)
+        draft = self.feedback_drafts[user_id]
+        draft["is_repetition"] = not bool(draft["is_repetition"])
+        return self.feedback_draft_response(user_id)
+
+    def feedback_generate_response(self, user_id: int | None) -> BotResponse:
+        if user_id is None or user_id not in self.feedback_drafts:
+            return self.feedback_draft_response(user_id)
+        if self.backend_client is None:
+            return self.feedback_menu_response(user_id)
+        draft = self.feedback_drafts[user_id]
+        absent_ids = set(draft["absent_student_ids"])
+        absent_names = [
+            str(student.get("display_name") or "Ученик")
+            for student in draft["students"]
+            if str(student.get("student_id") or "") in absent_ids
+        ]
+        schedule = draft["schedule"]
+        try:
+            output = self.backend_client.generate_feedback(
+                schedule_id=str(schedule.get("id") or ""),
+                tenant_slug=str(draft["tenant_slug"]),
+                max_user_id=user_id,
+                absent_students=absent_names,
+                is_repetition=bool(draft["is_repetition"]),
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                f"Не получилось сформировать ОС.\n\n{format_backend_error(exc)}",
+                feedback_setup_keyboard(
+                    list(draft["students"]),
+                    absent_student_ids=absent_ids,
+                    is_repetition=bool(draft["is_repetition"]),
+                ),
+            )
+        draft["output_id"] = str(output.get("id") or "")
+        return self.feedback_output_preview_response(output)
+
+    def feedback_output_response(
+        self,
+        *,
+        user_id: int | None,
+        output_id: str,
+    ) -> BotResponse:
+        tenant_slug = self.current_tenant_slug(user_id)
+        if user_id is None or self.backend_client is None:
+            return self.feedback_menu_response(user_id)
+        try:
+            workspace = self.backend_client.get_teaching_workspace(
+                tenant_slug=tenant_slug,
+                max_user_id=user_id,
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                f"Не получилось открыть черновик.\n\n{format_backend_error(exc)}",
+                self.main_menu_attachments(user_id),
+            )
+        output = next(
+            (
+                item
+                for item in workspace.get("feedback_outputs") or []
+                if str(item.get("id") or "") == str(output_id)
+            ),
+            None,
+        )
+        if output is None:
+            return BotResponse(
+                "Черновик не найден.",
+                feedback_drafts_keyboard(list(workspace.get("feedback_outputs") or [])),
+            )
+        return self.feedback_output_preview_response(output)
+
+    @staticmethod
+    def feedback_output_preview_response(output: dict[str, Any]) -> BotResponse:
+        sent = str(output.get("status") or "") == "sent_to_parents"
+        status_text = "Отправлено родителям" if sent else "Готово к отправке"
+        text = (
+            f"{status_text} · {output.get('group_name') or 'Группа'}\n\n"
+            f"{output.get('feedback_text') or 'Текст обратной связи пуст.'}"
+        )
+        return BotResponse(
+            text,
+            feedback_preview_keyboard(
+                output_id=str(output.get("id") or ""),
+                schedule_id=str(output.get("schedule_id") or ""),
+                can_send=not sent,
+            ),
+        )
+
+    def feedback_send_response(
+        self,
+        *,
+        user_id: int | None,
+        output_id: str,
+    ) -> BotResponse:
+        tenant_slug = self.current_tenant_slug(user_id)
+        if user_id is None or self.backend_client is None:
+            return self.feedback_menu_response(user_id)
+        try:
+            result = self.backend_client.send_feedback(
+                output_id=output_id,
+                tenant_slug=tenant_slug,
+                max_user_id=user_id,
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                f"Не получилось отправить ОС.\n\n{format_backend_error(exc)}",
+                self.main_menu_attachments(user_id),
+            )
+        eligible = int(result.get("parent_recipients") or 0)
+        sent = int(result.get("sent_recipients") or 0)
+        if eligible == 0:
+            text = (
+                "ОС сохранена, но отправлять некому.\n\n"
+                "У учеников этой группы нет связанных родительских аккаунтов."
+            )
+        elif sent == eligible:
+            text = f"ОС отправлена всем родителям: {sent}."
+        elif sent == 0:
+            text = f"ОС не отправлена. Получателей: {eligible}."
+        else:
+            text = f"ОС отправлена частично: {sent} из {eligible}."
+        return BotResponse(text, self.main_menu_attachments(user_id))
+
+    def feedback_callback_response(
+        self,
+        *,
+        user_id: int | None,
+        action: str,
+        value: str | None,
+    ) -> BotResponse:
+        if action == "schedule" and value:
+            return self.feedback_schedule_response(user_id=user_id, schedule_id=value)
+        if action == "absent" and value:
+            return self.feedback_toggle_absent_response(
+                user_id=user_id,
+                student_id=value,
+            )
+        if action == "repeat":
+            return self.feedback_toggle_repetition_response(user_id)
+        if action == "generate":
+            return self.feedback_generate_response(user_id)
+        if action == "drafts":
+            return self.feedback_drafts_response(user_id)
+        if action == "output" and value:
+            return self.feedback_output_response(user_id=user_id, output_id=value)
+        if action == "send" and value:
+            return self.feedback_send_response(user_id=user_id, output_id=value)
+        return self.feedback_menu_response(user_id)
 
     def balance_response(self, user_id: int | None = None, query: str = "") -> BotResponse:
         session_result = self.load_session_response(user_id=user_id, noun="баланс")
@@ -5253,7 +5611,7 @@ class LongPollingBot:
         if not text:
             self.send_response(
                 BotResponse(
-                    "Пока я понимаю только текстовые сообщения. Пришлите Contact ID текстом.",
+                    "Выберите нужный раздел кнопкой ниже.",
                     self.main_menu_attachments(user_id),
                 ),
                 chat_id=chat_id,
@@ -5273,6 +5631,11 @@ class LongPollingBot:
             response = (
                 self.handle_contact_payload_response(payload=argument, user_id=user_id)
                 or self.help_response(user_id=user_id)
+            )
+        elif command.startswith("/"):
+            response = BotResponse(
+                "Текстовые команды больше не используются. Выберите нужный раздел кнопкой.",
+                self.main_menu_attachments(user_id),
             )
         elif command in {"/help", "/menu", "/commands"}:
             response = self.help_response(user_id=user_id, topic=argument)
@@ -5478,7 +5841,7 @@ class LongPollingBot:
             response = self.handle_contact_payload_response(payload=text, user_id=user_id)
             if response is None:
                 response = BotResponse(
-                    "Пришлите Contact ID текстом, а дальше я покажу кнопки.",
+                    "Выберите нужный раздел кнопкой ниже.",
                     self.main_menu_attachments(user_id),
                 )
 
@@ -5507,6 +5870,62 @@ class LongPollingBot:
             chat_id = recipient.get("chat_id")
         started_at = time.monotonic()
         tenant_slug = self.current_tenant_slug(user_id)
+
+        if payload not in {CALLBACK_ROLE_PARENT, CALLBACK_ROLE_STUDENT}:
+            feedback_action = parse_feedback_payload(payload)
+            if payload == CALLBACK_FEEDBACK:
+                response = self.feedback_menu_response(user_id)
+                notification = "Обратная связь"
+            elif feedback_action:
+                action, value = feedback_action
+                response = self.feedback_callback_response(
+                    user_id=user_id,
+                    action=action,
+                    value=value,
+                )
+                notification = {
+                    "schedule": "Группа",
+                    "absent": "Посещаемость",
+                    "repeat": "Формат урока",
+                    "generate": "ОС готова",
+                    "drafts": "Черновики",
+                    "output": "Черновик",
+                    "send": "Отправка",
+                }.get(action, "Обратная связь")
+            elif payload == CALLBACK_MENU:
+                response = self.main_menu_response(user_id=user_id)
+                notification = "Главное меню"
+            elif payload == CALLBACK_HELP:
+                response = self.help_response(user_id=user_id)
+                notification = "Помощь"
+            elif payload == CALLBACK_MINIAPP:
+                response = self.miniapp_response(user_id=user_id)
+                notification = "Кабинет"
+            else:
+                response = BotResponse(
+                    "Этот раздел перенесен в личный кабинет. Используйте актуальные кнопки.",
+                    self.main_menu_attachments(user_id),
+                )
+                notification = "Откройте кабинет"
+
+            self.log_interaction_result(
+                event_type="callback",
+                action=payload or "unknown",
+                user_id=user_id,
+                chat_id=chat_id,
+                tenant_slug=tenant_slug,
+                started_at=started_at,
+                response=response,
+            )
+            if callback_id and hasattr(self.client, "answer_callback"):
+                self.client.answer_callback(
+                    callback_id=callback_id,
+                    response=response,
+                    notification=notification,
+                )
+                return
+            self.send_response(response, chat_id=chat_id, user_id=user_id)
+            return
 
         if payload == CALLBACK_ROLE_PARENT:
             response = self.handle_role_selection_response(
@@ -5605,9 +6024,12 @@ class LongPollingBot:
         elif payload == CALLBACK_TODO:
             response = self.todo_response(user_id=user_id)
             notification = "К выдаче"
-        elif payload in {CALLBACK_HELP, CALLBACK_MENU}:
+        elif payload == CALLBACK_MENU:
+            response = self.main_menu_response(user_id=user_id)
+            notification = "Главное меню"
+        elif payload == CALLBACK_HELP:
             response = self.help_response(user_id=user_id)
-            notification = "Готово"
+            notification = "Помощь"
         elif payload == CALLBACK_MINIAPP:
             response = BotResponse(
                 "Mini app будет открываться кнопкой после настройки публичного HTTPS-адреса.",

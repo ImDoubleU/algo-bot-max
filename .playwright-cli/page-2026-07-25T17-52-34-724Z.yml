@@ -1,0 +1,94 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e5]:
+      - paragraph [ref=e6]: MAX mini app
+      - heading "Алгоритмика" [level=1] [ref=e7]
+    - generic "Контур данных" [ref=e8]:
+      - generic [ref=e9]: Город / партнер
+      - strong [ref=e10]: Демо-магазин
+  - main [ref=e11]:
+    - complementary "Роль и раздел" [ref=e12]:
+      - region "Роль" [ref=e13]:
+        - button "Ученик" [ref=e14] [cursor=pointer]
+        - button "Родитель" [ref=e15] [cursor=pointer]
+        - button "Педагог" [ref=e16] [cursor=pointer]
+        - button "Админ" [ref=e17] [cursor=pointer]
+      - navigation "Разделы" [ref=e18]:
+        - button "Обзор" [ref=e19] [cursor=pointer]
+        - button "Заказы" [ref=e22] [cursor=pointer]
+        - button "Астрокоины" [ref=e23] [cursor=pointer]
+        - button "Начисления" [ref=e92] [cursor=pointer]
+        - button "Расписание" [ref=e93] [cursor=pointer]
+        - button "Операции" [active] [ref=e94] [cursor=pointer]
+    - generic [ref=e139]:
+      - generic [ref=e141]:
+        - paragraph [ref=e142]: Админ
+        - heading "Операционная сводка" [level=2] [ref=e143]
+      - tablist "Админские разделы" [ref=e144]:
+        - button "Сводка" [ref=e145] [cursor=pointer]
+        - button "Товары" [ref=e146] [cursor=pointer]
+        - button "Остатки" [ref=e147] [cursor=pointer]
+        - button "Склады" [ref=e148] [cursor=pointer]
+        - button "Импорт CRM" [ref=e149] [cursor=pointer]
+        - button "Связи" [ref=e150] [cursor=pointer]
+        - button "Сотрудники" [ref=e151] [cursor=pointer]
+      - generic [ref=e152]:
+        - generic [ref=e153]:
+          - button "Заказы к выдаче" [ref=e154] [cursor=pointer]
+          - button "Проверить остатки" [ref=e155] [cursor=pointer]
+          - button "Управление товарами" [ref=e156] [cursor=pointer]
+        - generic [ref=e157]:
+          - article [ref=e158]:
+            - generic [ref=e159]: "2"
+            - strong [ref=e160]: Открытых заказов
+          - article [ref=e161]:
+            - generic [ref=e162]: "2"
+            - strong [ref=e163]: Ожидают выдачи
+          - article [ref=e164]:
+            - generic [ref=e165]: "6"
+            - strong [ref=e166]: Активных товаров
+          - article [ref=e167]:
+            - generic [ref=e168]: "0"
+            - strong [ref=e169]: В резерве
+        - generic [ref=e170]:
+          - generic [ref=e171]: "Tenant: demo"
+          - generic [ref=e172]: "Роль: Админ"
+          - generic [ref=e173]: "Складов: 5"
+          - generic [ref=e174]: "Факт: 51 шт."
+        - generic [ref=e175]:
+          - generic [ref=e176]:
+            - heading "Статусы заказов" [level=3] [ref=e177]
+            - generic [ref=e178]:
+              - generic [ref=e179]: Зарезервирован
+              - strong [ref=e180]: "1"
+            - generic [ref=e181]:
+              - generic [ref=e182]: Передан педагогу
+              - strong [ref=e183]: "1"
+            - generic [ref=e184]:
+              - generic [ref=e185]: Проблема
+              - strong [ref=e186]: "1"
+          - generic [ref=e187]:
+            - heading "Ближайшие открытые" [level=3] [ref=e188]
+            - button "#1357 Васильева Алиса Зарезервирован" [ref=e189] [cursor=pointer]:
+              - generic [ref=e190]: "#1357 Васильева Алиса"
+              - strong [ref=e191]: Зарезервирован
+            - button "#1358 Петров Иван Передан педагогу" [ref=e192] [cursor=pointer]:
+              - generic [ref=e193]: "#1358 Петров Иван"
+              - strong [ref=e194]: Передан педагогу
+          - generic [ref=e195]:
+            - heading "Остатки ниже порога" [level=3] [ref=e196]
+            - button "Кружка Python. Be the best / Внешний склад 0 шт." [ref=e197] [cursor=pointer]:
+              - generic [ref=e198]: Кружка Python. Be the best / Внешний склад
+              - strong [ref=e199]: 0 шт.
+            - button "Игра Кибертаун / Союзный 45 1 шт." [ref=e200] [cursor=pointer]:
+              - generic [ref=e201]: Игра Кибертаун / Союзный 45
+              - strong [ref=e202]: 1 шт.
+            - button "Силиконовый браслет / Гагарина 64 2 шт." [ref=e203] [cursor=pointer]:
+              - generic [ref=e204]: Силиконовый браслет / Гагарина 64
+              - strong [ref=e205]: 2 шт.
+            - button "Игра Кибертаун / Общий склад 3 шт." [ref=e206] [cursor=pointer]:
+              - generic [ref=e207]: Игра Кибертаун / Общий склад
+              - strong [ref=e208]: 3 шт.
+            - button "Коврик для мышки / Партнерский склад 3 шт." [ref=e209] [cursor=pointer]:
+              - generic [ref=e210]: Коврик для мышки / Партнерский склад
+              - strong [ref=e211]: 3 шт.

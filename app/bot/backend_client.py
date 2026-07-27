@@ -214,6 +214,43 @@ class AccessBackendClient:
             },
         )
 
+    def generate_feedback(
+        self,
+        *,
+        schedule_id: str,
+        tenant_slug: str,
+        max_user_id: int,
+        absent_students: list[str],
+        is_repetition: bool,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/teaching/schedules/{parse.quote(str(schedule_id))}/feedback",
+            body={
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
+                "absent_students": absent_students,
+                "is_repetition": is_repetition,
+                "advance_lesson": False,
+            },
+        )
+
+    def send_feedback(
+        self,
+        *,
+        output_id: str,
+        tenant_slug: str,
+        max_user_id: int,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/teaching/feedback/{parse.quote(str(output_id))}/send",
+            body={
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
+            },
+        )
+
     def update_order(
         self,
         *,

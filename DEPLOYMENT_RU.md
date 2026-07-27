@@ -82,9 +82,10 @@ cd /opt/algo-max
 Создайте виртуальное окружение:
 
 ```bash
+bash deploy/scripts/install_russian_ca.sh
 sudo -u algomax python3 -m venv /opt/algo-max/.venv
 sudo -u algomax /opt/algo-max/.venv/bin/pip install --upgrade pip
-sudo -u algomax /opt/algo-max/.venv/bin/pip install -r /opt/algo-max/requirements.txt
+sudo -u algomax /opt/algo-max/.venv/bin/pip install -r /opt/algo-max/requirements-prod.txt
 ```
 
 ## 5. Создать PostgreSQL
@@ -217,6 +218,12 @@ curl https://bot.example.ru/api/v1/health
 curl https://bot.example.ru/api/v1/ready
 ```
 
+Для автоматического завершения после обновления DNS можно выполнить:
+
+```bash
+bash deploy/scripts/finish_domain_setup.sh bot.example.ru ПУБЛИЧНЫЙ_IP_VPS
+```
+
 Mini-app должна открыться по адресу `https://bot.example.ru/miniapp`.
 
 ## 9. Подключить MAX webhook
@@ -235,8 +242,9 @@ sudo -u algomax --preserve-env /opt/algo-max/.venv/bin/python -m app.cli.configu
 Webhook: `https://bot.example.ru/api/v1/max/webhook`.
 Mini-app URL: `https://bot.example.ru/miniapp`.
 
-Укажите URL mini-app в настройках приложения MAX. Затем откройте диалог с ботом, отправьте
-`/start`, `/id`, `/miniapp` и проверьте кабинет.
+Укажите URL mini-app в настройках приложения MAX. Затем откройте диалог с ботом,
+запустите его штатной кнопкой MAX и проверьте ролевое inline-меню, рабочий кабинет
+и раздел «Обратная связь».
 
 ## 10. Проверить рабочий сценарий
 

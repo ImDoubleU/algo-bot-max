@@ -22,6 +22,7 @@ from app.schemas.miniapp import (
     MiniAppOrderActionRead,
     MiniAppOrderCreate,
     MiniAppOrderCreatedRead,
+    MiniAppOrderWarehouseAssignmentCreate,
     MiniAppProductImportRead,
     MiniAppProductRead,
     MiniAppProductUpsert,
@@ -44,6 +45,7 @@ from app.services.miniapp import (
     issue_miniapp_order,
     list_miniapp_catalog,
     return_miniapp_order,
+    assign_miniapp_order_warehouses,
     transfer_miniapp_inventory,
     update_miniapp_access_link_status,
     update_miniapp_staff_assignment,
@@ -280,6 +282,24 @@ async def miniapp_cancel_order(
     settings = get_settings()
     try:
         return await cancel_miniapp_order(
+            db,
+            order_id=order_id,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/orders/{order_id}/assign-warehouses", response_model=MiniAppOrderActionRead)
+async def miniapp_assign_order_warehouses(
+    order_id: UUID,
+    payload: MiniAppOrderWarehouseAssignmentCreate,
+    db: DbSession,
+) -> MiniAppOrderActionRead:
+    settings = get_settings()
+    try:
+        return await assign_miniapp_order_warehouses(
             db,
             order_id=order_id,
             payload=payload,

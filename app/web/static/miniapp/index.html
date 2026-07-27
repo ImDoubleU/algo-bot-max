@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#ffd52f" />
+    <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.32.2" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.42.6" />
   </head>
   <body>
     <div class="app-shell">
@@ -14,8 +14,8 @@
         <div class="brand-block">
           <span class="brand-mark">A</span>
           <div>
-            <p class="eyebrow">MAX mini app</p>
-            <h1>Алгоритмика</h1>
+            <p class="eyebrow">Образовательная платформа</p>
+            <h1>Algo MAX</h1>
           </div>
         </div>
 
@@ -26,46 +26,63 @@
       </header>
 
       <main class="workspace">
-        <aside class="rail" aria-label="Роль и раздел">
-          <section class="role-switch" aria-label="Роль">
-            <button class="role-button is-active" data-role="student">Ученик</button>
-            <button class="role-button" data-role="parent">Родитель</button>
-            <button class="role-button" data-role="teacher">Педагог</button>
-            <button class="role-button" data-role="admin">Админ</button>
-          </section>
-
+        <aside class="rail" aria-label="Разделы">
           <nav class="section-nav" aria-label="Разделы">
-            <button class="nav-button is-active" data-view="dashboard">Обзор</button>
-            <button class="nav-button" data-view="store">Магазин</button>
-            <button class="nav-button" data-view="cart">Корзина</button>
-            <button class="nav-button" data-view="orders">Заказы</button>
-            <button class="nav-button" data-view="wallet">Астрокоины</button>
-            <button class="nav-button" data-view="accrual">Начисления</button>
-            <button class="nav-button" data-view="teaching">Расписание</button>
-            <button class="nav-button" data-view="admin">Операции</button>
+            <button class="nav-button is-active" data-view="dashboard">
+              <i data-lucide="layout-dashboard"></i><span>Главная</span>
+            </button>
+            <button class="nav-button" data-view="store">
+              <i data-lucide="store"></i><span>Магазин</span>
+            </button>
+            <button class="nav-button" data-view="cart">
+              <i data-lucide="shopping-bag"></i><span>Корзина</span>
+            </button>
+            <button class="nav-button" data-view="orders">
+              <i data-lucide="package-check"></i><span>Заказы</span>
+            </button>
+            <button class="nav-button" data-view="wallet">
+              <i data-lucide="wallet-cards"></i><span>История AC</span>
+            </button>
+            <button class="nav-button" data-view="accrual">
+              <i data-lucide="circle-plus"></i><span>Начисления</span>
+            </button>
+            <button class="nav-button" data-view="teaching">
+              <i data-lucide="calendar-days"></i><span>Расписание</span>
+            </button>
+            <button class="nav-button" data-view="admin">
+              <i data-lucide="settings-2"></i><span>Управление</span>
+            </button>
           </nav>
         </aside>
 
         <section class="content-area">
           <div class="status-strip">
             <div class="status-profile">
-              <div>
-                <p class="label">Профиль</p>
+              <div id="profileInitial" class="status-avatar" aria-hidden="true">А</div>
+              <div class="status-profile-copy">
+                <p class="status-profile-label">Личный профиль</p>
                 <strong id="profileTitle">Алиса, ученик</strong>
                 <span id="lastSyncTime" class="sync-time">Загрузка данных</span>
               </div>
-              <button id="refreshDataButton" class="icon-button refresh-button" type="button" title="Обновить данные" aria-label="Обновить данные">↻</button>
             </div>
-            <div id="studentContext">
+            <div id="studentContext" class="status-context">
               <p id="studentContextLabel" class="label">Ученик для заказа</p>
               <select id="studentSelect" aria-label="Ученик для заказа"></select>
             </div>
-            <div>
-              <p class="label">Баланс</p>
-              <strong><span id="balanceValue">1240</span> AC</strong>
+            <div class="status-balance">
+              <span class="status-balance-label">Баланс</span>
+              <div class="status-balance-value">
+                <strong><span id="balanceValue">1240</span> <small>AC</small></strong>
+                <button id="refreshDataButton" class="icon-button refresh-button" type="button" title="Обновить данные" aria-label="Обновить данные">
+                  <i data-lucide="refresh-cw"></i>
+                </button>
+              </div>
+              <span class="status-balance-caption">Доступно для наград</span>
             </div>
             <button id="openCartButton" class="primary-action" type="button">
-              Корзина <span id="cartCounter">0</span>
+              <i data-lucide="shopping-bag"></i>
+              <span>Корзина</span>
+              <span id="cartCounter">0</span>
             </button>
           </div>
 
@@ -80,19 +97,17 @@
               <button id="dashboardPrimaryAction" class="secondary-action" type="button" data-view-jump="store">Открыть магазин</button>
             </div>
 
-            <div class="summary-grid">
-              <article class="metric">
-                <span id="linkedStudentsCount" class="metric-value">3</span>
-                <span id="dashboardMetricOneLabel" class="metric-label">связанных ученика по Contact ID</span>
-              </article>
-              <article class="metric">
-                <span id="openOrdersCount" class="metric-value">2</span>
-                <span id="dashboardMetricTwoLabel" class="metric-label">заказа ждут выдачи</span>
-              </article>
-              <article class="metric">
-                <span id="stockProblemCount" class="metric-value">1</span>
-                <span id="dashboardMetricThreeLabel" class="metric-label">резерв требует склада</span>
-              </article>
+            <div class="dashboard-spotlight">
+              <div class="dashboard-spotlight-copy">
+                <p id="dashboardRoleKicker" class="eyebrow">Личный кабинет</p>
+                <h3 id="dashboardSpotlightTitle">Добро пожаловать!</h3>
+                <p id="dashboardSpotlightText">Пусть сегодня обязательно получится что-то новое.</p>
+              </div>
+              <img
+                src="/miniapp/static/assets/dashboard-learning.png"
+                alt=""
+                aria-hidden="true"
+              />
             </div>
 
             <div class="two-column">
@@ -116,21 +131,32 @@
           </section>
 
           <section id="storeView" class="view" data-view-panel="store">
-            <div class="section-heading">
-              <div>
-                <p class="eyebrow">Магазин</p>
-                <h2>Каталог подарков</h2>
+            <div class="store-heading">
+              <div class="store-heading-copy">
+                <p class="eyebrow">Магазин Algo MAX</p>
+                <h2>Выбери свою награду</h2>
+                <p id="storeAudience">Доступные товары и твой баланс AC</p>
               </div>
-              <div class="toolbar catalog-toolbar">
-                <input id="productSearch" type="search" placeholder="Поиск" />
-                <select id="categoryFilter" aria-label="Категория">
-                  <option value="all">Все категории</option>
-                </select>
+              <div class="store-controls">
+                <label class="store-search">
+                  <i data-lucide="search"></i>
+                  <span class="visually-hidden">Поиск товаров</span>
+                  <input id="productSearch" type="search" placeholder="Найти товар" />
+                </label>
                 <select id="productSort" aria-label="Сортировка">
-                  <option value="recommended">Рекомендуемые</option>
+                  <option value="recommended">По популярности</option>
                   <option value="price-asc">Сначала дешевле</option>
                   <option value="price-desc">Сначала дороже</option>
                   <option value="name">По названию</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="store-filter-row">
+              <div id="categoryChips" class="category-chips" aria-label="Категории товаров"></div>
+              <div class="store-filter-actions">
+                <select id="categoryFilter" class="visually-hidden" aria-label="Категория">
+                  <option value="all">Все категории</option>
                 </select>
                 <label class="stock-filter">
                   <input id="inStockOnly" type="checkbox" />
@@ -142,8 +168,8 @@
                   type="button"
                   aria-pressed="false"
                 >
-                  <span aria-hidden="true">★</span>
-                  Избранное
+                  <i data-lucide="heart"></i>
+                  <span>Избранное</span>
                   <span id="favoritesCount" class="filter-count">0</span>
                 </button>
               </div>
@@ -202,7 +228,7 @@
                 <select id="orderStatusFilter" aria-label="Статус заказа">
                   <option value="open">Открытые</option>
                   <option value="all">Все</option>
-                  <option value="reserved">Зарезервирован</option>
+                  <option value="reserved">Зарезервировано</option>
                   <option value="transferred_to_teacher">Передан педагогу</option>
                   <option value="issued_to_student">Выдан</option>
                   <option value="cancelled">Отменен</option>
@@ -319,7 +345,7 @@
           <section id="adminView" class="view" data-view-panel="admin">
             <div class="section-heading">
               <div>
-                <p class="eyebrow">Админ</p>
+                <p id="adminRoleEyebrow" class="eyebrow">Админ</p>
                 <h2 id="adminViewTitle">Операционная сводка</h2>
               </div>
             </div>
@@ -453,44 +479,45 @@
 
       <div id="mobileMorePanel" class="mobile-more-panel" hidden>
         <button class="mobile-more-action nav-button" type="button" data-view="wallet">
-          Астрокоины
+          <i data-lucide="wallet-cards"></i><span>История AC</span>
         </button>
         <button class="mobile-more-action nav-button" type="button" data-view="accrual">
-          Начисления
+          <i data-lucide="circle-plus"></i><span>Начисления</span>
         </button>
         <button class="mobile-more-action nav-button" type="button" data-view="teaching">
-          Расписание
+          <i data-lucide="calendar-days"></i><span>Расписание</span>
         </button>
         <button class="mobile-more-action nav-button" type="button" data-view="admin">
-          Операции
+          <i data-lucide="settings-2"></i><span>Управление</span>
         </button>
       </div>
 
       <nav class="mobile-bottom-nav" aria-label="Основные разделы">
         <button class="nav-button is-active" type="button" data-view="dashboard">
-          <span class="mobile-nav-icon" aria-hidden="true">⌂</span>
-          <span>Обзор</span>
+          <span class="mobile-nav-icon" aria-hidden="true"><i data-lucide="layout-dashboard"></i></span>
+          <span>Главная</span>
         </button>
         <button class="nav-button" type="button" data-view="store">
-          <span class="mobile-nav-icon" aria-hidden="true">▦</span>
+          <span class="mobile-nav-icon" aria-hidden="true"><i data-lucide="store"></i></span>
           <span>Магазин</span>
         </button>
         <button class="nav-button" type="button" data-view="cart">
-          <span class="mobile-nav-icon" aria-hidden="true">▣</span>
+          <span class="mobile-nav-icon" aria-hidden="true"><i data-lucide="shopping-bag"></i></span>
           <span>Корзина</span>
           <span class="mobile-nav-count" data-cart-count hidden>0</span>
         </button>
         <button class="nav-button" type="button" data-view="orders">
-          <span class="mobile-nav-icon" aria-hidden="true">≡</span>
+          <span class="mobile-nav-icon" aria-hidden="true"><i data-lucide="package-check"></i></span>
           <span>Заказы</span>
         </button>
         <button id="mobileMoreButton" class="nav-button" type="button" data-mobile-more>
-          <span class="mobile-nav-icon" aria-hidden="true">•••</span>
-          <span>Еще</span>
+          <span class="mobile-nav-icon" aria-hidden="true"><i data-lucide="menu"></i></span>
+          <span>Ещё</span>
         </button>
       </nav>
     </div>
 
-    <script src="/miniapp/static/app.js?v=0.32.5"></script>
+    <script src="/miniapp/static/assets/lucide.min.js?v=0.42.6"></script>
+    <script src="/miniapp/static/app.js?v=0.42.6"></script>
   </body>
 </html>

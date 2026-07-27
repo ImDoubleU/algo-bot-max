@@ -56,6 +56,7 @@ from app.schemas.miniapp import (
     MiniAppOrderItemRead,
     MiniAppOrderRead,
     MiniAppOrderStatusHistoryRead,
+    MiniAppOrderWarehouseAssignmentCreate,
     MiniAppProductImportRead,
     MiniAppProductRead,
     MiniAppProductUpsert,
@@ -82,7 +83,6 @@ from app.services.warehouse import (
     WarehouseServiceError,
     available_for_reservation,
     build_stock_movement,
-    choose_inventory_for_reservation,
     issue_reserved_inventory,
     release_reservation,
     reserve_inventory,
@@ -1029,17 +1029,13 @@ async def get_miniapp_ops_summary(
     )
 
 
-def _merge_order_items(payload: MiniAppOrderCreate) -> dict[tuple[UUID, UUID | None], int]:
-    quantities: dict[tuple[UUID, UUID | None], int] = {}
-    totals_by_product: dict[UUID, int] = {}
+def _merge_order_items(payload: MiniAppOrderCreate) -> dict[UUID, int]:
+    quantities: dict[UUID, int] = {}
     for item in payload.items:
         product_id = UUID(str(item.product_id))
-        warehouse_id = UUID(str(item.warehouse_id)) if item.warehouse_id else None
-        key = (product_id, warehouse_id)
-        quantities[key] = quantities.get(key, 0) + item.quantity
-        totals_by_product[product_id] = totals_by_product.get(product_id, 0) + item.quantity
+        quantities[product_id] = quantities.get(product_id, 0) + item.quantity
 
-    too_large = [quantity for quantity in totals_by_product.values() if quantity > 20]
+    too_large = [quantity for quantity in quantities.values() if quantity > 20]
     if too_large:
         raise MiniAppStoreError("В одном заказе можно указать не больше 20 штук одного товара")
     return quantities
@@ -1191,7 +1187,7 @@ async def create_miniapp_order(
             select(Product)
             .where(
                 Product.tenant_id == tenant.id,
-                Product.id.in_({product_id for product_id, _ in quantities}),
+                Product.id.in_(quantities),
                 Product.status == ProductStatus.ACTIVE,
             )
             .options(
@@ -1202,7 +1198,7 @@ async def create_miniapp_order(
         )
     ).unique().all()
     products_by_id = {UUID(str(product.id)): product for product in products}
-    requested_product_ids = {product_id for product_id, _ in quantities}
+    requested_product_ids = set(quantities)
     missing_ids = [
         product_id for product_id in requested_product_ids if product_id not in products_by_id
     ]
@@ -1211,7 +1207,7 @@ async def create_miniapp_order(
 
     total_astrocoins = sum(
         products_by_id[product_id].price_astrocoins * quantity
-        for (product_id, _), quantity in quantities.items()
+        for product_id, quantity in quantities.items()
     )
     if wallet.balance < total_astrocoins:
         raise MiniAppStoreError(
@@ -1219,31 +1215,19 @@ async def create_miniapp_order(
             status_code=409,
         )
 
-    reservation_plan: list[tuple[Product, WarehouseInventory, int]] = []
-    for (product_id, warehouse_id), quantity in quantities.items():
+    order_plan: list[tuple[Product, int]] = []
+    for product_id, quantity in quantities.items():
         product = products_by_id[product_id]
-        if warehouse_id is None:
-            inventory = choose_inventory_for_reservation(
-                product.inventory_items,
-                quantity=quantity,
-                venue_id=student.venue_id,
-            )
-        else:
-            inventory = next(
-                (
-                    item
-                    for item in product.inventory_items
-                    if UUID(str(item.warehouse_id)) == warehouse_id
-                    and available_for_reservation(item) >= quantity
-                ),
-                None,
-            )
-        if inventory is None:
+        total_available = sum(
+            max(available_for_reservation(inventory), 0)
+            for inventory in product.inventory_items
+        )
+        if total_available < quantity:
             raise MiniAppStoreError(
-                f"Товар «{product.name}» сейчас нельзя зарезервировать",
+                f"Товара «{product.name}» сейчас недостаточно для заказа",
                 status_code=409,
             )
-        reservation_plan.append((product, inventory, quantity))
+        order_plan.append((product, quantity))
 
     last_order_number = await db.scalar(
         select(func.max(Order.order_number)).where(Order.tenant_id == tenant.id)
@@ -1265,12 +1249,7 @@ async def create_miniapp_order(
 
     response_items: list[MiniAppOrderItemRead] = []
     sheets_items: list[dict[str, object]] = []
-    for product, inventory, quantity in reservation_plan:
-        try:
-            reserve_inventory(inventory, quantity)
-        except WarehouseServiceError as exc:
-            raise MiniAppStoreError(str(exc), status_code=409) from exc
-
+    for product, quantity in order_plan:
         total_price = product.price_astrocoins * quantity
         db.add(
             OrderItem(
@@ -1278,20 +1257,9 @@ async def create_miniapp_order(
                 order_id=order.id,
                 product_id=product.id,
                 quantity=quantity,
-                warehouse_id=inventory.warehouse_id,
+                warehouse_id=None,
                 unit_price_astrocoins=product.price_astrocoins,
                 total_price_astrocoins=total_price,
-            )
-        )
-        db.add(
-            build_stock_movement(
-                inventory=inventory,
-                movement_type=StockMovementType.RESERVE,
-                quantity=quantity,
-                actor_account_id=account.id,
-                order_id=order.id,
-                from_warehouse_id=inventory.warehouse_id,
-                comment=f"Резерв заказа №{order_number}",
             )
         )
         response_items.append(
@@ -1301,8 +1269,8 @@ async def create_miniapp_order(
                 quantity=quantity,
                 unit_price_astrocoins=product.price_astrocoins,
                 total_price_astrocoins=total_price,
-                warehouse_id=UUID(str(inventory.warehouse_id)),
-                warehouse_name=inventory.warehouse.name if inventory.warehouse else None,
+                warehouse_id=None,
+                warehouse_name=None,
             )
         )
         sheets_items.append(
@@ -1310,8 +1278,8 @@ async def create_miniapp_order(
                 product_id=str(product.id),
                 product_name=product.name,
                 quantity=quantity,
-                warehouse_id=str(inventory.warehouse_id),
-                warehouse_name=inventory.warehouse.name if inventory.warehouse else None,
+                warehouse_id=None,
+                warehouse_name=None,
                 unit_price_astrocoins=product.price_astrocoins,
                 total_price_astrocoins=total_price,
             )
@@ -1356,9 +1324,9 @@ async def create_miniapp_order(
                     {
                         "product_id": str(product.id),
                         "quantity": quantity,
-                        "warehouse_id": str(inventory.warehouse_id),
+                        "warehouse_id": None,
                     }
-                    for product, inventory, quantity in reservation_plan
+                    for product, quantity in order_plan
                 ],
             },
         )
@@ -1400,6 +1368,175 @@ async def create_miniapp_order(
     )
 
 
+async def assign_miniapp_order_warehouses(
+    db: AsyncSession,
+    *,
+    order_id: UUID,
+    payload: MiniAppOrderWarehouseAssignmentCreate,
+    default_tenant_slug: str,
+) -> MiniAppOrderActionRead:
+    tenant, account, order, student, staff_role = await _load_order_action_context(
+        db,
+        order_id=order_id,
+        payload=MiniAppOrderActionCreate(
+            max_user_id=payload.max_user_id,
+            tenant_slug=payload.tenant_slug,
+            comment=payload.comment,
+        ),
+        default_tenant_slug=default_tenant_slug,
+        require_manager=True,
+    )
+    if staff_role not in STORE_ADMIN_ROLES:
+        raise MiniAppStoreError(
+            "Назначить склад может только администратор или директор",
+            status_code=403,
+        )
+    if order.status != OrderStatus.RESERVED:
+        raise MiniAppStoreError(
+            "Склад можно назначить только зарезервированному заказу",
+            status_code=409,
+        )
+    if any(item.warehouse_id is not None for item in order.items):
+        raise MiniAppStoreError("Склад для этого заказа уже назначен", status_code=409)
+
+    assignments = {
+        UUID(str(item.product_id)): UUID(str(item.warehouse_id))
+        for item in payload.items
+    }
+    if len(assignments) != len(payload.items):
+        raise MiniAppStoreError("Для каждого товара укажите один склад")
+
+    order_product_ids = {UUID(str(item.product_id)) for item in order.items}
+    if set(assignments) != order_product_ids:
+        raise MiniAppStoreError("Назначьте склад для каждой позиции заказа")
+
+    reservation_plan: list[tuple[OrderItem, WarehouseInventory]] = []
+    for item in order.items:
+        warehouse_id = assignments[UUID(str(item.product_id))]
+        inventory = await db.scalar(
+            select(WarehouseInventory)
+            .where(
+                WarehouseInventory.tenant_id == tenant.id,
+                WarehouseInventory.product_id == item.product_id,
+                WarehouseInventory.warehouse_id == warehouse_id,
+            )
+            .options(selectinload(WarehouseInventory.warehouse))
+        )
+        product_name = item.product.name if item.product else str(item.product_id)
+        if inventory is None or available_for_reservation(inventory) < item.quantity:
+            raise MiniAppStoreError(
+                f"На выбранном складе недостаточно товара «{product_name}»",
+                status_code=409,
+            )
+        reservation_plan.append((item, inventory))
+
+    response_items: list[MiniAppOrderItemRead] = []
+    sheets_items: list[dict[str, object]] = []
+    for item, inventory in reservation_plan:
+        try:
+            reserve_inventory(inventory, item.quantity)
+        except WarehouseServiceError as exc:
+            raise MiniAppStoreError(str(exc), status_code=409) from exc
+        item.warehouse_id = inventory.warehouse_id
+        db.add(
+            build_stock_movement(
+                inventory=inventory,
+                movement_type=StockMovementType.RESERVE,
+                quantity=item.quantity,
+                actor_account_id=account.id,
+                order_id=order.id,
+                from_warehouse_id=inventory.warehouse_id,
+                comment=payload.comment or f"Склад назначен заказу №{order.order_number}",
+            )
+        )
+        product_name = item.product.name if item.product else str(item.product_id)
+        warehouse_name = inventory.warehouse.name if inventory.warehouse else None
+        response_items.append(
+            MiniAppOrderItemRead(
+                product_id=UUID(str(item.product_id)),
+                product_name=product_name,
+                quantity=item.quantity,
+                unit_price_astrocoins=item.unit_price_astrocoins,
+                total_price_astrocoins=item.total_price_astrocoins,
+                warehouse_id=UUID(str(inventory.warehouse_id)),
+                warehouse_name=warehouse_name,
+            )
+        )
+        sheets_items.append(
+            order_item_mapping(
+                product_id=str(item.product_id),
+                product_name=product_name,
+                quantity=item.quantity,
+                warehouse_id=str(inventory.warehouse_id),
+                warehouse_name=warehouse_name,
+                unit_price_astrocoins=item.unit_price_astrocoins,
+                total_price_astrocoins=item.total_price_astrocoins,
+            )
+        )
+
+    db.add(
+        OrderStatusHistory(
+            tenant_id=tenant.id,
+            order_id=order.id,
+            actor_account_id=account.id,
+            from_status=order.status,
+            to_status=order.status,
+            comment=payload.comment or "Склад назначен администратором",
+        )
+    )
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_account_id=account.id,
+            action="miniapp_order.warehouses_assigned",
+            entity_type="order",
+            entity_id=str(order.id),
+            payload={
+                "order_number": order.order_number,
+                "actor_role": staff_role.value,
+                "items": [
+                    {
+                        "product_id": str(item.product_id),
+                        "warehouse_id": str(inventory.warehouse_id),
+                        "quantity": item.quantity,
+                    }
+                    for item, inventory in reservation_plan
+                ],
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(order)
+    status_history = await _order_status_history_for_order(
+        db,
+        tenant_id=tenant.id,
+        order_id=order.id,
+    )
+    _sync_order_to_sheets(
+        tenant_slug=tenant.slug,
+        order=order,
+        student=student,
+        account=account,
+        items=sheets_items,
+        comment=payload.comment,
+    )
+    await schedule_order_notification(
+        db,
+        tenant=tenant,
+        order=order,
+        student=student,
+    )
+    return MiniAppOrderActionRead(
+        order=_order_to_read(
+            order,
+            student,
+            items=response_items,
+            status_history=status_history,
+        ),
+        balance_after=None,
+    )
+
+
 async def cancel_miniapp_order(
     db: AsyncSession,
     *,
@@ -1418,6 +1555,8 @@ async def cancel_miniapp_order(
         raise MiniAppStoreError("Отменить можно только зарезервированный заказ", status_code=409)
 
     for item in order.items:
+        if item.warehouse_id is None:
+            continue
         inventory = await _inventory_for_order_item(db, tenant_id=tenant.id, item=item)
         try:
             release_reservation(inventory, item.quantity)

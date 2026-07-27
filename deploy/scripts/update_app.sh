@@ -15,7 +15,7 @@ set -a
 source "$env_file"
 set +a
 sudo -u algomax git -C "$project_dir" pull --ff-only
-sudo -u algomax "$project_dir/.venv/bin/pip" install -r "$project_dir/requirements.txt"
+sudo -u algomax "$project_dir/.venv/bin/pip" install -r "$project_dir/requirements-prod.txt"
 install -m 0644 deploy/systemd/algo-max-api.service /etc/systemd/system/algo-max-api.service
 install -m 0644 deploy/systemd/algo-max-feedback.service /etc/systemd/system/algo-max-feedback.service
 install -m 0644 deploy/systemd/algo-max-backup.service /etc/systemd/system/algo-max-backup.service

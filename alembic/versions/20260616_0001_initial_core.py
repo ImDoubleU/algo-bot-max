@@ -8,6 +8,7 @@ Create Date: 2026-06-16
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
@@ -16,21 +17,36 @@ down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-assignment_status = sa.Enum("ACTIVE", "REVOKED", name="assignmentstatus")
-ledger_direction = sa.Enum("CREDIT", "DEBIT", "REVERSAL", name="ledgerdirection")
-staff_role = sa.Enum(
+assignment_status = postgresql.ENUM(
+    "ACTIVE", "REVOKED", name="assignmentstatus", create_type=False
+)
+ledger_direction = postgresql.ENUM(
+    "CREDIT", "DEBIT", "REVERSAL", name="ledgerdirection", create_type=False
+)
+staff_role = postgresql.ENUM(
     "SUPERADMIN",
     "PARTNER_DIRECTOR",
     "ADMIN",
     "CURATOR",
     "TEACHER",
     name="staffrole",
+    create_type=False,
 )
-student_access_role = sa.Enum("PARENT", "STUDENT", name="studentaccessrole")
-student_access_source = sa.Enum("ID_ENTRY", "ADMIN", "IMPORT", name="studentaccesssource")
-student_access_status = sa.Enum("ACTIVE", "REVOKED", "DISPUTED", name="studentaccessstatus")
-student_status = sa.Enum("ACTIVE", "DEPARTED", "ARCHIVED", name="studentstatus")
-tenant_status = sa.Enum("ACTIVE", "ARCHIVED", name="tenantstatus")
+student_access_role = postgresql.ENUM(
+    "PARENT", "STUDENT", name="studentaccessrole", create_type=False
+)
+student_access_source = postgresql.ENUM(
+    "ID_ENTRY", "ADMIN", "IMPORT", name="studentaccesssource", create_type=False
+)
+student_access_status = postgresql.ENUM(
+    "ACTIVE", "REVOKED", "DISPUTED", name="studentaccessstatus", create_type=False
+)
+student_status = postgresql.ENUM(
+    "ACTIVE", "DEPARTED", "ARCHIVED", name="studentstatus", create_type=False
+)
+tenant_status = postgresql.ENUM(
+    "ACTIVE", "ARCHIVED", name="tenantstatus", create_type=False
+)
 
 
 def upgrade() -> None:

@@ -183,6 +183,18 @@ class MiniAppOrderActionCreate(BaseModel):
     comment: str | None = Field(default=None, max_length=500)
 
 
+class MiniAppOrderWarehouseAssignmentItem(BaseModel):
+    product_id: UUID
+    warehouse_id: UUID
+
+
+class MiniAppOrderWarehouseAssignmentCreate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    items: list[MiniAppOrderWarehouseAssignmentItem] = Field(min_length=1, max_length=20)
+    comment: str | None = Field(default=None, max_length=500)
+
+
 class MiniAppOrderActionRead(BaseModel):
     order: MiniAppOrderRead
     balance_after: int | None = None
