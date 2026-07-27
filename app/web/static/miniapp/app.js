@@ -2687,106 +2687,171 @@ function renderAdminPanel() {
     const statuses = summary.order_statuses || [];
     const openOrders = summary.recent_open_orders || [];
     const lowStock = summary.low_stock || [];
+    const warehouseCount = Number(summary.warehouses || 0);
+    const activeProductCount = Number(summary.active_products || 0);
+    const totalStockQuantity = Number(summary.total_stock_quantity || 0);
+    const statusOrderCount = statuses.reduce(
+      (total, item) => total + Number(item.count || 0),
+      0,
+    );
+    const hasOperationalRows = Boolean(statuses.length || openOrders.length || lowStock.length);
+    const needsInitialSetup = warehouseCount === 0 || activeProductCount === 0;
+    const setupTarget = activeProductCount === 0 ? "products" : "warehouses";
+    const setupAction = activeProductCount === 0 ? "Добавить товары" : "Настроить склад";
     qs("#adminPanel").innerHTML = `
       <div class="ops-quick-actions">
-        <button class="primary-action" type="button" data-ops-jump="orders">
-          Заказы к выдаче
-        </button>
-        <button class="secondary-action" type="button" data-ops-jump="inventory">
-          Проверить остатки
-        </button>
-        <button class="secondary-action" type="button" data-ops-jump="products">
-          Управление товарами
-        </button>
+        <strong>Быстрые действия</strong>
+        <div class="ops-quick-action-list">
+          <button class="primary-action" type="button" data-ops-jump="orders">
+            <i data-lucide="package-check"></i>
+            <span>Заказы к выдаче</span>
+          </button>
+          <button class="secondary-action" type="button" data-ops-jump="inventory">
+            <i data-lucide="boxes"></i>
+            <span>Остатки</span>
+          </button>
+          <button class="secondary-action" type="button" data-ops-jump="products">
+            <i data-lucide="package-plus"></i>
+            <span>Товары</span>
+          </button>
+        </div>
       </div>
       <div class="ops-summary-grid">
-        <article>
-          <span>${Number(summary.open_orders || 0)}</span>
-          <strong>Открытых заказов</strong>
+        <article class="ops-metric ops-metric-orders">
+          <span class="ops-metric-icon"><i data-lucide="shopping-bag"></i></span>
+          <span class="ops-metric-copy">
+            <strong class="ops-metric-value">${Number(summary.open_orders || 0)}</strong>
+            <small>Заказы в работе</small>
+          </span>
         </article>
-        <article>
-          <span>${Number(summary.pending_issue_orders || 0)}</span>
-          <strong>Ожидают выдачи</strong>
+        <article class="ops-metric ops-metric-issue">
+          <span class="ops-metric-icon"><i data-lucide="hand-platter"></i></span>
+          <span class="ops-metric-copy">
+            <strong class="ops-metric-value">${Number(summary.pending_issue_orders || 0)}</strong>
+            <small>Ожидают выдачи</small>
+          </span>
         </article>
-        <article>
-          <span>${Number(summary.active_products || 0)}</span>
-          <strong>Активных товаров</strong>
+        <article class="ops-metric ops-metric-products">
+          <span class="ops-metric-icon"><i data-lucide="package-open"></i></span>
+          <span class="ops-metric-copy">
+            <strong class="ops-metric-value">${activeProductCount}</strong>
+            <small>Активные товары</small>
+          </span>
         </article>
-        <article>
-          <span>${Number(summary.total_reserved_quantity || 0)}</span>
-          <strong>В резерве</strong>
+        <article class="ops-metric ops-metric-reserved">
+          <span class="ops-metric-icon"><i data-lucide="archive"></i></span>
+          <span class="ops-metric-copy">
+            <strong class="ops-metric-value">${Number(summary.total_reserved_quantity || 0)}</strong>
+            <small>Товаров в резерве</small>
+          </span>
         </article>
       </div>
       <div class="ops-summary-meta">
-        <span>Tenant: ${escapeHtml(summary.tenant_slug || apiContext.tenantSlug || "demo")}</span>
-        <span>Роль: ${escapeHtml(staffRoleLabel(summary.staff_role || state.role))}</span>
-        <span>Складов: ${Number(summary.warehouses || 0)}</span>
-        <span>Факт: ${Number(summary.total_stock_quantity || 0)} шт.</span>
+        <span><i data-lucide="warehouse"></i>${warehouseCountLabel(warehouseCount)}</span>
+        <span><i data-lucide="package"></i>${totalStockQuantity} шт. на складах</span>
       </div>
-      <div class="ops-summary-columns">
-        <section>
-          <h3>Статусы заказов</h3>
-          ${
-            statuses.length
-              ? statuses
-                  .map(
-                    (item) => `
-                      <div class="ops-row">
-                        <span>${escapeHtml(orderStatusLabel(item.status))}</span>
-                        <strong>${Number(item.count || 0)}</strong>
-                      </div>
-                    `,
-                  )
-                  .join("")
-              : '<div class="empty-state">Заказов пока нет</div>'
-          }
-        </section>
-        <section>
-          <h3>Ближайшие открытые</h3>
-          ${
-            openOrders.length
-              ? openOrders
-                  .slice(0, 6)
-                  .map(
-                    (order) => `
-                      <button
-                        class="ops-row ops-row-action"
-                        type="button"
-                        data-open-order="${escapeHtml(order.id || order.order_number || "")}"
-                      >
-                        <span>#${escapeHtml(order.order_number || order.id || "")} ${escapeHtml(
-                          order.student_name || "ученик",
-                        )}</span>
-                        <strong>${escapeHtml(orderStatusLabel(order.status))}</strong>
-                      </button>
-                    `,
-                  )
-                  .join("")
-              : '<div class="empty-state">Открытых заказов нет</div>'
-          }
-        </section>
-        <section>
-          <h3>Остатки ниже порога</h3>
-          ${
-            lowStock.length
-              ? lowStock
-                  .slice(0, 8)
-                  .map(
-                    (item) => `
-                      <button class="ops-row ops-row-action" type="button" data-ops-jump="inventory">
-                        <span>${escapeHtml(
-                          item.product_name || item.sku || "товар",
-                        )} / ${escapeHtml(item.warehouse_name || "склад")}</span>
-                        <strong>${Number(item.available_quantity || 0)} шт.</strong>
-                      </button>
-                    `,
-                  )
-                  .join("")
-              : '<div class="empty-state">Проблемных остатков нет</div>'
-          }
-        </section>
-      </div>
+      ${
+        hasOperationalRows
+          ? `
+            <div class="ops-summary-columns">
+              <section>
+                <div class="ops-column-head">
+                  <h3>Статусы заказов</h3>
+                  <span>${statusOrderCount}</span>
+                </div>
+                ${
+                  statuses.length
+                    ? statuses
+                        .map(
+                          (item) => `
+                            <div class="ops-row">
+                              <span>${escapeHtml(orderStatusLabel(item.status))}</span>
+                              <strong>${Number(item.count || 0)}</strong>
+                            </div>
+                          `,
+                        )
+                        .join("")
+                    : '<div class="empty-state">Заказов пока нет</div>'
+                }
+              </section>
+              <section>
+                <div class="ops-column-head">
+                  <h3>Ближайшие к выдаче</h3>
+                  <span>${openOrders.length}</span>
+                </div>
+                ${
+                  openOrders.length
+                    ? openOrders
+                        .slice(0, 6)
+                        .map(
+                          (order) => `
+                            <button
+                              class="ops-row ops-row-action"
+                              type="button"
+                              data-open-order="${escapeHtml(order.id || order.order_number || "")}"
+                            >
+                              <span>#${escapeHtml(order.order_number || order.id || "")} ${escapeHtml(
+                                order.student_name || "ученик",
+                              )}</span>
+                              <strong>${escapeHtml(orderStatusLabel(order.status))}</strong>
+                            </button>
+                          `,
+                        )
+                        .join("")
+                    : '<div class="empty-state">Открытых заказов нет</div>'
+                }
+              </section>
+              <section>
+                <div class="ops-column-head">
+                  <h3>Низкие остатки</h3>
+                  <span>${lowStock.length}</span>
+                </div>
+                ${
+                  lowStock.length
+                    ? lowStock
+                        .slice(0, 8)
+                        .map(
+                          (item) => `
+                            <button class="ops-row ops-row-action" type="button" data-ops-jump="inventory">
+                              <span>${escapeHtml(
+                                item.product_name || item.sku || "товар",
+                              )} / ${escapeHtml(item.warehouse_name || "склад")}</span>
+                              <strong>${Number(item.available_quantity || 0)} шт.</strong>
+                            </button>
+                          `,
+                        )
+                        .join("")
+                    : '<div class="empty-state">Низких остатков нет</div>'
+                }
+              </section>
+            </div>
+          `
+          : `
+            <div class="ops-empty-overview">
+              <span class="ops-empty-icon">
+                <i data-lucide="${needsInitialSetup ? "package-plus" : "clipboard-check"}"></i>
+              </span>
+              <div>
+                <h3>${needsInitialSetup ? "Подготовьте каталог к работе" : "Нет задач, требующих внимания"}</h3>
+                <p>${
+                  needsInitialSetup
+                    ? "Добавьте товары и настройте склад. После первых заказов здесь появятся выдача, резервы и контроль остатков."
+                    : "Новые заказы и позиции с низким остатком появятся в этом разделе."
+                }</p>
+              </div>
+              ${
+                needsInitialSetup
+                  ? `<button class="secondary-action" type="button" data-ops-jump="${setupTarget}">
+                      <span>${setupAction}</span>
+                      <i data-lucide="arrow-right"></i>
+                    </button>`
+                  : ""
+              }
+            </div>
+          `
+      }
     `;
+    refreshIcons();
     return;
   }
 
@@ -4705,7 +4770,7 @@ document.addEventListener("click", (event) => {
     state.orderStatusFilter = "open";
     setView("orders");
     renderOrders();
-  } else if (["inventory", "products"].includes(opsJump)) {
+  } else if (["inventory", "products", "warehouses"].includes(opsJump)) {
     state.adminTab = opsJump;
     renderAdminPanel();
   }
