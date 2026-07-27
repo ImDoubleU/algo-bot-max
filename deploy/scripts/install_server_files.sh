@@ -19,7 +19,11 @@ if [[ ! "$domain" =~ ^[A-Za-z0-9.-]+$ ]]; then
 fi
 
 id algomax >/dev/null 2>&1 || useradd --system --create-home --home-dir /home/algomax --shell /bin/bash algomax
-install -d -o algomax -g algomax -m 0750 /etc/algo-max /var/backups/algo-max "$project_dir"
+install -d -o algomax -g algomax -m 0750 \
+    /etc/algo-max \
+    /var/backups/algo-max \
+    /var/lib/algo-max/product-media \
+    "$project_dir"
 install -m 0644 deploy/systemd/algo-max-api.service /etc/systemd/system/algo-max-api.service
 install -m 0644 deploy/systemd/algo-max-feedback.service /etc/systemd/system/algo-max-feedback.service
 install -m 0644 deploy/systemd/algo-max-backup.service /etc/systemd/system/algo-max-backup.service

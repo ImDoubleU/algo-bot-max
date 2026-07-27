@@ -61,6 +61,9 @@ const state = {
   productImporting: false,
   productImportFile: null,
   productImportFileName: "",
+  productPhotoFile: null,
+  productPhotoFileName: "",
+  productPhotoPreviewUrl: "",
   crmImporting: false,
   crmImportFile: null,
   crmImportFileName: "",
@@ -456,6 +459,8 @@ const accrualReasons = [
 ];
 
 const accrualAmounts = [10, 20, 30, 50, 100];
+const PRODUCT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const PRODUCT_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function qs(selector) {
   return document.querySelector(selector);
@@ -2886,6 +2891,7 @@ function renderAdminPanel() {
     const savingDisabled = state.productSaving ? "disabled" : "";
     const editing = products.find((product) => product.id === state.editingProductId);
     const editorOpen = state.productEditorOpen || Boolean(editing);
+    const photoPreviewUrl = state.productPhotoPreviewUrl || editing?.photoUrl || "";
     qs("#adminPanel").innerHTML = `
       <div class="admin-section-toolbar">
         <div>
@@ -2899,71 +2905,130 @@ function renderAdminPanel() {
         }
       </div>
       ${editorOpen ? `
-      <div class="product-form admin-editor">
-        <label>
-          <span>SKU</span>
-          <input id="productSku" value="${escapeHtml(editing?.sku || "")}" placeholder="PEN-LOGO" />
-        </label>
-        <label>
-          <span>Название</span>
-          <input id="productName" value="${escapeHtml(editing?.name || "")}" placeholder="Название товара" />
-        </label>
-        <label>
-          <span>Категория</span>
-          <input id="productCategory" value="${escapeHtml(editing?.category || "Без категории")}" />
-        </label>
-        <label>
-          <span>Цена AC</span>
-          <input id="productPrice" type="number" min="0" value="${editing?.price ?? 0}" />
-        </label>
-        <label>
-          <span>Статус</span>
-          <select id="productStatus">
-            ${["active", "hidden", "archived"]
-              .map(
-                (status) => `<option value="${status}" ${
-                  (editing?.status || "active") === status ? "selected" : ""
-                }>${status}</option>`,
-              )
-              .join("")}
-          </select>
-        </label>
-        <label>
-          <span>Фото URL</span>
-          <input id="productPhotoUrl" value="${escapeHtml(editing?.photoUrl || "")}" />
-        </label>
-        <label class="product-form-wide">
-          <span>Описание</span>
-          <textarea id="productDescription" rows="3">${escapeHtml(
-            editing?.description || "",
-          )}</textarea>
-        </label>
-        <button id="productSaveButton" class="primary-action" type="button" ${savingDisabled}>
-          ${state.productSaving ? "Сохранение..." : editing ? "Сохранить" : "Создать"}
-        </button>
-        ${
-          editing
-            ? '<button id="productCancelEditButton" class="secondary-action" type="button">Отмена</button>'
-            : ""
-        }
+      <div class="product-editor admin-editor">
+        <div class="product-editor-heading">
+          <div>
+            <h3>${editing ? "Редактирование товара" : "Новый товар"}</h3>
+            <span>${editing ? escapeHtml(editing.sku) : "Заполните карточку целиком"}</span>
+          </div>
+          <button
+            id="productCancelEditButton"
+            class="icon-button"
+            type="button"
+            title="Закрыть редактор"
+            aria-label="Закрыть редактор"
+            ${savingDisabled}
+          ><i data-lucide="x"></i></button>
+        </div>
+
+        <div class="product-editor-main">
+          <div class="product-photo-field">
+            <span>Фото товара</span>
+            <label class="product-photo-picker ${photoPreviewUrl ? "has-preview" : ""}">
+              <input
+                id="productPhotoFile"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                ${savingDisabled}
+              />
+              ${
+                photoPreviewUrl
+                  ? `<img src="${escapeHtml(photoPreviewUrl)}" alt="Фото товара" />`
+                  : `<span class="product-photo-placeholder">
+                      <i data-lucide="image-plus"></i>
+                      <strong>Добавить фото</strong>
+                      <small>JPEG, PNG или WebP до 10 МБ</small>
+                    </span>`
+              }
+              <span class="product-photo-action">
+                <i data-lucide="camera"></i>
+                ${photoPreviewUrl ? "Заменить фото" : "Выбрать фото"}
+              </span>
+            </label>
+            ${
+              state.productPhotoFileName
+                ? `<small class="product-photo-name">${escapeHtml(
+                    state.productPhotoFileName,
+                  )}</small>`
+                : ""
+            }
+          </div>
+
+          <div class="product-form-grid">
+            <label>
+              <span>SKU</span>
+              <input id="productSku" value="${escapeHtml(editing?.sku || "")}" placeholder="PEN-LOGO" />
+            </label>
+            <label>
+              <span>Статус</span>
+              <select id="productStatus">
+                ${["active", "hidden", "archived"]
+                  .map(
+                    (status) => `<option value="${status}" ${
+                      (editing?.status || "active") === status ? "selected" : ""
+                    }>${escapeHtml(productStatusLabel(status))}</option>`,
+                  )
+                  .join("")}
+              </select>
+            </label>
+            <label class="product-field-wide">
+              <span>Название</span>
+              <input id="productName" value="${escapeHtml(editing?.name || "")}" placeholder="Название товара" />
+            </label>
+            <label>
+              <span>Категория</span>
+              <input id="productCategory" value="${escapeHtml(editing?.category || "Без категории")}" />
+            </label>
+            <label>
+              <span>Цена, AC</span>
+              <input id="productPrice" type="number" min="0" value="${editing?.price ?? 0}" />
+            </label>
+            <label class="product-field-wide">
+              <span>Описание</span>
+              <textarea id="productDescription" rows="4" placeholder="Краткое описание товара">${escapeHtml(
+                editing?.description || "",
+              )}</textarea>
+            </label>
+          </div>
+        </div>
+
+        <div class="product-editor-actions">
+          <button id="productSaveButton" class="primary-action" type="button" ${savingDisabled}>
+            <i data-lucide="save"></i>
+            ${state.productSaving ? "Сохранение..." : "Сохранить товар"}
+          </button>
+          <button id="productCancelEditButtonBottom" class="secondary-action" type="button" ${savingDisabled}>
+            Отмена
+          </button>
+        </div>
       </div>
       ` : ""}
-      <div class="import-panel">
-        <div>
-          <h3>Загрузка товаров</h3>
+      <details class="product-import-panel" ${state.productImportFileName ? "open" : ""}>
+        <summary>
+          <span class="product-import-icon"><i data-lucide="file-spreadsheet"></i></span>
+          <span>
+            <strong>Массовый импорт</strong>
+            <small>Загрузка каталога из CSV или XLSX</small>
+          </span>
+          <i class="product-import-chevron" data-lucide="chevron-down"></i>
+        </summary>
+        <div class="product-import-controls">
+          <label class="file-picker">
+            <input id="productImportFile" type="file" accept=".xlsx,.csv,text/csv" />
+            <span>${escapeHtml(state.productImportFileName || "Выбрать CSV или XLSX")}</span>
+          </label>
+          <button id="productImportButton" class="primary-action" type="button" ${importingDisabled}>
+            ${state.productImporting ? "Импорт..." : "Импортировать"}
+          </button>
         </div>
-        <label class="file-picker">
-          <input id="productImportFile" type="file" accept=".xlsx,.csv,text/csv" />
-          <span>${escapeHtml(state.productImportFileName || "Выбрать файл")}</span>
-        </label>
-        <button id="productImportButton" class="primary-action" type="button" ${importingDisabled}>
-          ${state.productImporting ? "Загрузка..." : "Загрузить"}
-        </button>
-      </div>
+      </details>
       <div class="admin-card-list">
-      ${products
-        .map(
-          (product) => `
+      ${
+        products.length === 0
+          ? '<div class="empty-state">Товаров пока нет</div>'
+          : products
+              .map(
+                (product) => `
             <article class="admin-entity-card">
               <div class="admin-product-thumb">
                 <span>${escapeHtml(product.mark)}</span>
@@ -2999,10 +3064,12 @@ function renderAdminPanel() {
               </div>
             </article>
           `,
-        )
-        .join("")}
+              )
+              .join("")
+      }
       </div>
     `;
+    refreshIcons();
     return;
   }
 
@@ -3750,14 +3817,53 @@ async function importDemoProductsFromFile(file) {
   }
 }
 
+function resetProductPhotoSelection() {
+  if (state.productPhotoPreviewUrl.startsWith("blob:")) {
+    URL.revokeObjectURL(state.productPhotoPreviewUrl);
+  }
+  state.productPhotoFile = null;
+  state.productPhotoFileName = "";
+  state.productPhotoPreviewUrl = "";
+}
+
+function selectProductPhoto(file) {
+  if (!file) return false;
+  const supportedByName = /\.(jpe?g|png|webp)$/i.test(file.name);
+  if (!PRODUCT_IMAGE_TYPES.has(file.type) && !supportedByName) {
+    showNotice("Выберите фото JPEG, PNG или WebP", "danger");
+    return false;
+  }
+  if (file.size > PRODUCT_IMAGE_MAX_BYTES) {
+    showNotice("Фото товара должно быть не больше 10 МБ", "danger");
+    return false;
+  }
+
+  resetProductPhotoSelection();
+  state.productPhotoFile = file;
+  state.productPhotoFileName = file.name;
+  state.productPhotoPreviewUrl = URL.createObjectURL(file);
+  return true;
+}
+
+function fileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result || "")));
+    reader.addEventListener("error", () => reject(new Error("Не удалось прочитать фото")));
+    reader.readAsDataURL(file);
+  });
+}
+
 async function saveProductFromForm() {
   const sku = qs("#productSku")?.value.trim().toUpperCase() || "";
   const name = qs("#productName")?.value.trim() || "";
   const category = qs("#productCategory")?.value.trim() || "Без категории";
   const price = Number.parseInt(qs("#productPrice")?.value || "0", 10);
   const status = qs("#productStatus")?.value || "active";
-  const photoUrl = qs("#productPhotoUrl")?.value.trim() || "";
   const description = qs("#productDescription")?.value.trim() || "";
+  const photoFile = state.productPhotoFile;
+  const editing = products.find((product) => product.id === state.editingProductId);
+  const existingPhotoUrl = editing?.photoUrl || "";
   if (sku.length < 2 || name.length < 2) {
     showNotice("Укажите SKU и название товара", "danger");
     return;
@@ -3766,8 +3872,10 @@ async function saveProductFromForm() {
     showNotice("Цена должна быть неотрицательным числом", "danger");
     return;
   }
-
-  const editing = products.find((product) => product.id === state.editingProductId);
+  if (!photoFile && !existingPhotoUrl) {
+    showNotice("Добавьте фото товара", "danger");
+    return;
+  }
   const payload = {
     sku,
     name,
@@ -3775,11 +3883,19 @@ async function saveProductFromForm() {
     category_slug: slugify(category),
     price_astrocoins: price,
     status,
-    photo_url: photoUrl || undefined,
     description: description || undefined,
   };
 
   if (apiContext.demoMode || !apiContext.maxUserId || state.editingProductId.startsWith("demo-")) {
+    let photoUrl = existingPhotoUrl;
+    if (photoFile) {
+      try {
+        photoUrl = await fileAsDataUrl(photoFile);
+      } catch (error) {
+        showNotice(error.message || "Не удалось прочитать фото", "danger");
+        return;
+      }
+    }
     const id = editing?.id || `demo-product-${slugify(sku)}`;
     const nextProduct = {
       ...(editing || {}),
@@ -3802,6 +3918,7 @@ async function saveProductFromForm() {
     else products.unshift(nextProduct);
     state.editingProductId = "";
     state.productEditorOpen = false;
+    resetProductPhotoSelection();
     showNotice(`Товар "${name}" сохранен`);
     renderAll();
     return;
@@ -3810,21 +3927,30 @@ async function saveProductFromForm() {
   state.productSaving = true;
   renderAdminPanel();
   try {
-    const response = await apiFetch("/api/v1/miniapp/products", {
+    const formData = new FormData();
+    formData.set("max_user_id", apiContext.maxUserId);
+    if (apiContext.tenantSlug) formData.set("tenant_slug", apiContext.tenantSlug);
+    if (state.editingProductId) formData.set("product_id", state.editingProductId);
+    formData.set("sku", payload.sku);
+    formData.set("name", payload.name);
+    formData.set("category_name", payload.category_name);
+    formData.set("category_slug", payload.category_slug);
+    formData.set("price_astrocoins", String(payload.price_astrocoins));
+    formData.set("status", payload.status);
+    if (payload.description) formData.set("description", payload.description);
+    if (existingPhotoUrl) formData.set("existing_photo_url", existingPhotoUrl);
+    if (photoFile) formData.set("photo", photoFile);
+
+    const response = await apiFetch("/api/v1/miniapp/products/save", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        max_user_id: Number(apiContext.maxUserId),
-        tenant_slug: apiContext.tenantSlug || undefined,
-        product_id: state.editingProductId || undefined,
-        ...payload,
-      }),
+      body: formData,
     });
     if (!response.ok) throw new Error(await parseApiError(response));
 
     const result = await response.json();
     state.editingProductId = "";
     state.productEditorOpen = false;
+    resetProductPhotoSelection();
     showNotice(`Товар "${result.name}" сохранен`);
     await refreshCatalogAndOpsSummary();
     renderAll();
@@ -4923,18 +5049,24 @@ document.addEventListener("click", (event) => {
 
   const editProductId = target.dataset.editProduct;
   if (editProductId) {
+    resetProductPhotoSelection();
     state.editingProductId = editProductId;
     state.productEditorOpen = true;
     renderAdminPanel();
   }
 
   if (target.id === "productCreateButton") {
+    resetProductPhotoSelection();
     state.editingProductId = "";
     state.productEditorOpen = true;
     renderAdminPanel();
   }
 
-  if (target.id === "productCancelEditButton") {
+  if (
+    target.id === "productCancelEditButton" ||
+    target.id === "productCancelEditButtonBottom"
+  ) {
+    resetProductPhotoSelection();
     state.editingProductId = "";
     state.productEditorOpen = false;
     renderAdminPanel();
@@ -5024,6 +5156,15 @@ document.addEventListener("change", (event) => {
     if (label) label.textContent = state.productImportFileName || "Выбрать файл";
   }
 
+  if (target.id === "productPhotoFile") {
+    const file = target.files?.[0] || null;
+    if (file && selectProductPhoto(file)) {
+      renderAdminPanel();
+    } else {
+      target.value = "";
+    }
+  }
+
   if (target.id === "crmImportFile") {
     const file = target.files?.[0] || null;
     state.crmImportFile = file;
@@ -5097,7 +5238,9 @@ document.addEventListener(
     const image = event.target;
     if (
       !(image instanceof HTMLImageElement) ||
-      !image.closest(".product-visual, .product-dialog-visual, .admin-product-thumb")
+      !image.closest(
+        ".product-visual, .product-dialog-visual, .admin-product-thumb, .product-photo-picker",
+      )
     ) return;
     image.remove();
   },

@@ -1,7 +1,18 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
@@ -11,7 +22,7 @@ from app.api.dependencies import (
 from app.core.config import get_settings
 from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
-from app.models.enums import StudentStatus
+from app.models.enums import ProductStatus, StudentStatus
 from app.schemas.miniapp import (
     MiniAppAccessStatusRead,
     MiniAppAccessStatusUpdate,
@@ -59,6 +70,11 @@ from app.services.miniapp import (
     update_miniapp_staff_assignment,
     upsert_miniapp_product,
     upsert_miniapp_warehouse,
+)
+from app.services.product_media import (
+    ProductMediaError,
+    remove_product_image,
+    save_product_image,
 )
 
 router = APIRouter()
@@ -227,6 +243,75 @@ async def miniapp_upsert_product(
         )
     except MiniAppStoreError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/products/save", response_model=MiniAppProductRead)
+async def miniapp_save_product(
+    request: Request,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Form(gt=0)],
+    sku: Annotated[str, Form(min_length=2, max_length=120)],
+    name: Annotated[str, Form(min_length=2, max_length=200)],
+    category_name: Annotated[str, Form(min_length=2, max_length=160)],
+    price_astrocoins: Annotated[int, Form(ge=0, le=1_000_000)],
+    tenant_slug: Annotated[str | None, Form()] = None,
+    product_id: Annotated[UUID | None, Form()] = None,
+    category_slug: Annotated[str | None, Form()] = None,
+    status_value: Annotated[ProductStatus, Form(alias="status")] = ProductStatus.ACTIVE,
+    description: Annotated[str | None, Form(max_length=1000)] = None,
+    existing_photo_url: Annotated[str | None, Form(max_length=500)] = None,
+    photo: Annotated[UploadFile | None, File()] = None,
+) -> MiniAppProductRead:
+    settings = get_settings()
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        payload = MiniAppProductUpsert(
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+            product_id=product_id,
+            sku=sku,
+            name=name,
+            category_name=category_name,
+            category_slug=category_slug,
+            price_astrocoins=price_astrocoins,
+            description=description or None,
+            photo_url=existing_photo_url or None,
+            status=status_value,
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail="Проверьте поля товара") from exc
+
+    saved_image = None
+    if photo is not None:
+        try:
+            saved_image = await save_product_image(
+                photo,
+                media_root=settings.product_media_root,
+            )
+        except ProductMediaError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        absolute_photo_url = (
+            f"{str(request.base_url).rstrip('/')}{saved_image.url_path}"
+        )
+        payload = payload.model_copy(update={"photo_url": absolute_photo_url})
+
+    try:
+        return await upsert_miniapp_product(
+            db,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        await remove_product_image(saved_image)
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except Exception:
+        await remove_product_image(saved_image)
+        raise
 
 
 @router.patch("/access-links/{link_id}", response_model=MiniAppAccessStatusRead)
