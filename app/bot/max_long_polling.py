@@ -66,6 +66,7 @@ from app.bot.keyboards import (
     parse_order_action_payload,
     parse_order_confirm_payload,
     role_selection_keyboard,
+    without_open_app_buttons,
 )
 from app.bot.max_client import MaxApiClient, MaxApiError, SimulationMaxClient
 from app.bot.models import BotResponse, PendingContact
@@ -230,12 +231,48 @@ class LongPollingBot:
         chat_id: int | None = None,
         user_id: int | None = None,
     ) -> None:
-        self.send_reply(
-            text=response.text,
-            attachments=response.attachments,
-            chat_id=chat_id,
-            user_id=user_id,
-        )
+        try:
+            self.send_reply(
+                text=response.text,
+                attachments=response.attachments,
+                chat_id=chat_id,
+                user_id=user_id,
+            )
+        except MaxApiError:
+            fallback_attachments = without_open_app_buttons(response.attachments)
+            if fallback_attachments == response.attachments:
+                raise
+            logger.warning("MAX rejected open_app button; retrying response without it")
+            self.send_reply(
+                text=response.text,
+                attachments=fallback_attachments,
+                chat_id=chat_id,
+                user_id=user_id,
+            )
+
+    def answer_callback_response(
+        self,
+        *,
+        callback_id: str,
+        response: BotResponse,
+        notification: str | None,
+    ) -> None:
+        try:
+            self.client.answer_callback(
+                callback_id=callback_id,
+                response=response,
+                notification=notification,
+            )
+        except MaxApiError:
+            fallback_attachments = without_open_app_buttons(response.attachments)
+            if fallback_attachments == response.attachments:
+                raise
+            logger.warning("MAX rejected open_app button; retrying callback without it")
+            self.client.answer_callback(
+                callback_id=callback_id,
+                response=BotResponse(response.text, fallback_attachments),
+                notification=notification,
+            )
 
     def log_interaction_result(
         self,
@@ -6337,7 +6374,7 @@ class LongPollingBot:
                 response=response,
             )
             if callback_id and hasattr(self.client, "answer_callback"):
-                self.client.answer_callback(
+                self.answer_callback_response(
                     callback_id=callback_id,
                     response=response,
                     notification=notification,
@@ -6472,7 +6509,7 @@ class LongPollingBot:
             response=response,
         )
         if callback_id and hasattr(self.client, "answer_callback"):
-            self.client.answer_callback(
+            self.answer_callback_response(
                 callback_id=callback_id,
                 response=response,
                 notification=notification,

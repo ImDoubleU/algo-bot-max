@@ -513,18 +513,16 @@ class FakeBackendClient:
         }
 
 
-def test_build_miniapp_url_does_not_embed_user_identity(monkeypatch) -> None:
+def test_build_miniapp_url_keeps_registered_url_exact(monkeypatch) -> None:
     monkeypatch.setenv("MAX_MINIAPP_URL", "https://example.test/miniapp?source=max")
 
     url = max_bot.build_miniapp_url(
         user_id=53364725,
         tenant_slug="nizhniy-novgorod-partner-a",
+        view="orders",
     )
 
-    assert (
-        url
-        == "https://example.test/miniapp?source=max&tenant_slug=nizhniy-novgorod-partner-a"
-    )
+    assert url == "https://example.test/miniapp?source=max"
 
 
 def test_simulate_command_returns_local_bot_response() -> None:
