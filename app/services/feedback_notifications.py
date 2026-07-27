@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.keyboards import (
     build_miniapp_url,
     inline_keyboard_with_main_menu,
-    open_app_button,
+    miniapp_button,
 )
 from app.bot.max_client import MaxApiClient
 from app.core.config import get_settings, is_placeholder
@@ -49,7 +49,7 @@ async def _send_max_messages(
 
     async def send(user_id: int) -> bool:
         url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug, view=view)
-        rows = [[open_app_button("Открыть кабинет")]] if url else []
+        rows = [[miniapp_button("Открыть кабинет", url)]] if url else []
         attachments = inline_keyboard_with_main_menu(rows)
         try:
             await asyncio.to_thread(

@@ -4,6 +4,7 @@ import os
 from typing import Any
 from urllib import parse
 
+from app.core.config import get_settings, is_placeholder
 from app.services.knowledge_base import clean_knowledge_label
 
 CALLBACK_HELP = "help"
@@ -50,11 +51,22 @@ def link_button(text: str, url: str) -> dict[str, str]:
     }
 
 
-def open_app_button(text: str) -> dict[str, str]:
+def open_app_button(text: str, web_app: str) -> dict[str, str]:
     return {
         "type": "open_app",
         "text": text,
+        "web_app": web_app,
     }
+
+
+def miniapp_button(text: str, url: str) -> dict[str, str]:
+    configured_username = os.getenv("MAX_BOT_USERNAME", "").strip()
+    if not configured_username:
+        configured_username = (get_settings().max_bot_username or "").strip()
+    bot_username = configured_username.removeprefix("@")
+    if bot_username:
+        return open_app_button(text, bot_username)
+    return link_button(text, url)
 
 
 def inline_keyboard(rows: list[list[dict[str, str]]]) -> list[dict[str, Any]]:
@@ -188,10 +200,14 @@ def build_miniapp_url(
     tenant_slug: str | None = None,
     view: str | None = None,
 ) -> str:
-    # MAX matches open_app against the exact URL registered for the bot.
+    # Keep the configured site URL exact for the external-link fallback.
     # User and tenant context come from signed WebApp init data after launch.
     _ = user_id, tenant_slug, view
-    return os.getenv("MAX_MINIAPP_URL", "").strip()
+    configured_url = os.getenv("MAX_MINIAPP_URL", "").strip()
+    if configured_url:
+        return configured_url
+    settings_url = get_settings().max_miniapp_url
+    return "" if is_placeholder(settings_url) else str(settings_url).strip()
 
 
 def main_menu_keyboard(
@@ -209,7 +225,7 @@ def main_menu_keyboard(
     rows: list[list[dict[str, str]]] = []
     miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
     if miniapp_url:
-        rows.append([open_app_button("Открыть личный кабинет")])
+        rows.append([miniapp_button("Открыть личный кабинет", miniapp_url)])
     else:
         rows.append([callback_button("Личный кабинет", CALLBACK_MINIAPP)])
     rows.append([callback_button("Помощь", CALLBACK_HELP)])
@@ -279,7 +295,7 @@ def role_menu_keyboard(
         "superadmin": "Открыть кабинет суперадминистратора",
     }.get(normalized, "Открыть кабинет")
     if miniapp_url:
-        rows.append([open_app_button(cabinet_label)])
+        rows.append([miniapp_button(cabinet_label, miniapp_url)])
     else:
         rows.append([callback_button(cabinet_label, CALLBACK_MINIAPP)])
     if normalized in {
@@ -610,7 +626,7 @@ def order_actions_keyboard(
     )
     miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
     if miniapp_url:
-        rows.insert(0, [open_app_button("Открыть mini app")])
+        rows.insert(0, [miniapp_button("Открыть mini app", miniapp_url)])
     return inline_keyboard(rows)
 
 

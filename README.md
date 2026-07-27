@@ -203,6 +203,7 @@ http://127.0.0.1:8000/miniapp?demo=1&demo_role=superadmin
 
 ```powershell
 $env:MAX_BOT_TOKEN = "..."
+$env:MAX_BOT_USERNAME = "your_bot_username"
 $env:MAX_API_TIMEOUT_SECONDS = "15"
 $env:MAX_POLL_TIMEOUT_SECONDS = "30"
 $env:MAX_BACKEND_API_BASE = "http://127.0.0.1:8000/api/v1"
@@ -230,6 +231,7 @@ Worker всегда готовит ОС преподавателю. Если в 
 `MAX_DROP_WEBHOOKS_ON_START=true` разрешает polling-боту удалять активные webhook-подписки при старте; разово то же делает `--drop-webhooks`.
 `MAX_ORDER_NOTIFICATIONS_ENABLED=true` отправляет создателю заказа и связанным родителям/ученикам сообщения MAX при создании, отмене, выдаче и возврате заказа. Кнопка в сообщении сразу открывает вкладку заказов mini-app.
 Для телефона в MAX `MAX_MINIAPP_URL` нужно заменить на публичный HTTPS-адрес.
+`MAX_BOT_USERNAME` задаётся без `@`; он нужен нативной кнопке открытия mini-app.
 
 Интерфейс MAX-бота:
 
