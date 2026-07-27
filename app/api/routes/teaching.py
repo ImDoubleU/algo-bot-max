@@ -12,19 +12,26 @@ from app.core.config import get_settings
 from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
 from app.schemas.teaching import (
+    CourseLessonSummaryRead,
     FeedbackDeliveryRead,
     FeedbackDeliveryRequest,
     FeedbackGenerateRequest,
     FeedbackOutputRead,
+    ManualFeedbackCreate,
+    ManualFeedbackOutputRead,
     TeachingScheduleRead,
     TeachingScheduleUpsert,
     TeachingWorkspaceRead,
 )
 from app.services.teaching import (
     TeachingServiceError,
+    generate_manual_feedback,
     generate_schedule_feedback,
     get_teaching_workspace,
+    list_course_lessons,
+    list_manual_feedback,
     send_feedback_to_parents,
+    send_manual_feedback_to_parents,
     upsert_teaching_schedule,
 )
 
@@ -65,6 +72,111 @@ async def teaching_workspace(
             db,
             max_user_id=max_user_id,
             tenant_slug=resolved_tenant,
+        )
+    except TeachingServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get(
+    "/courses/{course_id}/lessons",
+    response_model=list[CourseLessonSummaryRead],
+)
+async def teaching_course_lessons(
+    course_id: UUID,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: str | None = None,
+) -> list[CourseLessonSummaryRead]:
+    resolved_tenant = _authorize(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        return await list_course_lessons(
+            db,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+            course_id=course_id,
+        )
+    except TeachingServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get(
+    "/manual-feedback",
+    response_model=list[ManualFeedbackOutputRead],
+)
+async def teaching_manual_feedback_list(
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: str | None = None,
+) -> list[ManualFeedbackOutputRead]:
+    resolved_tenant = _authorize(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        return await list_manual_feedback(
+            db,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+        )
+    except TeachingServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post(
+    "/manual-feedback",
+    response_model=ManualFeedbackOutputRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def teaching_manual_feedback_generate(
+    payload: ManualFeedbackCreate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> ManualFeedbackOutputRead:
+    settings = get_settings()
+    _authorize(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await generate_manual_feedback(
+            db,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except TeachingServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post(
+    "/manual-feedback/{output_id}/send",
+    response_model=FeedbackDeliveryRead,
+)
+async def teaching_manual_feedback_send(
+    output_id: UUID,
+    payload: FeedbackDeliveryRequest,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> FeedbackDeliveryRead:
+    settings = get_settings()
+    _authorize(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await send_manual_feedback_to_parents(
+            db,
+            output_id=output_id,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
         )
     except TeachingServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

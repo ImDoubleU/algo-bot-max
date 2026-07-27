@@ -10,6 +10,12 @@ class CourseSummaryRead(BaseModel):
     lesson_count: int
 
 
+class CourseLessonSummaryRead(BaseModel):
+    id: UUID
+    lesson_number: int
+    title: str
+
+
 class TeachingGroupOptionRead(BaseModel):
     name: str
     course_name: str | None = None
@@ -97,3 +103,32 @@ class FeedbackDeliveryRead(BaseModel):
     parent_recipients: int
     sent_recipients: int
     status: str
+
+
+class ManualFeedbackCreate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    group_name: str = Field(min_length=2, max_length=200)
+    course_id: UUID
+    lesson_number: int = Field(ge=1, le=1000)
+    lesson_date: date
+    lesson_mode: str = Field(default="group", pattern="^(group|individual)$")
+    lesson_place: str = Field(default="offline", min_length=2, max_length=200)
+    absent_students: list[str] = Field(default_factory=list, max_length=100)
+    is_repetition: bool = False
+
+
+class ManualFeedbackOutputRead(BaseModel):
+    id: UUID
+    group_name: str
+    course_id: UUID
+    course_name: str
+    lesson_date: date
+    lesson_number: int
+    lesson_title: str
+    lesson_mode: str
+    lesson_place: str
+    feedback_text: str
+    status: str
+    sent_at: datetime | None = None
+    created_at: datetime

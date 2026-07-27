@@ -224,6 +224,86 @@ class AccessBackendClient:
             },
         )
 
+    def get_course_lessons(
+        self,
+        *,
+        course_id: str,
+        tenant_slug: str,
+        max_user_id: int,
+    ) -> list[dict[str, Any]]:
+        result = self._request(
+            "GET",
+            f"/teaching/courses/{parse.quote(str(course_id))}/lessons",
+            params={
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
+            },
+        )
+        return list(result) if isinstance(result, list) else []
+
+    def get_manual_feedback_outputs(
+        self,
+        *,
+        tenant_slug: str,
+        max_user_id: int,
+    ) -> list[dict[str, Any]]:
+        result = self._request(
+            "GET",
+            "/teaching/manual-feedback",
+            params={
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
+            },
+        )
+        return list(result) if isinstance(result, list) else []
+
+    def generate_manual_feedback(
+        self,
+        *,
+        tenant_slug: str,
+        max_user_id: int,
+        group_name: str,
+        course_id: str,
+        lesson_number: int,
+        lesson_date: str,
+        lesson_mode: str,
+        lesson_place: str,
+        absent_students: list[str],
+        is_repetition: bool,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/teaching/manual-feedback",
+            body={
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
+                "group_name": group_name,
+                "course_id": course_id,
+                "lesson_number": lesson_number,
+                "lesson_date": lesson_date,
+                "lesson_mode": lesson_mode,
+                "lesson_place": lesson_place,
+                "absent_students": absent_students,
+                "is_repetition": is_repetition,
+            },
+        )
+
+    def send_manual_feedback(
+        self,
+        *,
+        output_id: str,
+        tenant_slug: str,
+        max_user_id: int,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/teaching/manual-feedback/{parse.quote(str(output_id))}/send",
+            body={
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
+            },
+        )
+
     def generate_feedback(
         self,
         *,

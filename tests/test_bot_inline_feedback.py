@@ -6,8 +6,7 @@ from app.bot.keyboards import role_menu_keyboard
 from app.bot.max_client import SimulationMaxClient
 from app.bot.max_long_polling import LongPollingBot
 
-
-SCHEDULE_ID = "11111111-1111-1111-1111-111111111111"
+COURSE_ID = "11111111-1111-1111-1111-111111111111"
 OUTPUT_ID = "22222222-2222-2222-2222-222222222222"
 STUDENT_ID = "33333333-3333-3333-3333-333333333333"
 
@@ -16,6 +15,7 @@ class FeedbackBackend:
     def __init__(self) -> None:
         self.generated: list[dict[str, Any]] = []
         self.sent: list[dict[str, Any]] = []
+        self.outputs: list[dict[str, Any]] = []
 
     def get_session(self, *, tenant_slug: str, max_user_id: int) -> dict[str, Any]:
         return {
@@ -37,31 +37,40 @@ class FeedbackBackend:
         max_user_id: int,
     ) -> dict[str, Any]:
         return {
-            "schedules": [
+            "groups": [
                 {
-                    "id": SCHEDULE_ID,
-                    "group_name": "Python Start",
+                    "name": "Python Start",
                     "course_name": "Python",
-                    "current_lesson_number": 4,
-                    "next_lesson_date": "2026-07-27",
-                    "next_lesson_title": "Циклы",
-                    "is_active": True,
+                    "student_count": 1,
                 }
             ],
-            "feedback_outputs": [],
+            "courses": [
+                {
+                    "id": COURSE_ID,
+                    "name": "Python",
+                    "lesson_count": 12,
+                }
+            ],
         }
 
-    def generate_feedback(self, **payload: Any) -> dict[str, Any]:
+    def get_course_lessons(self, **payload: Any) -> list[dict[str, Any]]:
+        return [{"lesson_number": 4, "title": "Циклы"}]
+
+    def get_manual_feedback_outputs(self, **payload: Any) -> list[dict[str, Any]]:
+        return self.outputs
+
+    def generate_manual_feedback(self, **payload: Any) -> dict[str, Any]:
         self.generated.append(payload)
-        return {
+        output = {
             "id": OUTPUT_ID,
-            "schedule_id": SCHEDULE_ID,
             "group_name": "Python Start",
             "feedback_text": "Добрый день! На уроке изучили циклы.",
             "status": "generated",
         }
+        self.outputs.append(output)
+        return output
 
-    def send_feedback(self, **payload: Any) -> dict[str, Any]:
+    def send_manual_feedback(self, **payload: Any) -> dict[str, Any]:
         self.sent.append(payload)
         return {
             "parent_recipients": 1,
@@ -141,9 +150,18 @@ def test_feedback_inline_flow_generates_and_sends() -> None:
     bot = LongPollingBot(client, backend_client=backend)
 
     menu = callback(bot, "feedback")
-    assert f"feedback:schedule:{SCHEDULE_ID}" in keyboard_payloads(menu["attachments"])
+    assert "feedback:manual" in keyboard_payloads(menu["attachments"])
 
-    setup = callback(bot, f"feedback:schedule:{SCHEDULE_ID}")
+    groups = callback(bot, "feedback:manual")
+    assert "feedback:group:0" in keyboard_payloads(groups["attachments"])
+
+    courses = callback(bot, "feedback:group:0")
+    assert "feedback:course:0" in keyboard_payloads(courses["attachments"])
+
+    lessons = callback(bot, "feedback:course:0")
+    assert "feedback:lesson:0" in keyboard_payloads(lessons["attachments"])
+
+    setup = callback(bot, "feedback:lesson:0")
     assert "Все были на уроке" in setup["text"]
 
     selected = callback(bot, f"feedback:absent:{STUDENT_ID}")
@@ -152,7 +170,9 @@ def test_feedback_inline_flow_generates_and_sends() -> None:
     preview = callback(bot, "feedback:generate")
     assert "Готово к отправке" in preview["text"]
     assert backend.generated[0]["absent_students"] == ["Иван Петров"]
+    assert backend.generated[0]["course_id"] == COURSE_ID
+    assert backend.generated[0]["lesson_number"] == 4
 
-    sent = callback(bot, f"feedback:send:{OUTPUT_ID}")
+    sent = callback(bot, f"feedback:manual_send:{OUTPUT_ID}")
     assert "отправлена всем родителям" in sent["text"]
     assert backend.sent[0]["output_id"] == OUTPUT_ID

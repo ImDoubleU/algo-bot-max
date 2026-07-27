@@ -125,3 +125,28 @@ class FeedbackOutput(TimestampMixin, Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     schedule = relationship("TeachingSchedule", back_populates="feedback_outputs")
+
+
+class ManualFeedbackOutput(TimestampMixin, Base):
+    __tablename__ = "manual_feedback_outputs"
+
+    id: Mapped[UUID] = uuid_pk()
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), index=True, nullable=False)
+    author_account_id: Mapped[UUID] = mapped_column(
+        ForeignKey("max_accounts.id"),
+        index=True,
+        nullable=False,
+    )
+    course_id: Mapped[UUID] = mapped_column(ForeignKey("courses.id"), index=True, nullable=False)
+    group_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    lesson_date: Mapped[date] = mapped_column(Date, nullable=False)
+    lesson_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    lesson_title: Mapped[str] = mapped_column(String(260), nullable=False)
+    lesson_mode: Mapped[str] = mapped_column(String(40), default="group", nullable=False)
+    lesson_place: Mapped[str] = mapped_column(String(200), default="offline", nullable=False)
+    feedback_text: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default="generated", nullable=False)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    author_account = relationship("MaxAccount")
+    course = relationship("Course")

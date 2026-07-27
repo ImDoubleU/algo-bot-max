@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -11,14 +11,23 @@ from app.models.account import MaxAccount, StaffRoleAssignment
 from app.models.audit import AuditLog
 from app.models.enums import AssignmentStatus, StaffRole, StudentStatus
 from app.models.student import Student
-from app.models.teaching import Course, CourseLesson, FeedbackOutput, TeachingSchedule
+from app.models.teaching import (
+    Course,
+    CourseLesson,
+    FeedbackOutput,
+    ManualFeedbackOutput,
+    TeachingSchedule,
+)
 from app.models.tenant import Tenant
 from app.schemas.teaching import (
+    CourseLessonSummaryRead,
     CourseSummaryRead,
     FeedbackDeliveryRead,
     FeedbackDeliveryRequest,
     FeedbackGenerateRequest,
     FeedbackOutputRead,
+    ManualFeedbackCreate,
+    ManualFeedbackOutputRead,
     TeachingGroupOptionRead,
     TeachingScheduleRead,
     TeachingScheduleUpsert,
@@ -136,6 +145,24 @@ def feedback_to_read(output: FeedbackOutput) -> FeedbackOutputRead:
     )
 
 
+def manual_feedback_to_read(output: ManualFeedbackOutput) -> ManualFeedbackOutputRead:
+    return ManualFeedbackOutputRead(
+        id=UUID(str(output.id)),
+        group_name=output.group_name,
+        course_id=UUID(str(output.course_id)),
+        course_name=output.course.name,
+        lesson_date=output.lesson_date,
+        lesson_number=output.lesson_number,
+        lesson_title=output.lesson_title,
+        lesson_mode=output.lesson_mode,
+        lesson_place=output.lesson_place,
+        feedback_text=output.feedback_text,
+        status=output.status,
+        sent_at=output.sent_at,
+        created_at=output.created_at,
+    )
+
+
 async def get_teaching_workspace(
     db: AsyncSession,
     *,
@@ -229,6 +256,63 @@ async def get_teaching_workspace(
         schedules=[schedule_to_read(schedule) for schedule in schedules],
         feedback_outputs=[feedback_to_read(output) for output in outputs],
     )
+
+
+async def list_course_lessons(
+    db: AsyncSession,
+    *,
+    max_user_id: int,
+    tenant_slug: str,
+    course_id: UUID,
+) -> list[CourseLessonSummaryRead]:
+    tenant, _, _ = await load_teaching_context(
+        db,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    course = await db.scalar(
+        select(Course)
+        .where(
+            Course.id == course_id,
+            Course.tenant_id == tenant.id,
+            Course.is_active.is_(True),
+        )
+        .options(selectinload(Course.lessons))
+    )
+    if course is None:
+        raise TeachingServiceError("Курс не найден", status_code=404)
+    return [
+        CourseLessonSummaryRead(
+            id=UUID(str(lesson.id)),
+            lesson_number=lesson.lesson_number,
+            title=lesson.title,
+        )
+        for lesson in course.lessons
+    ]
+
+
+async def list_manual_feedback(
+    db: AsyncSession,
+    *,
+    max_user_id: int,
+    tenant_slug: str,
+) -> list[ManualFeedbackOutputRead]:
+    tenant, account, role = await load_teaching_context(
+        db,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    query = (
+        select(ManualFeedbackOutput)
+        .where(ManualFeedbackOutput.tenant_id == tenant.id)
+        .options(selectinload(ManualFeedbackOutput.course))
+        .order_by(ManualFeedbackOutput.created_at.desc())
+        .limit(30)
+    )
+    if role not in MANAGER_ROLES:
+        query = query.where(ManualFeedbackOutput.author_account_id == account.id)
+    outputs = (await db.scalars(query)).unique().all()
+    return [manual_feedback_to_read(output) for output in outputs]
 
 
 async def upsert_teaching_schedule(
@@ -356,13 +440,14 @@ def absent_students_text(students: list[str]) -> str:
 
 def format_feedback_text(
     *,
-    schedule: TeachingSchedule,
     lesson: CourseLesson,
     lesson_date: date,
     absent_students: list[str],
     is_repetition: bool,
+    displayed_number: int,
+    lesson_mode: str,
+    lesson_place: str,
 ) -> str:
-    displayed_number = lesson.lesson_number + schedule.lesson_offset
     educational_text = (
         "Сегодня мы с ребятами повторяли тему предыдущего занятия, чтобы укрепить знания по ней."
         if is_repetition
@@ -384,7 +469,7 @@ def format_feedback_text(
     absent = absent_students_text(absent_students)
     if absent:
         blocks.append(absent)
-    if schedule.lesson_mode != "individual" and schedule.lesson_place.lower() != "online":
+    if lesson_mode != "individual" and lesson_place.lower() != "online":
         blocks.append(
             f"Начислены астрокоины за урок №{displayed_number:02d} от {lesson_date:%d.%m.%Y}."
         )
@@ -429,11 +514,13 @@ async def generate_schedule_feedback(
         )
     )
     feedback_text = format_feedback_text(
-        schedule=schedule,
         lesson=lesson,
         lesson_date=lesson_date,
         absent_students=payload.absent_students,
         is_repetition=payload.is_repetition,
+        displayed_number=lesson.lesson_number + schedule.lesson_offset,
+        lesson_mode=schedule.lesson_mode,
+        lesson_place=schedule.lesson_place,
     )
     if output is None:
         output = FeedbackOutput(
@@ -460,6 +547,151 @@ async def generate_schedule_feedback(
         .options(selectinload(FeedbackOutput.schedule).selectinload(TeachingSchedule.course))
     )
     return feedback_to_read(output)
+
+
+async def generate_manual_feedback(
+    db: AsyncSession,
+    *,
+    payload: ManualFeedbackCreate,
+    default_tenant_slug: str,
+) -> ManualFeedbackOutputRead:
+    tenant, account, role = await load_teaching_context(
+        db,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug or default_tenant_slug,
+    )
+    group_name = payload.group_name.strip()
+    group_students = (
+        await db.scalars(
+            select(Student).where(
+                Student.tenant_id == tenant.id,
+                Student.status == StudentStatus.ACTIVE,
+                Student.group_name == group_name,
+            )
+        )
+    ).all()
+    if not group_students:
+        raise TeachingServiceError("Группа не найдена", status_code=404)
+    if role == StaffRole.TEACHER and not any(
+        staff_names_match(account.display_name, student.teacher_name)
+        for student in group_students
+    ):
+        raise TeachingServiceError(
+            "Группа не закреплена за текущим преподавателем в CRM",
+            status_code=403,
+        )
+
+    course = await db.scalar(
+        select(Course)
+        .where(
+            Course.id == payload.course_id,
+            Course.tenant_id == tenant.id,
+            Course.is_active.is_(True),
+        )
+        .options(selectinload(Course.lessons))
+    )
+    if course is None:
+        raise TeachingServiceError("Курс не найден", status_code=404)
+    lesson = lesson_for_number(course, payload.lesson_number)
+    if lesson is None:
+        raise TeachingServiceError("Урок курса не найден", status_code=404)
+
+    output = ManualFeedbackOutput(
+        tenant_id=tenant.id,
+        author_account_id=account.id,
+        course_id=course.id,
+        group_name=group_name,
+        lesson_date=payload.lesson_date,
+        lesson_number=lesson.lesson_number,
+        lesson_title=lesson.title,
+        lesson_mode=payload.lesson_mode,
+        lesson_place=payload.lesson_place.strip(),
+        feedback_text=format_feedback_text(
+            lesson=lesson,
+            lesson_date=payload.lesson_date,
+            absent_students=payload.absent_students,
+            is_repetition=payload.is_repetition,
+            displayed_number=lesson.lesson_number,
+            lesson_mode=payload.lesson_mode,
+            lesson_place=payload.lesson_place,
+        ),
+    )
+    db.add(output)
+    await db.flush()
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_account_id=account.id,
+            action="manual_feedback.generated",
+            entity_type="manual_feedback_output",
+            entity_id=str(output.id),
+            payload={
+                "group_name": group_name,
+                "course_name": course.name,
+                "lesson_number": lesson.lesson_number,
+                "lesson_date": payload.lesson_date.isoformat(),
+            },
+        )
+    )
+    await db.commit()
+    output = await db.scalar(
+        select(ManualFeedbackOutput)
+        .where(ManualFeedbackOutput.id == output.id)
+        .options(selectinload(ManualFeedbackOutput.course))
+    )
+    return manual_feedback_to_read(output)
+
+
+async def send_manual_feedback_to_parents(
+    db: AsyncSession,
+    *,
+    output_id: UUID,
+    payload: FeedbackDeliveryRequest,
+    default_tenant_slug: str,
+) -> FeedbackDeliveryRead:
+    tenant, account, role = await load_teaching_context(
+        db,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug or default_tenant_slug,
+    )
+    output = await db.scalar(
+        select(ManualFeedbackOutput).where(
+            ManualFeedbackOutput.tenant_id == tenant.id,
+            ManualFeedbackOutput.id == output_id,
+        )
+    )
+    if output is None:
+        raise TeachingServiceError("Ручная ОС не найдена", status_code=404)
+    if role not in MANAGER_ROLES and output.author_account_id != account.id:
+        raise TeachingServiceError("Нельзя отправить чужую ОС", status_code=403)
+
+    from app.services.feedback_notifications import deliver_group_feedback_to_parents
+
+    delivery = await deliver_group_feedback_to_parents(
+        db,
+        tenant_id=tenant.id,
+        group_name=output.group_name,
+        feedback_text=output.feedback_text,
+        tenant_slug=tenant.slug,
+    )
+    if delivery.sent:
+        output.status = "sent_to_parents"
+        output.sent_at = datetime.now(UTC)
+        await db.commit()
+    if delivery.eligible == 0:
+        delivery_status = "no_recipients"
+    elif delivery.sent == delivery.eligible:
+        delivery_status = "sent"
+    elif delivery.sent == 0:
+        delivery_status = "delivery_unavailable"
+    else:
+        delivery_status = "partial"
+    return FeedbackDeliveryRead(
+        output_id=UUID(str(output.id)),
+        parent_recipients=delivery.eligible,
+        sent_recipients=delivery.sent,
+        status=delivery_status,
+    )
 
 
 async def send_feedback_to_parents(
