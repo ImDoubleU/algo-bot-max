@@ -55,6 +55,10 @@ class Settings(BaseSettings):
         default=15,
         alias="MAX_BACKEND_TIMEOUT_SECONDS",
     )
+    max_staff_invite_command: str | None = Field(
+        default=None,
+        alias="MAX_STAFF_INVITE_COMMAND",
+    )
     default_tenant_slug: str = Field(
         default="nizhniy-novgorod-partner-a",
         alias="DEFAULT_TENANT_SLUG",

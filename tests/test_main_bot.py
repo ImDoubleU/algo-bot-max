@@ -1921,3 +1921,96 @@ def test_ops_callback_opens_operational_summary_from_menu() -> None:
     assert backend.ops_calls == [
         {"tenant_slug": "nn-partner-a", "max_user_id": 1, "low_stock_threshold": 5}
     ]
+
+
+def test_hidden_staff_invite_flow_assigns_role_after_approval() -> None:
+    class StaffBackend(FakeBackendClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.staff_assignment_calls: list[dict[str, Any]] = []
+
+        def get_staff_onboarding_options(
+            self,
+            *,
+            tenant_slug: str,
+            max_user_id: int,
+        ) -> dict[str, Any]:
+            return {
+                "tenants": [
+                    {
+                        "tenant_slug": "nn-partner-a",
+                        "tenant_name": "Алгоритмика Нижний Новгород",
+                        "city_name": "Нижний Новгород",
+                    }
+                ],
+                "roles": ["partner_director", "admin", "curator", "teacher"],
+            }
+
+        def update_staff_assignment(self, **kwargs: Any) -> dict[str, Any]:
+            self.staff_assignment_calls.append(kwargs)
+            return {"status": "active", **kwargs}
+
+    backend = StaffBackend()
+    max_client = FakeMaxClient()
+    bot = LongPollingBot(
+        max_client,
+        backend_client=backend,
+        default_tenant_slug="nn-partner-a",
+    )
+    bot.staff_invite_command = "/private_staff_entry"
+    bot.staff_approver_user_id = 42
+
+    bot.handle_message_created(
+        {
+            "message": {
+                "sender": {
+                    "user_id": 77,
+                    "username": "teacher_user",
+                    "first_name": "Анна",
+                    "last_name": "Иванова",
+                },
+                "recipient": {"chat_id": 77},
+                "body": {"text": "/private_staff_entry"},
+            }
+        }
+    )
+    city_payload = max_client.sent_messages[-1]["attachments"][0]["payload"]["buttons"][0][
+        0
+    ]["payload"]
+
+    bot.handle_message_callback(
+        {"payload": city_payload, "user": {"user_id": 77}, "chat_id": 77}
+    )
+    role_payload = max_client.sent_messages[-1]["attachments"][0]["payload"]["buttons"][3][
+        0
+    ]["payload"]
+
+    bot.handle_message_callback(
+        {"payload": role_payload, "user": {"user_id": 77}, "chat_id": 77}
+    )
+    approval_message = max_client.sent_messages[-2]
+    assert approval_message["user_id"] == 42
+    assert "MAX ID: 77" in approval_message["text"]
+    approval_payload = approval_message["attachments"][0]["payload"]["buttons"][0][0][
+        "payload"
+    ]
+
+    bot.handle_message_callback(
+        {"payload": approval_payload, "user": {"user_id": 42}, "chat_id": 42}
+    )
+
+    assert backend.staff_assignment_calls == [
+        {
+            "tenant_slug": "nn-partner-a",
+            "max_user_id": 42,
+            "target_max_user_id": 77,
+            "role": "teacher",
+            "status": "active",
+            "username": "teacher_user",
+            "display_name": "Анна Иванова",
+        }
+    ]
+    assert any(
+        message.get("user_id") == 77 and "Доступ сотрудника подтвержден" in message["text"]
+        for message in max_client.sent_messages
+    )

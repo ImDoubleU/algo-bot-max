@@ -27,6 +27,7 @@ CALLBACK_STOCK = "stock"
 CALLBACK_TODO = "todo"
 CALLBACK_FEEDBACK = "feedback"
 CALLBACK_FEEDBACK_PREFIX = "feedback"
+CALLBACK_STAFF_JOIN_PREFIX = "staff_join"
 CALLBACK_ROLE_PARENT = "role:parent"
 CALLBACK_ROLE_STUDENT = "role:student"
 CALLBACK_ONBOARDING_RESTART = "onboarding:restart"
@@ -178,6 +179,22 @@ def parse_feedback_payload(payload: str) -> tuple[str, str | None] | None:
     return action, parse.unquote(encoded_value) if separator and encoded_value else None
 
 
+def staff_join_payload(action: str, value: str | None = None) -> str:
+    if value is None:
+        return f"{CALLBACK_STAFF_JOIN_PREFIX}:{action}"
+    return f"{CALLBACK_STAFF_JOIN_PREFIX}:{action}:{parse.quote(value, safe='')}"
+
+
+def parse_staff_join_payload(payload: str) -> tuple[str, str | None] | None:
+    prefix = f"{CALLBACK_STAFF_JOIN_PREFIX}:"
+    if not payload.startswith(prefix):
+        return None
+    action, separator, encoded_value = payload[len(prefix) :].partition(":")
+    if not action:
+        return None
+    return action, parse.unquote(encoded_value) if separator and encoded_value else None
+
+
 def knowledge_payload(section_id: str) -> str:
     return f"{CALLBACK_KNOWLEDGE_PREFIX}:{parse.quote(section_id, safe='')}"
 
@@ -259,6 +276,82 @@ def onboarding_cancelled_keyboard() -> list[dict[str, Any]]:
         [
             [callback_button("Начать вход", CALLBACK_ONBOARDING_RESTART)],
             [callback_button("Помощь", CALLBACK_HELP)],
+        ]
+    )
+
+
+STAFF_ROLE_LABELS = {
+    "partner_director": "Директор",
+    "admin": "Администратор",
+    "curator": "Куратор",
+    "teacher": "Преподаватель",
+}
+
+
+def staff_role_label(role: str) -> str:
+    return STAFF_ROLE_LABELS.get(role, role)
+
+
+def staff_tenant_keyboard(
+    tenants: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    city_counts: dict[str, int] = {}
+    for tenant in tenants:
+        city_name = str(tenant.get("city_name") or tenant.get("tenant_name") or "Город")
+        city_counts[city_name] = city_counts.get(city_name, 0) + 1
+
+    rows: list[list[dict[str, str]]] = []
+    for tenant in tenants:
+        tenant_slug = str(tenant.get("tenant_slug") or "").strip()
+        if not tenant_slug:
+            continue
+        city_name = str(tenant.get("city_name") or tenant.get("tenant_name") or "Город")
+        tenant_name = str(tenant.get("tenant_name") or city_name)
+        label = (
+            city_name
+            if city_counts.get(city_name, 0) == 1
+            else f"{city_name} · {tenant_name}"
+        )
+        rows.append(
+            [
+                callback_button(
+                    _button_label(label),
+                    staff_join_payload("tenant", tenant_slug),
+                )
+            ]
+        )
+    rows.append([callback_button("Отменить регистрацию", staff_join_payload("cancel"))])
+    return inline_keyboard_with_main_menu(rows)
+
+
+def staff_role_keyboard(roles: list[str]) -> list[dict[str, Any]]:
+    rows = [
+        [callback_button(staff_role_label(role), staff_join_payload("role", role))]
+        for role in roles
+        if role in STAFF_ROLE_LABELS
+    ]
+    rows.extend(
+        [
+            [callback_button("Назад к городам", staff_join_payload("cities"))],
+            [callback_button("Отменить регистрацию", staff_join_payload("cancel"))],
+        ]
+    )
+    return inline_keyboard_with_main_menu(rows)
+
+
+def staff_approval_keyboard(request_id: str) -> list[dict[str, Any]]:
+    return inline_keyboard_with_main_menu(
+        [
+            [
+                callback_button(
+                    "Подтвердить",
+                    staff_join_payload("approve", request_id),
+                ),
+                callback_button(
+                    "Отклонить",
+                    staff_join_payload("reject", request_id),
+                ),
+            ]
         ]
     )
 

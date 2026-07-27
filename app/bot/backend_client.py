@@ -142,6 +142,7 @@ class AccessBackendClient:
         target_max_user_id: int,
         role: str,
         status: str,
+        username: str | None = None,
         display_name: str | None = None,
     ) -> dict[str, Any]:
         return self._request(
@@ -153,7 +154,23 @@ class AccessBackendClient:
                 "target_max_user_id": target_max_user_id,
                 "role": role,
                 "status": status,
+                "username": username,
                 "display_name": display_name,
+            },
+        )
+
+    def get_staff_onboarding_options(
+        self,
+        *,
+        tenant_slug: str,
+        max_user_id: int,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/miniapp/staff/onboarding/options",
+            params={
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
             },
         )
 

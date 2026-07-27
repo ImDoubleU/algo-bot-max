@@ -35,6 +35,7 @@ from app.schemas.miniapp import (
     MiniAppSessionRead,
     MiniAppStaffAssignmentRead,
     MiniAppStaffAssignmentUpdate,
+    MiniAppStaffOnboardingOptionsRead,
     MiniAppWarehouseRead,
     MiniAppWarehouseUpsert,
 )
@@ -51,6 +52,7 @@ from app.services.miniapp import (
     import_miniapp_products,
     issue_miniapp_order,
     list_miniapp_catalog,
+    list_miniapp_staff_onboarding_options,
     return_miniapp_order,
     transfer_miniapp_inventory,
     update_miniapp_access_link_status,
@@ -268,6 +270,27 @@ async def miniapp_update_staff_assignment(
             db,
             payload=payload,
             default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/staff/onboarding/options", response_model=MiniAppStaffOnboardingOptionsRead)
+async def miniapp_staff_onboarding_options(
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: str | None = None,
+) -> MiniAppStaffOnboardingOptionsRead:
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        return await list_miniapp_staff_onboarding_options(
+            db,
+            max_user_id=max_user_id,
         )
     except MiniAppStoreError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
