@@ -87,7 +87,6 @@ const state = {
   scheduleEditorOpen: false,
   editingScheduleId: "",
   scheduleDayFilter: "all",
-  feedbackScheduleId: "",
   generatedFeedback: "",
   generatedFeedbackId: "",
 };
@@ -3357,8 +3356,8 @@ function renderScheduleList() {
   list.innerHTML = items.map((item) => `
     <article class="schedule-card ${item.is_active ? "" : "is-paused"}">
       <div class="schedule-time"><strong>${escapeHtml(item.lesson_time.slice(0, 5))}</strong><span>${escapeHtml(weekdayNames[item.weekday] || "")}</span></div>
-      <div class="schedule-main"><div class="schedule-card-title"><h3>${escapeHtml(item.group_name)}</h3><span class="soft-badge">Урок ${item.current_lesson_number}/${item.lesson_count}</span></div><p>${escapeHtml(item.course_name)}</p><div class="schedule-next"><strong>${formatTeachingDate(item.next_lesson_date)}</strong><span>${escapeHtml(item.next_lesson_title || "Тема будет определена курсом")}</span></div><div class="schedule-flags"><span>${escapeHtml(item.lesson_place)}</span><span>${item.auto_feedback_enabled ? "Авто-ОС включена" : "ОС вручную"}</span><span>${item.parent_delivery_enabled ? "Доставка родителям" : "Без автоотправки"}</span></div></div>
-      <div class="schedule-actions"><button class="primary-action" type="button" data-feedback-schedule="${escapeHtml(item.id)}">Подготовить ОС</button><button class="secondary-action" type="button" data-edit-schedule="${escapeHtml(item.id)}">Изменить</button></div>
+      <div class="schedule-main"><div class="schedule-card-title"><h3>${escapeHtml(item.group_name)}</h3><span class="soft-badge">Урок ${item.current_lesson_number}/${item.lesson_count}</span></div><p>${escapeHtml(item.course_name)}</p><div class="schedule-next"><strong>${formatTeachingDate(item.next_lesson_date)}</strong><span>${escapeHtml(item.next_lesson_title || "Тема будет определена курсом")}</span></div><div class="schedule-flags"><span>${escapeHtml(item.lesson_place)}</span><span>${item.auto_feedback_enabled ? "Авто-ОС включена" : "Авто-ОС выключена"}</span><span>${item.parent_delivery_enabled ? "Доставка родителям" : "Без автоотправки"}</span></div></div>
+      <div class="schedule-actions"><button class="secondary-action" type="button" data-edit-schedule="${escapeHtml(item.id)}">Изменить</button></div>
     </article>`).join("");
 }
 
@@ -3413,60 +3412,22 @@ async function saveTeachingSchedule() {
   }
 }
 
-function openFeedbackDialog(scheduleId = "", outputId = "") {
+function openFeedbackDialog(outputId) {
   const output = teachingWorkspace().feedback_outputs.find((item) => item.id === outputId);
-  const schedule = teachingWorkspace().schedules.find((item) => item.id === (scheduleId || output?.schedule_id));
-  if (!schedule && !output) return;
-  state.feedbackScheduleId = schedule?.id || output.schedule_id;
-  state.generatedFeedback = output?.feedback_text || "";
-  state.generatedFeedbackId = output?.id || "";
-  qs("#feedbackDialogTitle").textContent = output ? output.group_name : schedule.group_name;
-  qs("#feedbackDialogContent").innerHTML = output ? `<textarea id="feedbackResult" class="feedback-result" readonly>${escapeHtml(output.feedback_text)}</textarea>` : `<div class="feedback-options"><label><span>Кто отсутствовал</span><input id="feedbackAbsent" placeholder="Имена через запятую" /></label><label class="schedule-toggle"><input id="feedbackRepetition" type="checkbox" /><span>Повторяли прошлую тему</span></label><p>Урок ${schedule.current_lesson_number}: ${escapeHtml(schedule.next_lesson_title || schedule.course_name)}</p></div>`;
-  qs("#copyFeedbackButton").hidden = !state.generatedFeedback;
-  qs("#sendFeedbackButton").hidden = !state.generatedFeedback;
-  qs("#generateFeedbackButton").hidden = Boolean(output);
-  qs("#generateFeedbackButton").disabled = false;
-  qs("#generateFeedbackButton").textContent = "Сформировать ОС";
+  if (!output) return;
+  state.generatedFeedback = output.feedback_text || "";
+  state.generatedFeedbackId = output.id || "";
+  qs("#feedbackDialogTitle").textContent = output.group_name;
+  qs("#feedbackDialogContent").innerHTML = `<textarea id="feedbackResult" class="feedback-result" readonly>${escapeHtml(output.feedback_text)}</textarea>`;
+  qs("#copyFeedbackButton").hidden = false;
+  qs("#sendFeedbackButton").hidden = false;
   qs("#feedbackDialog").hidden = false;
 }
 
 function closeFeedbackDialog() {
   qs("#feedbackDialog").hidden = true;
-  state.feedbackScheduleId = "";
   state.generatedFeedback = "";
   state.generatedFeedbackId = "";
-}
-
-async function generateTeachingFeedback() {
-  const schedule = teachingWorkspace().schedules.find((item) => item.id === state.feedbackScheduleId);
-  if (!schedule) return;
-  const payload = { max_user_id: Number(apiContext.maxUserId || 1), tenant_slug: apiContext.tenantSlug || null, absent_students: (qs("#feedbackAbsent")?.value || "").split(",").map((name) => name.trim()).filter(Boolean), is_repetition: Boolean(qs("#feedbackRepetition")?.checked), advance_lesson: false };
-  const button = qs("#generateFeedbackButton");
-  button.disabled = true;
-  button.textContent = "Формируем...";
-  try {
-    let output;
-    if (apiContext.demoMode || !apiContext.maxUserId) {
-      output = { id: `demo-feedback-${Date.now()}`, schedule_id: schedule.id, group_name: schedule.group_name, course_name: schedule.course_name, lesson_date: schedule.next_lesson_date, lesson_number: schedule.current_lesson_number, feedback_text: `Обратная связь урок №${String(schedule.current_lesson_number).padStart(2, "0")}\n\nДобрый день, уважаемые родители!\n\nСегодня ученики изучили тему «${schedule.next_lesson_title || schedule.course_name}».\n\nНа платформе доступен материал урока и прогресс ребенка.` };
-      teachingWorkspace().feedback_outputs.unshift(output);
-    } else {
-      const response = await apiFetch(`/api/v1/teaching/schedules/${encodeURIComponent(schedule.id)}/feedback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      if (!response.ok) throw new Error(await parseApiError(response));
-      output = await response.json();
-      await loadTeachingWorkspace();
-    }
-    state.generatedFeedback = output.feedback_text;
-    state.generatedFeedbackId = output.id;
-    qs("#feedbackDialogContent").innerHTML = `<textarea id="feedbackResult" class="feedback-result" readonly>${escapeHtml(output.feedback_text)}</textarea>`;
-    qs("#copyFeedbackButton").hidden = false;
-    qs("#sendFeedbackButton").hidden = false;
-    button.hidden = true;
-    renderFeedbackHistory();
-  } catch (error) {
-    showNotice(error.message || "Не удалось сформировать ОС", "danger");
-    button.disabled = false;
-    button.textContent = "Сформировать ОС";
-  }
 }
 
 async function copyGeneratedFeedback() {
@@ -4674,14 +4635,10 @@ document.addEventListener("click", (event) => {
   const editScheduleId = target.dataset.editSchedule;
   if (editScheduleId) openScheduleEditor(editScheduleId);
 
-  const feedbackScheduleId = target.dataset.feedbackSchedule;
-  if (feedbackScheduleId) openFeedbackDialog(feedbackScheduleId);
-
   const feedbackOutputId = target.dataset.openFeedback;
-  if (feedbackOutputId) openFeedbackDialog("", feedbackOutputId);
+  if (feedbackOutputId) openFeedbackDialog(feedbackOutputId);
 
   if (target.id === "closeFeedbackDialogButton") closeFeedbackDialog();
-  if (target.id === "generateFeedbackButton") generateTeachingFeedback();
   if (target.id === "copyFeedbackButton") copyGeneratedFeedback();
   if (target.id === "sendFeedbackButton") sendGeneratedFeedback();
 

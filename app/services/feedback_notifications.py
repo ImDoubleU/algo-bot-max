@@ -4,6 +4,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +15,7 @@ from app.core.config import get_settings, is_placeholder
 from app.models.account import MaxAccount
 from app.models.enums import StudentAccessRole, StudentAccessStatus, StudentStatus
 from app.models.student import Student, StudentAccessLink
-from app.models.teaching import FeedbackOutput, TeachingSchedule
+from app.models.teaching import FeedbackOutput
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,8 @@ async def deliver_feedback_to_teacher(
 async def parent_recipient_ids(
     db: AsyncSession,
     *,
-    schedule: TeachingSchedule,
+    tenant_id: UUID,
+    group_name: str,
 ) -> set[int]:
     return set(
         (
@@ -89,10 +91,10 @@ async def parent_recipient_ids(
                 .join(StudentAccessLink, StudentAccessLink.account_id == MaxAccount.id)
                 .join(Student, Student.id == StudentAccessLink.student_id)
                 .where(
-                    StudentAccessLink.tenant_id == schedule.tenant_id,
+                    StudentAccessLink.tenant_id == tenant_id,
                     StudentAccessLink.status == StudentAccessStatus.ACTIVE,
                     StudentAccessLink.role == StudentAccessRole.PARENT,
-                    Student.group_name == schedule.group_name,
+                    Student.group_name == group_name,
                     Student.status == StudentStatus.ACTIVE,
                 )
                 .distinct()
@@ -101,20 +103,42 @@ async def parent_recipient_ids(
     )
 
 
+async def deliver_group_feedback_to_parents(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    group_name: str,
+    feedback_text: str,
+    tenant_slug: str,
+) -> FeedbackDeliveryResult:
+    user_ids = await parent_recipient_ids(
+        db,
+        tenant_id=tenant_id,
+        group_name=group_name,
+    )
+    sent = await _send_max_messages(
+        user_ids=user_ids,
+        tenant_slug=tenant_slug,
+        text=feedback_text,
+    )
+    return FeedbackDeliveryResult(eligible=len(user_ids), sent=sent)
+
+
 async def deliver_feedback_to_parents(
     db: AsyncSession,
     *,
     output: FeedbackOutput,
     tenant_slug: str,
 ) -> FeedbackDeliveryResult:
-    user_ids = await parent_recipient_ids(db, schedule=output.schedule)
-    sent = await _send_max_messages(
-        user_ids=user_ids,
+    delivery = await deliver_group_feedback_to_parents(
+        db,
+        tenant_id=output.tenant_id,
+        group_name=output.schedule.group_name,
+        feedback_text=output.feedback_text,
         tenant_slug=tenant_slug,
-        text=output.feedback_text,
     )
-    if sent:
+    if delivery.sent:
         output.status = "sent_to_parents"
         output.sent_at = datetime.now(UTC)
         await db.commit()
-    return FeedbackDeliveryResult(eligible=len(user_ids), sent=sent)
+    return delivery

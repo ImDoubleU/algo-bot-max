@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.43.2" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.44.0" />
   </head>
   <body>
     <div class="app-shell">
@@ -306,7 +306,7 @@
             <div class="section-heading teaching-heading">
               <div>
                 <p class="eyebrow">Преподавателю</p>
-                <h2>Расписание и обратная связь</h2>
+                <h2>Расписание и автоматические ОС</h2>
               </div>
               <button id="scheduleCreateButton" class="primary-action" type="button">
                 Добавить группу
@@ -336,7 +336,7 @@
 
               <section class="teaching-column feedback-history-column">
                 <div class="panel-head">
-                  <h3>Последние ОС</h3>
+                  <h3>Автоматически сформированные ОС</h3>
                 </div>
                 <div id="feedbackHistory" class="feedback-history"></div>
               </section>
@@ -465,7 +465,7 @@
           <div class="dialog-head">
             <div>
               <p class="eyebrow">Обратная связь</p>
-              <h2 id="feedbackDialogTitle">Подготовить ОС</h2>
+              <h2 id="feedbackDialogTitle">Автоматическая ОС</h2>
             </div>
             <button id="closeFeedbackDialogButton" class="icon-button dialog-close" type="button" title="Закрыть" aria-label="Закрыть">×</button>
           </div>
@@ -473,7 +473,6 @@
           <div class="dialog-actions feedback-dialog-actions">
             <button id="copyFeedbackButton" class="secondary-action" type="button" hidden>Копировать</button>
             <button id="sendFeedbackButton" class="secondary-action" type="button" hidden>Отправить родителям</button>
-            <button id="generateFeedbackButton" class="primary-action" type="button">Сформировать ОС</button>
           </div>
         </section>
       </div>
@@ -518,7 +517,7 @@
       </nav>
     </div>
 
-    <script src="/miniapp/static/assets/lucide.min.js?v=0.43.2"></script>
-    <script src="/miniapp/static/app.js?v=0.43.2"></script>
+    <script src="/miniapp/static/assets/lucide.min.js?v=0.44.0"></script>
+    <script src="/miniapp/static/app.js?v=0.44.0"></script>
   </body>
 </html>
