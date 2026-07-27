@@ -6002,3 +6002,236 @@ body[data-active-role="student"] #studentContext {
     font-size: 11px;
   }
 }
+
+/* Accrual workspace */
+.accrual-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.accrual-page-head > div {
+  min-width: 0;
+}
+
+.accrual-result-count {
+  flex: 0 0 auto;
+  border-radius: 6px;
+  padding: 6px 9px;
+  color: var(--brand-purple);
+  background: var(--brand-purple-soft);
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.accrual-filters {
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.accrual-bulk-copy {
+  min-width: 0;
+}
+
+.accrual-student-head {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.accrual-student-copy {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.accrual-student-copy strong {
+  overflow-wrap: anywhere;
+}
+
+.accrual-student-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.accrual-card-toggle-icon {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .accrual-page-head {
+    padding: 14px;
+  }
+
+  .accrual-page-head h2 {
+    font-size: 24px;
+  }
+
+  .accrual-page-head p {
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .accrual-result-count {
+    padding: 5px 7px;
+    font-size: 11px;
+  }
+
+  .accrual-filters {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+
+  .accrual-filters label {
+    min-width: 0;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .accrual-filters input,
+  .accrual-filters select {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+  }
+
+  .accrual-bulk {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    gap: 10px;
+    padding: 12px 14px;
+  }
+
+  .accrual-bulk-copy,
+  .accrual-bulk label:first-of-type {
+    grid-column: 1 / -1;
+  }
+
+  .accrual-bulk h3 {
+    font-size: 17px;
+  }
+
+  .accrual-bulk p {
+    margin-top: 3px;
+    font-size: 12px;
+  }
+
+  .accrual-bulk select,
+  .accrual-card-controls select {
+    min-height: 44px;
+  }
+
+  .accrual-list-wrap {
+    padding: 10px;
+  }
+
+  .accrual-card-list {
+    gap: 8px;
+  }
+
+  .accrual-card,
+  .accrual-card.is-group-filtered {
+    gap: 0;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  .accrual-student-head {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    gap: 10px;
+    min-height: 64px;
+    padding: 10px 12px;
+    cursor: pointer;
+  }
+
+  .accrual-student-head:hover {
+    background: #faf9fc;
+  }
+
+  .accrual-student-head:focus-visible {
+    outline: 3px solid rgba(90, 32, 120, 0.2);
+    outline-offset: -3px;
+  }
+
+  .accrual-student-mark {
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
+  }
+
+  .accrual-student-copy {
+    gap: 3px;
+  }
+
+  .accrual-student-copy strong {
+    font-size: 14px;
+    line-height: 1.25;
+  }
+
+  .accrual-student-meta {
+    gap: 2px 8px;
+    font-size: 11px;
+    line-height: 1.3;
+  }
+
+  .accrual-student-actions {
+    gap: 4px;
+  }
+
+  .accrual-card-toggle-icon {
+    width: 18px;
+    height: 18px;
+    color: var(--muted);
+  }
+
+  .accrual-toggle-closed-icon {
+    display: block;
+  }
+
+  .accrual-toggle-open-icon,
+  .accrual-card.is-open .accrual-toggle-closed-icon {
+    display: none;
+  }
+
+  .accrual-card.is-open .accrual-toggle-open-icon {
+    display: block;
+  }
+
+  .accrual-card-controls {
+    display: none;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: 9px;
+    padding: 12px;
+    border-top: 1px solid var(--line);
+    background: #f8f7fa;
+  }
+
+  .accrual-card.is-open .accrual-card-controls {
+    display: grid;
+  }
+
+  .accrual-card-controls label:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .accrual-card-controls label {
+    gap: 5px;
+    font-size: 12px;
+  }
+
+  .accrual-card-controls .primary-action {
+    width: auto;
+    min-width: 0;
+  }
+}

@@ -89,6 +89,8 @@ const state = {
   generatedFeedbackId: "",
 };
 
+let accrualSearchTimer = null;
+
 const demoTeachingWorkspace = {
   tenant_slug: "demo",
   courses: [
@@ -2580,16 +2582,21 @@ function renderAccrual() {
     ),
   ].join("");
   groupAmount.innerHTML = [
-    '<option value="">Выберите сумму</option>',
+    '<option value="">Сумма</option>',
     ...accrualAmounts.map((amount) => `<option value="${amount}">+${amount} AC</option>`),
   ].join("");
   groupReason.value = selectedGroupReason;
   groupAmount.value = selectedGroupAmount;
   const normalizedName = state.accrualNameFilter.trim().toLowerCase();
-  const visibleStudents = studentsForGroup(state.accrualGroup).filter((student) =>
+  const groupStudents = studentsForGroup(state.accrualGroup);
+  const visibleStudents = groupStudents.filter((student) =>
     student.name.toLowerCase().includes(normalizedName),
   );
   const groupFilterActive = state.accrualGroup !== "all";
+  const resultCount = qs("#accrualResultCount");
+  if (resultCount) resultCount.textContent = `Найдено: ${visibleStudents.length}`;
+  const bulkPanel = qs(".accrual-bulk");
+  if (bulkPanel) bulkPanel.hidden = !groupFilterActive;
   const groupButton = qs("[data-group-accrual]");
   if (groupButton) {
     groupButton.disabled = state.accrualSaving || !groupFilterActive;
@@ -2598,7 +2605,7 @@ function renderAccrual() {
   const bulkHint = qs(".accrual-bulk p");
   if (bulkHint) {
     bulkHint.textContent = groupFilterActive
-      ? `${visibleStudents.length} учен. в выбранной группе`
+      ? `${groupStudents.length} учен. получат начисление`
       : "Сначала выберите конкретную группу в фильтре.";
   }
 
@@ -2608,28 +2615,45 @@ function renderAccrual() {
   }
 
   studentList.innerHTML = visibleStudents
-    .map(
-      (student) => `
+    .map((student, index) => {
+      const meta =
+        groupFilterActive
+          ? ""
+          : `<span class="accrual-student-meta">
+              <span>${escapeHtml(studentGroupName(student))}</span>
+              ${
+                state.role === "teacher"
+                  ? ""
+                  : `<span>${escapeHtml(student.teacher)}</span>`
+              }
+            </span>`;
+      return `
         <article class="accrual-card ${groupFilterActive ? "is-group-filtered" : ""}">
-          <div class="accrual-student-head">
-            <div class="accrual-student-mark">${escapeHtml(student.name.slice(0, 1))}</div>
-            <div>
+          <button
+            class="accrual-student-head"
+            type="button"
+            data-accrual-card-toggle="${escapeHtml(student.id)}"
+            aria-expanded="false"
+            aria-controls="accrual-controls-${index}"
+          >
+            <span class="accrual-student-mark">${escapeHtml(student.name.slice(0, 1))}</span>
+            <span class="accrual-student-copy">
               <strong>${escapeHtml(student.name)}</strong>
-            </div>
-            <span class="soft-badge">${student.balance} AC</span>
-          </div>
-          ${
-            groupFilterActive
-              ? ""
-              : `<div class="accrual-student-meta"><span>${escapeHtml(
-                  studentGroupName(student),
-                )}</span>${
-                  state.role === "teacher"
-                    ? ""
-                    : `<span>${escapeHtml(student.teacher)}</span>`
-                }</div>`
-          }
-          <div class="accrual-card-controls">
+              ${meta}
+            </span>
+            <span class="accrual-student-actions">
+              <span class="soft-badge">${student.balance} AC</span>
+              <i
+                class="accrual-card-toggle-icon accrual-toggle-closed-icon"
+                data-lucide="chevron-down"
+              ></i>
+              <i
+                class="accrual-card-toggle-icon accrual-toggle-open-icon"
+                data-lucide="chevron-up"
+              ></i>
+            </span>
+          </button>
+          <div id="accrual-controls-${index}" class="accrual-card-controls">
             <label>
               <span>Причина</span>
               <select data-accrual-reason="${escapeHtml(student.id)}">
@@ -2658,9 +2682,10 @@ function renderAccrual() {
             >${state.accrualSaving ? "Начисление..." : "Начислить"}</button>
           </div>
         </article>
-      `,
-    )
+      `;
+    })
     .join("");
+  refreshIcons();
 }
 
 function renderAdminPanel() {
@@ -4827,6 +4852,14 @@ document.addEventListener("click", (event) => {
     accrueGroupCoins();
   }
 
+  const accrualCardStudentId = target.dataset.accrualCardToggle;
+  if (accrualCardStudentId) {
+    const card = target.closest(".accrual-card");
+    const expanded = card?.classList.toggle("is-open") || false;
+    target.setAttribute("aria-expanded", String(expanded));
+    return;
+  }
+
   const accrueStudentId = target.dataset.accrueStudent;
   if (accrueStudentId) {
     accrueStudentFromRow(accrueStudentId);
@@ -4925,12 +4958,6 @@ document.addEventListener("click", (event) => {
     renderAdminPanel();
   }
 
-  if (target.id === "applyAccrualFilter") {
-    state.accrualNameFilter = qs("#accrualNameFilter")?.value.trim() || "";
-    state.accrualGroup = qs("#accrualGroupSelect")?.value || "all";
-    renderAccrual();
-  }
-
   if (target.id === "closeCheckoutButton" || target.id === "cancelCheckoutButton") {
     closeCheckoutDialog();
   }
@@ -5017,6 +5044,11 @@ document.addEventListener("change", (event) => {
     renderStudents();
   }
 
+  if (target.id === "accrualGroupSelect") {
+    state.accrualGroup = target.value || "all";
+    renderAccrual();
+  }
+
   if (target.id === "orderStatusFilter") {
     state.orderStatusFilter = target.value;
     renderOrders();
@@ -5050,6 +5082,12 @@ document.addEventListener("input", (event) => {
   if (target.id === "orderSearch") {
     state.orderSearch = target.value;
     renderOrders();
+  }
+
+  if (target.id === "accrualNameFilter") {
+    state.accrualNameFilter = target.value;
+    window.clearTimeout(accrualSearchTimer);
+    accrualSearchTimer = window.setTimeout(renderAccrual, 140);
   }
 });
 

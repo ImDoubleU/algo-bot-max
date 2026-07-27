@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.47.0" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.48.0" />
   </head>
   <body>
     <div class="app-shell">
@@ -256,32 +256,32 @@
           <section id="accrualView" class="view" data-view-panel="accrual">
             <div class="accrual-page">
               <div class="accrual-page-head">
-                <h2>Мои ученики</h2>
-                <p>Начисление астрокоинов</p>
+                <div>
+                  <h2>Мои ученики</h2>
+                  <p>Начисление астрокоинов</p>
+                </div>
+                <span id="accrualResultCount" class="accrual-result-count"></span>
               </div>
 
               <div class="accrual-filters">
                 <label>
-                  <span>ФИО Ученика</span>
-                  <input id="accrualNameFilter" type="search" />
+                  <span>Поиск ученика</span>
+                  <input
+                    id="accrualNameFilter"
+                    type="search"
+                    placeholder="Имя или фамилия"
+                    autocomplete="off"
+                  />
                 </label>
                 <label>
-                  <span>Выберите группу</span>
+                  <span>Группа</span>
                   <select id="accrualGroupSelect"></select>
                 </label>
-                <button
-                  id="applyAccrualFilter"
-                  class="accrual-filter-action"
-                  type="button"
-                >
-                  <i data-lucide="list-filter"></i>
-                  <span>Применить фильтр</span>
-                </button>
               </div>
 
-              <div class="accrual-bulk">
-                <div>
-                  <h3>Начислить выбранной группе</h3>
+              <div class="accrual-bulk" hidden>
+                <div class="accrual-bulk-copy">
+                  <h3>Начислить всей группе</h3>
                   <p>Сначала выберите конкретную группу в фильтре.</p>
                 </div>
                 <label>
@@ -293,7 +293,7 @@
                 <label>
                   <span>Сумма</span>
                   <select id="groupAccrualAmount">
-                    <option value="">Выберите сумму</option>
+                    <option value="">Сумма</option>
                   </select>
                 </label>
                 <button class="primary-action" type="button" data-group-accrual>
@@ -538,6 +538,6 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app.js?v=0.47.0"></script>
+    <script src="/miniapp/static/app.js?v=0.48.0"></script>
   </body>
 </html>
