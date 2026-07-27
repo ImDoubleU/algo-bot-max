@@ -69,6 +69,42 @@ def inline_keyboard(rows: list[list[dict[str, str]]]) -> list[dict[str, Any]]:
     ]
 
 
+def without_open_app_buttons(
+    attachments: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]] | None:
+    if not attachments:
+        return attachments
+
+    filtered_attachments: list[dict[str, Any]] = []
+    changed = False
+    for attachment in attachments:
+        if attachment.get("type") != "inline_keyboard":
+            filtered_attachments.append(attachment)
+            continue
+
+        payload = attachment.get("payload") or {}
+        rows = payload.get("buttons") or []
+        filtered_rows = []
+        for row in rows:
+            filtered_row = [button for button in row if button.get("type") != "open_app"]
+            changed = changed or len(filtered_row) != len(row)
+            if filtered_row:
+                filtered_rows.append(filtered_row)
+
+        if filtered_rows:
+            filtered_attachments.append(
+                {
+                    **attachment,
+                    "payload": {
+                        **payload,
+                        "buttons": filtered_rows,
+                    },
+                }
+            )
+
+    return filtered_attachments if changed else attachments
+
+
 def inline_keyboard_with_main_menu(
     rows: list[list[dict[str, str]]],
 ) -> list[dict[str, Any]]:
@@ -153,26 +189,10 @@ def build_miniapp_url(
     tenant_slug: str | None = None,
     view: str | None = None,
 ) -> str:
-    miniapp_url = os.getenv("MAX_MINIAPP_URL", "").strip()
-    if not miniapp_url:
-        return ""
-
-    parts = parse.urlsplit(miniapp_url)
-    query = dict(parse.parse_qsl(parts.query, keep_blank_values=True))
-    if tenant_slug:
-        query["tenant_slug"] = tenant_slug
-    if view:
-        query["view"] = view
-
-    return parse.urlunsplit(
-        (
-            parts.scheme,
-            parts.netloc,
-            parts.path,
-            parse.urlencode(query),
-            parts.fragment,
-        )
-    )
+    # MAX matches open_app against the exact URL registered for the bot.
+    # User and tenant context come from signed WebApp init data after launch.
+    _ = user_id, tenant_slug, view
+    return os.getenv("MAX_MINIAPP_URL", "").strip()
 
 
 def main_menu_keyboard(
