@@ -29,6 +29,7 @@ from app.bot.keyboards import (
     CALLBACK_FEEDBACK,
     CALLBACK_GROUPS,
     CALLBACK_HELP,
+    CALLBACK_KNOWLEDGE,
     CALLBACK_LEADERBOARD,
     CALLBACK_LEDGER,
     CALLBACK_MENU,
@@ -51,10 +52,13 @@ from app.bot.keyboards import (
     feedback_menu_keyboard,
     feedback_preview_keyboard,
     feedback_setup_keyboard,
+    knowledge_menu_keyboard,
+    knowledge_section_keyboard,
     main_menu_keyboard,
     order_actions_keyboard,
     order_confirmation_keyboard,
     parse_feedback_payload,
+    parse_knowledge_payload,
     parse_order_action_payload,
     parse_order_confirm_payload,
     role_selection_keyboard,
@@ -68,6 +72,11 @@ from app.services.deep_links import (
     build_max_bot_deeplink,
     parse_contact_payload,
 )
+from app.services.knowledge_base import (
+    KnowledgeBaseError,
+    KnowledgeBaseService,
+    clean_knowledge_label,
+)
 
 logger = logging.getLogger("algo_bot_max.bot")
 POLL_RETRY_INITIAL_SECONDS = 1.0
@@ -78,6 +87,13 @@ FEEDBACK_LESSON_MODES = (
     ("group", "online", "группа онлайн"),
     ("individual", "offline", "индивидуально"),
 )
+STAFF_MENU_ROLES = {
+    "teacher",
+    "curator",
+    "admin",
+    "partner_director",
+    "superadmin",
+}
 
 
 def display_name_from_user(user: dict[str, Any]) -> str | None:
@@ -125,9 +141,11 @@ class LongPollingBot:
         self.bot_info = self.client.get_me()
         self.bot_user_id = self.bot_info.get("user_id")
         self.pending_contact_ids: dict[int, PendingContact] = {}
+        self.pending_onboarding_roles: dict[int, str] = {}
         self.user_tenant_slugs: dict[int, str] = {}
         self.user_menu_roles: dict[tuple[int, str], str] = {}
         self.feedback_drafts: dict[int, dict[str, Any]] = {}
+        self.knowledge_base = KnowledgeBaseService()
         self.running = True
         self.stop_event = threading.Event()
 
@@ -454,6 +472,9 @@ class LongPollingBot:
         )
 
     def main_menu_response(self, user_id: int | None = None) -> BotResponse:
+        tenant_slug = self.current_tenant_slug(user_id)
+        if user_id is not None and self.menu_role(user_id, tenant_slug) is None:
+            return self.first_entry_response(user_id)
         return BotResponse(
             "Главное меню\n\nВыберите нужный раздел.",
             self.main_menu_attachments(user_id),
@@ -479,7 +500,8 @@ class LongPollingBot:
                 f"{role_title}\n\n"
                 "Расписание, ученики, начисления и заказы находятся в mini-app.\n\n"
                 "Для подготовки и отправки сообщения родителям откройте отдельный "
-                "раздел «Обратная связь»."
+                "раздел «Обратная связь». Инструкции и рабочие ссылки находятся "
+                "в разделе «База знаний»."
             )
         if role in {"admin", "partner_director", "superadmin"}:
             role_title = {
@@ -490,9 +512,86 @@ class LongPollingBot:
             return (
                 f"{role_title}\n\n"
                 "Управление, импорт, склады, заказы и пользователи находятся в mini-app.\n\n"
-                "Подготовка сообщений родителям вынесена в раздел «Обратная связь»."
+                "Подготовка сообщений родителям вынесена в раздел «Обратная связь», "
+                "инструкции и ссылки — в раздел «База знаний»."
             )
         return "Откройте личный кабинет или выберите доступный раздел кнопкой ниже."
+
+    def first_entry_response(self, user_id: int | None) -> BotResponse:
+        if user_id is not None and self.backend_client is not None:
+            tenant_slug = self.current_tenant_slug(user_id)
+            try:
+                session = self.backend_client.get_session(
+                    tenant_slug=tenant_slug,
+                    max_user_id=user_id,
+                )
+            except BackendApiError:
+                session = None
+            if session and (
+                session.get("staff_roles")
+                or session.get("student_roles")
+                or session.get("students")
+            ):
+                self.remember_session_role(user_id, tenant_slug, session)
+                return self.help_response(user_id=user_id)
+        return BotResponse(
+            (
+                "Первый вход\n\n"
+                "Выберите, для кого открываете кабинет. Затем бот попросит Contact ID "
+                "из CRM и привяжет только доступных вам учеников."
+            ),
+            role_selection_keyboard(),
+        )
+
+    def knowledge_menu_response(self, user_id: int | None) -> BotResponse:
+        tenant_slug = self.current_tenant_slug(user_id)
+        role = self.menu_role(user_id, tenant_slug)
+        if role not in STAFF_MENU_ROLES:
+            return BotResponse(
+                "База знаний доступна сотрудникам.",
+                self.main_menu_attachments(user_id),
+            )
+        try:
+            sections = self.knowledge_base.main_sections()
+        except KnowledgeBaseError as exc:
+            return BotResponse(
+                str(exc),
+                self.main_menu_attachments(user_id),
+            )
+        return BotResponse(
+            "База знаний\n\nВыберите раздел.",
+            knowledge_menu_keyboard(sections),
+        )
+
+    def knowledge_section_response(
+        self,
+        *,
+        user_id: int | None,
+        section_id: str,
+    ) -> BotResponse:
+        tenant_slug = self.current_tenant_slug(user_id)
+        role = self.menu_role(user_id, tenant_slug)
+        if role not in STAFF_MENU_ROLES:
+            return BotResponse(
+                "База знаний доступна сотрудникам.",
+                self.main_menu_attachments(user_id),
+            )
+        try:
+            section = self.knowledge_base.section(section_id)
+            section_ids = self.knowledge_base.section_ids()
+        except KnowledgeBaseError as exc:
+            return BotResponse(
+                str(exc),
+                self.main_menu_attachments(user_id),
+            )
+        if section is None:
+            return self.knowledge_menu_response(user_id)
+        title = clean_knowledge_label(str(section.get("title") or "База знаний"))
+        text = str(section.get("text") or "").strip()
+        return BotResponse(
+            f"{title}\n\n{text}" if text else title,
+            knowledge_section_keyboard(section, section_ids=section_ids),
+        )
 
     def unknown_command_response(self, command: str, user_id: int | None = None) -> BotResponse:
         return BotResponse(
@@ -5385,7 +5484,7 @@ class LongPollingBot:
         user_id: int,
         tenant_slug: str,
         session: dict[str, Any],
-    ) -> str:
+    ) -> str | None:
         staff_roles = {str(role) for role in session.get("staff_roles") or []}
         student_roles = {str(role) for role in session.get("student_roles") or []}
         role = next(
@@ -5400,27 +5499,35 @@ class LongPollingBot:
                 )
                 if candidate in staff_roles
             ),
-            "parent" if "parent" in student_roles else "student",
+            (
+                "parent"
+                if "parent" in student_roles
+                else "student"
+                if "student" in student_roles
+                else None
+            ),
         )
-        self.user_menu_roles[(user_id, tenant_slug)] = role
+        if role is not None:
+            self.user_menu_roles[(user_id, tenant_slug)] = role
         return role
 
     def menu_role(self, user_id: int | None, tenant_slug: str) -> str | None:
         if user_id is None:
             return None
         key = (user_id, tenant_slug)
-        if key in self.user_menu_roles:
-            return self.user_menu_roles[key]
         if self.backend_client is None:
-            return None
+            return self.user_menu_roles.get(key)
         try:
             session = self.backend_client.get_session(
                 tenant_slug=tenant_slug,
                 max_user_id=user_id,
             )
         except BackendApiError:
-            return None
-        return self.remember_session_role(user_id, tenant_slug, session)
+            return self.user_menu_roles.get(key)
+        role = self.remember_session_role(user_id, tenant_slug, session)
+        if role is None:
+            self.user_menu_roles.pop(key, None)
+        return role
 
     def main_menu_attachments(self, user_id: int | None) -> list[dict[str, Any]]:
         tenant_slug = self.current_tenant_slug(user_id)
@@ -5751,13 +5858,6 @@ class LongPollingBot:
                 self.main_menu_attachments(user_id),
             )
 
-        pending = self.pending_contact_ids.get(user_id)
-        if not pending:
-            return BotResponse(
-                "Сначала отправьте Contact ID сообщением или откройте ссылку с Contact ID.",
-                self.main_menu_attachments(user_id),
-            )
-
         if role not in {"parent", "student"}:
             return BotResponse(
                 "Роль должна быть `parent` или `student`.",
@@ -5765,6 +5865,18 @@ class LongPollingBot:
             )
 
         role_text = "родитель" if role == "parent" else "ученик"
+        pending = self.pending_contact_ids.get(user_id)
+        if not pending:
+            self.pending_onboarding_roles[user_id] = role
+            return BotResponse(
+                (
+                    f"Выбрана роль: {role_text}.\n\n"
+                    "Теперь отправьте Contact ID из CRM одним сообщением. "
+                    "После проверки бот покажет найденных учеников и создаст связь."
+                ),
+                role_selection_keyboard(),
+            )
+
         if self.backend_client:
             try:
                 result = self.backend_client.create_links(
@@ -5789,6 +5901,8 @@ class LongPollingBot:
 
             links = result.get("links") or []
             self.user_menu_roles[(user_id, pending.tenant_slug)] = role
+            self.pending_contact_ids.pop(user_id, None)
+            self.pending_onboarding_roles.pop(user_id, None)
             return BotResponse(
                 (
                     "Связи доступа созданы.\n\n"
@@ -5837,7 +5951,7 @@ class LongPollingBot:
         response = self.handle_contact_payload_response(
             payload=payload,
             user_id=user_id,
-        ) or self.help_response(user_id=user_id)
+        ) or self.first_entry_response(user_id)
 
         self.send_response(response, chat_id=chat_id, user_id=user_id)
 
@@ -5876,7 +5990,7 @@ class LongPollingBot:
         if command == "/start":
             response = (
                 self.handle_contact_payload_response(payload=argument, user_id=user_id)
-                or self.help_response(user_id=user_id)
+                or self.first_entry_response(user_id)
             )
         elif command.startswith("/"):
             response = BotResponse(
@@ -6085,6 +6199,18 @@ class LongPollingBot:
             response = self.unknown_command_response(command, user_id=user_id)
         else:
             response = self.handle_contact_payload_response(payload=text, user_id=user_id)
+            if (
+                response is not None
+                and user_id is not None
+                and user_id in self.pending_contact_ids
+                and user_id in self.pending_onboarding_roles
+            ):
+                response = self.handle_role_selection_response(
+                    user_id=user_id,
+                    role=self.pending_onboarding_roles[user_id],
+                    username=sender.get("username"),
+                    display_name=display_name_from_user(sender),
+                )
             if response is None:
                 response = BotResponse(
                     "Выберите нужный раздел кнопкой ниже.",
@@ -6119,7 +6245,17 @@ class LongPollingBot:
 
         if payload not in {CALLBACK_ROLE_PARENT, CALLBACK_ROLE_STUDENT}:
             feedback_action = parse_feedback_payload(payload)
-            if payload == CALLBACK_FEEDBACK:
+            knowledge_section_id = parse_knowledge_payload(payload)
+            if payload == CALLBACK_KNOWLEDGE:
+                response = self.knowledge_menu_response(user_id)
+                notification = "База знаний"
+            elif knowledge_section_id:
+                response = self.knowledge_section_response(
+                    user_id=user_id,
+                    section_id=knowledge_section_id,
+                )
+                notification = "Раздел базы знаний"
+            elif payload == CALLBACK_FEEDBACK:
                 response = self.feedback_menu_response(user_id)
                 notification = "Обратная связь"
             elif feedback_action:

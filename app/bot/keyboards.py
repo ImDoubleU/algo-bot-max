@@ -4,11 +4,13 @@ import os
 from typing import Any
 from urllib import parse
 
-from app.core.miniapp_auth import issue_miniapp_token
+from app.services.knowledge_base import clean_knowledge_label
 
 CALLBACK_HELP = "help"
 CALLBACK_MENU = "menu"
 CALLBACK_MINIAPP = "miniapp:open"
+CALLBACK_KNOWLEDGE = "knowledge"
+CALLBACK_KNOWLEDGE_PREFIX = "knowledge"
 CALLBACK_STATUS = "status"
 CALLBACK_BALANCE = "balance"
 CALLBACK_LEDGER = "ledger"
@@ -43,6 +45,14 @@ def link_button(text: str, url: str) -> dict[str, str]:
         "type": "link",
         "text": text,
         "url": url,
+    }
+
+
+def open_app_button(text: str, url: str) -> dict[str, str]:
+    return {
+        "type": "open_app",
+        "text": text,
+        "web_app": url,
     }
 
 
@@ -119,6 +129,18 @@ def parse_feedback_payload(payload: str) -> tuple[str, str | None] | None:
     return action, parse.unquote(encoded_value) if separator and encoded_value else None
 
 
+def knowledge_payload(section_id: str) -> str:
+    return f"{CALLBACK_KNOWLEDGE_PREFIX}:{parse.quote(section_id, safe='')}"
+
+
+def parse_knowledge_payload(payload: str) -> str | None:
+    prefix = f"{CALLBACK_KNOWLEDGE_PREFIX}:"
+    if not payload.startswith(prefix):
+        return None
+    section_id = parse.unquote(payload[len(prefix) :]).strip()
+    return section_id or None
+
+
 def _button_label(text: str, *, limit: int = 54) -> str:
     normalized = " ".join(str(text).split())
     return normalized if len(normalized) <= limit else f"{normalized[: limit - 1]}…"
@@ -135,15 +157,8 @@ def build_miniapp_url(
 
     parts = parse.urlsplit(miniapp_url)
     query = dict(parse.parse_qsl(parts.query, keep_blank_values=True))
-    if user_id is not None:
-        query["max_user_id"] = str(user_id)
     if tenant_slug:
         query["tenant_slug"] = tenant_slug
-    if user_id is not None and tenant_slug:
-        query["miniapp_token"] = issue_miniapp_token(
-            max_user_id=user_id,
-            tenant_slug=tenant_slug,
-        )
     if view:
         query["view"] = view
 
@@ -173,7 +188,7 @@ def main_menu_keyboard(
     rows: list[list[dict[str, str]]] = []
     miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
     if miniapp_url:
-        rows.append([link_button("Открыть личный кабинет", miniapp_url)])
+        rows.append([open_app_button("Открыть личный кабинет", miniapp_url)])
     else:
         rows.append([callback_button("Личный кабинет", CALLBACK_MINIAPP)])
     rows.append([callback_button("Помощь", CALLBACK_HELP)])
@@ -224,7 +239,7 @@ def role_menu_keyboard(
         "superadmin": "Открыть кабинет суперадминистратора",
     }.get(normalized, "Открыть кабинет")
     if miniapp_url:
-        rows.append([link_button(cabinet_label, miniapp_url)])
+        rows.append([open_app_button(cabinet_label, miniapp_url)])
     else:
         rows.append([callback_button(cabinet_label, CALLBACK_MINIAPP)])
     if normalized in {
@@ -235,7 +250,52 @@ def role_menu_keyboard(
         "superadmin",
     }:
         rows.append([callback_button("Обратная связь", CALLBACK_FEEDBACK)])
+        rows.append([callback_button("База знаний", CALLBACK_KNOWLEDGE)])
     rows.append([callback_button("Помощь", CALLBACK_HELP)])
+    return inline_keyboard(rows)
+
+
+def knowledge_menu_keyboard(
+    sections: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows = [
+        [
+            callback_button(
+                _button_label(clean_knowledge_label(str(section.get("title") or "Раздел"))),
+                knowledge_payload(str(section.get("id") or "")),
+            )
+        ]
+        for section in sections
+        if str(section.get("id") or "").strip()
+    ]
+    rows.append([callback_button("Главное меню", CALLBACK_MENU)])
+    return inline_keyboard(rows)
+
+
+def knowledge_section_keyboard(
+    section: dict[str, Any],
+    *,
+    section_ids: set[str],
+) -> list[dict[str, Any]]:
+    rows: list[list[dict[str, str]]] = []
+    for item in section.get("buttons") or []:
+        if not isinstance(item, dict):
+            continue
+        label = _button_label(
+            clean_knowledge_label(str(item.get("text") or "Открыть"))
+        )
+        url = str(item.get("url") or "").strip()
+        callback = str(item.get("callback") or "").strip()
+        if url:
+            rows.append([link_button(label, url)])
+        elif callback in section_ids:
+            rows.append([callback_button(label, knowledge_payload(callback))])
+    rows.extend(
+        [
+            [callback_button("К разделам", CALLBACK_KNOWLEDGE)],
+            [callback_button("Главное меню", CALLBACK_MENU)],
+        ]
+    )
     return inline_keyboard(rows)
 
 
@@ -510,7 +570,7 @@ def order_actions_keyboard(
     )
     miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
     if miniapp_url:
-        rows.insert(0, [link_button("Открыть mini app", miniapp_url)])
+        rows.insert(0, [open_app_button("Открыть mini app", miniapp_url)])
     return inline_keyboard(rows)
 
 

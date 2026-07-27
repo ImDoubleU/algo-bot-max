@@ -7,7 +7,11 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.keyboards import build_miniapp_url, inline_keyboard_with_main_menu, link_button
+from app.bot.keyboards import (
+    build_miniapp_url,
+    inline_keyboard_with_main_menu,
+    open_app_button,
+)
 from app.bot.max_client import MaxApiClient
 from app.core.config import get_settings, is_placeholder
 from app.models.account import MaxAccount
@@ -99,7 +103,7 @@ async def _deliver_order_notification(
             tenant_slug=tenant_slug,
             view="orders",
         )
-        rows = [[link_button("Открыть заказ", miniapp_url)]] if miniapp_url else []
+        rows = [[open_app_button("Открыть заказ", miniapp_url)]] if miniapp_url else []
         attachments = inline_keyboard_with_main_menu(rows)
         await asyncio.to_thread(
             client.send_message,

@@ -122,6 +122,7 @@ def test_role_menu_only_links_cabinet_and_staff_feedback(monkeypatch) -> None:
     assert [button["text"] for row in teacher_buttons for button in row] == [
         "Открыть рабочий кабинет",
         "Обратная связь",
+        "База знаний",
         "Помощь",
     ]
     assert "feedback" not in keyboard_payloads(student)
@@ -142,6 +143,19 @@ def test_text_command_redirects_to_inline_menu() -> None:
     )
 
     assert "команды больше не используются" in client.sent_messages[-1]["text"]
+
+
+def test_teacher_can_open_knowledge_base() -> None:
+    client = SimulationMaxClient()
+    bot = LongPollingBot(client, backend_client=FeedbackBackend())
+
+    menu = callback(bot, "knowledge")
+    assert "Выберите раздел" in menu["text"]
+    assert "knowledge:hub_tables_docs" in keyboard_payloads(menu["attachments"])
+
+    contacts = callback(bot, "knowledge:hub_contacts")
+    assert "Контакты" in contacts["text"]
+    assert "knowledge:contact_admin" in keyboard_payloads(contacts["attachments"])
 
 
 def test_feedback_inline_flow_generates_and_sends() -> None:
