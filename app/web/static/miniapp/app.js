@@ -1,8 +1,22 @@
+const launchMaxUserId = positiveIntegerParam("max_user_id");
+const launchTenantSlug = queryParam("tenant_slug") || "";
+const miniappAuth = resolveMiniappAuth(
+  launchMaxUserId,
+  launchTenantSlug,
+  queryParam("miniapp_token") || "",
+);
 const apiContext = {
-  maxUserId: positiveIntegerParam("max_user_id"),
-  tenantSlug: queryParam("tenant_slug") || "",
+  maxUserId: launchMaxUserId,
+  tenantSlug: launchTenantSlug,
+  token: miniappAuth.token,
   demoMode: queryParam("demo") === "1",
+  demoRole: queryParam("demo_role") || "",
 };
+if (miniappAuth.stripFromUrl) {
+  const cleanUrl = new URL(window.location.href);
+  cleanUrl.searchParams.delete("miniapp_token");
+  window.history.replaceState(null, "", cleanUrl);
+}
 const sessionStartedAt = new Date();
 
 const ROLE_VIEWS = Object.freeze({
@@ -54,6 +68,8 @@ const state = {
   crmImportFile: null,
   crmImportFileName: "",
   crmImportPreview: null,
+  crmStudentStatus: "active",
+  accrualSaving: false,
   productSaving: false,
   productEditorOpen: false,
   editingProductId: "",
@@ -464,6 +480,22 @@ function queryParam(name) {
   return new URLSearchParams(window.location.search).get(name);
 }
 
+function resolveMiniappAuth(maxUserId, tenantSlug, launchToken) {
+  const storageKey = `algo-max:miniapp-token:${maxUserId || "none"}:${tenantSlug || "default"}`;
+  try {
+    if (launchToken) {
+      window.sessionStorage.setItem(storageKey, launchToken);
+      return { token: launchToken, stripFromUrl: true };
+    }
+    return {
+      token: window.sessionStorage.getItem(storageKey) || "",
+      stripFromUrl: false,
+    };
+  } catch {
+    return { token: launchToken, stripFromUrl: false };
+  }
+}
+
 function positiveIntegerParam(name) {
   const value = queryParam(name)?.trim() || "";
   return /^[1-9]\d*$/.test(value) ? value : "";
@@ -510,60 +542,24 @@ function todayShort() {
 
 function studentWelcome(firstName) {
   const hour = sessionStartedAt.getHours();
-  const period =
+  const greeting =
     hour >= 5 && hour < 12
-      ? "morning"
-      : hour >= 12 && hour < 18
-        ? "day"
-        : hour >= 18 && hour < 23
-          ? "evening"
-          : "night";
-  const greetings = {
-    morning: "Доброе утро",
-    day: "Добрый день",
-    evening: "Добрый вечер",
-    night: "Доброй ночи",
-  };
-  const messages = {
-    morning: [
-      "Пусть день начнется с любопытства, а продолжится маленькой победой.",
-      "Утренняя новость: сегодня у тебя уже есть отличный шанс узнать что-то новое.",
-      "Мини-шутка: почему компьютер утром бодрый? Он хорошо перезагрузился.",
-    ],
-    day: [
-      "Хорошая новость: любопытство уже включено, осталось выбрать следующую цель.",
-      "Пусть сегодня найдется задача, которая сначала удивит, а потом обязательно получится.",
-      "Мини-шутка: почему компьютер не устал? Он вовремя перешел в спящий режим.",
-    ],
-    evening: [
-      "Самое время похвалить себя хотя бы за одну вещь, которая сегодня получилась.",
-      "Вечерняя новость: маленькие победы тоже считаются большими, если они твои.",
-      "Пусть вечер будет спокойным, а новые идеи дождутся тебя до завтра.",
-    ],
-    night: [
-      "Поздний режим: сохраняем прогресс и бережем силы для новых идей.",
-      "Даже самым любопытным исследователям нужен отдых. Продолжим с новыми силами.",
-      "Ночная новость: все важные открытия отлично подождут до завтра.",
-    ],
-  };
-  const dayNumber = Math.floor(
-    new Date(
-      sessionStartedAt.getFullYear(),
-      sessionStartedAt.getMonth(),
-      sessionStartedAt.getDate(),
-    ).getTime() / 86400000,
-  );
-  const periodMessages = messages[period];
-  const message = periodMessages[(dayNumber + firstName.length) % periodMessages.length];
+      ? "Доброе утро"
+      : hour < 18
+        ? "Добрый день"
+        : hour < 23
+          ? "Добрый вечер"
+          : "Доброй ночи";
   return {
-    title: `${greetings[period]}${firstName ? `, ${firstName}` : ""}!`,
-    text: message,
+    title: `${greeting}${firstName ? `, ${firstName}` : ""}`,
+    text: "Здесь собраны баланс, заказы и история AC.",
   };
 }
 
 function studentsForCurrentRole() {
   if (state.role === "admin") return students;
   if (state.role === "teacher") {
+    if (apiContext.demoMode && primaryStaffRole() === "curator") return students;
     if (!apiContext.demoMode) return students;
     const teacherName = students[0]?.teacher;
     return students.filter((student) => student.teacher === teacherName);
@@ -920,6 +916,12 @@ function apiUrl(path, params = {}) {
   return url.toString();
 }
 
+function apiFetch(input, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (apiContext.token) headers.set("X-Miniapp-Token", apiContext.token);
+  return window.fetch(input, { ...options, headers });
+}
+
 function apiErrorMessage(detail, status) {
   if (typeof detail === "string" && detail.trim()) return detail;
   if (Array.isArray(detail)) {
@@ -1110,6 +1112,29 @@ function staffRoleToUiRole(staffRoles = []) {
   return null;
 }
 
+function applyDemoRole() {
+  if (!apiContext.demoMode) return;
+  const requestedRole = apiContext.demoRole.trim().toLowerCase();
+  const staffRoleMap = {
+    superadmin: "admin",
+    partner_director: "admin",
+    admin: "admin",
+    curator: "teacher",
+    teacher: "teacher",
+  };
+  if (staffRoleMap[requestedRole]) {
+    state.staffRoles = [requestedRole];
+    state.role = staffRoleMap[requestedRole];
+    state.availableRoles = [state.role];
+    return;
+  }
+  if (["student", "parent"].includes(requestedRole)) {
+    state.staffRoles = [];
+    state.role = requestedRole;
+    state.availableRoles = [requestedRole];
+  }
+}
+
 function primaryStaffRole(staffRoles = state.staffRoles) {
   return ["superadmin", "partner_director", "admin", "curator", "teacher"].find((role) =>
     staffRoles.includes(role),
@@ -1191,6 +1216,16 @@ function staffRoleLabel(role) {
     curator: "Куратор",
     teacher: "Педагог",
   }[role] || role;
+}
+
+function staffRoleProfileLabel(role) {
+  return {
+    superadmin: "суперадминистратор",
+    partner_director: "директор",
+    admin: "администратор",
+    curator: "куратор",
+    teacher: "преподаватель",
+  }[role] || "сотрудник";
 }
 
 function accessRoleLabel(role) {
@@ -1364,7 +1399,7 @@ async function loadTeachingWorkspace() {
     return;
   }
 
-  const response = await fetch(
+  const response = await apiFetch(
     apiUrl("/api/v1/teaching/workspace", {
       max_user_id: apiContext.maxUserId,
       tenant_slug: apiContext.tenantSlug,
@@ -1424,7 +1459,7 @@ async function loadSession() {
   if (apiContext.demoMode) return;
   if (!apiContext.maxUserId) return;
 
-  const response = await fetch(
+  const response = await apiFetch(
     apiUrl("/api/v1/miniapp/session", {
       max_user_id: apiContext.maxUserId,
       tenant_slug: apiContext.tenantSlug,
@@ -1442,7 +1477,7 @@ async function loadCatalog() {
     params.max_user_id = apiContext.maxUserId;
     params.include_inactive = "true";
   }
-  const response = await fetch(
+  const response = await apiFetch(
     apiUrl("/api/v1/miniapp/catalog", params),
   );
   if (!response.ok) throw new Error(await parseApiError(response));
@@ -1455,7 +1490,7 @@ async function loadOpsSummary() {
     return;
   }
 
-  const response = await fetch(
+  const response = await apiFetch(
     apiUrl("/api/v1/miniapp/ops/summary", {
       max_user_id: apiContext.maxUserId,
       tenant_slug: apiContext.tenantSlug,
@@ -1661,6 +1696,9 @@ function setActiveStudent(studentId) {
 function renderStatus() {
   const student = selectedStudent();
   const accountName = state.account?.display_name?.trim() || "";
+  const primaryRole =
+    primaryStaffRole() || (state.role === "admin" ? "admin" : "teacher");
+  const profileRole = staffRoleProfileLabel(primaryRole);
   const roleStudents = studentsForCurrentRole();
   const linkedCount = roleStudents.length;
   const statusStrip = qs(".status-strip");
@@ -1674,15 +1712,8 @@ function renderStatus() {
       : linkedCount > 0
         ? `Родитель, ${linkedCount} учен.`
         : "Родитель",
-    teacher: accountName ? `${accountName}, педагог` : "Педагог",
-    admin:
-      primaryStaffRole() === "partner_director"
-        ? accountName
-          ? `${accountName}, директор`
-          : "Директор"
-        : accountName
-          ? `${accountName}, администратор`
-          : "Администратор",
+    teacher: accountName ? `${accountName}, ${profileRole}` : staffRoleLabel(primaryRole),
+    admin: accountName ? `${accountName}, ${profileRole}` : staffRoleLabel(primaryRole),
   };
 
   state.balance = student?.balance || 0;
@@ -1730,18 +1761,23 @@ function renderStatus() {
     },
     teacher: {
       kicker: "Рабочий день",
-      title: "Группы и начисления под рукой",
-      text: "Только ваши ученики, расписание и обратная связь.",
+      title: primaryRole === "curator" ? "Группы и занятия" : "Мои группы и занятия",
+      text:
+        primaryRole === "curator"
+          ? "Ученики, расписание и обратная связь по филиалу."
+          : "Ученики, расписание и обратная связь по вашим группам.",
     },
     admin: {
       kicker: "Управление филиалом",
-      title: "Данные филиала в одном контуре",
-      text: "Импорт, сотрудники, склад и заказы без лишних переходов.",
+      title: "Сводка по филиалу",
+      text: "Импорт, сотрудники, склады и заказы.",
     },
   };
   const spotlight = spotlightByRole[state.role] || spotlightByRole.student;
-  if (state.role === "admin" && primaryStaffRole() === "partner_director") {
+  if (state.role === "admin" && primaryRole === "partner_director") {
     spotlight.kicker = "Кабинет директора";
+  } else if (state.role === "admin" && primaryRole === "superadmin") {
+    spotlight.kicker = "Кабинет суперадминистратора";
   }
   qs("#dashboardTitle").textContent = dashboardTitle;
   qs("#dashboardRoleKicker").textContent = spotlight.kicker;
@@ -1756,7 +1792,7 @@ function renderStatus() {
   qs("#studentPanelTitle").textContent = {
     student: "Мой профиль",
     parent: "Мои дети",
-    teacher: "Мои ученики",
+    teacher: primaryRole === "curator" ? "Ученики филиала" : "Мои ученики",
     admin: "Ученики и группы",
   }[state.role] || "Ученики";
   const select = qs("#studentSelect");
@@ -2542,12 +2578,16 @@ function renderAccrual() {
   ].join("");
   groupReason.value = selectedGroupReason;
   groupAmount.value = selectedGroupAmount;
-
   const normalizedName = state.accrualNameFilter.trim().toLowerCase();
   const visibleStudents = studentsForGroup(state.accrualGroup).filter((student) =>
     student.name.toLowerCase().includes(normalizedName),
   );
   const groupFilterActive = state.accrualGroup !== "all";
+  const groupButton = qs("[data-group-accrual]");
+  if (groupButton) {
+    groupButton.disabled = state.accrualSaving || !groupFilterActive;
+    groupButton.textContent = state.accrualSaving ? "Начисление..." : "Начислить группе";
+  }
   const bulkHint = qs(".accrual-bulk p");
   if (bulkHint) {
     bulkHint.textContent = groupFilterActive
@@ -2607,7 +2647,8 @@ function renderAccrual() {
               class="primary-action"
               type="button"
               data-accrue-student="${escapeHtml(student.id)}"
-            >Начислить</button>
+              ${state.accrualSaving ? "disabled" : ""}
+            >${state.accrualSaving ? "Начисление..." : "Начислить"}</button>
           </div>
         </article>
       `,
@@ -2882,6 +2923,13 @@ function renderAdminPanel() {
         <div>
           <h3>Ученики и группы</h3>
         </div>
+        <label>
+          <span>Состав выгрузки</span>
+          <select id="crmStudentStatus" ${busy}>
+            <option value="active" ${state.crmStudentStatus === "active" ? "selected" : ""}>Активные ученики</option>
+            <option value="departed" ${state.crmStudentStatus === "departed" ? "selected" : ""}>Выбывшие ученики</option>
+          </select>
+        </label>
         <label class="file-picker">
           <input id="crmImportFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
           <span>${escapeHtml(state.crmImportFileName || "Выбрать XLSX")}</span>
@@ -2905,7 +2953,11 @@ function renderAdminPanel() {
               <div class="crm-import-actions">
                 <div>
                   <strong>${escapeHtml(preview.filename || state.crmImportFileName)}</strong>
-                  <span>Без имени: ${Number(preview.rows_without_student_name || 0)}</span>
+                  <span>${
+                    preview.student_status === "departed"
+                      ? "Статус: выбывшие"
+                      : "Статус: активные"
+                  } · без имени: ${Number(preview.rows_without_student_name || 0)}</span>
                 </div>
                 <button id="crmImportButton" class="primary-action" type="button" ${busy}>
                   ${state.crmImporting ? "Импорт..." : "Импортировать"}
@@ -3356,7 +3408,7 @@ async function saveTeachingSchedule() {
       if (index >= 0) teachingWorkspace().schedules[index] = saved;
       else teachingWorkspace().schedules.push(saved);
     } else {
-      const response = await fetch("/api/v1/teaching/schedules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const response = await apiFetch("/api/v1/teaching/schedules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!response.ok) throw new Error(await parseApiError(response));
       await loadTeachingWorkspace();
     }
@@ -3406,7 +3458,7 @@ async function generateTeachingFeedback() {
       output = { id: `demo-feedback-${Date.now()}`, schedule_id: schedule.id, group_name: schedule.group_name, course_name: schedule.course_name, lesson_date: schedule.next_lesson_date, lesson_number: schedule.current_lesson_number, feedback_text: `Обратная связь урок №${String(schedule.current_lesson_number).padStart(2, "0")}\n\nДобрый день, уважаемые родители!\n\nСегодня ученики изучили тему «${schedule.next_lesson_title || schedule.course_name}».\n\nНа платформе доступен материал урока и прогресс ребенка.` };
       teachingWorkspace().feedback_outputs.unshift(output);
     } else {
-      const response = await fetch(`/api/v1/teaching/schedules/${encodeURIComponent(schedule.id)}/feedback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const response = await apiFetch(`/api/v1/teaching/schedules/${encodeURIComponent(schedule.id)}/feedback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!response.ok) throw new Error(await parseApiError(response));
       output = await response.json();
       await loadTeachingWorkspace();
@@ -3443,7 +3495,7 @@ async function sendGeneratedFeedback() {
       button.textContent = "Отправлено";
       return;
     }
-    const response = await fetch(`/api/v1/teaching/feedback/${encodeURIComponent(state.generatedFeedbackId)}/send`, {
+    const response = await apiFetch(`/api/v1/teaching/feedback/${encodeURIComponent(state.generatedFeedbackId)}/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ max_user_id: Number(apiContext.maxUserId), tenant_slug: apiContext.tenantSlug || null }),
@@ -3506,7 +3558,7 @@ async function importProductsFromFile() {
   renderAdminPanel();
 
   try {
-    const response = await fetch("/api/v1/miniapp/products/import", {
+    const response = await apiFetch("/api/v1/miniapp/products/import", {
       method: "POST",
       body: formData,
     });
@@ -3544,12 +3596,13 @@ async function importCrmStudents(dryRun) {
   if (apiContext.tenantSlug) formData.set("tenant_slug", apiContext.tenantSlug);
   formData.set("sheet_name", "Сделки");
   formData.set("dry_run", String(dryRun));
+  formData.set("student_status", state.crmStudentStatus);
   formData.set("file", file);
 
   state.crmImporting = true;
   renderAdminPanel();
   try {
-    const response = await fetch("/api/v1/miniapp/students/import", {
+    const response = await apiFetch("/api/v1/miniapp/students/import", {
       method: "POST",
       body: formData,
     });
@@ -3557,7 +3610,9 @@ async function importCrmStudents(dryRun) {
     const result = await response.json();
     state.crmImportPreview = result;
     if (dryRun) {
-      showNotice(`Файл проверен: ${result.parsed_rows} строк, ${result.distinct_groups} групп`);
+      showNotice(
+        `Файл проверен: ${result.parsed_rows} строк, ${result.distinct_groups} групп`,
+      );
     } else {
       await loadSession();
       state.teachingLoaded = false;
@@ -3668,7 +3723,7 @@ async function saveProductFromForm() {
   state.productSaving = true;
   renderAdminPanel();
   try {
-    const response = await fetch("/api/v1/miniapp/products", {
+    const response = await apiFetch("/api/v1/miniapp/products", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -3786,8 +3841,8 @@ function createDemoOrder() {
   ]);
   state.cart.clear();
   saveCart();
-  showNotice(`Заказ №${orderNumber} оформлен в демо-режиме`);
   setView("orders");
+  showNotice(`Заказ №${orderNumber} оформлен и зарезервирован`);
   renderAll();
 }
 
@@ -3981,7 +4036,7 @@ async function assignOrderWarehouses(orderId) {
   }
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `/api/v1/miniapp/orders/${encodeURIComponent(order.backendId)}/assign-warehouses`,
       {
         method: "POST",
@@ -4048,7 +4103,7 @@ async function updateOrderAction(orderId, action) {
 
   const endpoint = action === "issue" ? "issue" : action === "return" ? "return" : "cancel";
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `/api/v1/miniapp/orders/${encodeURIComponent(order.backendId)}/${endpoint}`,
       {
         method: "POST",
@@ -4162,7 +4217,7 @@ async function saveWarehouseFromForm() {
   state.warehouseSaving = true;
   renderAdminPanel();
   try {
-    const response = await fetch("/api/v1/miniapp/warehouses", {
+    const response = await apiFetch("/api/v1/miniapp/warehouses", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -4219,7 +4274,7 @@ async function adjustInventory(inventoryKey) {
   state.inventorySavingKey = inventoryKey;
   renderAdminPanel();
   try {
-    const response = await fetch("/api/v1/miniapp/inventory/adjust", {
+    const response = await apiFetch("/api/v1/miniapp/inventory/adjust", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -4288,7 +4343,7 @@ async function transferInventory(inventoryKey) {
   state.inventorySavingKey = inventoryKey;
   renderAdminPanel();
   try {
-    const response = await fetch("/api/v1/miniapp/inventory/transfer", {
+    const response = await apiFetch("/api/v1/miniapp/inventory/transfer", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -4334,7 +4389,7 @@ async function toggleContactLink(linkId) {
   }
 
   try {
-    const response = await fetch(`/api/v1/miniapp/access-links/${encodeURIComponent(link.id)}`, {
+    const response = await apiFetch(`/api/v1/miniapp/access-links/${encodeURIComponent(link.id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -4394,7 +4449,7 @@ async function updateStaffAssignment({ targetMaxUserId, role, status, displayNam
   state.staffSaving = true;
   renderAdminPanel();
   try {
-    const response = await fetch("/api/v1/miniapp/staff/assignments", {
+    const response = await apiFetch("/api/v1/miniapp/staff/assignments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -4474,6 +4529,7 @@ async function accrueStudents(targets, amount, reason, groupLabel = "") {
     showNotice("Выберите учеников для начисления", "danger");
     return;
   }
+  if (state.accrualSaving) return;
 
   if (apiContext.demoMode || !apiContext.maxUserId || targets.some((student) => student.id.startsWith("demo-"))) {
     targets.forEach((student) => {
@@ -4496,8 +4552,10 @@ async function accrueStudents(targets, amount, reason, groupLabel = "") {
     return;
   }
 
+  state.accrualSaving = true;
+  renderAccrual();
   try {
-    const response = await fetch("/api/v1/miniapp/coins/accrue", {
+    const response = await apiFetch("/api/v1/miniapp/coins/accrue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -4523,6 +4581,9 @@ async function accrueStudents(targets, amount, reason, groupLabel = "") {
     renderAll();
   } catch (error) {
     showNotice(error.message || "Не удалось начислить астрокоины", "danger");
+  } finally {
+    state.accrualSaving = false;
+    renderAccrual();
   }
 }
 
@@ -4575,7 +4636,7 @@ async function placeOrder() {
   const button = qs("#confirmOrderButton");
   button.disabled = true;
   try {
-    const response = await fetch("/api/v1/miniapp/orders", {
+    const response = await apiFetch("/api/v1/miniapp/orders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -4586,9 +4647,9 @@ async function placeOrder() {
     state.cart.clear();
     saveCart();
     closeCheckoutDialog();
-    showNotice(`Заказ №${result.order.order_number} оформлен и зарезервирован`);
     await refreshOrderAndInventoryState();
     setView("orders");
+    showNotice(`Заказ №${result.order.order_number} оформлен и зарезервирован`);
     renderAll();
   } catch (error) {
     closeCheckoutDialog();
@@ -4600,7 +4661,7 @@ async function placeOrder() {
 }
 
 document.addEventListener("click", (event) => {
-  const target = event.target instanceof HTMLElement ? event.target.closest("button") : null;
+  const target = event.target instanceof Element ? event.target.closest("button") : null;
   if (!target) return;
 
   if ("mobileMore" in target.dataset) {
@@ -4884,6 +4945,12 @@ document.addEventListener("change", (event) => {
     if (label) label.textContent = state.crmImportFileName || "Выбрать XLSX";
   }
 
+  if (target.id === "crmStudentStatus") {
+    state.crmStudentStatus = target.value;
+    state.crmImportPreview = null;
+    renderAdminPanel();
+  }
+
   if (target.id === "studentGroupFilter") {
     state.studentGroupFilter = target.value;
     renderStudents();
@@ -4967,7 +5034,16 @@ qs("#storeCartBar").addEventListener("click", () => setView("cart"));
 async function init() {
   qs("#tenantTitle").textContent = tenantTitle();
   restorePreferences();
-  if (apiContext.demoMode && state.view === "teaching") state.role = "teacher";
+  applyDemoRole();
+  if (
+    apiContext.demoMode &&
+    !apiContext.demoRole &&
+    state.view === "teaching"
+  ) {
+    state.role = "teacher";
+    state.staffRoles = ["teacher"];
+    state.availableRoles = ["teacher"];
+  }
   qs("#productSort").value = state.productSort;
   qs("#inStockOnly").checked = state.inStockOnly;
   const results = [];

@@ -4,6 +4,8 @@ import json
 from typing import Any
 from urllib import error, parse, request
 
+from app.core.miniapp_auth import issue_miniapp_token
+
 
 class BackendApiError(RuntimeError):
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
@@ -33,6 +35,14 @@ class AccessBackendClient:
         headers = {"Accept": "application/json"}
         if body is not None:
             headers["Content-Type"] = "application/json"
+        identity_source = body or params or {}
+        max_user_id = identity_source.get("max_user_id")
+        tenant_slug = identity_source.get("tenant_slug")
+        if max_user_id and tenant_slug:
+            headers["X-Miniapp-Token"] = issue_miniapp_token(
+                max_user_id=int(max_user_id),
+                tenant_slug=str(tenant_slug),
+            )
         req = request.Request(
             url,
             data=data,

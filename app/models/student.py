@@ -24,6 +24,8 @@ class Student(TimestampMixin, Base):
     id: Mapped[UUID] = uuid_pk()
     tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), index=True, nullable=False)
     venue_id: Mapped[UUID | None] = mapped_column(ForeignKey("venues.id"), index=True)
+    crm_deal_id: Mapped[str | None] = mapped_column(String(120), index=True)
+    crm_uuid: Mapped[str | None] = mapped_column(String(180), index=True)
     lms_student_id: Mapped[str | None] = mapped_column(String(120), index=True)
     student_access_code: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
     first_name: Mapped[str] = mapped_column(String(120), nullable=False)

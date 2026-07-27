@@ -22,7 +22,7 @@ _background_tasks: set[asyncio.Task[None]] = set()
 
 def _order_status_text(status: OrderStatus) -> str:
     return {
-        OrderStatus.RESERVED: "Товар зарезервирован",
+        OrderStatus.RESERVED: "Зарезервировано",
         OrderStatus.CANCELLED: "Заказ отменен",
         OrderStatus.ISSUED_TO_STUDENT: "Заказ выдан ученику",
         OrderStatus.RETURNED: "Возврат оформлен",

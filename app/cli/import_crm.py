@@ -8,6 +8,7 @@ from pathlib import Path
 import app.db.base  # noqa: F401
 from app.core.config import get_settings
 from app.db.session import AsyncSessionLocal
+from app.models.enums import StudentStatus
 from app.services.crm_import import parse_crm_students
 from app.services.crm_sync import CrmSyncDefaults, upsert_crm_student_rows
 
@@ -53,6 +54,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Только разобрать XLSX и показать сводку без записи в БД.",
     )
+    parser.add_argument(
+        "--student-status",
+        choices=[status.value for status in StudentStatus],
+        default=StudentStatus.ACTIVE.value,
+        help="Статус импортируемых учеников: active, departed или archived.",
+    )
     return parser.parse_args()
 
 
@@ -83,6 +90,7 @@ async def run_import(args: argparse.Namespace) -> dict[str, int]:
                 fallback_city_name=args.fallback_city_name,
                 tenant_slug=args.tenant_slug,
             ),
+            student_status=StudentStatus(args.student_status),
         )
     return result.__dict__
 

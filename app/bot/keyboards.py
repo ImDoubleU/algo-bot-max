@@ -4,6 +4,8 @@ import os
 from typing import Any
 from urllib import parse
 
+from app.core.miniapp_auth import issue_miniapp_token
+
 CALLBACK_HELP = "help"
 CALLBACK_MENU = "menu"
 CALLBACK_MINIAPP = "miniapp:open"
@@ -137,6 +139,11 @@ def build_miniapp_url(
         query["max_user_id"] = str(user_id)
     if tenant_slug:
         query["tenant_slug"] = tenant_slug
+    if user_id is not None and tenant_slug:
+        query["miniapp_token"] = issue_miniapp_token(
+            max_user_id=user_id,
+            tenant_slug=tenant_slug,
+        )
     if view:
         query["view"] = view
 
@@ -211,13 +218,22 @@ def role_menu_keyboard(
         "student": "Открыть личный кабинет",
         "parent": "Открыть семейный кабинет",
         "teacher": "Открыть рабочий кабинет",
+        "curator": "Открыть кабинет куратора",
         "admin": "Открыть рабочий кабинет",
+        "partner_director": "Открыть кабинет директора",
+        "superadmin": "Открыть кабинет суперадминистратора",
     }.get(normalized, "Открыть кабинет")
     if miniapp_url:
         rows.append([link_button(cabinet_label, miniapp_url)])
     else:
         rows.append([callback_button(cabinet_label, CALLBACK_MINIAPP)])
-    if normalized in {"teacher", "admin"}:
+    if normalized in {
+        "teacher",
+        "curator",
+        "admin",
+        "partner_director",
+        "superadmin",
+    }:
         rows.append([callback_button("Обратная связь", CALLBACK_FEEDBACK)])
     rows.append([callback_button("Помощь", CALLBACK_HELP)])
     return inline_keyboard(rows)

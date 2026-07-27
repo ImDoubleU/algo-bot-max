@@ -4,7 +4,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import (
+    get_miniapp_identity,
+    require_matching_miniapp_identity,
+)
 from app.core.config import get_settings
+from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
 from app.schemas.teaching import (
     FeedbackDeliveryRead,
@@ -25,20 +30,41 @@ from app.services.teaching import (
 
 router = APIRouter()
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
+MiniAppIdentityDep = Annotated[MiniAppIdentity | None, Depends(get_miniapp_identity)]
+
+
+def _authorize(
+    identity: MiniAppIdentity | None,
+    *,
+    max_user_id: int,
+    tenant_slug: str | None,
+) -> str:
+    resolved_tenant = tenant_slug or get_settings().default_tenant_slug
+    require_matching_miniapp_identity(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=resolved_tenant,
+    )
+    return resolved_tenant
 
 
 @router.get("/workspace", response_model=TeachingWorkspaceRead)
 async def teaching_workspace(
     db: DbSession,
+    identity: MiniAppIdentityDep,
     max_user_id: Annotated[int, Query(gt=0)],
     tenant_slug: str | None = None,
 ) -> TeachingWorkspaceRead:
-    settings = get_settings()
+    resolved_tenant = _authorize(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
     try:
         return await get_teaching_workspace(
             db,
             max_user_id=max_user_id,
-            tenant_slug=tenant_slug or settings.default_tenant_slug,
+            tenant_slug=resolved_tenant,
         )
     except TeachingServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -52,8 +78,14 @@ async def teaching_workspace(
 async def teaching_schedule_upsert(
     payload: TeachingScheduleUpsert,
     db: DbSession,
+    identity: MiniAppIdentityDep,
 ) -> TeachingScheduleRead:
     settings = get_settings()
+    _authorize(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
     try:
         return await upsert_teaching_schedule(
             db,
@@ -73,8 +105,14 @@ async def teaching_feedback_generate(
     schedule_id: UUID,
     payload: FeedbackGenerateRequest,
     db: DbSession,
+    identity: MiniAppIdentityDep,
 ) -> FeedbackOutputRead:
     settings = get_settings()
+    _authorize(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
     try:
         return await generate_schedule_feedback(
             db,
@@ -94,8 +132,14 @@ async def teaching_feedback_send(
     output_id: UUID,
     payload: FeedbackDeliveryRequest,
     db: DbSession,
+    identity: MiniAppIdentityDep,
 ) -> FeedbackDeliveryRead:
     settings = get_settings()
+    _authorize(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
     try:
         return await send_feedback_to_parents(
             db,

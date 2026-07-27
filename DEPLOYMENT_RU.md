@@ -123,6 +123,7 @@ nano /etc/algo-max/algo-max.env
 - `APP_SECRET_KEY`: результат `openssl rand -hex 32`.
 - `MAX_BOT_TOKEN`: токен MAX.
 - `MAX_WEBHOOK_SECRET`: результат `openssl rand -hex 32`.
+- `MINIAPP_TOKEN_TTL_SECONDS`: срок подписанной ссылки mini-app; штатное значение `2592000`.
 - `bot.example.ru`: реальный домен во всех URL.
 - `CHANGE_DB_PASSWORD`: пароль PostgreSQL; спецсимволы должны быть URL-кодированы.
 - `DEFAULT_TENANT_SLUG`: slug импортированного филиала.
@@ -184,6 +185,11 @@ sudo -u algomax --preserve-env /opt/algo-max/.venv/bin/python -m app.cli.import_
 `--tenant-slug` фиксирует импорт в одном филиале. Повторный запуск обновляет
 учеников в этом tenant и не создает tenant-ы с повторяющимися slug.
 
+Если есть отдельная выгрузка выбывших, сначала импортируйте ее с
+`--student-status departed`, затем повторите команды для `active.xlsx` без этого
+параметра. Активная выгрузка выполняется последней и остается источником актуального
+статуса при пересечениях.
+
 Затем загрузите курсы в созданный tenant и назначьте первый superadmin:
 
 ```bash
@@ -198,7 +204,7 @@ sudo -u algomax --preserve-env /opt/algo-max/.venv/bin/python -m app.cli.bootstr
 
 Первичный импорт выполняется на сервере, потому что tenant и первая роль еще не созданы.
 После назначения `partner_director` или `admin` последующие CRM XLSX загружаются в mini-app:
-`Операции -> Импорт CRM -> Проверить файл -> Импортировать`.
+`Операции -> Импорт CRM -> Состав выгрузки -> Проверить файл -> Импортировать`.
 
 ## 8. Запустить API и получить HTTPS
 
