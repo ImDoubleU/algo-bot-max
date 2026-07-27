@@ -28,6 +28,8 @@ CALLBACK_FEEDBACK = "feedback"
 CALLBACK_FEEDBACK_PREFIX = "feedback"
 CALLBACK_ROLE_PARENT = "role:parent"
 CALLBACK_ROLE_STUDENT = "role:student"
+CALLBACK_ONBOARDING_RESTART = "onboarding:restart"
+CALLBACK_ONBOARDING_CANCEL = "onboarding:cancel"
 CALLBACK_ORDER_ACTION_PREFIX = "order:action"
 CALLBACK_ORDER_CONFIRM_PREFIX = "order:confirm"
 
@@ -202,6 +204,25 @@ def role_selection_keyboard() -> list[dict[str, Any]]:
                 callback_button("Я родитель", CALLBACK_ROLE_PARENT),
                 callback_button("Я ученик", CALLBACK_ROLE_STUDENT),
             ],
+            [callback_button("Помощь", CALLBACK_HELP)],
+            [callback_button("Отменить вход", CALLBACK_ONBOARDING_CANCEL)],
+        ]
+    )
+
+
+def onboarding_contact_keyboard() -> list[dict[str, Any]]:
+    return inline_keyboard_with_main_menu(
+        [
+            [callback_button("Изменить роль", CALLBACK_ONBOARDING_RESTART)],
+            [callback_button("Отменить вход", CALLBACK_ONBOARDING_CANCEL)],
+        ]
+    )
+
+
+def onboarding_cancelled_keyboard() -> list[dict[str, Any]]:
+    return inline_keyboard_with_main_menu(
+        [
+            [callback_button("Начать вход", CALLBACK_ONBOARDING_RESTART)],
             [callback_button("Помощь", CALLBACK_HELP)],
         ]
     )
