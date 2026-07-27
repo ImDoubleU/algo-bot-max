@@ -20,6 +20,7 @@ from app.models.enums import (
     StudentAccessRole,
     StudentAccessStatus,
     StudentStatus,
+    TenantStatus,
 )
 from app.models.store import (
     Order,
@@ -64,6 +65,8 @@ from app.schemas.miniapp import (
     MiniAppSessionRead,
     MiniAppStaffAssignmentRead,
     MiniAppStaffAssignmentUpdate,
+    MiniAppStaffOnboardingOptionsRead,
+    MiniAppStaffOnboardingTenantRead,
     MiniAppStudentRead,
     MiniAppWarehouseRead,
     MiniAppWarehouseUpsert,
@@ -119,6 +122,12 @@ COIN_ACCRUAL_ROLES = STORE_ADMIN_ROLES | {
 ORDER_MANAGER_ROLES = COIN_ACCRUAL_ROLES
 STAFF_ROLE_PRIORITY = (
     StaffRole.SUPERADMIN,
+    StaffRole.PARTNER_DIRECTOR,
+    StaffRole.ADMIN,
+    StaffRole.CURATOR,
+    StaffRole.TEACHER,
+)
+STAFF_ONBOARDING_ROLES = (
     StaffRole.PARTNER_DIRECTOR,
     StaffRole.ADMIN,
     StaffRole.CURATOR,
@@ -2068,9 +2077,18 @@ async def update_miniapp_staff_assignment(
             )
         ).all()
     )
-    if not actor_roles.intersection(STORE_ADMIN_ROLES):
+    is_global_superadmin = bool(
+        await db.scalar(
+            select(func.count(StaffRoleAssignment.id)).where(
+                StaffRoleAssignment.account_id == actor.id,
+                StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+                StaffRoleAssignment.role == StaffRole.SUPERADMIN,
+            )
+        )
+    )
+    if not actor_roles.intersection(STORE_ADMIN_ROLES) and not is_global_superadmin:
         raise MiniAppStoreError("Нет прав на управление сотрудниками", status_code=403)
-    if payload.role in ELEVATED_STAFF_ROLES and StaffRole.SUPERADMIN not in actor_roles:
+    if payload.role in ELEVATED_STAFF_ROLES and not is_global_superadmin:
         raise MiniAppStoreError(
             "Управляющие роли может менять только superadmin",
             status_code=403,
@@ -2166,6 +2184,57 @@ async def update_miniapp_staff_assignment(
         display_name=target.display_name,
         role=assignment.role,
         status=assignment.status,
+    )
+
+
+async def list_miniapp_staff_onboarding_options(
+    db: AsyncSession,
+    *,
+    max_user_id: int,
+) -> MiniAppStaffOnboardingOptionsRead:
+    actor = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
+    if actor is None:
+        raise MiniAppStoreError("MAX-аккаунт суперадминистра не найден", status_code=403)
+
+    is_superadmin = bool(
+        await db.scalar(
+            select(func.count(StaffRoleAssignment.id)).where(
+                StaffRoleAssignment.account_id == actor.id,
+                StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+                StaffRoleAssignment.role == StaffRole.SUPERADMIN,
+            )
+        )
+    )
+    if not is_superadmin:
+        raise MiniAppStoreError("Нет прав на регистрацию сотрудников", status_code=403)
+
+    tenants = (
+        (
+            await db.scalars(
+                select(Tenant)
+                .options(selectinload(Tenant.city))
+                .where(Tenant.status == TenantStatus.ACTIVE)
+            )
+        )
+        .unique()
+        .all()
+    )
+    tenants.sort(
+        key=lambda tenant: (
+            (tenant.city.name if tenant.city else "").casefold(),
+            tenant.name.casefold(),
+        )
+    )
+    return MiniAppStaffOnboardingOptionsRead(
+        tenants=[
+            MiniAppStaffOnboardingTenantRead(
+                tenant_slug=tenant.slug,
+                tenant_name=tenant.name,
+                city_name=tenant.city.name if tenant.city else tenant.name,
+            )
+            for tenant in tenants
+        ],
+        roles=list(STAFF_ONBOARDING_ROLES),
     )
 
 

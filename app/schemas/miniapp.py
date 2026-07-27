@@ -296,6 +296,17 @@ class MiniAppStaffAssignmentUpdate(BaseModel):
     display_name: str | None = Field(default=None, max_length=160)
 
 
+class MiniAppStaffOnboardingTenantRead(BaseModel):
+    tenant_slug: str
+    tenant_name: str
+    city_name: str
+
+
+class MiniAppStaffOnboardingOptionsRead(BaseModel):
+    tenants: list[MiniAppStaffOnboardingTenantRead] = Field(default_factory=list)
+    roles: list[StaffRole] = Field(default_factory=list)
+
+
 class MiniAppInventoryAdjustmentCreate(BaseModel):
     max_user_id: int = Field(gt=0)
     tenant_slug: str | None = None

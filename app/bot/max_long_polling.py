@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import hmac
 import json
 import logging
+import secrets
 import sys
 import threading
 import time
@@ -65,11 +67,21 @@ from app.bot.keyboards import (
     parse_knowledge_payload,
     parse_order_action_payload,
     parse_order_confirm_payload,
+    parse_staff_join_payload,
     role_selection_keyboard,
+    staff_approval_keyboard,
+    staff_role_keyboard,
+    staff_role_label,
+    staff_tenant_keyboard,
     without_open_app_buttons,
 )
 from app.bot.max_client import MaxApiClient, MaxApiError, SimulationMaxClient
-from app.bot.models import BotResponse, PendingContact
+from app.bot.models import (
+    BotResponse,
+    PendingContact,
+    PendingStaffInvite,
+    PendingStaffRequest,
+)
 from app.bot.runtime import APP_REVISION, APP_VERSION, MARKER_FILE, configure_logging
 from app.core.config import get_settings, is_placeholder
 from app.services.deep_links import (
@@ -87,6 +99,8 @@ logger = logging.getLogger("algo_bot_max.bot")
 POLL_RETRY_INITIAL_SECONDS = 1.0
 POLL_RETRY_MAX_SECONDS = 30.0
 FEEDBACK_PAGE_SIZE = 8
+STAFF_INVITE_TTL_SECONDS = 30 * 60
+STAFF_REQUEST_TTL_SECONDS = 24 * 60 * 60
 FEEDBACK_LESSON_MODES = (
     ("group", "offline", "группа офлайн"),
     ("group", "online", "группа онлайн"),
@@ -140,16 +154,37 @@ class LongPollingBot:
         backend_client: AccessBackendClient | None = None,
         default_tenant_slug: str | None = None,
     ) -> None:
+        settings = get_settings()
         self.client = client
         self.backend_client = backend_client
-        self.default_tenant_slug = default_tenant_slug or get_settings().default_tenant_slug
+        self.default_tenant_slug = default_tenant_slug or settings.default_tenant_slug
         self.bot_info = self.client.get_me()
         self.bot_user_id = self.bot_info.get("user_id")
         self.pending_contact_ids: dict[int, PendingContact] = {}
         self.pending_onboarding_roles: dict[int, str] = {}
+        self.pending_staff_invites: dict[int, PendingStaffInvite] = {}
+        self.pending_staff_requests: dict[str, PendingStaffRequest] = {}
         self.user_tenant_slugs: dict[int, str] = {}
         self.user_menu_roles: dict[tuple[int, str], str] = {}
         self.feedback_drafts: dict[int, dict[str, Any]] = {}
+        invite_command = (settings.max_staff_invite_command or "").strip().casefold()
+        self.staff_invite_command = (
+            invite_command
+            if invite_command.startswith("/")
+            and " " not in invite_command
+            and len(invite_command) >= 8
+            else None
+        )
+        try:
+            approver_user_id = int(
+                str(settings.initial_superadmin_max_user_id or "").strip()
+            )
+        except ValueError:
+            self.staff_approver_user_id = None
+        else:
+            self.staff_approver_user_id = (
+                approver_user_id if approver_user_id > 0 else None
+            )
         self.knowledge_base = KnowledgeBaseService()
         self.running = True
         self.stop_event = threading.Event()
@@ -600,6 +635,392 @@ class LongPollingBot:
         return BotResponse(
             "Вход отменен. Данные не сохранены.",
             onboarding_cancelled_keyboard(),
+        )
+
+    def cleanup_staff_onboarding(self) -> None:
+        now = time.monotonic()
+        self.pending_staff_invites = {
+            user_id: invite
+            for user_id, invite in self.pending_staff_invites.items()
+            if now - invite.created_at <= STAFF_INVITE_TTL_SECONDS
+        }
+        self.pending_staff_requests = {
+            request_id: request
+            for request_id, request in self.pending_staff_requests.items()
+            if now - request.created_at <= STAFF_REQUEST_TTL_SECONDS
+        }
+
+    def is_staff_invite_command(self, command: str) -> bool:
+        return bool(
+            self.staff_invite_command
+            and hmac.compare_digest(command, self.staff_invite_command)
+        )
+
+    def staff_invite_start_response(
+        self,
+        *,
+        user_id: int | None,
+        username: str | None,
+        display_name: str | None,
+    ) -> BotResponse:
+        if (
+            user_id is None
+            or self.backend_client is None
+            or self.staff_approver_user_id is None
+        ):
+            return BotResponse(
+                "Регистрация сотрудников сейчас недоступна.",
+                self.main_menu_attachments(user_id),
+            )
+
+        try:
+            options = self.backend_client.get_staff_onboarding_options(
+                tenant_slug=self.default_tenant_slug,
+                max_user_id=self.staff_approver_user_id,
+            )
+        except BackendApiError as exc:
+            logger.warning("Could not load staff onboarding options: %s", exc)
+            return BotResponse(
+                "Не удалось загрузить список городов. Попробуйте немного позже.",
+                self.main_menu_attachments(user_id),
+            )
+
+        tenants = [
+            tenant
+            for tenant in options.get("tenants") or []
+            if isinstance(tenant, dict) and tenant.get("tenant_slug")
+        ]
+        allowed_roles = ("partner_director", "admin", "curator", "teacher")
+        roles = [
+            str(role)
+            for role in options.get("roles") or []
+            if str(role) in allowed_roles
+        ]
+        if not tenants or not roles:
+            return BotResponse(
+                "Для регистрации пока нет доступных городов или ролей.",
+                self.main_menu_attachments(user_id),
+            )
+
+        self.cleanup_staff_onboarding()
+        self.pending_staff_invites[user_id] = PendingStaffInvite(
+            created_at=time.monotonic(),
+            username=username,
+            display_name=display_name,
+            tenants=tenants,
+            roles=roles,
+        )
+        self.pending_staff_requests = {
+            request_id: request
+            for request_id, request in self.pending_staff_requests.items()
+            if request.max_user_id != user_id
+        }
+        return BotResponse(
+            (
+                "Регистрация сотрудника\n\n"
+                f"Ваш MAX ID: {user_id}\n\n"
+                "Выберите город, в котором вы работаете."
+            ),
+            staff_tenant_keyboard(tenants),
+        )
+
+    @staticmethod
+    def staff_request_text(
+        request: PendingStaffRequest,
+        *,
+        heading: str,
+    ) -> str:
+        employee_name = request.display_name or (
+            f"@{request.username}" if request.username else "Не указано"
+        )
+        lines = [
+            heading,
+            "",
+            f"Сотрудник: {employee_name}",
+            f"MAX ID: {request.max_user_id}",
+        ]
+        if request.username:
+            lines.append(f"Логин: @{request.username.lstrip('@')}")
+        lines.extend(
+            [
+                f"Город: {request.city_name}",
+                f"Организация: {request.tenant_name}",
+                f"Роль: {staff_role_label(request.role)}",
+            ]
+        )
+        return "\n".join(lines)
+
+    def staff_invite_state(self, user_id: int | None) -> PendingStaffInvite | None:
+        if user_id is None:
+            return None
+        self.cleanup_staff_onboarding()
+        return self.pending_staff_invites.get(user_id)
+
+    def submit_staff_request(
+        self,
+        *,
+        user_id: int,
+        invite: PendingStaffInvite,
+        role: str,
+    ) -> BotResponse:
+        tenant = next(
+            (
+                item
+                for item in invite.tenants
+                if item.get("tenant_slug") == invite.tenant_slug
+            ),
+            None,
+        )
+        if tenant is None or self.staff_approver_user_id is None:
+            return BotResponse(
+                "Сначала выберите город.",
+                staff_tenant_keyboard(invite.tenants),
+            )
+
+        request_id = secrets.token_urlsafe(6)
+        while request_id in self.pending_staff_requests:
+            request_id = secrets.token_urlsafe(6)
+        request = PendingStaffRequest(
+            request_id=request_id,
+            created_at=time.monotonic(),
+            max_user_id=user_id,
+            username=invite.username,
+            display_name=invite.display_name,
+            tenant_slug=str(tenant["tenant_slug"]),
+            tenant_name=str(tenant.get("tenant_name") or tenant["tenant_slug"]),
+            city_name=str(
+                tenant.get("city_name")
+                or tenant.get("tenant_name")
+                or tenant["tenant_slug"]
+            ),
+            role=role,
+        )
+        self.pending_staff_requests[request_id] = request
+        try:
+            self.send_response(
+                BotResponse(
+                    self.staff_request_text(
+                        request,
+                        heading="Новая заявка сотрудника",
+                    ),
+                    staff_approval_keyboard(request_id),
+                ),
+                user_id=self.staff_approver_user_id,
+            )
+        except MaxApiError as exc:
+            self.pending_staff_requests.pop(request_id, None)
+            logger.warning("Could not notify staff approver: %s", exc)
+            return BotResponse(
+                "Не удалось отправить заявку на подтверждение. Попробуйте позже.",
+                staff_role_keyboard(invite.roles),
+            )
+
+        self.pending_staff_invites.pop(user_id, None)
+        return BotResponse(
+            (
+                "Заявка отправлена на подтверждение.\n\n"
+                f"MAX ID: {request.max_user_id}\n"
+                f"Город: {request.city_name}\n"
+                f"Роль: {staff_role_label(request.role)}\n\n"
+                "После решения бот пришлет отдельное сообщение."
+            ),
+            self.main_menu_attachments(user_id),
+        )
+
+    def decide_staff_request(
+        self,
+        *,
+        approver_user_id: int | None,
+        request_id: str | None,
+        approved: bool,
+    ) -> BotResponse:
+        if (
+            approver_user_id is None
+            or approver_user_id != self.staff_approver_user_id
+        ):
+            return BotResponse(
+                "Подтверждение доступно только суперадминистратору.",
+                self.main_menu_attachments(approver_user_id),
+            )
+
+        self.cleanup_staff_onboarding()
+        request = self.pending_staff_requests.get(request_id or "")
+        if request is None:
+            return BotResponse(
+                "Заявка уже обработана или устарела.",
+                self.main_menu_attachments(approver_user_id),
+            )
+
+        if not approved:
+            self.pending_staff_requests.pop(request.request_id, None)
+            notification_sent = True
+            try:
+                self.send_response(
+                    BotResponse(
+                        (
+                            "Заявка на доступ отклонена.\n\n"
+                            f"Город: {request.city_name}\n"
+                            f"Роль: {staff_role_label(request.role)}"
+                        ),
+                        self.main_menu_attachments(request.max_user_id),
+                    ),
+                    user_id=request.max_user_id,
+                )
+            except MaxApiError as exc:
+                notification_sent = False
+                logger.warning("Could not notify rejected staff applicant: %s", exc)
+            suffix = "" if notification_sent else "\n\nУведомить сотрудника не удалось."
+            return BotResponse(
+                self.staff_request_text(
+                    request,
+                    heading="Заявка отклонена",
+                )
+                + suffix,
+                self.main_menu_attachments(approver_user_id),
+            )
+
+        if self.backend_client is None:
+            return BotResponse(
+                "Backend API недоступен. Заявка не обработана.",
+                self.main_menu_attachments(approver_user_id),
+            )
+        try:
+            self.backend_client.update_staff_assignment(
+                tenant_slug=request.tenant_slug,
+                max_user_id=approver_user_id,
+                target_max_user_id=request.max_user_id,
+                role=request.role,
+                status="active",
+                username=request.username,
+                display_name=request.display_name,
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                (
+                    self.staff_request_text(
+                        request,
+                        heading="Не удалось подтвердить заявку",
+                    )
+                    + f"\n\nПричина: {format_backend_error(exc)}"
+                ),
+                staff_approval_keyboard(request.request_id),
+            )
+
+        self.pending_staff_requests.pop(request.request_id, None)
+        self.user_tenant_slugs[request.max_user_id] = request.tenant_slug
+        self.user_menu_roles = {
+            key: value
+            for key, value in self.user_menu_roles.items()
+            if key[0] != request.max_user_id
+        }
+        self.user_menu_roles[(request.max_user_id, request.tenant_slug)] = request.role
+
+        notification_sent = True
+        try:
+            self.send_response(
+                BotResponse(
+                    (
+                        "Доступ сотрудника подтвержден.\n\n"
+                        f"Город: {request.city_name}\n"
+                        f"Роль: {staff_role_label(request.role)}\n\n"
+                        "Рабочий кабинет доступен в главном меню."
+                    ),
+                    cabinet_keyboard(
+                        user_id=request.max_user_id,
+                        tenant_slug=request.tenant_slug,
+                        role=request.role,
+                    ),
+                ),
+                user_id=request.max_user_id,
+            )
+        except MaxApiError as exc:
+            notification_sent = False
+            logger.warning("Could not notify approved staff applicant: %s", exc)
+
+        suffix = (
+            ""
+            if notification_sent
+            else "\n\nРоль назначена, но уведомить сотрудника не удалось."
+        )
+        return BotResponse(
+            self.staff_request_text(
+                request,
+                heading="Заявка подтверждена",
+            )
+            + suffix,
+            self.main_menu_attachments(approver_user_id),
+        )
+
+    def staff_join_callback_response(
+        self,
+        *,
+        user_id: int | None,
+        action: str,
+        value: str | None,
+    ) -> BotResponse:
+        if action in {"approve", "reject"}:
+            return self.decide_staff_request(
+                approver_user_id=user_id,
+                request_id=value,
+                approved=action == "approve",
+            )
+
+        if action == "cancel":
+            if user_id is not None:
+                self.pending_staff_invites.pop(user_id, None)
+            return BotResponse(
+                "Регистрация сотрудника отменена.",
+                self.main_menu_attachments(user_id),
+            )
+
+        invite = self.staff_invite_state(user_id)
+        if invite is None:
+            return BotResponse(
+                "Время регистрации истекло. Запросите команду повторно.",
+                self.main_menu_attachments(user_id),
+            )
+
+        if action == "cities":
+            invite.tenant_slug = None
+            return BotResponse(
+                f"Ваш MAX ID: {user_id}\n\nВыберите город.",
+                staff_tenant_keyboard(invite.tenants),
+            )
+
+        if action == "tenant":
+            tenant = next(
+                (
+                    item
+                    for item in invite.tenants
+                    if item.get("tenant_slug") == value
+                ),
+                None,
+            )
+            if tenant is None:
+                return BotResponse(
+                    "Этот город недоступен. Выберите вариант из списка.",
+                    staff_tenant_keyboard(invite.tenants),
+                )
+            invite.tenant_slug = str(tenant["tenant_slug"])
+            return BotResponse(
+                (
+                    f"Город: {tenant.get('city_name') or tenant.get('tenant_name')}\n"
+                    f"MAX ID: {user_id}\n\n"
+                    "Выберите вашу роль."
+                ),
+                staff_role_keyboard(invite.roles),
+            )
+
+        if action == "role" and value in invite.roles and user_id is not None:
+            return self.submit_staff_request(
+                user_id=user_id,
+                invite=invite,
+                role=str(value),
+            )
+
+        return BotResponse(
+            "Выберите роль кнопкой ниже.",
+            staff_role_keyboard(invite.roles),
         )
 
     def knowledge_menu_response(self, user_id: int | None) -> BotResponse:
@@ -6045,8 +6466,15 @@ class LongPollingBot:
         argument = parts[1].strip() if len(parts) > 1 else ""
         started_at = time.monotonic()
         tenant_slug = self.current_tenant_slug(user_id)
+        is_staff_invite = self.is_staff_invite_command(command)
 
-        if command == "/start":
+        if is_staff_invite:
+            response = self.staff_invite_start_response(
+                user_id=user_id,
+                username=sender.get("username"),
+                display_name=display_name_from_user(sender),
+            )
+        elif command == "/start":
             response = (
                 self.handle_contact_payload_response(payload=argument, user_id=user_id)
                 or self.first_entry_response(user_id)
@@ -6278,7 +6706,13 @@ class LongPollingBot:
 
         self.log_interaction_result(
             event_type="message",
-            action=command if command.startswith("/") else "contact_or_search",
+            action=(
+                "staff_invite"
+                if is_staff_invite
+                else command
+                if command.startswith("/")
+                else "contact_or_search"
+            ),
             user_id=user_id,
             chat_id=chat_id,
             tenant_slug=tenant_slug,
@@ -6301,6 +6735,41 @@ class LongPollingBot:
             chat_id = recipient.get("chat_id")
         started_at = time.monotonic()
         tenant_slug = self.current_tenant_slug(user_id)
+        staff_join_action = parse_staff_join_payload(payload)
+
+        if staff_join_action:
+            action, value = staff_join_action
+            response = self.staff_join_callback_response(
+                user_id=user_id,
+                action=action,
+                value=value,
+            )
+            notification = {
+                "tenant": "Город выбран",
+                "cities": "Выбор города",
+                "role": "Заявка отправлена",
+                "approve": "Заявка подтверждена",
+                "reject": "Заявка отклонена",
+                "cancel": "Регистрация отменена",
+            }.get(action, "Регистрация сотрудника")
+            self.log_interaction_result(
+                event_type="callback",
+                action=f"staff_join:{action}",
+                user_id=user_id,
+                chat_id=chat_id,
+                tenant_slug=tenant_slug,
+                started_at=started_at,
+                response=response,
+            )
+            if callback_id and hasattr(self.client, "answer_callback"):
+                self.answer_callback_response(
+                    callback_id=callback_id,
+                    response=response,
+                    notification=notification,
+                )
+                return
+            self.send_response(response, chat_id=chat_id, user_id=user_id)
+            return
 
         if payload not in {CALLBACK_ROLE_PARENT, CALLBACK_ROLE_STUDENT}:
             feedback_action = parse_feedback_payload(payload)
