@@ -10,4 +10,4 @@ timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$backup_dir"
 umask 077
 pg_dump --format=custom --no-owner --file "$backup_dir/algo_bot_max_${timestamp}.dump" "$database_url"
-find "$backup_dir" -type f -name 'algo_bot_max_*.dump' -mtime "+$retention_days" -delete
+find "$backup_dir" -maxdepth 1 -type f -name 'algo_bot_max_*.dump' -mtime "+$retention_days" -delete

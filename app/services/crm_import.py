@@ -183,7 +183,11 @@ def parse_crm_workbook(
             score = max(
                 (
                     len(find_header_mapping(tuple(values)))
-                    for _, values in zip(range(30), candidate.iter_rows(values_only=True))
+                    for _, values in zip(
+                        range(30),
+                        candidate.iter_rows(values_only=True),
+                        strict=False,
+                    )
                 ),
                 default=0,
             )

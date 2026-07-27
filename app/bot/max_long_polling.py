@@ -51,9 +51,9 @@ from app.bot.keyboards import (
     main_menu_keyboard,
     order_actions_keyboard,
     order_confirmation_keyboard,
+    parse_feedback_payload,
     parse_order_action_payload,
     parse_order_confirm_payload,
-    parse_feedback_payload,
     role_selection_keyboard,
 )
 from app.bot.max_client import MaxApiClient, MaxApiError, SimulationMaxClient
@@ -377,7 +377,7 @@ class LongPollingBot:
                 "/help teaching, /help staff, /help setup."
             )
         return (
-            "Добро пожаловать в MAX-бот Алгоритмики.\n\n"
+            "MAX-бот Алгоритмики\n\n"
             f"Tenant: {self.default_tenant_slug}\n"
             f"Доменный API: {backend_state}\n\n"
             "Пришлите Contact ID сообщением. Я найду связанных учеников и покажу кнопки "
@@ -464,16 +464,22 @@ class LongPollingBot:
                 "Дети, балансы, магазин и заказы находятся в семейном кабинете.\n\n"
                 "Обратная связь от преподавателя приходит отдельным сообщением."
             )
-        if role == "teacher":
+        if role in {"teacher", "curator"}:
+            role_title = "Кабинет куратора" if role == "curator" else "Рабочий кабинет"
             return (
-                "Рабочий кабинет\n\n"
+                f"{role_title}\n\n"
                 "Расписание, ученики, начисления и заказы находятся в mini-app.\n\n"
                 "Для подготовки и отправки сообщения родителям откройте отдельный "
                 "раздел «Обратная связь»."
             )
-        if role == "admin":
+        if role in {"admin", "partner_director", "superadmin"}:
+            role_title = {
+                "admin": "Рабочий кабинет",
+                "partner_director": "Кабинет директора",
+                "superadmin": "Кабинет суперадминистратора",
+            }[role]
             return (
-                "Рабочий кабинет\n\n"
+                f"{role_title}\n\n"
                 "Управление, импорт, склады, заказы и пользователи находятся в mini-app.\n\n"
                 "Подготовка сообщений родителям вынесена в раздел «Обратная связь»."
             )
@@ -5143,14 +5149,20 @@ class LongPollingBot:
     ) -> str:
         staff_roles = {str(role) for role in session.get("staff_roles") or []}
         student_roles = {str(role) for role in session.get("student_roles") or []}
-        if staff_roles & {"superadmin", "partner_director", "admin"}:
-            role = "admin"
-        elif staff_roles & {"teacher", "curator"}:
-            role = "teacher"
-        elif "parent" in student_roles:
-            role = "parent"
-        else:
-            role = "student"
+        role = next(
+            (
+                candidate
+                for candidate in (
+                    "superadmin",
+                    "partner_director",
+                    "admin",
+                    "curator",
+                    "teacher",
+                )
+                if candidate in staff_roles
+            ),
+            "parent" if "parent" in student_roles else "student",
+        )
         self.user_menu_roles[(user_id, tenant_slug)] = role
         return role
 
@@ -5587,11 +5599,6 @@ class LongPollingBot:
             payload=payload,
             user_id=user_id,
         ) or self.help_response(user_id=user_id)
-        if payload:
-            response = BotResponse(
-                f"{response.text}\n\nStart payload: {payload}",
-                response.attachments,
-            )
 
         self.send_response(response, chat_id=chat_id, user_id=user_id)
 

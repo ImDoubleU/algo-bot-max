@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.models.account import MaxAccount
 from app.models.audit import AuditLog
-from app.models.enums import StudentAccessSource, StudentAccessStatus
+from app.models.enums import StudentAccessSource, StudentAccessStatus, StudentStatus
 from app.models.student import Contact, ContactStudentLink, Student, StudentAccessLink
 from app.models.tenant import Tenant
 from app.schemas.access import AccessLinkCreate, StudentResolveRequest
@@ -79,6 +79,7 @@ async def resolve_students_by_contact_id(
         .where(
             ContactStudentLink.tenant_id == contact.tenant_id,
             ContactStudentLink.contact_id == contact.id,
+            Student.status == StudentStatus.ACTIVE,
         )
         .order_by(Student.first_name, Student.last_name)
     )

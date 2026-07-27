@@ -78,7 +78,7 @@ from app.services.product_import import (
     import_products_for_tenant,
     parse_product_rows,
 )
-from app.services.staff import normalize_staff_name
+from app.services.staff import normalize_staff_name, staff_names_match
 from app.services.warehouse import (
     WarehouseServiceError,
     available_for_reservation,
@@ -149,11 +149,7 @@ async def _active_staff_role(
 
 
 def _teacher_owns_student(account: MaxAccount, student: Student) -> bool:
-    teacher_name = normalize_staff_name(account.display_name)
-    return bool(
-        teacher_name
-        and teacher_name == normalize_staff_name(student.teacher_name)
-    )
+    return staff_names_match(account.display_name, student.teacher_name)
 
 
 async def _teacher_student_ids(
@@ -162,8 +158,7 @@ async def _teacher_student_ids(
     tenant_id: UUID,
     account: MaxAccount,
 ) -> list[UUID]:
-    teacher_name = normalize_staff_name(account.display_name)
-    if not teacher_name:
+    if not normalize_staff_name(account.display_name):
         return []
     rows = (
         await db.execute(
@@ -173,7 +168,11 @@ async def _teacher_student_ids(
             )
         )
     ).all()
-    return [student_id for student_id, name in rows if normalize_staff_name(name) == teacher_name]
+    return [
+        student_id
+        for student_id, name in rows
+        if staff_names_match(account.display_name, name)
+    ]
 
 
 def _slugify(value: str) -> str:
@@ -513,6 +512,7 @@ async def import_miniapp_crm_students(
     content: bytes,
     sheet_name: str,
     dry_run: bool,
+    student_status: StudentStatus = StudentStatus.ACTIVE,
 ) -> MiniAppCrmImportRead:
     tenant, account, admin_role = await _store_admin_context(
         db,
@@ -542,6 +542,7 @@ async def import_miniapp_crm_students(
             tenant_slug=tenant.slug,
             filename=filename,
             dry_run=True,
+            student_status=student_status,
             **summary,
         )
 
@@ -554,6 +555,7 @@ async def import_miniapp_crm_students(
         ),
         commit=False,
         target_tenant=tenant,
+        student_status=student_status,
     )
     db.add(
         AuditLog(
@@ -568,6 +570,7 @@ async def import_miniapp_crm_students(
                 "created_students": result.created_students,
                 "updated_students": result.updated_students,
                 "admin_role": admin_role.value,
+                "student_status": student_status.value,
             },
         )
     )
@@ -577,6 +580,7 @@ async def import_miniapp_crm_students(
         tenant_slug=tenant.slug,
         filename=filename,
         dry_run=False,
+        student_status=student_status,
         **summary,
         created_venues=result.created_venues,
         created_students=result.created_students,
@@ -782,15 +786,16 @@ async def get_miniapp_session(
                 .order_by(Student.group_name, Student.first_name, Student.last_name)
             )
         ).all()
-        has_elevated_role = bool(set(staff_roles) & ELEVATED_STAFF_ROLES)
-        teacher_scoped = StaffRole.TEACHER in staff_roles and not has_elevated_role
+        effective_staff_role = next(
+            (role for role in STAFF_ROLE_PRIORITY if role in staff_roles),
+            None,
+        )
+        teacher_scoped = effective_staff_role == StaffRole.TEACHER
         if teacher_scoped:
-            teacher_name = normalize_staff_name(account.display_name)
             tenant_students = [
                 student
                 for student in tenant_students
-                if teacher_name
-                and normalize_staff_name(student.teacher_name) == teacher_name
+                if staff_names_match(account.display_name, student.teacher_name)
             ]
         student_ids = [student.id for student in tenant_students]
         balances = await _wallet_balances(db, student_ids)
@@ -817,6 +822,7 @@ async def get_miniapp_session(
                     StudentAccessLink.tenant_id == tenant.id,
                     StudentAccessLink.account_id == account.id,
                     StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+                    Student.status == StudentStatus.ACTIVE,
                 )
                 .order_by(Student.group_name, Student.first_name, Student.last_name)
             )
@@ -1065,6 +1071,7 @@ async def _load_order_action_context(
             select(Order, Student)
             .join(Student, Student.id == Order.student_id)
             .where(Order.tenant_id == tenant.id, Order.id == order_id)
+            .with_for_update()
             .options(
                 selectinload(Order.items).selectinload(OrderItem.product),
                 selectinload(Order.items).selectinload(OrderItem.warehouse),
@@ -1119,7 +1126,7 @@ async def _inventory_for_order_item(
             WarehouseInventory.tenant_id == tenant_id,
             WarehouseInventory.warehouse_id == item.warehouse_id,
             WarehouseInventory.product_id == item.product_id,
-        )
+        ).with_for_update()
     )
     if inventory is None:
         raise MiniAppStoreError("Складская позиция заказа не найдена", status_code=409)
@@ -1133,7 +1140,9 @@ async def create_miniapp_order(
     default_tenant_slug: str,
 ) -> MiniAppOrderCreatedRead:
     tenant_slug = (payload.tenant_slug or default_tenant_slug).strip().lower()
-    tenant = await get_tenant_by_slug(db, tenant_slug)
+    tenant = await db.scalar(
+        select(Tenant).where(Tenant.slug == tenant_slug).with_for_update()
+    )
     if tenant is None:
         raise MiniAppStoreError("Tenant не найден", status_code=404)
 
@@ -1147,7 +1156,11 @@ async def create_miniapp_order(
         )
 
     student = await db.scalar(
-        select(Student).where(Student.tenant_id == tenant.id, Student.id == payload.student_id)
+        select(Student).where(
+            Student.tenant_id == tenant.id,
+            Student.id == payload.student_id,
+            Student.status == StudentStatus.ACTIVE,
+        )
     )
     if student is None:
         raise MiniAppStoreError("Ученик не найден в выбранном tenant", status_code=404)
@@ -1176,7 +1189,9 @@ async def create_miniapp_order(
         raise MiniAppStoreError("Нет доступа к ученику чужой группы", status_code=403)
 
     wallet = await db.scalar(
-        select(Wallet).where(Wallet.tenant_id == tenant.id, Wallet.student_id == student.id)
+        select(Wallet)
+        .where(Wallet.tenant_id == tenant.id, Wallet.student_id == student.id)
+        .with_for_update()
     )
     if wallet is None:
         raise MiniAppStoreError("Кошелек ученика не найден", status_code=409)
@@ -1420,6 +1435,7 @@ async def assign_miniapp_order_warehouses(
                 WarehouseInventory.product_id == item.product_id,
                 WarehouseInventory.warehouse_id == warehouse_id,
             )
+            .with_for_update()
             .options(selectinload(WarehouseInventory.warehouse))
         )
         product_name = item.product.name if item.product else str(item.product_id)
@@ -1882,6 +1898,7 @@ async def accrue_miniapp_astrocoins(
             select(Student).where(
                 Student.tenant_id == tenant.id,
                 Student.id.in_(unique_student_ids),
+                Student.status == StudentStatus.ACTIVE,
             )
         )
     ).all()
@@ -1898,6 +1915,8 @@ async def accrue_miniapp_astrocoins(
                 Wallet.tenant_id == tenant.id,
                 Wallet.student_id.in_(unique_student_ids),
             )
+            .order_by(Wallet.student_id)
+            .with_for_update()
         )
     ).all()
     wallets_by_student = {wallet.student_id: wallet for wallet in wallets}
@@ -2280,7 +2299,7 @@ async def adjust_miniapp_inventory(
         select(Product).where(
             Product.tenant_id == tenant.id,
             Product.id == payload.product_id,
-        )
+        ).with_for_update()
     )
     if product is None:
         raise MiniAppStoreError("Товар не найден", status_code=404)
@@ -2299,7 +2318,7 @@ async def adjust_miniapp_inventory(
             WarehouseInventory.tenant_id == tenant.id,
             WarehouseInventory.product_id == product.id,
             WarehouseInventory.warehouse_id == warehouse.id,
-        )
+        ).with_for_update()
     )
     if inventory is None:
         inventory = WarehouseInventory(
@@ -2399,7 +2418,7 @@ async def transfer_miniapp_inventory(
         select(Product).where(
             Product.tenant_id == tenant.id,
             Product.id == payload.product_id,
-        )
+        ).with_for_update()
     )
     if product is None:
         raise MiniAppStoreError("Товар не найден", status_code=404)
@@ -2423,7 +2442,7 @@ async def transfer_miniapp_inventory(
             WarehouseInventory.tenant_id == tenant.id,
             WarehouseInventory.product_id == product.id,
             WarehouseInventory.warehouse_id == source_warehouse.id,
-        )
+        ).with_for_update()
     )
     if source is None:
         raise MiniAppStoreError("На складе отправки нет выбранного товара", status_code=404)
@@ -2433,7 +2452,7 @@ async def transfer_miniapp_inventory(
             WarehouseInventory.tenant_id == tenant.id,
             WarehouseInventory.product_id == product.id,
             WarehouseInventory.warehouse_id == target_warehouse.id,
-        )
+        ).with_for_update()
     )
     if target is None:
         target = WarehouseInventory(

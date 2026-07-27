@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.enums import StudentStatus
 from app.models.student import Contact, ContactStudentLink, Student, Wallet
 from app.models.tenant import City, Partner, Tenant, Venue
 from app.services.access import normalize_contact_id, normalize_student_code
@@ -91,6 +92,15 @@ def make_tenant_slug(city_name: str, partner_slug: str) -> str:
 
 
 def make_generated_access_code(*, tenant_slug: str, row: CrmStudentRow) -> str:
+    stable_identifier = row.uuid or row.deal_id
+    if stable_identifier:
+        source = f"{tenant_slug}|crm|{stable_identifier}"
+        digest = hashlib.sha256(source.encode()).hexdigest()[:10].upper()
+        return f"AC{digest}"
+    return make_legacy_generated_access_code(tenant_slug=tenant_slug, row=row)
+
+
+def make_legacy_generated_access_code(*, tenant_slug: str, row: CrmStudentRow) -> str:
     source = "|".join(
         [
             tenant_slug,
@@ -196,17 +206,73 @@ async def find_existing_student(
     row: CrmStudentRow,
     access_code: str,
 ) -> Student | None:
-    if row.lms_student_id:
-        return await db.scalar(
+    normalized_lms_id = (
+        normalize_student_code(row.lms_student_id)
+        if row.lms_student_id
+        else None
+    )
+    if normalized_lms_id:
+        student = await db.scalar(
             select(Student).where(
                 Student.tenant_id == tenant.id,
-                Student.lms_student_id == normalize_student_code(row.lms_student_id),
+                Student.lms_student_id == normalized_lms_id,
             )
         )
+        if student is not None:
+            return student
+
+    def crm_identity_matches(candidate: Student | None) -> bool:
+        if candidate is None:
+            return False
+        return (
+            normalized_lms_id is None
+            or candidate.lms_student_id is None
+            or candidate.lms_student_id == normalized_lms_id
+        )
+
+    if row.uuid:
+        student = await db.scalar(
+            select(Student).where(
+                Student.tenant_id == tenant.id,
+                Student.crm_uuid == row.uuid,
+            )
+        )
+        if crm_identity_matches(student):
+            return student
+    if row.deal_id:
+        student = await db.scalar(
+            select(Student).where(
+                Student.tenant_id == tenant.id,
+                Student.crm_deal_id == row.deal_id,
+            )
+        )
+        if crm_identity_matches(student):
+            return student
+    contact_ids = split_contact_ids(row.contact_ids)
+    if contact_ids and row.first_name and row.last_name:
+        contact_matches = (
+            await db.scalars(
+                select(Student)
+                .join(ContactStudentLink, ContactStudentLink.student_id == Student.id)
+                .join(Contact, Contact.id == ContactStudentLink.contact_id)
+                .where(
+                    Student.tenant_id == tenant.id,
+                    Student.first_name == row.first_name,
+                    Student.last_name == row.last_name,
+                    Contact.external_contact_id.in_(contact_ids),
+                )
+            )
+        ).unique().all()
+        if len(contact_matches) == 1:
+            return contact_matches[0]
+    legacy_access_code = make_legacy_generated_access_code(
+        tenant_slug=tenant.slug,
+        row=row,
+    )
     return await db.scalar(
         select(Student).where(
             Student.tenant_id == tenant.id,
-            Student.student_access_code == access_code,
+            Student.student_access_code.in_({access_code, legacy_access_code}),
         )
     )
 
@@ -281,6 +347,7 @@ async def upsert_crm_student_rows(
     defaults: CrmSyncDefaults,
     commit: bool = True,
     target_tenant: Tenant | None = None,
+    student_status: StudentStatus = StudentStatus.ACTIVE,
 ) -> CrmSyncResult:
     result = CrmSyncResult()
     partner: Partner | None = None
@@ -343,7 +410,12 @@ async def upsert_crm_student_rows(
             if row.lms_student_id
             else make_generated_access_code(tenant_slug=tenant.slug, row=row)
         )
-        student = await find_existing_student(db, tenant=tenant, row=row, access_code=access_code)
+        student = await find_existing_student(
+            db,
+            tenant=tenant,
+            row=row,
+            access_code=access_code,
+        )
         if student is None:
             student = Student(
                 tenant_id=tenant.id,
@@ -360,12 +432,17 @@ async def upsert_crm_student_rows(
             result = result.add(updated_students=result.updated_students + 1)
 
         student.venue_id = venue.id if venue else None
+        student.crm_deal_id = row.deal_id
+        student.crm_uuid = row.uuid
+        if row.lms_student_id:
+            student.lms_student_id = normalize_student_code(row.lms_student_id)
         student.first_name = row.first_name
         student.last_name = row.last_name
         student.group_name = row.group_name
         student.course_name = row.course_name
         student.venue_name = row.venue_name
         student.teacher_name = row.teacher_name
+        student.status = student_status
 
         await db.flush()
         if await ensure_wallet(db, tenant=tenant, student=student):

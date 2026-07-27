@@ -11,6 +11,7 @@ from app.models.enums import (
     StaffRole,
     StudentAccessRole,
     StudentAccessStatus,
+    StudentStatus,
     WarehouseType,
 )
 
@@ -96,6 +97,7 @@ class MiniAppCrmImportRead(BaseModel):
     tenant_slug: str
     filename: str
     dry_run: bool
+    student_status: StudentStatus
     parsed_rows: int
     distinct_groups: int
     distinct_courses: int

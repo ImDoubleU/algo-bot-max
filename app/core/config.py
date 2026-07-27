@@ -59,6 +59,12 @@ class Settings(BaseSettings):
         alias="DEFAULT_TENANT_SLUG",
     )
     max_miniapp_url: str | None = Field(default=None, alias="MAX_MINIAPP_URL")
+    miniapp_token_ttl_seconds: int = Field(
+        default=30 * 24 * 60 * 60,
+        alias="MINIAPP_TOKEN_TTL_SECONDS",
+        ge=300,
+        le=90 * 24 * 60 * 60,
+    )
     bot_mode: str = Field(default="long_polling", alias="BOT_MODE")
     max_webhook_url: str | None = Field(default=None, alias="MAX_WEBHOOK_URL")
     max_webhook_secret: str | None = Field(default=None, alias="MAX_WEBHOOK_SECRET")
@@ -244,6 +250,7 @@ class Settings(BaseSettings):
             "max_miniapp_url": (
                 self.max_miniapp_url if not is_placeholder(self.max_miniapp_url) else "disabled"
             ),
+            "miniapp_token_ttl_seconds": self.miniapp_token_ttl_seconds,
             "max_webhook_url": (
                 self.max_webhook_url if not is_placeholder(self.max_webhook_url) else "disabled"
             ),

@@ -360,11 +360,15 @@ async def upsert_demo_store_in_session(
                 wallet_balances_set += 1
 
     course_result: dict[str, int | str] = {}
-    if not args.skip_courses:
+    if not getattr(args, "skip_courses", False):
         course_result = await import_courses_for_tenant(
             db,
             tenant=tenant,
-            source_path=args.courses_source,
+            source_path=getattr(
+                args,
+                "courses_source",
+                Path(get_settings().courses_json_path),
+            ),
             commit=False,
         )
 

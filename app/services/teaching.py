@@ -24,7 +24,7 @@ from app.schemas.teaching import (
     TeachingScheduleUpsert,
     TeachingWorkspaceRead,
 )
-from app.services.staff import normalize_staff_name
+from app.services.staff import normalize_staff_name, staff_names_match
 
 TEACHING_ROLES = {
     StaffRole.SUPERADMIN,
@@ -37,7 +37,15 @@ MANAGER_ROLES = {
     StaffRole.SUPERADMIN,
     StaffRole.PARTNER_DIRECTOR,
     StaffRole.ADMIN,
+    StaffRole.CURATOR,
 }
+STAFF_ROLE_PRIORITY = (
+    StaffRole.SUPERADMIN,
+    StaffRole.PARTNER_DIRECTOR,
+    StaffRole.ADMIN,
+    StaffRole.CURATOR,
+    StaffRole.TEACHER,
+)
 
 
 class TeachingServiceError(RuntimeError):
@@ -58,16 +66,19 @@ async def load_teaching_context(
     account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
     if account is None:
         raise TeachingServiceError("MAX-аккаунт не найден", status_code=403)
-    role = await db.scalar(
-        select(StaffRoleAssignment.role)
-        .where(
-            StaffRoleAssignment.tenant_id == tenant.id,
-            StaffRoleAssignment.account_id == account.id,
-            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-            StaffRoleAssignment.role.in_(TEACHING_ROLES),
-        )
-        .order_by(StaffRoleAssignment.role)
+    roles = set(
+        (
+            await db.scalars(
+                select(StaffRoleAssignment.role).where(
+                    StaffRoleAssignment.tenant_id == tenant.id,
+                    StaffRoleAssignment.account_id == account.id,
+                    StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+                    StaffRoleAssignment.role.in_(TEACHING_ROLES),
+                )
+            )
+        ).all()
     )
+    role = next((candidate for candidate in STAFF_ROLE_PRIORITY if candidate in roles), None)
     if role is None:
         raise TeachingServiceError("Раздел доступен преподавателям и сотрудникам", status_code=403)
     return tenant, account, role
@@ -156,11 +167,10 @@ async def get_teaching_workspace(
         )
     ).all()
     if role == StaffRole.TEACHER:
-        teacher_name = normalize_staff_name(account.display_name)
         group_students = [
             student
             for student in group_students
-            if teacher_name and normalize_staff_name(student.teacher_name) == teacher_name
+            if staff_names_match(account.display_name, student.teacher_name)
         ]
     group_counts: dict[tuple[str, str | None], int] = {}
     for student in group_students:
@@ -251,7 +261,7 @@ async def upsert_teaching_schedule(
         ).all()
         account_teacher_name = normalize_staff_name(account.display_name)
         if not account_teacher_name or not any(
-            normalize_staff_name(teacher_name) == account_teacher_name
+            staff_names_match(account.display_name, teacher_name)
             for teacher_name in group_teachers
         ):
             raise TeachingServiceError(

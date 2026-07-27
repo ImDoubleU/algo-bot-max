@@ -6,11 +6,12 @@ Production-развертывание на российском VPS: [DEPLOYMENT
 
 ## Что уже работает
 
-- MAX long polling-бот с inline-кнопками.
-- Компактные меню и стартовая справка под роль ученика, родителя, преподавателя или администратора.
+- MAX-бот с inline-кнопками: long polling локально, webhook в production.
+- Компактные меню под роли ученика, родителя, преподавателя, куратора, администратора,
+  директора и суперадминистратора.
 - Вход по CRM `Contact ID`.
 - Выбор роли: родитель или ученик.
-- FastAPI backend с tenant-изоляцией.
+- FastAPI backend с tenant-изоляцией и подписанной ссылкой mini-app.
 - CRM XLSX import.
 - Настраиваемый rate limit входа: локальная память по умолчанию или Redis для production.
 - MAX-уведомления о создании, отмене, выдаче и возврате заказов.
@@ -26,8 +27,8 @@ Production-развертывание на российском VPS: [DEPLOYMENT
   - каталог с фотографиями, поиском, сохраняемым избранным и детальной карточкой товара;
   - сортировка каталога, фильтр наличия и быстрая панель корзины с суммой заказа;
   - корзина со сводкой баланса, будущего остатка и понятным сообщением при нехватке AC;
-  - сохраняемая корзина с выбором склада и количества;
-  - подтверждение заказа со сводкой перед резервом склада и списанием AC;
+  - сохраняемая корзина с выбором количества без показа складов покупателю;
+  - подтверждение заказа со сводкой перед списанием AC;
   - карточки заказов с составом, суммой, складом, историей статусов и staff-действиями;
   - административная сводка с быстрыми переходами к выдаче, товарам и остаткам;
   - карточки связей доступа и сотрудников с отзывом, восстановлением и выдачей ролей;
@@ -115,37 +116,22 @@ max_bot_venv\Scripts\python.exe -m app.cli.dev_bootstrap --env-file .env.sqlite.
 Внутри локального bootstrap `doctor` запускается с `--allow-missing-bot-token`, поэтому backend/SQLite
 подготовка не требует реального MAX-токена.
 
-После запуска backend можно проверить команду бота через API:
-
-```powershell
-max_bot_venv\Scripts\python.exe main_bot.py --simulate-command "/me" --simulate-user-id 1
-```
-
 Быстрая offline-проверка самого бота без backend и без pytest:
 
 ```powershell
 max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke
 ```
 
-После запуска backend можно проверить основные сценарии через backend API:
+После запуска backend можно проверить меню и обратную связь:
 
 ```powershell
-max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --with-backend --user-id 1
-```
-
-Доступны read-only профили: `basic`, `store`, `ops`. `store` проходит каталог, категории,
-карточку товара, расчет цены, доступность покупки, карточку последнего открытого заказа и экран подтверждения order action; `ops` проходит складские и операторские команды.
-
-```powershell
-max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --with-backend --user-id 1 --profile store
 max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --with-backend --user-id 1 --profile ops
-max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --with-backend --user-id 1 --profile all
 ```
 
-Для точечной проверки можно передать свои команды и callbacks:
+Для точечной проверки можно передать `/start` и актуальные callbacks:
 
 ```powershell
-max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --command "/version" --callback "orders:open"
+max_bot_venv\Scripts\python.exe -m app.cli.bot_smoke --command "/start" --callback "help"
 ```
 
 Если передан хотя бы один `--command` или `--callback`, smoke запускает только явно указанные проверки.
@@ -170,7 +156,9 @@ max_bot_venv\Scripts\python.exe -m app.cli.doctor
 max_bot_venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
 
-Mini-app откроется по адресу `http://127.0.0.1:8000/miniapp?max_user_id=1`.
+В local-режиме mini-app откроется по адресу
+`http://127.0.0.1:8000/miniapp?max_user_id=1`.
+В production прямой URL без подписи не работает: кабинет нужно открывать кнопкой MAX-бота.
 Для просмотра интерфейса без MAX и backend-данных используйте demo-режим:
 `http://127.0.0.1:8000/miniapp?demo=1`.
 
@@ -187,6 +175,13 @@ Miniapp для локальной проверки:
 
 ```text
 http://127.0.0.1:8000/miniapp?demo=1
+http://127.0.0.1:8000/miniapp?demo=1&demo_role=student
+http://127.0.0.1:8000/miniapp?demo=1&demo_role=parent
+http://127.0.0.1:8000/miniapp?demo=1&demo_role=teacher
+http://127.0.0.1:8000/miniapp?demo=1&demo_role=curator
+http://127.0.0.1:8000/miniapp?demo=1&demo_role=admin
+http://127.0.0.1:8000/miniapp?demo=1&demo_role=partner_director
+http://127.0.0.1:8000/miniapp?demo=1&demo_role=superadmin
 ```
 
 Матрица разделов miniapp:
@@ -194,6 +189,7 @@ http://127.0.0.1:8000/miniapp?demo=1
 - ученик: обзор своего профиля, магазин, корзина, свои заказы и история AC;
 - родитель: семейный обзор, магазин, корзина, заказы и история AC привязанных детей;
 - преподаватель: свои ученики и группы, их заказы, история AC, начисления и расписание;
+- куратор: ученики, заказы, начисления, расписание и обратная связь по филиалу;
 - администратор/директор: весь tenant, заказы, AC, начисления, расписание и операции с товарами,
   остатками, складами, импортом CRM, связями и сотрудниками.
 
@@ -253,8 +249,8 @@ Worker всегда готовит ОС преподавателю. Если в 
 6. Проверяет текст и отправляет его связанным родительским аккаунтам.
 
 Черновики сохраняются в backend и доступны в том же разделе. Права и список групп проверяются
-для текущего tenant: преподаватель и куратор работают со своими расписаниями, управляющие роли
-могут работать со всеми расписаниями tenant.
+для текущего tenant: преподаватель работает только со своими группами, куратор и управляющие
+роли могут работать со всеми расписаниями tenant.
 
 `MAX_USER_ID` для первичного суперадмина берется из события `bot_started`/webhook MAX
 или из кабинета приложения MAX.
@@ -269,10 +265,12 @@ Worker всегда готовит ОС преподавателю. Если в 
 Сценарий магазина:
 
 1. Ученик или родитель оформляет заказ в miniapp.
-2. Backend резервирует остаток на складе и списывает астрокоины.
-3. Сотрудник выдает заказ через `POST /api/v1/miniapp/orders/{order_id}/issue`.
-4. Если заказ отменен, `POST /api/v1/miniapp/orders/{order_id}/cancel` снимает резерв и возвращает астрокоины.
-5. Если выданный заказ вернули, `POST /api/v1/miniapp/orders/{order_id}/return` возвращает товар на склад и зачисляет астрокоины.
+2. Backend списывает астрокоины и показывает покупателю статус «Зарезервировано».
+3. Администратор или директор выбирает склад для каждой позиции; только после этого резервируется
+   складской остаток.
+4. Сотрудник выдает заказ через `POST /api/v1/miniapp/orders/{order_id}/issue`.
+5. Отмена снимает созданный резерв, если склад уже назначен, и возвращает астрокоины.
+6. Возврат выданного заказа возвращает товар на склад и зачисляет астрокоины.
 
 Операционный контроль для staff/admin доступен в mini-app и через
 `GET /api/v1/miniapp/ops/summary?max_user_id=<MAX_USER_ID>&low_stock_threshold=5`.
@@ -298,15 +296,11 @@ RATE_LIMIT_WINDOW_SECONDS=900
 max_bot_venv\Scripts\python.exe main_bot.py --config-check
 ```
 
-Быстрый smoke ответа бота без MAX API и без backend:
+Быстрый smoke inline-меню без MAX API и backend:
 
 ```powershell
-max_bot_venv\Scripts\python.exe main_bot.py --simulate-command "/help" --simulate-offline
-max_bot_venv\Scripts\python.exe main_bot.py --simulate-callback "orders:open" --simulate-offline
-max_bot_venv\Scripts\python.exe main_bot.py --simulate-callback "groups" --simulate-offline
-max_bot_venv\Scripts\python.exe main_bot.py --simulate-callback "leaderboard" --simulate-offline
-max_bot_venv\Scripts\python.exe main_bot.py --simulate-callback "todo" --simulate-offline
-max_bot_venv\Scripts\python.exe main_bot.py --simulate-callback "stock" --simulate-offline
+max_bot_venv\Scripts\python.exe main_bot.py --simulate-command "/start" --simulate-offline
+max_bot_venv\Scripts\python.exe main_bot.py --simulate-callback "help" --simulate-offline
 ```
 
 Когда `MAX_BOT_TOKEN` уже настоящий, можно проверить доступ к MAX API и активные webhook-подписки:
@@ -318,11 +312,14 @@ max_bot_venv\Scripts\python.exe main_bot.py --check
 ## Проверки
 
 ```powershell
-max_bot_venv\Scripts\python.exe -m ruff check app tests
-max_bot_venv\Scripts\python.exe -m pytest
+max_bot_venv\Scripts\ruff.exe check app alembic
+max_bot_venv\Scripts\python.exe -m pytest tests --ignore=tests/test_main_bot.py -q
 max_bot_venv\Scripts\python.exe -m compileall -q app main_bot.py
 node --check app\web\static\miniapp\app.js
 ```
+
+`tests/test_main_bot.py` проверяет удаленные текстовые команды прежнего интерфейса и пока
+оставлен только как архив сценариев; актуальное меню проверяет `tests/test_bot_inline_feedback.py`.
 
 ## Форматы данных
 
@@ -349,13 +346,18 @@ max_bot_venv\Scripts\python.exe -m app.cli.import_crm `
   --partner-name "Партнер А"
 ```
 
+Для выгрузки выбывших добавьте `--student-status departed`. Если загружаются оба файла,
+сначала импортируйте выбывших, затем активных: при пересечении последняя активная выгрузка
+сохранит актуальный статус ученика.
+
 Группа хранится в карточке ученика (`students.group_name`). Mini-app собирает список групп
 из уникальных значений внутри текущего tenant. `--tenant-slug` фиксирует серверный импорт
-в одном филиале; повторный импорт обновляет учеников и не создает дубликаты при совпадении
-LMS student ID.
+в одном филиале; повторный импорт обновляет учеников по LMS ID, CRM UUID/ID сделки либо
+Contact ID вместе с ФИО и не создает повторные кошельки.
 
 После первичной настройки роли `superadmin`, `partner_director` и `admin` могут повторно
 загружать CRM XLSX без доступа к серверу: `Операции -> Импорт CRM`. Сначала показывается
 сводка файла без записи, затем отдельная кнопка подтверждает импорт в текущий tenant.
+Перед проверкой файла нужно выбрать «Активные ученики» или «Выбывшие ученики».
 
 Технические команды и состояние backend описаны в `DEVELOPMENT.md`.
