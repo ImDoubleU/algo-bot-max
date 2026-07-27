@@ -8,6 +8,7 @@ Create Date: 2026-06-16
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
@@ -16,9 +17,13 @@ down_revision: str | None = "20260616_0001"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-product_status = sa.Enum("ACTIVE", "HIDDEN", "ARCHIVED", name="productstatus")
-warehouse_type = sa.Enum("COMMON", "VENUE", "PARTNER", "EXTERNAL", name="warehousetype")
-stock_movement_type = sa.Enum(
+product_status = postgresql.ENUM(
+    "ACTIVE", "HIDDEN", "ARCHIVED", name="productstatus", create_type=False
+)
+warehouse_type = postgresql.ENUM(
+    "COMMON", "VENUE", "PARTNER", "EXTERNAL", name="warehousetype", create_type=False
+)
+stock_movement_type = postgresql.ENUM(
     "INITIAL",
     "ADJUSTMENT",
     "TRANSFER",
@@ -27,8 +32,9 @@ stock_movement_type = sa.Enum(
     "ISSUE",
     "RETURN",
     name="stockmovementtype",
+    create_type=False,
 )
-order_status = sa.Enum(
+order_status = postgresql.ENUM(
     "CREATED",
     "RESERVED",
     "TRANSFERRED_TO_TEACHER",
@@ -38,6 +44,7 @@ order_status = sa.Enum(
     "COINS_REFUNDED",
     "PROBLEM",
     name="orderstatus",
+    create_type=False,
 )
 
 

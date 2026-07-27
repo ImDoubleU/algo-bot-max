@@ -1,0 +1,73 @@
+- generic [ref=f3e2]:
+  - banner [ref=f3e3]:
+    - generic [ref=f3e4]:
+      - generic [ref=f3e5]: A
+      - heading "Algo MAX" [level=1] [ref=f3e7]
+  - main [ref=f3e8]:
+    - complementary "Роль и раздел" [ref=f3e9]:
+      - region "Роль" [ref=f3e10]:
+        - button "Ученик" [ref=f3e11] [cursor=pointer]
+        - button "Родитель" [ref=f3e12] [cursor=pointer]
+        - button "Преподаватель" [ref=f3e13] [cursor=pointer]
+        - button "Админ" [ref=f3e14] [cursor=pointer]
+    - generic [ref=f3e15]:
+      - generic [ref=f3e16]:
+        - generic [ref=f3e17]:
+          - generic [ref=f3e18]:
+            - paragraph [ref=f3e19]: Профиль
+            - strong [ref=f3e20]: Васильева Алиса, ученик
+            - generic [ref=f3e21]: Обновлено 21:03
+          - button "Обновить данные" [ref=f3e22] [cursor=pointer]
+        - generic [ref=f3e28]:
+          - paragraph [ref=f3e29]: Ученик
+          - combobox "Ученик для заказа" [disabled] [ref=f3e30]:
+            - option "Васильева Алиса - Союзный 45, вс 10:00" [selected]
+        - generic [ref=f3e31]:
+          - paragraph [ref=f3e32]: Баланс
+          - strong [ref=f3e33]: 1240 AC
+        - button "Корзина 0" [ref=f3e34] [cursor=pointer]:
+          - generic [ref=f3e38]: Корзина
+          - generic [ref=f3e39]: "0"
+      - generic [ref=f3e40]:
+        - generic [ref=f3e41]:
+          - generic [ref=f3e42]:
+            - paragraph [ref=f3e43]: Сегодня
+            - heading "Мой кабинет" [level=2] [ref=f3e44]
+          - button "Открыть магазин" [ref=f3e45] [cursor=pointer]
+        - generic [ref=f3e47]:
+          - paragraph [ref=f3e48]: Личный кабинет
+          - heading "Васильева, всё важное на сегодня" [level=3] [ref=f3e49]
+          - paragraph [ref=f3e50]: Баланс, награды и заказы собраны в одном месте.
+        - generic [ref=f3e52]:
+          - article [ref=f3e53]:
+            - generic [ref=f3e54]: "1240"
+            - generic [ref=f3e55]: AC доступно
+          - article [ref=f3e56]:
+            - generic [ref=f3e57]: "1"
+            - generic [ref=f3e58]: моих активных заказов
+          - article [ref=f3e59]:
+            - generic [ref=f3e60]: "1"
+            - generic [ref=f3e61]: товаров в избранном
+        - generic [ref=f3e62]:
+          - generic [ref=f3e63]:
+            - heading "Мой профиль" [level=3] [ref=f3e65]
+            - generic [ref=f3e67]:
+              - generic [ref=f3e68]: Союзный 45, вс 10:00
+              - generic [ref=f3e69]:
+                - generic [ref=f3e70]:
+                  - strong [ref=f3e71]: Васильева Алиса
+                  - generic [ref=f3e72]: Олейник Д
+                - generic [ref=f3e73]: 1240 AC
+          - generic [ref=f3e74]:
+            - heading "Мои заказы" [level=3] [ref=f3e76]
+            - button "Открыть заказ №1357" [ref=f3e78] [cursor=pointer]:
+              - generic [ref=f3e79]:
+                - strong [ref=f3e80]: Васильева Алиса
+                - generic [ref=f3e81]: Ручка металл с лого
+              - generic [ref=f3e82]: Зарезервирован
+  - navigation "Основные разделы" [ref=f3e83]:
+    - button "Главная" [ref=f3e84] [cursor=pointer]
+    - button "Магазин" [ref=f3e92] [cursor=pointer]
+    - button "Корзина" [ref=f3e100] [cursor=pointer]
+    - button "Заказы" [ref=f3e106] [cursor=pointer]
+    - button "Ещё" [ref=f3e114] [cursor=pointer]

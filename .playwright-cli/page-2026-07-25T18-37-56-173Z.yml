@@ -1,0 +1,138 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: A
+      - heading "Algo MAX" [level=1] [ref=e8]
+  - main [ref=e12]:
+    - complementary "Роль и раздел"
+    - generic [ref=e52]:
+      - generic [ref=e53]:
+        - generic [ref=e54]:
+          - generic [ref=e55]:
+            - paragraph [ref=e56]: Профиль
+            - strong [ref=e57]: Васильева Алиса, ученик
+            - generic [ref=e58]: Обновлено 21:36
+          - button "Обновить данные" [ref=e59] [cursor=pointer]
+        - generic [ref=e68]:
+          - paragraph [ref=e69]: Баланс
+          - strong [ref=e70]: 1240 AC
+      - generic [ref=e120]:
+        - generic [ref=e121]:
+          - generic [ref=e122]:
+            - paragraph [ref=e123]: Магазин Algo MAX
+            - heading "Выбери свою награду" [level=2] [ref=e124]
+            - paragraph [ref=e125]: Васильева Алиса · 1240 AC доступно
+          - generic [ref=e126]:
+            - generic [ref=e127]:
+              - generic [ref=e131]: Поиск товаров
+              - searchbox "Поиск товаров" [ref=e132]
+            - combobox "Сортировка" [ref=e133]:
+              - option "По популярности" [selected]
+              - option "Сначала дешевле"
+              - option "Сначала дороже"
+              - option "По названию"
+        - generic [ref=e134]:
+          - generic "Категории товаров" [ref=e135]:
+            - button "Все" [pressed] [ref=e136] [cursor=pointer]
+            - button "Игры" [ref=e137] [cursor=pointer]
+            - button "Канцелярия" [ref=e138] [cursor=pointer]
+            - button "Браслеты" [ref=e139] [cursor=pointer]
+            - button "Кружки" [ref=e140] [cursor=pointer]
+            - button "Магниты" [ref=e141] [cursor=pointer]
+            - button "Аксессуары" [ref=e142] [cursor=pointer]
+          - generic [ref=e143]:
+            - combobox "Категория" [ref=e144]:
+              - option "Все категории" [selected]
+              - option "Игры"
+              - option "Канцелярия"
+              - option "Браслеты"
+              - option "Кружки"
+              - option "Магниты"
+              - option "Аксессуары"
+            - generic [ref=e145]:
+              - checkbox "В наличии" [ref=e146]
+              - generic [ref=e147]: В наличии
+            - button "Избранное 1" [ref=e148] [cursor=pointer]:
+              - generic [ref=e151]: Избранное
+              - generic [ref=e152]: "1"
+        - generic [ref=e153]: 6 товаров
+        - generic [ref=e155]:
+          - article [ref=e332]:
+            - generic [ref=e333]:
+              - button "Открыть Игра Кибертаун" [ref=e337] [cursor=pointer]
+              - button "Добавить в избранное" [ref=e338] [cursor=pointer]
+            - generic [ref=e341]:
+              - generic [ref=e342]: Игры
+              - button "Игра Кибертаун" [ref=e343] [cursor=pointer]
+              - generic [ref=e344]: Осталось 3
+            - generic [ref=e346]:
+              - strong [ref=e347]: 900 AC
+              - button "В корзину" [ref=e348] [cursor=pointer]
+          - article [ref=e353]:
+            - generic [ref=e354]:
+              - button "Открыть Ручка металл с лого" [ref=e359] [cursor=pointer]
+              - button "Убрать из избранного" [ref=e360] [cursor=pointer]
+            - generic [ref=e363]:
+              - generic [ref=e364]: Канцелярия
+              - button "Ручка металл с лого" [ref=e365] [cursor=pointer]
+              - generic [ref=e366]: В наличии
+            - generic [ref=e368]:
+              - strong [ref=e369]: 120 AC
+              - button "В корзину" [ref=e370] [cursor=pointer]
+          - article [ref=e375]:
+            - generic [ref=e376]:
+              - button "Открыть Силиконовый браслет" [ref=e380] [cursor=pointer]
+              - button "Добавить в избранное" [ref=e381] [cursor=pointer]
+            - generic [ref=e384]:
+              - generic [ref=e385]: Браслеты
+              - button "Силиконовый браслет" [ref=e386] [cursor=pointer]
+              - generic [ref=e387]: Осталось 2
+            - generic [ref=e389]:
+              - strong [ref=e390]: 160 AC
+              - button "В корзину" [ref=e391] [cursor=pointer]
+          - article [ref=e396]:
+            - generic [ref=e397]:
+              - button "Открыть Кружка Python. Be the best" [ref=e403] [cursor=pointer]
+              - button "Добавить в избранное" [ref=e404] [cursor=pointer]
+            - generic [ref=e407]:
+              - generic [ref=e408]: Кружки
+              - button "Кружка Python. Be the best" [ref=e409] [cursor=pointer]
+              - generic [ref=e410]: Нет в наличии
+            - generic [ref=e412]:
+              - strong [ref=e413]: 520 AC
+              - button "Недоступно" [disabled] [ref=e414]
+          - article [ref=e419]:
+            - generic [ref=e420]:
+              - button "Открыть Магнит Roblox" [ref=e426] [cursor=pointer]
+              - button "Добавить в избранное" [ref=e427] [cursor=pointer]
+            - generic [ref=e430]:
+              - generic [ref=e431]: Магниты
+              - button "Магнит Roblox" [ref=e432] [cursor=pointer]
+              - generic [ref=e433]: В наличии
+            - generic [ref=e435]:
+              - strong [ref=e436]: 90 AC
+              - button "В корзину" [ref=e437] [cursor=pointer]
+          - article [ref=e442]:
+            - generic [ref=e443]:
+              - button "Открыть Коврик для мышки" [ref=e447] [cursor=pointer]
+              - button "Добавить в избранное" [ref=e448] [cursor=pointer]
+            - generic [ref=e451]:
+              - generic [ref=e452]: Аксессуары
+              - button "Коврик для мышки" [ref=e453] [cursor=pointer]
+              - generic [ref=e454]: Осталось 3
+            - generic [ref=e456]:
+              - strong [ref=e457]: 700 AC
+              - button "В корзину" [ref=e458] [cursor=pointer]
+        - button "1 товар 900 AC Открыть корзину" [ref=e463] [cursor=pointer]:
+          - generic [ref=e464]:
+            - strong [ref=e465]: 1 товар
+            - generic [ref=e466]: 900 AC
+          - strong [ref=e467]: Открыть корзину
+  - navigation "Основные разделы" [ref=e287]:
+    - button "Главная" [ref=e288] [cursor=pointer]
+    - button "Магазин" [ref=e296] [cursor=pointer]
+    - button "Корзина 1" [ref=e478] [cursor=pointer]:
+      - generic [ref=e309]: Корзина
+      - generic [ref=e482]: "1"
+    - button "Заказы" [ref=e310] [cursor=pointer]
+    - button "Ещё" [ref=e318] [cursor=pointer]

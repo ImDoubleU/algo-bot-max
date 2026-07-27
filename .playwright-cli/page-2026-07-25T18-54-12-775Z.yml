@@ -1,0 +1,76 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: A
+      - generic [ref=e6]:
+        - paragraph [ref=e7]: Образовательная платформа
+        - heading "Algo MAX" [level=1] [ref=e8]
+    - generic "Контур данных" [ref=e9]:
+      - generic [ref=e10]: Город / партнер
+      - strong [ref=e11]: Демо-магазин
+  - main [ref=e12]:
+    - complementary "Роль и раздел" [ref=e13]:
+      - region "Роль" [ref=e14]:
+        - button "Ученик" [ref=e15] [cursor=pointer]
+        - button "Родитель" [ref=e16] [cursor=pointer]
+        - button "Преподаватель" [ref=e17] [cursor=pointer]
+        - button "Админ" [ref=e18] [cursor=pointer]
+      - navigation "Разделы" [ref=e19]:
+        - button "Главная" [ref=e20] [cursor=pointer]
+        - button "Магазин" [ref=e27] [cursor=pointer]
+        - button "Корзина" [ref=e34] [cursor=pointer]
+        - button "Заказы" [ref=e39] [cursor=pointer]
+        - button "История AC" [ref=e46] [cursor=pointer]
+    - generic [ref=e52]:
+      - generic [ref=e53]:
+        - generic [ref=e54]:
+          - generic [ref=e55]: В
+          - generic [ref=e56]:
+            - paragraph [ref=e57]: Личный профиль
+            - strong [ref=e58]: Васильева Алиса, ученик
+            - generic [ref=e59]: Обновлено 21:54
+          - button "Обновить данные" [ref=e60] [cursor=pointer]
+        - generic [ref=e66]:
+          - generic [ref=e67]: Баланс
+          - strong [ref=e68]: 1240 AC
+          - generic [ref=e69]: Доступно для наград
+        - button "Корзина 0" [ref=e70] [cursor=pointer]:
+          - generic [ref=e74]: Корзина
+          - generic [ref=e75]: "0"
+      - generic [ref=e76]:
+        - generic [ref=e77]:
+          - generic [ref=e78]:
+            - paragraph [ref=e79]: Сегодня
+            - heading "Мои результаты" [level=2] [ref=e80]
+          - button "Открыть магазин" [ref=e81] [cursor=pointer]
+        - generic [ref=e83]:
+          - paragraph [ref=e84]: Личный кабинет
+          - heading "Алиса, всё важное на сегодня" [level=3] [ref=e85]
+          - paragraph [ref=e86]: Баланс, награды и заказы собраны в одном месте.
+        - generic [ref=e88]:
+          - article [ref=e89]:
+            - generic [ref=e90]: "1240"
+            - generic [ref=e91]: AC доступно
+          - article [ref=e92]:
+            - generic [ref=e93]: "1"
+            - generic [ref=e94]: моих активных заказов
+          - article [ref=e95]:
+            - generic [ref=e96]: "1"
+            - generic [ref=e97]: товаров в избранном
+        - generic [ref=e98]:
+          - generic [ref=e99]:
+            - heading "Мой профиль" [level=3] [ref=e101]
+            - generic [ref=e103]:
+              - generic [ref=e104]: Союзный 45, вс 10:00
+              - generic [ref=e105]:
+                - generic [ref=e106]:
+                  - strong [ref=e107]: Васильева Алиса
+                  - generic [ref=e108]: Олейник Д
+                - generic [ref=e109]: 1240 AC
+          - generic [ref=e110]:
+            - heading "Мои заказы" [level=3] [ref=e112]
+            - button "Открыть заказ №1357" [ref=e114] [cursor=pointer]:
+              - generic [ref=e115]:
+                - strong [ref=e116]: Васильева Алиса
+                - generic [ref=e117]: Ручка металл с лого
+              - generic [ref=e118]: Зарезервировано

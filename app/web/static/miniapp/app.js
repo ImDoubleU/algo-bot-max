@@ -3,6 +3,7 @@ const apiContext = {
   tenantSlug: queryParam("tenant_slug") || "",
   demoMode: queryParam("demo") === "1",
 };
+const sessionStartedAt = new Date();
 
 const ROLE_VIEWS = Object.freeze({
   student: ["dashboard", "store", "cart", "orders", "wallet"],
@@ -21,6 +22,7 @@ const ROLE_DASHBOARD_ACTION = Object.freeze({
 const state = {
   role: "student",
   account: null,
+  staffRoles: [],
   availableRoles: ["student", "parent", "teacher", "admin"],
   view: ["dashboard", "store", "cart", "orders", "wallet", "accrual", "teaching", "admin"].includes(
     queryParam("view"),
@@ -323,21 +325,23 @@ let orders = [
     rawStatus: "reserved",
     student: "Васильева Алиса",
     item: "Ручка металл с лого",
-    warehouse: "Союзный 45",
-    status: "Зарезервирован",
+    warehouse: "Назначается администратором",
+    status: "Зарезервировано",
     tone: "ok",
     total: 120,
     createdAt: "2026-06-16T12:30:00Z",
     items: [
       {
+        productId: "demo-pen",
         productName: "Ручка металл с лого",
         quantity: 1,
         totalPrice: 120,
-        warehouseName: "Союзный 45",
+        warehouseId: "",
+        warehouseName: "",
       },
     ],
     statusHistory: [
-      { fromStatus: "created", toStatus: "reserved", comment: "Товар зарезервирован", createdAt: "2026-06-16T12:30:00Z" },
+      { fromStatus: "created", toStatus: "reserved", comment: "Ожидается назначение склада", createdAt: "2026-06-16T12:30:00Z" },
     ],
   },
   {
@@ -354,9 +358,11 @@ let orders = [
     createdAt: "2026-06-15T16:10:00Z",
     items: [
       {
+        productId: "demo-mug",
         productName: "Кружка Python",
         quantity: 1,
         totalPrice: 520,
+        warehouseId: "demo-warehouse-common",
         warehouseName: "Общий склад",
       },
     ],
@@ -378,6 +384,7 @@ let orders = [
     createdAt: "2026-06-14T18:45:00Z",
     items: [
       {
+        productId: "demo-game",
         productName: "Игра Кибертаун",
         quantity: 1,
         totalPrice: 900,
@@ -443,6 +450,16 @@ function qsa(selector) {
   return Array.from(document.querySelectorAll(selector));
 }
 
+function refreshIcons() {
+  if (!window.lucide?.createIcons) return;
+  window.lucide.createIcons({
+    attrs: {
+      "aria-hidden": "true",
+      "stroke-width": 2,
+    },
+  });
+}
+
 function queryParam(name) {
   return new URLSearchParams(window.location.search).get(name);
 }
@@ -489,6 +506,59 @@ function formatDate(value) {
 
 function todayShort() {
   return new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+}
+
+function studentWelcome(firstName) {
+  const hour = sessionStartedAt.getHours();
+  const period =
+    hour >= 5 && hour < 12
+      ? "morning"
+      : hour >= 12 && hour < 18
+        ? "day"
+        : hour >= 18 && hour < 23
+          ? "evening"
+          : "night";
+  const greetings = {
+    morning: "Доброе утро",
+    day: "Добрый день",
+    evening: "Добрый вечер",
+    night: "Доброй ночи",
+  };
+  const messages = {
+    morning: [
+      "Пусть день начнется с любопытства, а продолжится маленькой победой.",
+      "Утренняя новость: сегодня у тебя уже есть отличный шанс узнать что-то новое.",
+      "Мини-шутка: почему компьютер утром бодрый? Он хорошо перезагрузился.",
+    ],
+    day: [
+      "Хорошая новость: любопытство уже включено, осталось выбрать следующую цель.",
+      "Пусть сегодня найдется задача, которая сначала удивит, а потом обязательно получится.",
+      "Мини-шутка: почему компьютер не устал? Он вовремя перешел в спящий режим.",
+    ],
+    evening: [
+      "Самое время похвалить себя хотя бы за одну вещь, которая сегодня получилась.",
+      "Вечерняя новость: маленькие победы тоже считаются большими, если они твои.",
+      "Пусть вечер будет спокойным, а новые идеи дождутся тебя до завтра.",
+    ],
+    night: [
+      "Поздний режим: сохраняем прогресс и бережем силы для новых идей.",
+      "Даже самым любопытным исследователям нужен отдых. Продолжим с новыми силами.",
+      "Ночная новость: все важные открытия отлично подождут до завтра.",
+    ],
+  };
+  const dayNumber = Math.floor(
+    new Date(
+      sessionStartedAt.getFullYear(),
+      sessionStartedAt.getMonth(),
+      sessionStartedAt.getDate(),
+    ).getTime() / 86400000,
+  );
+  const periodMessages = messages[period];
+  const message = periodMessages[(dayNumber + firstName.length) % periodMessages.length];
+  return {
+    title: `${greetings[period]}${firstName ? `, ${firstName}` : ""}!`,
+    text: message,
+  };
 }
 
 function studentsForCurrentRole() {
@@ -632,14 +702,8 @@ function warehouseCountLabel(count) {
   return `${count} складов`;
 }
 
-function selectedProductWarehouse(product, card) {
-  const warehouses = productWarehouses(product);
-  const selectedId = card?.querySelector("[data-warehouse-select]")?.value || warehouses[0]?.id;
-  return warehouses.find((warehouse) => warehouse.id === selectedId) || warehouses[0] || null;
-}
-
-function cartKey(productId, warehouseId) {
-  return `${productId}::${warehouseId || "auto"}`;
+function cartKey(productId) {
+  return `${productId}::auto`;
 }
 
 function cartStorageKey() {
@@ -668,13 +732,13 @@ function restoreCart() {
 
   storedItems.forEach((item) => {
     const product = productById(String(item.productId || ""));
-    const warehouse = product ? warehouseById(product, String(item.warehouseId || "")) : null;
-    if (!product || !warehouse || warehouse.available <= 0) return;
-    const quantity = clampQuantity(item.quantity, warehouse.available);
-    state.cart.set(cartKey(product.id, warehouse.id), {
+    const available = product ? productAvailable(product) : 0;
+    if (!product || available <= 0) return;
+    const key = cartKey(product.id);
+    const current = state.cart.get(key)?.quantity || 0;
+    const quantity = clampQuantity(current + Number(item.quantity || 0), available);
+    state.cart.set(key, {
       productId: product.id,
-      warehouseId: warehouse.id,
-      warehouseName: warehouse.name,
       quantity,
     });
   });
@@ -759,8 +823,8 @@ function restoreFavorites() {
   }
 }
 
-function cartQuantityFor(productId, warehouseId) {
-  return state.cart.get(cartKey(productId, warehouseId))?.quantity || 0;
+function cartQuantityFor(productId) {
+  return state.cart.get(cartKey(productId))?.quantity || 0;
 }
 
 function productById(productId) {
@@ -786,6 +850,17 @@ function productAvailable(product) {
   );
 }
 
+function productFallbackIcon(product) {
+  const text = `${product.category || ""} ${product.name || ""}`.toLowerCase();
+  if (/игр|game|кибер/.test(text)) return "gamepad-2";
+  if (/руч|карандаш|канцел|блокнот/.test(text)) return "pencil";
+  if (/круж|бутыл|термос/.test(text)) return "cup-soda";
+  if (/браслет|значок|аксессуар/.test(text)) return "sparkles";
+  if (/коврик|техник|мыш/.test(text)) return "mouse";
+  if (/одеж|футбол|худи/.test(text)) return "shirt";
+  return "gift";
+}
+
 function productSearchText(product) {
   return [
     product.name,
@@ -793,12 +868,6 @@ function productSearchText(product) {
     product.category,
     product.categorySlug,
     product.description,
-    product.warehouse,
-    ...productWarehouses(product).flatMap((warehouse) => [
-      warehouse.id,
-      warehouse.name,
-      warehouse.type,
-    ]),
   ]
     .filter(Boolean)
     .join(" ")
@@ -833,18 +902,12 @@ function syncProductCardControls(card) {
   const productId = card?.dataset.productCard;
   const product = productById(productId);
   if (!product) return;
-
-  const warehouse = selectedProductWarehouse(product, card);
-  const input = card.querySelector("[data-quantity]");
   const button = card.querySelector("[data-add]");
-  if (!warehouse || !input || !button) return;
-
-  const availableLeft = Math.max(warehouse.available - cartQuantityFor(product.id, warehouse.id), 0);
-  input.max = String(availableLeft);
-  input.disabled = availableLeft <= 0;
-  input.value = availableLeft <= 0 ? "0" : String(clampQuantity(input.value, availableLeft));
+  if (!button) return;
+  const availableLeft = Math.max(productAvailable(product) - cartQuantityFor(product.id), 0);
   button.disabled = availableLeft <= 0;
-  button.textContent = availableLeft <= 0 ? "Недоступно" : "В корзину";
+  const label = button.querySelector("span");
+  if (label) label.textContent = availableLeft <= 0 ? "Недоступно" : "В корзину";
 }
 
 function apiUrl(path, params = {}) {
@@ -887,6 +950,13 @@ function showNotice(message, tone = "ok") {
   notice.textContent = apiErrorMessage(message);
   notice.hidden = false;
   notice.className = `notice-bar ${tone}`;
+}
+
+function hideNotice() {
+  const notice = qs("#noticeBar");
+  notice.hidden = true;
+  notice.textContent = "";
+  notice.className = "notice-bar";
 }
 
 function normalizeHeader(value) {
@@ -1014,7 +1084,7 @@ function parseDemoImport(text) {
 function orderStatusLabel(status) {
   return {
     created: "Оформлен",
-    reserved: "Зарезервирован",
+    reserved: "Зарезервировано",
     transferred_to_teacher: "Передан педагогу",
     issued_to_student: "Выдан ученику",
     cancelled: "Отменен",
@@ -1038,6 +1108,12 @@ function staffRoleToUiRole(staffRoles = []) {
     return "teacher";
   }
   return null;
+}
+
+function primaryStaffRole(staffRoles = state.staffRoles) {
+  return ["superadmin", "partner_director", "admin", "curator", "teacher"].find((role) =>
+    staffRoles.includes(role),
+  ) || "";
 }
 
 function canUseAdminCatalog() {
@@ -1191,6 +1267,7 @@ function applySession(session) {
   if (!session || !Array.isArray(session.students)) return;
 
   state.account = session.account || null;
+  state.staffRoles = Array.isArray(session.staff_roles) ? session.staff_roles : [];
 
   students = session.students.map((student) => ({
     id: String(student.student_id),
@@ -1218,7 +1295,7 @@ function applySession(session) {
     rawStatus: order.status,
     student: order.student_name,
     item: `Заказ на ${order.total_astrocoins} AC`,
-    warehouse: order.venue_name || "Склад будет выбран",
+    warehouse: "Назначается администратором",
     status: orderStatusLabel(order.status),
     tone: orderStatusTone(order.status),
     total: Number(order.total_astrocoins || 0),
@@ -1460,11 +1537,12 @@ function setView(view) {
   const allowedViews = ROLE_VIEWS[state.role] || ROLE_VIEWS.student;
   const nextView = allowedViews.includes(view) ? view : "dashboard";
   const previousView = state.view;
+  if (previousView !== nextView) hideNotice();
   state.view = nextView;
   const url = new URL(window.location.href);
   url.searchParams.set("view", nextView);
   window.history.replaceState(null, "", url);
-  document.body.dataset.activeView = view;
+  document.body.dataset.activeView = nextView;
   qsa(".nav-button").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.view === nextView);
   });
@@ -1477,7 +1555,7 @@ function setView(view) {
     ["wallet", "accrual", "teaching", "admin"].includes(nextView),
   );
   closeMobileMorePanel();
-  if (previousView !== view && window.matchMedia("(max-width: 640px)").matches) {
+  if (previousView !== nextView && window.matchMedia("(max-width: 640px)").matches) {
     window.scrollTo({ top: 0, behavior: "auto" });
   }
   if (nextView === "teaching" && !state.teachingLoaded && !state.teachingLoading) {
@@ -1509,6 +1587,9 @@ function setRole(role) {
   }
   document.body.dataset.activeRole = role;
   qsa(".role-button").forEach((button) => {
+    if (button.dataset.role === "admin") {
+      button.textContent = primaryStaffRole() === "partner_director" ? "Директор" : "Админ";
+    }
     button.hidden = !state.availableRoles.includes(button.dataset.role);
     button.classList.toggle("is-active", button.dataset.role === role);
   });
@@ -1586,21 +1667,6 @@ function renderStatus() {
   const studentContext = qs("#studentContext");
   if (studentContext) studentContext.hidden = linkedCount === 0;
   if (statusStrip) statusStrip.classList.toggle("has-no-students", linkedCount === 0);
-  const openOrders = orders.filter((order) => isOpenOrderStatus(order.rawStatus));
-  const studentOpenOrders = student
-    ? openOrders.filter((order) =>
-        order.studentId ? order.studentId === student.id : order.student === student.name,
-      )
-    : [];
-  const lowStockProducts = products.filter((product) => {
-    const available = product.warehouses?.length
-      ? product.warehouses.reduce(
-          (total, warehouse) => total + Number(warehouse.available_quantity || 0),
-          0,
-        )
-      : Number(product.stock || 0);
-    return available <= 5;
-  }).length;
   const labels = {
     student: student ? `${student.name}, ученик` : "Ученик",
     parent: accountName
@@ -1609,11 +1675,23 @@ function renderStatus() {
         ? `Родитель, ${linkedCount} учен.`
         : "Родитель",
     teacher: accountName ? `${accountName}, педагог` : "Педагог",
-    admin: accountName ? `${accountName}, администратор` : "Администратор",
+    admin:
+      primaryStaffRole() === "partner_director"
+        ? accountName
+          ? `${accountName}, директор`
+          : "Директор"
+        : accountName
+          ? `${accountName}, администратор`
+          : "Администратор",
   };
 
   state.balance = student?.balance || 0;
   qs("#profileTitle").textContent = labels[state.role] || "Профиль";
+  const profileInitial = qs("#profileInitial");
+  if (profileInitial) {
+    const profileName = student?.name || accountName || labels[state.role] || "А";
+    profileInitial.textContent = profileName.trim().charAt(0).toUpperCase() || "А";
+  }
   const contextLabel = qs("#studentContextLabel");
   if (contextLabel) {
     contextLabel.textContent = {
@@ -1623,31 +1701,52 @@ function renderStatus() {
     }[state.view] || "Ученик";
   }
   qs("#balanceValue").textContent = state.balance;
+  const storeAudience = qs("#storeAudience");
+  if (storeAudience) {
+    storeAudience.textContent = student
+      ? `${student.name} · ${state.balance} AC доступно`
+      : "Выберите ученика, чтобы оформить заказ";
+  }
 
-  const metricsByRole = {
+  const dashboardTitle = {
+    student: "Мои результаты",
+    parent: "Дети и заказы",
+    teacher: "Рабочий день",
+    admin: "Филиал сегодня",
+  }[state.role] || "Мои результаты";
+  const nameParts = student?.name?.trim().split(/\s+/).filter(Boolean) || [];
+  const firstName = nameParts.length > 1 ? nameParts[1] : nameParts[0] || "";
+  const welcome = studentWelcome(firstName);
+  const spotlightByRole = {
     student: {
-      title: "Мой кабинет",
-      values: [state.balance, studentOpenOrders.length, state.favorites.size],
-      labels: ["AC доступно", "моих активных заказов", "товаров в избранном"],
+      kicker: "Личный кабинет",
+      title: welcome.title,
+      text: welcome.text,
     },
     parent: {
-      title: "Семейный кабинет",
-      values: [linkedCount, openOrders.length, state.favorites.size],
-      labels: ["связанных учеников", "активных заказов", "товаров в избранном"],
+      kicker: "Семейный кабинет",
+      title: firstName ? `Результаты и награды: ${firstName}` : "Результаты детей",
+      text: "Переключайтесь между детьми и следите за заказами.",
     },
     teacher: {
-      title: "Рабочий обзор",
-      values: [linkedCount, openOrders.length, studentGroups().length],
-      labels: ["моих учеников", "заказов в работе", "рабочих групп"],
+      kicker: "Рабочий день",
+      title: "Группы и начисления под рукой",
+      text: "Только ваши ученики, расписание и обратная связь.",
     },
     admin: {
-      title: "Операционный обзор",
-      values: [linkedCount, openOrders.length, lowStockProducts],
-      labels: ["учеников в контуре", "заказов в работе", "товаров заканчивается"],
+      kicker: "Управление филиалом",
+      title: "Данные филиала в одном контуре",
+      text: "Импорт, сотрудники, склад и заказы без лишних переходов.",
     },
   };
-  const dashboardMetrics = metricsByRole[state.role] || metricsByRole.student;
-  qs("#dashboardTitle").textContent = dashboardMetrics.title;
+  const spotlight = spotlightByRole[state.role] || spotlightByRole.student;
+  if (state.role === "admin" && primaryStaffRole() === "partner_director") {
+    spotlight.kicker = "Кабинет директора";
+  }
+  qs("#dashboardTitle").textContent = dashboardTitle;
+  qs("#dashboardRoleKicker").textContent = spotlight.kicker;
+  qs("#dashboardSpotlightTitle").textContent = spotlight.title;
+  qs("#dashboardSpotlightText").textContent = spotlight.text;
   qs("#dashboardOrdersTitle").textContent = {
     student: "Мои заказы",
     parent: "Заказы детей",
@@ -1660,17 +1759,6 @@ function renderStatus() {
     teacher: "Мои ученики",
     admin: "Ученики и группы",
   }[state.role] || "Ученики";
-  ["#linkedStudentsCount", "#openOrdersCount", "#stockProblemCount"].forEach(
-    (selector, index) => {
-      qs(selector).textContent = dashboardMetrics.values[index];
-    },
-  );
-  ["#dashboardMetricOneLabel", "#dashboardMetricTwoLabel", "#dashboardMetricThreeLabel"].forEach(
-    (selector, index) => {
-      qs(selector).textContent = dashboardMetrics.labels[index];
-    },
-  );
-
   const select = qs("#studentSelect");
   select.innerHTML = sortedStudents()
     .map(
@@ -1795,6 +1883,24 @@ function renderCategories() {
   ].join("");
   state.productCategory = categories.includes(selected) ? selected : "all";
   filter.value = state.productCategory;
+  const chips = qs("#categoryChips");
+  if (chips) {
+    chips.innerHTML = [
+      ["all", "Все"],
+      ...categories.map((category) => [category, category]),
+    ]
+      .map(
+        ([value, label]) => `
+          <button
+            class="category-chip ${state.productCategory === value ? "is-active" : ""}"
+            type="button"
+            data-product-category="${escapeHtml(value)}"
+            aria-pressed="${state.productCategory === value}"
+          >${escapeHtml(label)}</button>
+        `,
+      )
+      .join("");
+  }
 }
 
 function renderProducts() {
@@ -1838,83 +1944,69 @@ function renderProducts() {
 
   grid.innerHTML = visible
     .map((product) => {
-      const warehouses = productWarehouses(product);
-      const selectedWarehouse = warehouses[0];
-      const inCart = selectedWarehouse ? cartQuantityFor(product.id, selectedWarehouse.id) : 0;
-      const availableLeft = selectedWarehouse ? Math.max(selectedWarehouse.available - inCart, 0) : 0;
+      const available = productAvailable(product);
+      const availableLeft = Math.max(available - cartQuantityFor(product.id), 0);
       const disabled = availableLeft <= 0;
       const favorite = state.favorites.has(product.id);
-      const stockText = product.stock > 0 ? `Остаток ${product.stock}` : "Нет в наличии";
+      const stockText =
+        availableLeft <= 0
+          ? "Нет в наличии"
+          : availableLeft <= 5
+            ? `Осталось ${availableLeft}`
+            : "В наличии";
       return `
         <article class="product-card" data-product-card="${escapeHtml(product.id)}">
           <div class="product-visual ${product.photoUrl ? "has-photo" : ""}">
-            <span class="product-mark">${escapeHtml(product.mark)}</span>
             ${
               product.photoUrl
                 ? `<img src="${escapeHtml(product.photoUrl)}" alt="${escapeHtml(product.name)}" loading="lazy" />`
-                : ""
+                : `<div class="product-visual-fallback" aria-hidden="true">
+                    <i data-lucide="${productFallbackIcon(product)}"></i>
+                  </div>`
             }
-          </div>
-          <div class="product-body">
-            <h3>${escapeHtml(product.name)}</h3>
-            <div class="product-meta">
-              ${product.sku ? `<span>${escapeHtml(product.sku)}</span>` : ""}
-              <span>${escapeHtml(product.category)}</span>
-              <span>${product.price} AC</span>
-              <span>${stockText}</span>
-              <span>${warehouseCountLabel(warehouses.length)}</span>
-            </div>
-            <div class="product-pickers">
-              <label>
-                <span>Склад</span>
-                <select data-warehouse-select="${escapeHtml(product.id)}">
-                  ${warehouses
-                    .map(
-                      (warehouse) => `
-                        <option value="${escapeHtml(warehouse.id)}">
-                          ${escapeHtml(warehouse.name)} · ${warehouse.available} шт.
-                        </option>
-                      `,
-                    )
-                    .join("")}
-                </select>
-              </label>
-              <label>
-                <span>Кол-во</span>
-                <input
-                  data-quantity="${escapeHtml(product.id)}"
-                  type="number"
-                  min="1"
-                  max="${availableLeft}"
-                  value="${disabled ? 0 : 1}"
-                  ${disabled ? "disabled" : ""}
-                />
-              </label>
-            </div>
-          </div>
-          <div class="product-actions">
             <button
-              class="icon-button ${favorite ? "is-active" : ""}"
-              type="button"
-              title="Избранное"
-              data-favorite="${escapeHtml(product.id)}"
-            >★</button>
-            <button
-              class="secondary-action product-details-action"
+              class="product-visual-open"
               type="button"
               data-product-details="${escapeHtml(product.id)}"
-            >Подробнее</button>
+              aria-label="Открыть ${escapeHtml(product.name)}"
+            ></button>
+            <button
+              class="product-favorite ${favorite ? "is-active" : ""}"
+              type="button"
+              title="${favorite ? "Убрать из избранного" : "Добавить в избранное"}"
+              aria-label="${favorite ? "Убрать из избранного" : "Добавить в избранное"}"
+              data-favorite="${escapeHtml(product.id)}"
+            ><i data-lucide="heart"></i></button>
+          </div>
+          <div class="product-body">
+            <span class="product-category">${escapeHtml(product.category)}</span>
+            <button
+              class="product-title-button"
+              type="button"
+              data-product-details="${escapeHtml(product.id)}"
+            >${escapeHtml(product.name)}</button>
+            <div class="product-availability ${disabled ? "is-empty" : ""}">
+              <span aria-hidden="true"></span>
+              ${stockText}
+            </div>
+          </div>
+          <div class="product-card-footer">
+            <strong>${product.price} <span>AC</span></strong>
             <button
               class="primary-action"
               type="button"
               data-add="${escapeHtml(product.id)}"
               ${disabled ? "disabled" : ""}
-            >${disabled ? "Недоступно" : "В корзину"}</button>
+            >
+              <i data-lucide="shopping-bag"></i>
+              <span>${disabled ? "Недоступно" : "В корзину"}</span>
+            </button>
           </div>
         </article>
       `;
     })
     .join("");
+  refreshIcons();
 }
 
 function productCountLabel(count) {
@@ -1951,31 +2043,28 @@ function renderCart() {
       .map(([key, item]) => {
         const product = productById(item.productId);
         if (!product) return "";
-        const warehouses = productWarehouses(product);
-        const selectedWarehouse = warehouseById(product, item.warehouseId) || warehouses[0];
-        const selectedAvailable = selectedWarehouse?.available || item.quantity;
-        const maxQuantity = selectedAvailable + item.quantity - cartQuantityFor(product.id, item.warehouseId);
+        const maxQuantity = Math.max(productAvailable(product), item.quantity);
         return `
           <div class="cart-row">
-            <div>
-              <strong>${escapeHtml(product.name)}</strong>
-              <div class="student-meta">${item.quantity} шт. · ${product.price * item.quantity} AC</div>
+            <div class="cart-product">
+              <div class="cart-product-visual">
+                ${
+                  product.photoUrl
+                    ? `<img src="${escapeHtml(product.photoUrl)}" alt="" />`
+                    : `<i data-lucide="${productFallbackIcon(product)}"></i>`
+                }
+              </div>
+              <div>
+                <span>${escapeHtml(product.category)}</span>
+                <strong>${escapeHtml(product.name)}</strong>
+              </div>
             </div>
-            <div>${product.price} AC</div>
-            <select class="cart-warehouse-select" data-cart-warehouse="${escapeHtml(key)}">
-              ${warehouses
-                .map(
-                  (warehouse) => `
-                    <option value="${escapeHtml(warehouse.id)}" ${
-                      warehouse.id === item.warehouseId ? "selected" : ""
-                    }>
-                      ${escapeHtml(warehouse.name)}
-                    </option>
-                  `,
-                )
-                .join("")}
-            </select>
+            <div class="cart-unit-price">
+              <span>Цена</span>
+              <strong>${product.price} AC</strong>
+            </div>
             <div class="quantity-control">
+              <span>Количество</span>
               <input
                 type="number"
                 min="1"
@@ -1984,9 +2073,15 @@ function renderCart() {
                 data-cart-quantity="${escapeHtml(key)}"
               />
             </div>
-            <button class="icon-button" type="button" title="Удалить" data-remove="${escapeHtml(
-              key,
-            )}">×</button>
+            <div class="cart-line-total">
+              <span>Сумма</span>
+              <strong>${product.price * item.quantity} AC</strong>
+            </div>
+            <button class="icon-button cart-remove" type="button" title="Удалить" aria-label="Удалить ${escapeHtml(
+              product.name,
+            )}" data-remove="${escapeHtml(key)}">
+              <i data-lucide="trash-2"></i>
+            </button>
           </div>
         `;
       })
@@ -2021,6 +2116,7 @@ function renderCart() {
   qs("#storeCartCount").textContent = productCountLabel(count);
   qs("#storeCartTotal").textContent = total;
   qs("#storeView").classList.toggle("has-cart-dock", count > 0);
+  refreshIcons();
 }
 
 function renderCheckoutSummary() {
@@ -2040,7 +2136,7 @@ function renderCheckoutSummary() {
         <div class="checkout-item">
           <div>
             <strong>${escapeHtml(product.name)}</strong>
-            <div class="student-meta">${item.quantity} шт. · ${escapeHtml(item.warehouseName)}</div>
+            <div class="student-meta">${item.quantity} шт.</div>
           </div>
           <span class="checkout-item-total">${product.price * item.quantity} AC</span>
         </div>
@@ -2062,6 +2158,10 @@ function renderCheckoutSummary() {
       </div>
     </div>
     <div class="checkout-items">${items}</div>
+    <p class="checkout-reservation-note">
+      После оформления администратор назначит склад. До этого заказ будет отмечен как
+      «Зарезервировано».
+    </p>
     <div class="checkout-total">
       <span>К списанию</span>
       <strong>${total} AC</strong>
@@ -2103,20 +2203,10 @@ function syncProductDialogControls() {
   const product = productById(dialog.dataset.productId || "");
   if (!product) return;
 
-  const warehouseSelect = qs("#productDialogWarehouse");
   const quantityInput = qs("#productDialogQuantity");
-  const warehouse = warehouseById(product, warehouseSelect.value);
   const addButton = qs("#productDialogAddButton");
   const stock = qs("#productDialogStock");
-  if (!warehouse) {
-    addButton.disabled = true;
-    return;
-  }
-
-  const availableLeft = Math.max(
-    warehouse.available - cartQuantityFor(product.id, warehouse.id),
-    0,
-  );
+  const availableLeft = Math.max(productAvailable(product) - cartQuantityFor(product.id), 0);
   quantityInput.max = String(availableLeft);
   quantityInput.disabled = availableLeft <= 0;
   quantityInput.value = availableLeft <= 0
@@ -2124,52 +2214,40 @@ function syncProductDialogControls() {
     : String(clampQuantity(quantityInput.value || "1", availableLeft));
   addButton.disabled = availableLeft <= 0;
   stock.textContent = availableLeft > 0
-    ? `Доступно ${availableLeft} шт. на складе «${warehouse.name}»`
-    : `На складе «${warehouse.name}» свободного остатка нет`;
+    ? availableLeft <= 5
+      ? `Осталось ${availableLeft} шт.`
+      : "В наличии"
+    : "Нет в наличии";
   stock.classList.toggle("is-empty", availableLeft <= 0);
 }
 
 function openProductDialog(productId) {
   const product = productById(productId);
   if (!product || (product.status || "active") !== "active") return;
-  const warehouses = productWarehouses(product);
   const dialog = qs("#productDialog");
   dialog.dataset.productId = product.id;
   qs("#productDialogTitle").textContent = product.name;
   qs("#productDialogContent").innerHTML = `
     <div class="product-dialog-visual">
-      <span>${escapeHtml(product.mark)}</span>
       ${
         product.photoUrl
           ? `<img src="${escapeHtml(product.photoUrl)}" alt="${escapeHtml(product.name)}" />`
-          : ""
+          : `<div class="product-visual-fallback" aria-hidden="true">
+              <i data-lucide="${productFallbackIcon(product)}"></i>
+            </div>`
       }
     </div>
     <div class="product-dialog-info">
       <div class="product-dialog-price">${product.price} AC</div>
       <div class="product-dialog-meta">
-        ${product.sku ? `<span>${escapeHtml(product.sku)}</span>` : ""}
         <span>${escapeHtml(product.category)}</span>
-        <span>${warehouseCountLabel(warehouses.length)}</span>
       </div>
-      <p class="product-dialog-description">${escapeHtml(
-        product.description || "Описание товара пока не добавлено.",
-      )}</p>
+      ${
+        product.description
+          ? `<p class="product-dialog-description">${escapeHtml(product.description)}</p>`
+          : ""
+      }
       <div class="product-dialog-controls">
-        <label>
-          <span>Склад</span>
-          <select id="productDialogWarehouse">
-            ${warehouses
-              .map(
-                (warehouse) => `
-                  <option value="${escapeHtml(warehouse.id)}">
-                    ${escapeHtml(warehouse.name)} · ${warehouse.available} шт.
-                  </option>
-                `,
-              )
-              .join("")}
-          </select>
-        </label>
         <label>
           <span>Количество</span>
           <input id="productDialogQuantity" type="number" min="1" value="1" />
@@ -2181,6 +2259,7 @@ function openProductDialog(productId) {
   dialog.hidden = false;
   syncDialogBodyClass();
   syncProductDialogControls();
+  refreshIcons();
   qs("#productDialogAddButton").focus();
 }
 
@@ -2196,10 +2275,23 @@ function isOpenOrderStatus(status) {
   return ["created", "reserved", "transferred_to_teacher"].includes(status);
 }
 
+function orderHasAssignedWarehouses(order) {
+  return (
+    Array.isArray(order.items) &&
+    order.items.length > 0 &&
+    order.items.every((item) => Boolean(item.warehouseId))
+  );
+}
+
+function canAssignOrderWarehouses(order) {
+  return state.role === "admin" && order.rawStatus === "reserved" && !orderHasAssignedWarehouses(order);
+}
+
 function canIssueOrder(order) {
   return (
     ["teacher", "admin"].includes(state.role) &&
-    ["reserved", "transferred_to_teacher"].includes(order.rawStatus)
+    ["reserved", "transferred_to_teacher"].includes(order.rawStatus) &&
+    orderHasAssignedWarehouses(order)
   );
 }
 
@@ -2255,10 +2347,11 @@ function orderActionButtons(order, includeOpen = true) {
   const buttons = [];
 
   if (includeOpen) {
+    const label = canAssignOrderWarehouses(order) ? "Назначить склад" : "Подробнее";
     buttons.push(
       `<button class="secondary-action" type="button" data-open-order="${escapeHtml(
         order.backendId || order.id,
-      )}">Подробнее</button>`,
+      )}">${label}</button>`,
     );
   }
 
@@ -2335,7 +2428,15 @@ function renderOrders() {
             <strong class="order-card-student">${escapeHtml(order.student)}</strong>
             <div class="order-card-items">${escapeHtml(order.item)}</div>
             <div class="order-card-meta">
-              <span>Склад: ${escapeHtml(order.warehouse)}</span>
+              ${
+                ["teacher", "admin"].includes(state.role)
+                  ? `<span>${
+                      orderHasAssignedWarehouses(order)
+                        ? `Склад назначен`
+                        : `Ожидает назначения склада`
+                    }</span>`
+                  : ""
+              }
               ${total ? `<span>Сумма: ${total} AC</span>` : ""}
               ${date ? `<span>${escapeHtml(date)}</span>` : ""}
             </div>
@@ -2525,6 +2626,11 @@ function renderAdminPanel() {
     staff: "Сотрудники",
   };
   qs("#adminViewTitle").textContent = adminTitles[state.adminTab] || "Операции";
+  const adminRoleEyebrow = qs("#adminRoleEyebrow");
+  if (adminRoleEyebrow) {
+    adminRoleEyebrow.textContent =
+      primaryStaffRole() === "partner_director" ? "Директор" : "Админ";
+  }
   qsa(".admin-tab").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.adminTab === state.adminTab);
   });
@@ -3375,6 +3481,7 @@ function renderAll() {
   renderAccrual();
   renderTeaching();
   renderAdminPanel();
+  refreshIcons();
 }
 
 async function importProductsFromFile() {
@@ -3587,17 +3694,15 @@ async function saveProductFromForm() {
   }
 }
 
-function addCartItem(product, warehouse, quantityValue) {
-  const current = cartQuantityFor(product.id, warehouse.id);
-  const availableLeft = Math.max(warehouse.available - current, 0);
+function addCartItem(product, quantityValue) {
+  const current = cartQuantityFor(product.id);
+  const availableLeft = Math.max(productAvailable(product) - current, 0);
   const quantity = clampQuantity(quantityValue || "1", availableLeft);
   if (availableLeft <= 0) return false;
 
-  const key = cartKey(product.id, warehouse.id);
+  const key = cartKey(product.id);
   state.cart.set(key, {
     productId: product.id,
-    warehouseId: warehouse.id,
-    warehouseName: warehouse.name,
     quantity: current + quantity,
   });
   saveCart();
@@ -3609,20 +3714,14 @@ function addCartItem(product, warehouse, quantityValue) {
 function addToCart(productId) {
   const product = productById(productId);
   if (!product || (product.status || "active") !== "active") return;
-  const card = qsa("[data-product-card]").find((item) => item.dataset.productCard === productId);
-  const warehouse = selectedProductWarehouse(product, card);
-  if (!warehouse) return;
-  const quantityInput = card?.querySelector("[data-quantity]");
-  addCartItem(product, warehouse, quantityInput?.value || "1");
+  addCartItem(product, "1");
 }
 
 function addProductDialogItemToCart() {
   const dialog = qs("#productDialog");
   const product = productById(dialog.dataset.productId || "");
   if (!product) return;
-  const warehouse = warehouseById(product, qs("#productDialogWarehouse").value);
-  if (!warehouse) return;
-  const added = addCartItem(product, warehouse, qs("#productDialogQuantity").value);
+  const added = addCartItem(product, qs("#productDialogQuantity").value);
   if (!added) return;
   closeProductDialog();
   showNotice(`${product.name}: добавлено в корзину`);
@@ -3644,15 +3743,17 @@ function createDemoOrder() {
       const product = productById(item.productId);
       if (!product) return null;
       return {
+        productId: product.id,
         productName: product.name,
         quantity: item.quantity,
         totalPrice: product.price * item.quantity,
-        warehouseName: item.warehouseName,
+        warehouseId: "",
+        warehouseName: "",
       };
     })
     .filter(Boolean);
   const orderSummary = orderItems
-    .map((item) => `${item.productName} x${item.quantity}, ${item.warehouseName}`)
+    .map((item) => `${item.productName} × ${item.quantity}`)
     .join("; ");
   student.balance -= total;
   orders.unshift({
@@ -3662,8 +3763,8 @@ function createDemoOrder() {
     rawStatus: "reserved",
     student: student.name,
     item: orderSummary || `Заказ на ${total} AC`,
-    warehouse: "Выбрано в корзине",
-    status: "Зарезервирован",
+    warehouse: "Назначается администратором",
+    status: "Зарезервировано",
     tone: "ok",
     total,
     createdAt,
@@ -3672,7 +3773,7 @@ function createDemoOrder() {
       {
         fromStatus: "created",
         toStatus: "reserved",
-        comment: "Заказ оформлен, товар зарезервирован",
+        comment: "Заказ оформлен, ожидается назначение склада",
         createdAt,
       },
     ],
@@ -3690,23 +3791,55 @@ function createDemoOrder() {
   renderAll();
 }
 
+function orderWarehouseOptions(item) {
+  const product = productById(item.productId || "");
+  if (!product) return [];
+  return productWarehouses(product).filter(
+    (warehouse) => warehouse.available >= Number(item.quantity || 0),
+  );
+}
+
 function renderOrderDialog(order) {
+  const needsWarehouseAssignment = canAssignOrderWarehouses(order);
   const items = Array.isArray(order.items) && order.items.length > 0
     ? order.items
         .map(
-          (item) => `
-            <div class="order-detail-item">
-              <div>
-                <strong>${escapeHtml(item.productName || "Товар")}</strong>
-                <div class="student-meta">
-                  ${Number(item.quantity || 0)} шт. · ${escapeHtml(
-                    item.warehouseName || order.warehouse,
-                  )}
+          (item) => {
+            const warehouseOptions = needsWarehouseAssignment
+              ? orderWarehouseOptions(item)
+              : [];
+            const warehouseControl = needsWarehouseAssignment
+              ? `
+                  <label class="order-warehouse-field">
+                    <span>Склад для списания</span>
+                    <select data-order-warehouse="${escapeHtml(item.productId || "")}">
+                      <option value="">Выберите склад</option>
+                      ${warehouseOptions
+                        .map(
+                          (warehouse) => `
+                            <option value="${escapeHtml(warehouse.id)}">
+                              ${escapeHtml(warehouse.name)} · доступно ${warehouse.available}
+                            </option>
+                          `,
+                        )
+                        .join("")}
+                    </select>
+                  </label>
+                `
+              : ["teacher", "admin"].includes(state.role) && item.warehouseName
+                ? `<div class="student-meta">${escapeHtml(item.warehouseName)}</div>`
+                : "";
+            return `
+              <div class="order-detail-item ${needsWarehouseAssignment ? "needs-warehouse" : ""}">
+                <div>
+                  <strong>${escapeHtml(item.productName || "Товар")}</strong>
+                  <div class="student-meta">${Number(item.quantity || 0)} шт.</div>
+                  ${warehouseControl}
                 </div>
+                <strong>${Number(item.totalPrice || 0)} AC</strong>
               </div>
-              <strong>${Number(item.totalPrice || 0)} AC</strong>
-            </div>
-          `,
+            `;
+          },
         )
         .join("")
     : `
@@ -3745,7 +3878,13 @@ function renderOrderDialog(order) {
         <span class="status-badge ${escapeHtml(order.tone)}">${escapeHtml(order.status)}</span>
         <h3>${escapeHtml(order.student)}</h3>
         <div class="student-meta">
-          ${escapeHtml(order.warehouse)}
+          ${
+            ["teacher", "admin"].includes(state.role)
+              ? orderHasAssignedWarehouses(order)
+                ? "Склад назначен"
+                : "Ожидает назначения склада"
+              : "Заказ зарезервирован"
+          }
           ${order.createdAt ? ` · ${escapeHtml(formatOrderDate(order.createdAt))}` : ""}
         </div>
       </div>
@@ -3760,7 +3899,16 @@ function renderOrderDialog(order) {
       <div class="order-history">${history}</div>
     </section>
   `;
-  qs("#orderDialogActions").innerHTML = orderActionButtons(order, false);
+  qs("#orderDialogActions").innerHTML = needsWarehouseAssignment
+    ? `
+        <button
+          id="assignOrderWarehousesButton"
+          class="primary-action"
+          type="button"
+          data-order-id="${escapeHtml(order.backendId || order.id)}"
+        >Подтвердить склады</button>
+      `
+    : orderActionButtons(order, false);
 }
 
 function openOrderDetails(orderId) {
@@ -3781,6 +3929,87 @@ function closeOrderDialog() {
   dialog.hidden = true;
   dialog.dataset.orderId = "";
   syncDialogBodyClass();
+}
+
+async function assignOrderWarehouses(orderId) {
+  const order = orders.find((item) => item.backendId === orderId || item.id === orderId);
+  if (!order || !canAssignOrderWarehouses(order)) return;
+
+  const assignments = (order.items || []).map((item) => {
+    const select = qsa("[data-order-warehouse]").find(
+      (field) => field.dataset.orderWarehouse === item.productId,
+    );
+    return {
+      item,
+      warehouseId: select?.value || "",
+    };
+  });
+  if (assignments.some((assignment) => !assignment.warehouseId)) {
+    showNotice("Выберите склад для каждой позиции заказа", "danger");
+    return;
+  }
+
+  const button = qs("#assignOrderWarehousesButton");
+  if (button) button.disabled = true;
+
+  if (orderId.startsWith("demo-") || apiContext.demoMode || !apiContext.maxUserId) {
+    assignments.forEach(({ item, warehouseId }) => {
+      const product = productById(item.productId);
+      const warehouse = product ? warehouseById(product, warehouseId) : null;
+      if (!warehouse) return;
+      item.warehouseId = warehouse.id;
+      item.warehouseName = warehouse.name;
+      const raw = ensureProductWarehouse(product, warehouse);
+      raw.reserved_quantity = Number(raw.reserved_quantity || 0) + Number(item.quantity || 0);
+      raw.available_quantity = Math.max(
+        Number(raw.available_quantity || warehouse.available) - Number(item.quantity || 0),
+        0,
+      );
+    });
+    order.warehouse = orderWarehouseSummary(order.items, "Склад назначен");
+    order.statusHistory = order.statusHistory || [];
+    order.statusHistory.push({
+      fromStatus: order.rawStatus,
+      toStatus: order.rawStatus,
+      comment: "Склад назначен администратором",
+      createdAt: new Date().toISOString(),
+    });
+    showNotice(`Заказ №${order.id}: склады назначены`);
+    renderAll();
+    renderOrderDialog(order);
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `/api/v1/miniapp/orders/${encodeURIComponent(order.backendId)}/assign-warehouses`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          max_user_id: Number(apiContext.maxUserId),
+          tenant_slug: apiContext.tenantSlug || undefined,
+          items: assignments.map(({ item, warehouseId }) => ({
+            product_id: item.productId,
+            warehouse_id: warehouseId,
+          })),
+          comment: "Склад назначен из MAX mini app",
+        }),
+      },
+    );
+    if (!response.ok) throw new Error(await parseApiError(response));
+
+    showNotice(`Заказ №${order.id}: склады назначены`);
+    await refreshOrderAndInventoryState();
+    renderAll();
+    const refreshedOrder = orders.find(
+      (item) => item.backendId === orderId || item.id === orderId,
+    );
+    if (refreshedOrder) renderOrderDialog(refreshedOrder);
+  } catch (error) {
+    showNotice(error.message || "Не удалось назначить склады", "danger");
+    if (button) button.disabled = false;
+  }
 }
 
 async function updateOrderAction(orderId, action) {
@@ -4230,43 +4459,11 @@ function updateCartQuantity(key, value) {
   const item = state.cart.get(key);
   if (!item) return;
   const product = productById(item.productId);
-  const warehouse = product ? warehouseById(product, item.warehouseId) : null;
-  if (!product || !warehouse) return;
+  if (!product) return;
 
-  const maxQuantity = warehouse.available + item.quantity - cartQuantityFor(product.id, item.warehouseId);
+  const maxQuantity = Math.max(productAvailable(product), item.quantity);
   item.quantity = clampQuantity(value, maxQuantity);
   state.cart.set(key, item);
-  saveCart();
-  renderProducts();
-  renderCart();
-}
-
-function updateCartWarehouse(key, warehouseId) {
-  const item = state.cart.get(key);
-  if (!item) return;
-  const product = productById(item.productId);
-  const warehouse = product ? warehouseById(product, warehouseId) : null;
-  if (!product || !warehouse) return;
-
-  if (warehouse.id === item.warehouseId) return;
-
-  state.cart.delete(key);
-  const nextKey = cartKey(product.id, warehouse.id);
-  const existing = state.cart.get(nextKey);
-  const availableLeft = Math.max(warehouse.available - (existing?.quantity || 0), 0);
-  if (availableLeft <= 0) {
-    state.cart.set(key, item);
-    showNotice("На выбранном складе нет свободного остатка", "danger");
-    renderCart();
-    return;
-  }
-
-  state.cart.set(nextKey, {
-    productId: product.id,
-    warehouseId: warehouse.id,
-    warehouseName: warehouse.name,
-    quantity: (existing?.quantity || 0) + Math.min(item.quantity, availableLeft),
-  });
   saveCart();
   renderProducts();
   renderCart();
@@ -4370,7 +4567,6 @@ async function placeOrder() {
     student_id: student.id,
     items: Array.from(state.cart.values()).map((item) => ({
       product_id: item.productId,
-      warehouse_id: item.warehouseId?.startsWith("demo-") ? undefined : item.warehouseId,
       quantity: item.quantity,
     })),
     comment: "MAX mini app",
@@ -4453,6 +4649,15 @@ document.addEventListener("click", (event) => {
     renderProducts();
   }
 
+  const productCategory = target.dataset.productCategory;
+  if (productCategory) {
+    state.productCategory = productCategory;
+    qs("#categoryFilter").value = productCategory;
+    renderCategories();
+    renderProducts();
+    savePreferences();
+  }
+
   if ("showAllProducts" in target.dataset) {
     state.favoritesOnly = false;
     renderProducts();
@@ -4490,6 +4695,10 @@ document.addEventListener("click", (event) => {
   const orderAction = target.dataset.orderAction;
   if (orderActionId && orderAction) {
     updateOrderAction(orderActionId, orderAction);
+  }
+
+  if (target.id === "assignOrderWarehousesButton") {
+    assignOrderWarehouses(target.dataset.orderId || "");
   }
 
   if ("groupAccrual" in target.dataset) {
@@ -4691,11 +4900,7 @@ document.addEventListener("change", (event) => {
     renderScheduleList();
   }
 
-  if (target.matches("[data-warehouse-select]")) {
-    syncProductCardControls(target.closest("[data-product-card]"));
-  }
-
-  if (target.id === "productDialogWarehouse" || target.id === "productDialogQuantity") {
+  if (target.id === "productDialogQuantity") {
     syncProductDialogControls();
   }
 
@@ -4704,19 +4909,11 @@ document.addEventListener("change", (event) => {
     updateCartQuantity(cartQuantityKey, target.value);
   }
 
-  const cartWarehouseKey = target.dataset.cartWarehouse;
-  if (cartWarehouseKey) {
-    updateCartWarehouse(cartWarehouseKey, target.value);
-  }
 });
 
 document.addEventListener("input", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) return;
-
-  if (target.matches("[data-quantity]")) {
-    syncProductCardControls(target.closest("[data-product-card]"));
-  }
 
   if (target.id === "productDialogQuantity") {
     syncProductDialogControls();
@@ -4804,6 +5001,7 @@ async function init() {
   state.lastSyncAt = new Date();
   renderAll();
   renderSyncStatus();
+  refreshIcons();
 }
 
 init();

@@ -32,6 +32,8 @@ from app.schemas.miniapp import (
     MiniAppOrderActionCreate,
     MiniAppOrderCreate,
     MiniAppOrderItemCreate,
+    MiniAppOrderWarehouseAssignmentCreate,
+    MiniAppOrderWarehouseAssignmentItem,
     MiniAppProductUpsert,
     MiniAppWarehouseUpsert,
 )
@@ -42,6 +44,7 @@ from app.services.miniapp import (
     MiniAppStoreError,
     accrue_miniapp_astrocoins,
     adjust_miniapp_inventory,
+    assign_miniapp_order_warehouses,
     cancel_miniapp_order,
     create_miniapp_order,
     get_miniapp_ops_summary,
@@ -147,7 +150,7 @@ async def seed_product(db_session, student: Student) -> tuple[Product, Warehouse
     return product, inventory
 
 
-async def test_catalog_and_order_reserve_stock_and_debit_wallet(db_session) -> None:
+async def test_order_waits_for_admin_warehouse_and_debits_wallet(db_session) -> None:
     student = await seed_linked_student(db_session)
     product, inventory = await seed_product(db_session, student)
 
@@ -176,12 +179,13 @@ async def test_catalog_and_order_reserve_stock_and_debit_wallet(db_session) -> N
     assert len(created.order.status_history) == 1
     assert created.order.status_history[0].to_status == OrderStatus.RESERVED
     assert created.balance_after == 760
-    assert created.items[0].warehouse_name == "Союзный 45"
+    assert created.items[0].warehouse_name is None
+    assert created.items[0].warehouse_id is None
 
     await db_session.refresh(inventory)
     wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
     assert wallet is not None
-    assert inventory.reserved_quantity == 2
+    assert inventory.reserved_quantity == 0
     assert wallet.balance == 760
 
     order_items = (await db_session.scalars(select(OrderItem))).all()
@@ -233,13 +237,12 @@ async def test_ops_summary_reports_open_orders_and_low_stock(db_session) -> None
     assert summary.order_statuses[0].count == 1
     assert summary.recent_open_orders[0].id == created.order.id
     assert summary.recent_open_orders[0].items[0].product_name == product.name
-    assert summary.low_stock[0].product_id == product.id
-    assert summary.low_stock[0].available_quantity == 3
+    assert summary.low_stock == []
     assert summary.total_stock_quantity == 5
-    assert summary.total_reserved_quantity == 2
+    assert summary.total_reserved_quantity == 0
 
 
-async def test_order_uses_selected_warehouse_when_provided(db_session) -> None:
+async def test_admin_assigns_order_warehouse_after_checkout(db_session) -> None:
     student = await seed_linked_student(db_session)
     product, venue_inventory = await seed_product(db_session, student)
     common_warehouse = Warehouse(
@@ -257,6 +260,16 @@ async def test_order_uses_selected_warehouse_when_provided(db_session) -> None:
         available_quantity=5,
     )
     db_session.add(common_inventory)
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
+    assert account is not None
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
     await db_session.commit()
 
     created = await create_miniapp_order(
@@ -277,11 +290,31 @@ async def test_order_uses_selected_warehouse_when_provided(db_session) -> None:
         default_tenant_slug="nizhniy-novgorod-partner-a",
     )
 
-    assert created.items[0].warehouse_name == "Общий склад"
+    assert created.items[0].warehouse_name is None
     await db_session.refresh(common_inventory)
     await db_session.refresh(venue_inventory)
-    assert common_inventory.reserved_quantity == 3
+    assert common_inventory.reserved_quantity == 0
     assert venue_inventory.reserved_quantity == 0
+
+    assigned = await assign_miniapp_order_warehouses(
+        db_session,
+        order_id=created.order.id,
+        payload=MiniAppOrderWarehouseAssignmentCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            items=[
+                MiniAppOrderWarehouseAssignmentItem(
+                    product_id=product.id,
+                    warehouse_id=common_warehouse.id,
+                )
+            ],
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    assert assigned.order.items[0].warehouse_name == "Общий склад"
+    await db_session.refresh(common_inventory)
+    assert common_inventory.reserved_quantity == 3
 
 
 async def test_cancel_order_releases_stock_and_refunds_wallet(db_session) -> None:
@@ -350,6 +383,31 @@ async def test_staff_can_issue_reserved_order(db_session) -> None:
         default_tenant_slug="nizhniy-novgorod-partner-a",
     )
 
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+    await assign_miniapp_order_warehouses(
+        db_session,
+        order_id=created.order.id,
+        payload=MiniAppOrderWarehouseAssignmentCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            items=[
+                MiniAppOrderWarehouseAssignmentItem(
+                    product_id=product.id,
+                    warehouse_id=inventory.warehouse_id,
+                )
+            ],
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
     issued = await issue_miniapp_order(
         db_session,
         order_id=created.order.id,
@@ -394,6 +452,30 @@ async def test_staff_can_return_issued_order_and_refund_wallet(db_session) -> No
             tenant_slug="nizhniy-novgorod-partner-a",
             student_id=student.id,
             items=[MiniAppOrderItemCreate(product_id=product.id, quantity=2)],
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+    await assign_miniapp_order_warehouses(
+        db_session,
+        order_id=created.order.id,
+        payload=MiniAppOrderWarehouseAssignmentCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            items=[
+                MiniAppOrderWarehouseAssignmentItem(
+                    product_id=product.id,
+                    warehouse_id=inventory.warehouse_id,
+                )
+            ],
         ),
         default_tenant_slug="nizhniy-novgorod-partner-a",
     )

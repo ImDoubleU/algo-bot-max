@@ -1,0 +1,14 @@
+[Unit]
+Description=Finish Algo MAX HTTPS and webhook after DNS propagation
+After=network-online.target nginx.service algo-max-api.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+EnvironmentFile=/etc/algo-max/domain-setup.env
+ExecStart=/opt/algo-max/deploy/scripts/finish_domain_setup.sh ${PUBLIC_DOMAIN} ${PUBLIC_IPV4}
+Restart=on-failure
+RestartSec=5min
+
+[Install]
+WantedBy=multi-user.target

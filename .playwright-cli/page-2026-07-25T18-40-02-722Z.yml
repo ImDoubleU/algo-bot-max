@@ -1,0 +1,68 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: A
+      - heading "Algo MAX" [level=1] [ref=e8]
+  - main [ref=e12]:
+    - complementary "Роль и раздел"
+    - generic [ref=e52]:
+      - generic [ref=e53]:
+        - generic [ref=e54]:
+          - generic [ref=e55]:
+            - paragraph [ref=e56]: Профиль
+            - strong [ref=e57]: Васильева Алиса, ученик
+            - generic [ref=e58]: Обновлено 21:36
+          - button "Обновить данные" [ref=e59] [cursor=pointer]
+        - generic [ref=e68]:
+          - paragraph [ref=e69]: Баланс
+          - strong [ref=e70]: 340 AC
+      - generic [ref=e562]: Заказ №1404 оформлен в демо-режиме
+      - generic [ref=e563]:
+        - generic [ref=e564]:
+          - generic [ref=e565]:
+            - paragraph [ref=e566]: Заказы
+            - heading "Статусы и выдача" [level=2] [ref=e567]
+          - generic [ref=e568]:
+            - searchbox "Поиск заказа" [ref=e569]
+            - combobox "Статус заказа" [ref=e570]:
+              - option "Открытые" [selected]
+              - option "Все"
+              - option "Зарезервирован"
+              - option "Передан педагогу"
+              - option "Выдан"
+              - option "Отменен"
+              - option "Возвращен"
+              - option "Проблема"
+        - generic [ref=e571]:
+          - article [ref=e572]:
+            - generic [ref=e573]:
+              - generic [ref=e574]:
+                - strong [ref=e575]: Заказ №1404
+                - generic [ref=e576]: Зарезервировано
+              - strong [ref=e577]: Васильева Алиса
+              - generic [ref=e578]: Игра Кибертаун × 1
+              - generic [ref=e579]:
+                - generic [ref=e580]: "Сумма: 900 AC"
+                - generic [ref=e581]: 25 июл., 21:40
+            - generic [ref=e582]:
+              - button "Подробнее" [ref=e583] [cursor=pointer]
+              - button "Отменить" [ref=e584] [cursor=pointer]
+          - article [ref=e585]:
+            - generic [ref=e586]:
+              - generic [ref=e587]:
+                - strong [ref=e588]: Заказ №1357
+                - generic [ref=e589]: Зарезервировано
+              - strong [ref=e590]: Васильева Алиса
+              - generic [ref=e591]: Ручка металл с лого
+              - generic [ref=e592]:
+                - generic [ref=e593]: "Сумма: 120 AC"
+                - generic [ref=e594]: 16 июн., 15:30
+            - generic [ref=e595]:
+              - button "Подробнее" [ref=e596] [cursor=pointer]
+              - button "Отменить" [ref=e597] [cursor=pointer]
+  - navigation "Основные разделы" [ref=e287]:
+    - button "Главная" [ref=e288] [cursor=pointer]
+    - button "Магазин" [ref=e296] [cursor=pointer]
+    - button "Корзина" [ref=e608] [cursor=pointer]
+    - button "Заказы" [ref=e310] [cursor=pointer]
+    - button "Ещё" [ref=e318] [cursor=pointer]

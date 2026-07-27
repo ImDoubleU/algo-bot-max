@@ -174,10 +174,25 @@ def parse_crm_workbook(
     *,
     sheet_name: str,
 ) -> list[CrmStudentRow]:
-    if sheet_name not in workbook.sheetnames:
-        raise CrmImportError(f"Sheet not found: {sheet_name}")
+    if sheet_name in workbook.sheetnames:
+        sheet = workbook[sheet_name]
+    else:
+        sheet = None
+        best_score = 0
+        for candidate in workbook.worksheets:
+            score = max(
+                (
+                    len(find_header_mapping(tuple(values)))
+                    for _, values in zip(range(30), candidate.iter_rows(values_only=True))
+                ),
+                default=0,
+            )
+            if score > best_score:
+                best_score = score
+                sheet = candidate
+        if sheet is None or best_score < 2:
+            raise CrmImportError(f"Sheet not found: {sheet_name}")
 
-    sheet = workbook[sheet_name]
     header_mapping: dict[int, str] | None = None
     result: list[CrmStudentRow] = []
 

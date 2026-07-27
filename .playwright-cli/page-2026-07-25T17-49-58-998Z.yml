@@ -1,0 +1,70 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e5]:
+      - paragraph [ref=e6]: MAX mini app
+      - heading "Алгоритмика" [level=1] [ref=e7]
+    - generic "Контур данных" [ref=e8]:
+      - generic [ref=e9]: Город / партнер
+      - strong [ref=e10]: Демо-магазин
+  - main [ref=e11]:
+    - complementary "Роль и раздел" [ref=e12]:
+      - region "Роль" [ref=e13]:
+        - button "Ученик" [ref=e14] [cursor=pointer]
+        - button "Родитель" [ref=e15] [cursor=pointer]
+        - button "Педагог" [ref=e16] [cursor=pointer]
+        - button "Админ" [ref=e17] [cursor=pointer]
+      - navigation "Разделы" [ref=e18]:
+        - button "Обзор" [ref=e19] [cursor=pointer]
+        - button "Магазин" [ref=e20] [cursor=pointer]
+        - button "Корзина" [ref=e21] [cursor=pointer]
+        - button "Заказы" [ref=e22] [cursor=pointer]
+        - button "Астрокоины" [ref=e23] [cursor=pointer]
+    - generic [ref=e24]:
+      - generic [ref=e25]:
+        - generic [ref=e26]:
+          - generic [ref=e27]:
+            - paragraph [ref=e28]: Профиль
+            - strong [ref=e29]: Васильева Алиса, ученик
+            - generic [ref=e30]: Обновлено 20:49
+          - button "Обновить данные" [ref=e31] [cursor=pointer]: ↻
+        - generic [ref=e32]:
+          - paragraph [ref=e33]: Ученик
+          - combobox "Ученик для заказа" [disabled] [ref=e34]:
+            - option "Васильева Алиса - Союзный 45, вс 10:00" [selected]
+        - generic [ref=e35]:
+          - paragraph [ref=e36]: Баланс
+          - strong [ref=e37]: 1240 AC
+        - button "Корзина 0" [ref=e38] [cursor=pointer]
+      - generic [ref=e39]:
+        - generic [ref=e40]:
+          - generic [ref=e41]:
+            - paragraph [ref=e42]: Сегодня
+            - heading "Мой кабинет" [level=2] [ref=e43]
+          - button "Открыть магазин" [ref=e44] [cursor=pointer]
+        - generic [ref=e45]:
+          - article [ref=e46]:
+            - generic [ref=e47]: "1240"
+            - generic [ref=e48]: AC доступно
+          - article [ref=e49]:
+            - generic [ref=e50]: "1"
+            - generic [ref=e51]: моих активных заказов
+          - article [ref=e52]:
+            - generic [ref=e53]: "1"
+            - generic [ref=e54]: товаров в избранном
+        - generic [ref=e55]:
+          - generic [ref=e56]:
+            - heading "Мой профиль" [level=3] [ref=e58]
+            - generic [ref=e60]:
+              - generic [ref=e61]: Союзный 45, вс 10:00
+              - generic [ref=e62]:
+                - generic [ref=e63]:
+                  - strong [ref=e64]: Васильева Алиса
+                  - generic [ref=e65]: Олейник Д
+                - generic [ref=e66]: 1240 AC
+          - generic [ref=e67]:
+            - heading "Мои заказы" [level=3] [ref=e69]
+            - button "Открыть заказ №1357" [ref=e71] [cursor=pointer]:
+              - generic [ref=e72]:
+                - strong [ref=e73]: Васильева Алиса
+                - generic [ref=e74]: Ручка металл с лого
+              - generic [ref=e75]: Зарезервирован

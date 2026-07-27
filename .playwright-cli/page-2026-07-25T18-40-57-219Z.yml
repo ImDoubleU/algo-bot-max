@@ -1,0 +1,122 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: A
+      - generic [ref=e6]:
+        - paragraph [ref=e7]: Образовательная платформа
+        - heading "Algo MAX" [level=1] [ref=e8]
+    - generic "Контур данных" [ref=e9]:
+      - generic [ref=e10]: Город / партнер
+      - strong [ref=e11]: Демо-магазин
+  - main [ref=e12]:
+    - complementary "Роль и раздел" [ref=e13]:
+      - region "Роль" [ref=e14]:
+        - button "Ученик" [ref=e15] [cursor=pointer]
+        - button "Родитель" [ref=e16] [cursor=pointer]
+        - button "Преподаватель" [ref=e17] [cursor=pointer]
+        - button "Админ" [ref=e18] [cursor=pointer]
+      - navigation "Разделы" [ref=e19]:
+        - button "Главная" [ref=e20] [cursor=pointer]
+        - button "Заказы" [ref=e39] [cursor=pointer]
+        - button "История AC" [ref=e46] [cursor=pointer]
+        - button "Начисления" [ref=e657] [cursor=pointer]
+        - button "Расписание" [ref=e661] [cursor=pointer]
+        - button "Управление" [ref=e665] [cursor=pointer]
+    - generic [ref=e52]:
+      - generic [ref=e562]: "Заказ №1404: склады назначены"
+      - generic [ref=e563]:
+        - generic [ref=e564]:
+          - generic [ref=e565]:
+            - paragraph [ref=e566]: Заказы
+            - heading "Статусы и выдача" [level=2] [ref=e567]
+          - generic [ref=e568]:
+            - searchbox "Поиск заказа" [ref=e569]
+            - combobox "Статус заказа" [ref=e570]:
+              - option "Открытые" [selected]
+              - option "Все"
+              - option "Зарезервирован"
+              - option "Передан педагогу"
+              - option "Выдан"
+              - option "Отменен"
+              - option "Возвращен"
+              - option "Проблема"
+        - generic [ref=e571]:
+          - article [ref=e767]:
+            - generic [ref=e768]:
+              - generic [ref=e769]:
+                - strong [ref=e770]: Заказ №1404
+                - generic [ref=e771]: Зарезервировано
+              - strong [ref=e772]: Васильева Алиса
+              - generic [ref=e773]: Игра Кибертаун × 1
+              - generic [ref=e774]:
+                - generic [ref=e775]: Склад назначен
+                - generic [ref=e776]: "Сумма: 900 AC"
+                - generic [ref=e777]: 25 июл., 21:40
+            - generic [ref=e778]:
+              - button "Подробнее" [ref=e779] [cursor=pointer]
+              - button "Выдать" [ref=e780] [cursor=pointer]
+              - button "Отменить" [ref=e781] [cursor=pointer]
+          - article [ref=e782]:
+            - generic [ref=e783]:
+              - generic [ref=e784]:
+                - strong [ref=e785]: Заказ №1357
+                - generic [ref=e786]: Зарезервировано
+              - strong [ref=e787]: Васильева Алиса
+              - generic [ref=e788]: Ручка металл с лого
+              - generic [ref=e789]:
+                - generic [ref=e790]: Ожидает назначения склада
+                - generic [ref=e791]: "Сумма: 120 AC"
+                - generic [ref=e792]: 16 июн., 15:30
+            - generic [ref=e793]:
+              - button "Назначить склад" [ref=e794] [cursor=pointer]
+              - button "Отменить" [ref=e795] [cursor=pointer]
+          - article [ref=e796]:
+            - generic [ref=e797]:
+              - generic [ref=e798]:
+                - strong [ref=e799]: Заказ №1358
+                - generic [ref=e800]: Передан педагогу
+              - strong [ref=e801]: Петров Иван
+              - generic [ref=e802]: Кружка Python
+              - generic [ref=e803]:
+                - generic [ref=e804]: Склад назначен
+                - generic [ref=e805]: "Сумма: 520 AC"
+                - generic [ref=e806]: 15 июн., 19:10
+            - generic [ref=e807]:
+              - button "Подробнее" [ref=e808] [cursor=pointer]
+              - button "Выдать" [ref=e809] [cursor=pointer]
+              - button "Отменить" [ref=e810] [cursor=pointer]
+  - dialog [ref=e714]:
+    - generic [ref=e715]:
+      - generic [ref=e716]:
+        - paragraph [ref=e717]: Карточка заказа
+        - heading "Заказ №1404" [level=2] [ref=e718]
+      - button "Закрыть" [ref=e719] [cursor=pointer]: ×
+    - generic [ref=e720]:
+      - generic [ref=e811]:
+        - generic [ref=e812]:
+          - generic [ref=e813]: Зарезервировано
+          - heading "Васильева Алиса" [level=3] [ref=e814]
+          - generic [ref=e815]: Склад назначен · 25 июл., 21:40
+        - generic [ref=e816]: 900 AC
+      - generic [ref=e817]:
+        - heading "Состав заказа" [level=3] [ref=e818]
+        - generic [ref=e819]:
+          - generic [ref=e820]:
+            - strong [ref=e821]: Игра Кибертаун
+            - generic [ref=e822]: 1 шт.
+            - generic [ref=e823]: Общий склад
+          - strong [ref=e824]: 900 AC
+      - generic [ref=e825]:
+        - heading "История статусов" [level=3] [ref=e826]
+        - generic [ref=e827]:
+          - generic [ref=e829]:
+            - strong [ref=e830]: Зарезервировано
+            - text: 25 июл., 21:40
+            - generic [ref=e831]: Склад назначен администратором
+          - generic [ref=e833]:
+            - strong [ref=e834]: Зарезервировано
+            - text: 25 июл., 21:40
+            - generic [ref=e835]: Заказ оформлен, ожидается назначение склада
+    - generic [ref=e836]:
+      - button "Выдать" [ref=e837] [cursor=pointer]
+      - button "Отменить" [ref=e838] [cursor=pointer]

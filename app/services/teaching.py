@@ -207,7 +207,13 @@ async def get_teaching_workspace(
                 course_name=course_name,
                 student_count=count,
             )
-            for (group_name, course_name), count in sorted(group_counts.items())
+            for (group_name, course_name), count in sorted(
+                group_counts.items(),
+                key=lambda item: (
+                    item[0][0].casefold(),
+                    (item[0][1] or "").casefold(),
+                ),
+            )
             if group_name
         ],
         schedules=[schedule_to_read(schedule) for schedule in schedules],

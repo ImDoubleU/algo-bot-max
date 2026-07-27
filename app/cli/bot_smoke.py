@@ -9,37 +9,18 @@ from app.bot.backend_client import AccessBackendClient
 from app.bot.max_long_polling import simulate_callback, simulate_command
 from app.core.config import get_settings, is_placeholder
 
-DEFAULT_OFFLINE_COMMANDS = ("/version", "/status", "/config", "/help staff")
-DEFAULT_BACKEND_COMMANDS = ("/version", "/me", "/catalog", "/orders")
-DEFAULT_CALLBACKS = ("stock",)
+DEFAULT_OFFLINE_COMMANDS = ("/start",)
+DEFAULT_BACKEND_COMMANDS = ("/start",)
+DEFAULT_CALLBACKS = ("help",)
 PROFILE_COMMANDS = {
     "basic": DEFAULT_BACKEND_COMMANDS,
-    "store": (
-        "/version",
-        "/me",
-        "/catalog",
-        "/categories",
-        "/product PEN-LOGO",
-        "/quote PEN-LOGO 2",
-        "/canbuy PEN-LOGO 2",
-        "/orders",
-        "/last open",
-    ),
-    "ops": (
-        "/version",
-        "/me",
-        "/stock",
-        "/warehouses",
-        "/ops",
-        "/todo",
-        "/access",
-        "/orders open",
-    ),
+    "store": DEFAULT_BACKEND_COMMANDS,
+    "ops": DEFAULT_BACKEND_COMMANDS,
 }
 PROFILE_CALLBACKS = {
     "basic": DEFAULT_CALLBACKS,
-    "store": ("categories", "orders:open", "order:action:cancel:1"),
-    "ops": ("stock", "todo", "orders:open"),
+    "store": DEFAULT_CALLBACKS,
+    "ops": ("help", "feedback"),
 }
 SMOKE_PROFILES = tuple(PROFILE_COMMANDS)
 ALL_PROFILE = "all"

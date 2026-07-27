@@ -1,0 +1,151 @@
+- generic [ref=e2]:
+  - link "К основному контенту" [ref=e3] [cursor=pointer]:
+    - /url: "#t-main-content"
+  - banner [ref=e4]:
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - link [ref=e23] [cursor=pointer]:
+          - /url: /
+        - generic [ref=e24]:
+          - list "Соц. сети" [ref=e28]:
+            - listitem [ref=e29]:
+              - link "vk" [ref=e30] [cursor=pointer]:
+                - /url: https://vk.com/ballchaser
+          - generic [ref=e33]:
+            - generic [ref=e34]: support@ballchaser.ru
+            - link "Связаться с нами" [ref=e38] [cursor=pointer]:
+              - /url: /contacts
+      - separator [ref=e41]
+      - navigation [ref=e43]:
+        - list [ref=e44]:
+          - listitem [ref=e45]:
+            - link "Rocket League" [ref=e46] [cursor=pointer]:
+              - /url: "#submenu:rocketleague"
+          - listitem [ref=e47]:
+            - link "Fortnite" [ref=e48] [cursor=pointer]:
+              - /url: "#submenu:fortnite"
+          - listitem [ref=e49]:
+            - link "Игры Epic Games" [ref=e50] [cursor=pointer]:
+              - /url: "#submenu:epicgames"
+          - listitem [ref=e51]:
+            - link "Игры Xbox" [ref=e52] [cursor=pointer]:
+              - /url: "#submenu:xbox"
+          - listitem [ref=e53]:
+            - link "Отзывы" [ref=e54] [cursor=pointer]:
+              - /url: /reviews
+          - listitem [ref=e55]:
+            - link "О нас" [ref=e56] [cursor=pointer]:
+              - /url: /about
+          - listitem [ref=e57]:
+            - link "Faqs" [ref=e58] [cursor=pointer]:
+              - /url: /faq
+      - separator [ref=e60]
+    - generic [ref=e61]:
+      - generic:
+        - generic [ref=e62]:
+          - button "Навигационное меню" [ref=e64] [cursor=pointer]
+          - generic [ref=e69]: Меню
+        - generic [ref=e74]:
+          - generic [ref=e75]:
+            - link [ref=e78] [cursor=pointer]:
+              - /url: /
+              - img "Company" [ref=e79]
+            - generic [ref=e81]:
+              - generic [ref=e82]:
+                - generic [ref=e83]: Rocket League
+                - generic [ref=e85]:
+                  - link "Rocket Pass" [ref=e87] [cursor=pointer]:
+                    - /url: /rocket_pass
+                  - link "Наборы" [ref=e89] [cursor=pointer]:
+                    - /url: /cars
+                  - link "Кредиты" [ref=e91] [cursor=pointer]:
+                    - /url: /keys
+                  - link "Кибержетоны" [ref=e93] [cursor=pointer]:
+                    - /url: /esports_tokens
+                  - link "Внутриигровой магазин" [ref=e95] [cursor=pointer]:
+                    - /url: /kits
+              - generic [ref=e96]: Fortnite
+          - generic [ref=e100]:
+            - generic [ref=e101]: "График работы: 10:00-01:00 (мск)Все заказы выполняем в рабочее время"
+            - text: ballchaser.ru
+    - generic [ref=e105]:
+      - link "ПРОСТОЙ ПРОЦЕСС ПОКУПКИ" [ref=e121] [cursor=pointer]:
+        - /url: https://ballchaser.ru/buy
+      - link "ОНЛАЙН ОПЛАТА" [ref=e123] [cursor=pointer]:
+        - /url: /buy#online_pay
+      - link "СИСТЕМА ЛОЯЛЬНОСТИ" [ref=e125] [cursor=pointer]:
+        - /url: https://ballchaser.ru/sale_items
+      - link "ЕЖЕДНЕВНЫЙ ГРАФИК РАБОТЫ" [ref=e140] [cursor=pointer]:
+        - /url: /hours
+      - link "ЧАСЫ РАБОТЫ" [ref=e148] [cursor=pointer]:
+        - /url: /hours
+      - link "ПРОСТАЯ ПОКУПКА" [ref=e151] [cursor=pointer]:
+        - /url: /sale
+  - list [ref=e157]:
+    - listitem [ref=e158]:
+      - link "Главная" [ref=e160] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e161]: /
+    - listitem [ref=e162]:
+      - generic [ref=e163]: Наборы Rocket League
+  - generic [ref=e169]:
+    - link "Rocket Pass" [ref=e171] [cursor=pointer]:
+      - /url: https://ballchaser.ru/rocket_pass
+    - link "Наборы" [ref=e173] [cursor=pointer]:
+      - /url: https://ballchaser.ru/cars
+    - link "Кредиты" [ref=e175] [cursor=pointer]:
+      - /url: https://ballchaser.ru/keys
+    - link "Кибержетоны" [ref=e177] [cursor=pointer]:
+      - /url: https://ballchaser.ru/esports_tokens
+    - link "Внутриигровой магазин" [ref=e179] [cursor=pointer]:
+      - /url: https://ballchaser.ru/kits
+  - generic [ref=e180]: ←
+  - contentinfo [ref=e188]:
+    - generic [ref=e191]:
+      - generic [ref=e194]: ОЦЕНИТЕ НАС
+      - generic [ref=e196]: и получите промокод к следующему заказу
+      - link "ОСТАВИТЬ ОТЗЫВ" [ref=e199] [cursor=pointer]:
+        - /url: https://vk.com/ballchaser?w=app6326142_-162628981
+    - generic [ref=e206]:
+      - generic [ref=e209]: Разделы
+      - link "Отзывы" [ref=e215] [cursor=pointer]:
+        - /url: /reviews
+      - link "Часы работы" [ref=e218] [cursor=pointer]:
+        - /url: /hours
+      - link "Политика конфиденциальности" [ref=e221] [cursor=pointer]:
+        - /url: /privacy_policy
+      - link "Пользовательское соглашение" [ref=e224] [cursor=pointer]:
+        - /url: /terms_of_use
+      - generic [ref=e225]: Помощь
+      - link "Описание процесса покупки" [ref=e229] [cursor=pointer]:
+        - /url: https://ballchaser.ru/buy
+      - link "Покупка для Epic Games" [ref=e232] [cursor=pointer]:
+        - /url: https://ballchaser.ru/tpost/ozanvuc4o1-kak-svyazat-xbox-s-epic-games
+      - link "Покупка для Playstation" [ref=e235] [cursor=pointer]:
+        - /url: https://ballchaser.ru/tpost/asksxroc71-kak-kupit-esli-ya-igrayu-cherez-playstat
+      - generic [ref=e236]: Подсказка
+      - generic [ref=e238]: Проверяйте указываемые данные перед каждым оформлением для уменьшения времени обработки вашего заказа.
+      - generic [ref=e240]: Безопасная оплата с
+      - generic [ref=e242]: О магазине
+      - generic [ref=e244]: ballchaser.ru Copyright 2018-2026, All Rights Reserved
+      - img "visa" [ref=e248]
+      - img "mastercard" [ref=e251]
+      - img "МИР" [ref=e254]
+      - img "qiwi" [ref=e257]
+      - img "apple_pay" [ref=e260]
+      - link "Покупка для Steam" [ref=e265] [cursor=pointer]:
+        - /url: https://ballchaser.ru/tpost/djaakgct91-kak-kupit-esli-ya-igrayu-cherez-steam
+      - link "Покупка для Xbox" [ref=e270] [cursor=pointer]:
+        - /url: https://ballchaser.ru/tpost/ozanvuc4o1-kak-svyazat-xbox-s-epic-games
+      - link "Fortnite" [ref=e273] [cursor=pointer]:
+        - /url: https://ballchaser.ru/#platform#!/tab/686539866-2
+      - link "О нас" [ref=e276] [cursor=pointer]:
+        - /url: /about
+      - link "Rocket League" [ref=e279] [cursor=pointer]:
+        - /url: https://ballchaser.ru/#platform#!/tab/686539866-1
+      - link "FAQs" [ref=e282] [cursor=pointer]:
+        - /url: /faq
+    - alertdialog [ref=e284]:
+      - generic [ref=e285]: Этот сайт использует файлы cookie для того, чтобы предоставить Вам больше возможностей при использовании сайта.
+      - generic [ref=e286] [cursor=pointer]: Хорошо, больше не показывать →
+      - button "Закрыть уведомление" [ref=e287] [cursor=pointer]

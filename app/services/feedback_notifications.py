@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.keyboards import build_miniapp_url, inline_keyboard, link_button
+from app.bot.keyboards import build_miniapp_url, inline_keyboard_with_main_menu, link_button
 from app.bot.max_client import MaxApiClient
 from app.core.config import get_settings, is_placeholder
 from app.models.account import MaxAccount
@@ -44,7 +44,8 @@ async def _send_max_messages(
 
     async def send(user_id: int) -> bool:
         url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug, view=view)
-        attachments = inline_keyboard([[link_button("Открыть mini app", url)]]) if url else None
+        rows = [[link_button("Открыть mini app", url)]] if url else []
+        attachments = inline_keyboard_with_main_menu(rows)
         try:
             await asyncio.to_thread(
                 client.send_message,
