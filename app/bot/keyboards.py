@@ -50,11 +50,10 @@ def link_button(text: str, url: str) -> dict[str, str]:
     }
 
 
-def open_app_button(text: str, url: str) -> dict[str, str]:
+def open_app_button(text: str) -> dict[str, str]:
     return {
         "type": "open_app",
         "text": text,
-        "web_app": url,
     }
 
 
@@ -210,7 +209,7 @@ def main_menu_keyboard(
     rows: list[list[dict[str, str]]] = []
     miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
     if miniapp_url:
-        rows.append([open_app_button("Открыть личный кабинет", miniapp_url)])
+        rows.append([open_app_button("Открыть личный кабинет")])
     else:
         rows.append([callback_button("Личный кабинет", CALLBACK_MINIAPP)])
     rows.append([callback_button("Помощь", CALLBACK_HELP)])
@@ -280,7 +279,7 @@ def role_menu_keyboard(
         "superadmin": "Открыть кабинет суперадминистратора",
     }.get(normalized, "Открыть кабинет")
     if miniapp_url:
-        rows.append([open_app_button(cabinet_label, miniapp_url)])
+        rows.append([open_app_button(cabinet_label)])
     else:
         rows.append([callback_button(cabinet_label, CALLBACK_MINIAPP)])
     if normalized in {
@@ -611,7 +610,7 @@ def order_actions_keyboard(
     )
     miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
     if miniapp_url:
-        rows.insert(0, [open_app_button("Открыть mini app", miniapp_url)])
+        rows.insert(0, [open_app_button("Открыть mini app")])
     return inline_keyboard(rows)
 
 

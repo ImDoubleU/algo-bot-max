@@ -103,7 +103,7 @@ async def _deliver_order_notification(
             tenant_slug=tenant_slug,
             view="orders",
         )
-        rows = [[open_app_button("Открыть заказ", miniapp_url)]] if miniapp_url else []
+        rows = [[open_app_button("Открыть заказ")]] if miniapp_url else []
         attachments = inline_keyboard_with_main_menu(rows)
         await asyncio.to_thread(
             client.send_message,

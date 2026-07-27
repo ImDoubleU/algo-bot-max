@@ -523,6 +523,12 @@ def test_build_miniapp_url_keeps_registered_url_exact(monkeypatch) -> None:
     )
 
     assert url == "https://example.test/miniapp?source=max"
+    button = max_bot.main_menu_keyboard(
+        user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )[0]["payload"]["buttons"][0][0]
+    assert button["type"] == "open_app"
+    assert "web_app" not in button
 
 
 def test_simulate_command_returns_local_bot_response() -> None:

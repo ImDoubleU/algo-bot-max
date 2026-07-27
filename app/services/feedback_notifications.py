@@ -49,7 +49,7 @@ async def _send_max_messages(
 
     async def send(user_id: int) -> bool:
         url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug, view=view)
-        rows = [[open_app_button("Открыть кабинет", url)]] if url else []
+        rows = [[open_app_button("Открыть кабинет")]] if url else []
         attachments = inline_keyboard_with_main_menu(rows)
         try:
             await asyncio.to_thread(
