@@ -128,6 +128,10 @@ class Settings(BaseSettings):
     lms_api_base_url: str | None = Field(default=None, alias="LMS_API_BASE_URL")
     lms_api_token: str | None = Field(default=None, alias="LMS_API_TOKEN")
     courses_json_path: str = Field(default="data/courses.json", alias="COURSES_JSON_PATH")
+    product_media_root: str = Field(
+        default="data/product-media",
+        alias="PRODUCT_MEDIA_ROOT",
+    )
 
     google_service_account_file: str | None = Field(
         default=None,

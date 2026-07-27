@@ -129,6 +129,7 @@ nano /etc/algo-max/algo-max.env
 - `CHANGE_DB_PASSWORD`: пароль PostgreSQL; спецсимволы должны быть URL-кодированы.
 - `DEFAULT_TENANT_SLUG`: slug импортированного филиала.
 - `INITIAL_SUPERADMIN_MAX_USER_ID`: ваш числовой MAX user ID.
+- `PRODUCT_MEDIA_ROOT`: каталог фотографий товаров; штатно `/var/lib/algo-max/product-media`.
 
 Проверьте конфигурацию:
 
@@ -274,7 +275,8 @@ tail -f /var/log/nginx/error.log
 
 ## 11. Резервные копии и обновления
 
-Backup запускается каждый день около 03:20 и хранит дампы 14 дней:
+Backup запускается каждый день около 03:20 и хранит дампы базы и архивы фотографий
+товаров 14 дней:
 
 ```bash
 systemctl list-timers algo-max-backup.timer
@@ -289,6 +291,9 @@ systemctl stop algo-max-api algo-max-feedback
 pg_restore --clean --if-exists --no-owner \
   --dbname 'postgresql://algomax:ПАРОЛЬ@127.0.0.1:5432/algo_bot_max' \
   /var/backups/algo-max/algo_bot_max_YYYYMMDDTHHMMSSZ.dump
+tar --extract --gzip \
+  --file /var/backups/algo-max/product_media_YYYYMMDDTHHMMSSZ.tar.gz \
+  --directory /var/lib/algo-max/product-media
 systemctl start algo-max-api algo-max-feedback
 ```
 
