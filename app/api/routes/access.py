@@ -11,12 +11,15 @@ from app.schemas.access import (
     AccessLinkRead,
     ContactResolveResponse,
     StudentAccessTarget,
+    StudentInvitationLinkCreate,
+    StudentInvitationLinkRead,
     StudentResolveRequest,
 )
 from app.services.access import (
     AccessServiceError,
     build_rate_limit_key,
     create_contact_access_links,
+    create_invited_student_access_link,
     get_tenant_by_slug,
     record_student_access_attempt,
     resolve_students_by_contact_id,
@@ -128,4 +131,35 @@ async def create_link(
             )
             for link in links
         ],
+    )
+
+
+@router.post(
+    "/student-invite",
+    response_model=StudentInvitationLinkRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_student_invite_link(
+    payload: StudentInvitationLinkCreate,
+    db: DbSession,
+) -> StudentInvitationLinkRead:
+    try:
+        tenant, student, link = await create_invited_student_access_link(db, payload)
+    except AccessServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return StudentInvitationLinkRead(
+        tenant_slug=tenant.slug,
+        student_id=UUID(str(student.id)),
+        student_name=student.display_name,
+        group_name=student.group_name,
+        link=AccessLinkRead(
+            id=UUID(str(link.id)),
+            tenant_id=UUID(str(link.tenant_id)),
+            account_id=UUID(str(link.account_id)),
+            student_id=UUID(str(link.student_id)),
+            role=link.role,
+            status=link.status,
+            source=link.source,
+            created_at=link.created_at,
+        ),
     )

@@ -116,6 +116,27 @@ class AccessBackendClient:
             },
         )
 
+    def create_student_invite_link(
+        self,
+        *,
+        tenant_slug: str,
+        token: str,
+        max_user_id: int,
+        username: str | None = None,
+        display_name: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/access/student-invite",
+            body={
+                "tenant_slug": tenant_slug,
+                "token": token,
+                "max_user_id": max_user_id,
+                "username": username,
+                "display_name": display_name,
+            },
+        )
+
     def update_access_link_status(
         self,
         *,

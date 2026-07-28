@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+import base64
+import binascii
+import hashlib
+import hmac
+from io import BytesIO
+from uuid import UUID
+
+import qrcode
+from qrcode.image.svg import SvgPathImage
+
+from app.core.config import get_settings
+
+STUDENT_INVITE_PREFIX = "student_"
+STUDENT_INVITE_VERSION = b"s1"
+STUDENT_INVITE_SIGNATURE_BYTES = 16
+MAX_PAYLOAD_LIMIT = 128
+
+
+class StudentInvitationError(ValueError):
+    pass
+
+
+def _signature(payload: bytes) -> bytes:
+    secret = get_settings().app_secret_key.encode("utf-8")
+    return hmac.new(
+        secret,
+        STUDENT_INVITE_VERSION + payload,
+        hashlib.sha256,
+    ).digest()[:STUDENT_INVITE_SIGNATURE_BYTES]
+
+
+def issue_student_invitation_token(tenant_id: UUID, student_id: UUID) -> str:
+    identity = tenant_id.bytes + student_id.bytes
+    payload = identity + _signature(identity)
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def verify_student_invitation_token(token: str) -> tuple[UUID, UUID]:
+    try:
+        padding = "=" * (-len(token) % 4)
+        payload = base64.urlsafe_b64decode(f"{token}{padding}")
+    except (binascii.Error, ValueError, TypeError) as exc:
+        raise StudentInvitationError("Некорректная ссылка ученика") from exc
+    if len(payload) != 32 + STUDENT_INVITE_SIGNATURE_BYTES:
+        raise StudentInvitationError("Некорректная ссылка ученика")
+    identity = payload[:32]
+    supplied_signature = payload[32:]
+    if not hmac.compare_digest(supplied_signature, _signature(identity)):
+        raise StudentInvitationError("Некорректная подпись ссылки ученика")
+    return UUID(bytes=identity[:16]), UUID(bytes=identity[16:])
+
+
+def build_student_invitation_link(
+    bot_username: str,
+    tenant_id: UUID,
+    student_id: UUID,
+) -> str:
+    username = bot_username.strip().lstrip("@")
+    if not username:
+        raise StudentInvitationError("Bot username is empty")
+    payload = (
+        f"{STUDENT_INVITE_PREFIX}"
+        f"{issue_student_invitation_token(tenant_id, student_id)}"
+    )
+    if len(payload) > MAX_PAYLOAD_LIMIT:
+        raise StudentInvitationError(
+            f"Payload is longer than {MAX_PAYLOAD_LIMIT} characters"
+        )
+    return f"https://max.ru/{username}?start={payload}"
+
+
+def invitation_qr_data_url(link: str) -> str:
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=8,
+        border=3,
+    )
+    qr.add_data(link)
+    qr.make(fit=True)
+    image = qr.make_image(image_factory=SvgPathImage)
+    output = BytesIO()
+    image.save(output)
+    encoded = base64.b64encode(output.getvalue()).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"

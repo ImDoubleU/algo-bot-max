@@ -57,6 +57,13 @@ class MiniAppStudentRead(BaseModel):
     balance: int
 
 
+class MiniAppStudentInvitationRead(BaseModel):
+    student_id: UUID
+    student_name: str
+    bot_url: str
+    qr_data_url: str
+
+
 class MiniAppLedgerRead(BaseModel):
     id: UUID
     student_id: UUID
@@ -419,6 +426,7 @@ class MiniAppWarehousePreferenceRead(BaseModel):
 
 class MiniAppSessionRead(BaseModel):
     tenant_slug: str
+    has_access: bool = False
     account: MiniAppAccountRead | None
     staff_roles: list[StaffRole]
     student_roles: list[StudentAccessRole]

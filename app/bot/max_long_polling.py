@@ -6177,6 +6177,11 @@ class LongPollingBot:
         user_id: int | None,
     ) -> BotResponse | None:
         raw_payload = (payload or "").strip()
+        if raw_payload.casefold().startswith("student_"):
+            return self.handle_student_invitation_response(
+                token=raw_payload[len("student_") :],
+                user_id=user_id,
+            )
         open_store_after_link = raw_payload.casefold().startswith("shop_")
         contact_id = parse_contact_payload(
             raw_payload[len("shop_") :] if open_store_after_link else raw_payload
@@ -6269,6 +6274,66 @@ class LongPollingBot:
         return BotResponse(
             self.contact_entry_text(contact_id, tenant_slug=tenant_slug, students=None),
             role_selection_keyboard(),
+        )
+
+    def handle_student_invitation_response(
+        self,
+        *,
+        token: str,
+        user_id: int | None,
+    ) -> BotResponse:
+        if user_id is None:
+            return BotResponse(
+                "Не получилось определить ваш MAX-профиль.",
+                self.main_menu_attachments(user_id),
+            )
+        if not token or self.backend_client is None:
+            return BotResponse(
+                "Ссылка ученика недоступна. Попросите родителя открыть новый QR-код.",
+                self.main_menu_attachments(user_id),
+            )
+
+        try:
+            result = self.backend_client.create_student_invite_link(
+                tenant_slug=self.current_tenant_slug(user_id),
+                token=token,
+                max_user_id=user_id,
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                (
+                    "Не получилось привязать профиль ученика.\n\n"
+                    "Попросите родителя обновить QR-код и попробуйте еще раз.\n"
+                    f"Причина: {format_backend_error(exc)}"
+                ),
+                self.main_menu_attachments(user_id),
+            )
+
+        tenant_slug = str(result.get("tenant_slug") or self.default_tenant_slug)
+        student_name = str(result.get("student_name") or "ученика")
+        group_name = str(result.get("group_name") or "").strip()
+        self.user_tenant_slugs[user_id] = tenant_slug
+        self.user_menu_roles[(user_id, tenant_slug)] = "student"
+
+        store_url = build_miniapp_url(
+            user_id=user_id,
+            tenant_slug=tenant_slug,
+            view="store",
+        )
+        rows = (
+            [[miniapp_button("Перейти в магазин", store_url)]]
+            if store_url
+            else []
+        )
+        profile_line = f"Профиль {student_name} привязан."
+        if group_name:
+            profile_line += f"\nГруппа: {group_name}."
+        return BotResponse(
+            (
+                f"{profile_line}\n\n"
+                "Теперь можно открыть магазин и пользоваться личным кабинетом."
+            ),
+            inline_keyboard_with_main_menu(rows),
         )
 
     @staticmethod

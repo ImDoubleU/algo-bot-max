@@ -160,6 +160,7 @@ async def test_order_waits_for_admin_warehouse_and_debits_wallet(db_session) -> 
     catalog = await list_miniapp_catalog(
         db_session,
         tenant_slug="nizhniy-novgorod-partner-a",
+        max_user_id=53364725,
     )
 
     assert len(catalog.products) == 1
@@ -853,6 +854,7 @@ async def test_admin_can_create_and_update_product_from_miniapp(db_session) -> N
     public_catalog = await list_miniapp_catalog(
         db_session,
         tenant_slug="nizhniy-novgorod-partner-a",
+        max_user_id=53364725,
     )
     assert created.id not in {item.id for item in public_catalog.products}
 
@@ -860,6 +862,7 @@ async def test_admin_can_create_and_update_product_from_miniapp(db_session) -> N
         await list_miniapp_catalog(
             db_session,
             tenant_slug="nizhniy-novgorod-partner-a",
+            max_user_id=999999999,
             include_inactive=True,
         )
 
