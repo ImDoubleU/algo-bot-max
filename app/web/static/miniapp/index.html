@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.49.0" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.50.1" />
   </head>
   <body>
     <div class="app-shell">
@@ -20,10 +20,11 @@
           </div>
         </div>
 
-        <div class="tenant-control" aria-label="Контур данных">
+        <button id="tenantSwitcherButton" class="tenant-control" type="button" aria-label="Сменить город или партнера" aria-haspopup="dialog" hidden>
           <span>Город / партнер</span>
           <strong id="tenantTitle">Текущий контур</strong>
-        </div>
+          <i data-lucide="chevrons-up-down" aria-hidden="true"></i>
+        </button>
       </header>
 
       <main class="workspace">
@@ -113,7 +114,7 @@
 
             <div class="two-column">
               <section class="panel">
-                <div class="panel-head">
+                <div class="panel-head student-panel-head">
                   <h3 id="studentPanelTitle">Дети и группы</h3>
                   <select id="studentGroupFilter" aria-label="Группа учеников">
                     <option value="all">Все группы</option>
@@ -496,6 +497,33 @@
         </section>
       </div>
 
+      <div id="tenantDialog" class="dialog-backdrop" hidden>
+        <section class="checkout-dialog tenant-dialog" role="dialog" aria-modal="true" aria-labelledby="tenantDialogTitle">
+          <div class="dialog-head">
+            <div>
+              <p class="eyebrow">Рабочий контур</p>
+              <h2 id="tenantDialogTitle">Города и партнеры</h2>
+            </div>
+            <button id="closeTenantDialogButton" class="icon-button dialog-close" type="button" title="Закрыть" aria-label="Закрыть">×</button>
+          </div>
+          <div class="tenant-dialog-content">
+            <p id="tenantDialogHint" class="tenant-dialog-hint">Выберите контур, с которым хотите работать.</p>
+            <div id="tenantList" class="tenant-list"></div>
+            <form id="tenantCreateForm" class="tenant-create-form" hidden>
+              <label>Город<input id="tenantCityName" name="city_name" type="text" minlength="2" maxlength="160" autocomplete="address-level2" required /></label>
+              <label>Партнер<input id="tenantPartnerName" name="partner_name" type="text" minlength="2" maxlength="160" required /></label>
+              <label>MAX ID директора <span>Необязательно</span><input id="tenantDirectorMaxUserId" name="partner_director_max_user_id" type="number" min="1" inputmode="numeric" /></label>
+              <label>Имя директора <span>Необязательно</span><input id="tenantDirectorName" name="partner_director_display_name" type="text" maxlength="160" /></label>
+            </form>
+          </div>
+          <div class="dialog-actions tenant-dialog-actions">
+            <button id="showTenantCreateButton" class="secondary-action" type="button">Новый партнер</button>
+            <button id="cancelTenantCreateButton" class="secondary-action" type="button" hidden>К списку</button>
+            <button id="saveTenantButton" class="primary-action" type="submit" form="tenantCreateForm" hidden>Создать</button>
+          </div>
+        </section>
+      </div>
+
       <div id="mobileMorePanel" class="mobile-more-panel" hidden>
         <button class="mobile-more-action nav-button" type="button" data-view="wallet">
           <i data-lucide="wallet-cards"></i><span>История AC</span>
@@ -538,6 +566,6 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app.js?v=0.49.0"></script>
+    <script src="/miniapp/static/app.js?v=0.50.1"></script>
   </body>
 </html>

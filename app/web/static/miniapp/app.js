@@ -34,6 +34,10 @@ const state = {
   role: "student",
   account: null,
   staffRoles: [],
+  currentTenant: null,
+  availableTenants: [],
+  canManageTenants: false,
+  tenantSaving: false,
   availableRoles: ["student", "parent", "teacher", "admin"],
   view: ["dashboard", "store", "cart", "orders", "wallet", "accrual", "teaching", "admin"].includes(
     queryParam("view"),
@@ -522,6 +526,9 @@ function positiveIntegerParam(name) {
 }
 
 function tenantTitle() {
+  if (state.currentTenant && !apiContext.demoMode) {
+    return `${state.currentTenant.city_name} · ${state.currentTenant.partner_name}`;
+  }
   if (apiContext.demoMode) return "Демо-магазин";
   if (!apiContext.tenantSlug) return "Контур по умолчанию";
   return apiContext.tenantSlug
@@ -1323,6 +1330,12 @@ function orderStatusHistoryDetails(order) {
 function applySession(session) {
   if (!session || !Array.isArray(session.students)) return;
 
+  apiContext.tenantSlug = session.tenant_slug || apiContext.tenantSlug;
+  state.currentTenant = session.tenant || null;
+  state.availableTenants = Array.isArray(session.available_tenants)
+    ? session.available_tenants
+    : [];
+  state.canManageTenants = Boolean(session.can_manage_tenants);
   state.account = session.account || null;
   state.staffRoles = Array.isArray(session.staff_roles) ? session.staff_roles : [];
 
@@ -1495,8 +1508,8 @@ async function loadCatalog() {
   if (apiContext.demoMode) return;
 
   const params = { tenant_slug: apiContext.tenantSlug };
+  if (apiContext.maxUserId) params.max_user_id = apiContext.maxUserId;
   if (canUseAdminCatalog()) {
-    params.max_user_id = apiContext.maxUserId;
     params.include_inactive = "true";
   }
   const response = await apiFetch(
@@ -1532,6 +1545,146 @@ async function refreshOrderAndInventoryState() {
 async function refreshCatalogAndOpsSummary() {
   await loadCatalog();
   await loadOpsSummary();
+}
+
+function syncTenantToUrl() {
+  if (apiContext.demoMode || !apiContext.tenantSlug) return;
+  const url = new URL(window.location.href);
+  url.searchParams.set("tenant_slug", apiContext.tenantSlug);
+  window.history.replaceState(null, "", url);
+}
+
+function renderTenantControl() {
+  const button = qs("#tenantSwitcherButton");
+  const title = qs("#tenantTitle");
+  const canSwitch = !apiContext.demoMode && state.canManageTenants;
+  document.body.dataset.canSwitchTenants = canSwitch ? "true" : "false";
+  if (button) button.hidden = !canSwitch;
+  if (title) title.textContent = tenantTitle();
+}
+
+function renderTenantDialog() {
+  const list = qs("#tenantList");
+  if (!list) return;
+  const currentSlug = apiContext.tenantSlug;
+  list.innerHTML = state.availableTenants
+    .map((tenant) => {
+      const isCurrent = tenant.tenant_slug === currentSlug;
+      return `
+        <button class="tenant-option ${isCurrent ? "is-current" : ""}" type="button" data-tenant-switch="${escapeHtml(tenant.tenant_slug)}" ${isCurrent ? "disabled" : ""}>
+          <span>${escapeHtml(tenant.city_name)}</span>
+          <strong>${escapeHtml(tenant.partner_name)}</strong>
+          <small>${escapeHtml(tenant.tenant_name)}</small>
+        </button>
+      `;
+    })
+    .join("");
+  Array.from(list.querySelectorAll("[data-tenant-switch]")).forEach((button) => {
+    button.addEventListener("click", () => switchTenant(button.dataset.tenantSwitch || ""));
+  });
+}
+
+function setTenantCreateMode(enabled) {
+  const form = qs("#tenantCreateForm");
+  const list = qs("#tenantList");
+  const hint = qs("#tenantDialogHint");
+  const showButton = qs("#showTenantCreateButton");
+  const cancelButton = qs("#cancelTenantCreateButton");
+  const saveButton = qs("#saveTenantButton");
+  if (form) form.hidden = !enabled;
+  if (list) list.hidden = enabled;
+  if (hint) hint.textContent = enabled
+    ? "Создайте отдельный контур. Его данные не будут смешиваться с другими партнерами."
+    : "Выберите контур, с которым хотите работать.";
+  if (showButton) showButton.hidden = enabled;
+  if (cancelButton) cancelButton.hidden = !enabled;
+  if (saveButton) saveButton.hidden = !enabled;
+}
+
+function openTenantDialog() {
+  if (!state.canManageTenants) return;
+  renderTenantDialog();
+  setTenantCreateMode(false);
+  const dialog = qs("#tenantDialog");
+  if (dialog) dialog.hidden = false;
+}
+
+function closeTenantDialog() {
+  const dialog = qs("#tenantDialog");
+  if (dialog) dialog.hidden = true;
+}
+
+async function switchTenant(tenantSlug) {
+  if (!state.canManageTenants || !tenantSlug || tenantSlug === apiContext.tenantSlug) {
+    closeTenantDialog();
+    return;
+  }
+  const previousTenantSlug = apiContext.tenantSlug;
+  apiContext.tenantSlug = tenantSlug;
+  syncTenantToUrl();
+  closeTenantDialog();
+  try {
+    await loadSession();
+    await loadCatalog();
+    await loadOpsSummary();
+    state.cart = new Map();
+    state.favorites = new Set();
+    state.teachingWorkspace = null;
+    state.teachingLoaded = false;
+    restoreCart();
+    restoreFavorites();
+    setRole(state.role);
+    state.lastSyncAt = new Date();
+    renderAll();
+    renderSyncStatus();
+    showNotice("Контур переключен");
+  } catch (error) {
+    apiContext.tenantSlug = previousTenantSlug;
+    syncTenantToUrl();
+    showNotice(error.message || "Не удалось переключить контур", "danger");
+  }
+}
+
+async function createTenantFromForm(event) {
+  event.preventDefault();
+  if (!state.canManageTenants || !apiContext.maxUserId) return;
+  const cityName = qs("#tenantCityName")?.value.trim() || "";
+  const partnerName = qs("#tenantPartnerName")?.value.trim() || "";
+  const directorId = qs("#tenantDirectorMaxUserId")?.value.trim() || "";
+  const directorName = qs("#tenantDirectorName")?.value.trim() || "";
+  if (!cityName || !partnerName) {
+    showNotice("Укажите город и партнера", "danger");
+    return;
+  }
+  const payload = {
+    max_user_id: Number(apiContext.maxUserId),
+    tenant_slug: apiContext.tenantSlug || undefined,
+    city_name: cityName,
+    partner_name: partnerName,
+  };
+  if (directorId) payload.partner_director_max_user_id = Number(directorId);
+  if (directorName) payload.partner_director_display_name = directorName;
+
+  state.tenantSaving = true;
+  const saveButton = qs("#saveTenantButton");
+  if (saveButton) saveButton.disabled = true;
+  try {
+    const response = await apiFetch("/api/v1/miniapp/tenants", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error(await parseApiError(response));
+    const result = await response.json();
+    qs("#tenantCreateForm")?.reset();
+    await switchTenant(result.tenant.tenant_slug);
+    showNotice(result.created ? "Партнер создан" : "Контур уже существовал и открыт");
+  } catch (error) {
+    showNotice(error.message || "Не удалось создать партнера", "danger");
+  } finally {
+    state.tenantSaving = false;
+    if (saveButton) saveButton.disabled = false;
+  }
 }
 
 function renderSyncStatus() {
@@ -3676,6 +3829,7 @@ async function sendGeneratedFeedback() {
 }
 
 function renderAll() {
+  renderTenantControl();
   renderStatus();
   renderStudents();
   renderDashboardOrders();
@@ -5252,6 +5406,14 @@ qs("#studentSelect").addEventListener("change", (event) => {
 });
 qs("#openCartButton").addEventListener("click", () => setView("cart"));
 qs("#refreshDataButton").addEventListener("click", refreshAllData);
+qs("#tenantSwitcherButton")?.addEventListener("click", openTenantDialog);
+qs("#closeTenantDialogButton")?.addEventListener("click", closeTenantDialog);
+qs("#showTenantCreateButton")?.addEventListener("click", () => setTenantCreateMode(true));
+qs("#cancelTenantCreateButton")?.addEventListener("click", () => setTenantCreateMode(false));
+qs("#tenantCreateForm")?.addEventListener("submit", createTenantFromForm);
+qs("#tenantDialog")?.addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) closeTenantDialog();
+});
 qs("#productSearch").addEventListener("input", renderProducts);
 qs("#categoryFilter").addEventListener("change", () => {
   renderProducts();

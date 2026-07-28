@@ -5,9 +5,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import app.db.base  # noqa: F401
 from app.models.account import MaxAccount, StaffRoleAssignment
 from app.models.base import Base
-from app.models.enums import StaffRole, TenantStatus
+from app.models.enums import AssignmentStatus, StaffRole, TenantStatus
 from app.models.tenant import City, Partner, Tenant
-from app.services.staff import bootstrap_staff_role
+from app.services.staff import active_staff_roles_for_tenant, bootstrap_staff_role
 
 
 @pytest.fixture
@@ -63,3 +63,53 @@ async def test_bootstrap_staff_role_is_idempotent(db_session) -> None:
     assert len(accounts) == 1
     assert len(assignments) == 1
     assert assignments[0].role == StaffRole.SUPERADMIN
+
+
+async def test_superadmin_is_global_and_partner_director_is_tenant_scoped(db_session) -> None:
+    first_tenant = await seed_tenant(db_session)
+    second_tenant = Tenant(
+        city=City(slug="kazan", name="Казань"),
+        partner=Partner(slug="partner-b", name="Партнер B"),
+        slug="kazan-partner-b",
+        name="Казань / Партнер B",
+        status=TenantStatus.ACTIVE,
+    )
+    db_session.add(second_tenant)
+    await db_session.commit()
+
+    await bootstrap_staff_role(
+        db_session,
+        tenant_slug=first_tenant.slug,
+        max_user_id=53364725,
+        role=StaffRole.SUPERADMIN,
+    )
+    director = MaxAccount(max_user_id=20480493, display_name="Директор")
+    db_session.add(director)
+    await db_session.flush()
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=first_tenant.id,
+            account_id=director.id,
+            role=StaffRole.PARTNER_DIRECTOR,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    superadmin = await db_session.scalar(
+        select(MaxAccount).where(MaxAccount.max_user_id == 53364725)
+    )
+    assert superadmin is not None
+    superadmin_roles = await active_staff_roles_for_tenant(
+        db_session,
+        tenant_id=second_tenant.id,
+        account_id=superadmin.id,
+    )
+    director_roles = await active_staff_roles_for_tenant(
+        db_session,
+        tenant_id=second_tenant.id,
+        account_id=director.id,
+    )
+
+    assert StaffRole.SUPERADMIN in superadmin_roles
+    assert director_roles == set()

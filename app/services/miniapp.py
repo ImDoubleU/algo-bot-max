@@ -68,11 +68,20 @@ from app.schemas.miniapp import (
     MiniAppStaffOnboardingOptionsRead,
     MiniAppStaffOnboardingTenantRead,
     MiniAppStudentRead,
+    MiniAppTenantCreate,
+    MiniAppTenantCreatedRead,
+    MiniAppTenantRead,
     MiniAppWarehouseRead,
     MiniAppWarehouseUpsert,
 )
 from app.services.crm_import import CrmImportError, parse_crm_students_content
-from app.services.crm_sync import CrmSyncDefaults, upsert_crm_student_rows
+from app.services.crm_sync import (
+    CrmSyncDefaults,
+    get_or_create_city,
+    get_or_create_partner,
+    get_or_create_tenant,
+    upsert_crm_student_rows,
+)
 from app.services.google_sheets import GoogleSheetsClient, GoogleSheetsError
 from app.services.max_notifications import schedule_order_notification
 from app.services.order_sheets import order_item_mapping, upsert_order_sheet_row
@@ -81,7 +90,13 @@ from app.services.product_import import (
     import_products_for_tenant,
     parse_product_rows,
 )
-from app.services.staff import normalize_staff_name, staff_names_match
+from app.services.staff import (
+    active_staff_roles_for_tenant,
+    get_or_create_max_account,
+    is_global_superadmin,
+    normalize_staff_name,
+    staff_names_match,
+)
 from app.services.warehouse import (
     WarehouseServiceError,
     available_for_reservation,
@@ -142,17 +157,11 @@ async def _active_staff_role(
     account_id: UUID,
     allowed_roles: set[StaffRole],
 ) -> StaffRole | None:
-    roles = set(
-        (
-            await db.scalars(
-                select(StaffRoleAssignment.role).where(
-                    StaffRoleAssignment.tenant_id == tenant_id,
-                    StaffRoleAssignment.account_id == account_id,
-                    StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-                    StaffRoleAssignment.role.in_(allowed_roles),
-                )
-            )
-        ).all()
+    roles = await active_staff_roles_for_tenant(
+        db,
+        tenant_id=tenant_id,
+        account_id=account_id,
+        allowed_roles=allowed_roles,
     )
     return next((role for role in STAFF_ROLE_PRIORITY if role in roles), None)
 
@@ -191,6 +200,32 @@ def _slugify(value: str) -> str:
 
 async def get_tenant_by_slug(db: AsyncSession, tenant_slug: str) -> Tenant | None:
     return await db.scalar(select(Tenant).where(Tenant.slug == tenant_slug.strip().lower()))
+
+
+def _tenant_to_read(tenant: Tenant) -> MiniAppTenantRead:
+    return MiniAppTenantRead(
+        tenant_slug=tenant.slug,
+        tenant_name=tenant.name,
+        city_name=tenant.city.name if tenant.city else tenant.name,
+        partner_name=tenant.partner.name if tenant.partner else tenant.name,
+    )
+
+
+async def _active_tenants_for_superadmin(db: AsyncSession) -> list[MiniAppTenantRead]:
+    tenants = (
+        await db.scalars(
+            select(Tenant)
+            .options(selectinload(Tenant.city), selectinload(Tenant.partner))
+            .where(Tenant.status == TenantStatus.ACTIVE)
+        )
+    ).unique().all()
+    tenants.sort(
+        key=lambda tenant: (
+            (tenant.city.name if tenant.city else "").casefold(),
+            (tenant.partner.name if tenant.partner else tenant.name).casefold(),
+        )
+    )
+    return [_tenant_to_read(tenant) for tenant in tenants]
 
 
 def _product_to_read(product: Product) -> MiniAppProductRead:
@@ -369,22 +404,38 @@ async def list_miniapp_catalog(
         return MiniAppCatalogRead(tenant_slug=normalized_tenant_slug, products=[], warehouses=[])
 
     product_filters = [Product.tenant_id == tenant.id]
+    if max_user_id is not None:
+        account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
+        if account is None:
+            raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
+        staff_roles = await active_staff_roles_for_tenant(
+            db,
+            tenant_id=tenant.id,
+            account_id=account.id,
+        )
+        active_access_link = await db.scalar(
+            select(StudentAccessLink.id)
+            .where(
+                StudentAccessLink.tenant_id == tenant.id,
+                StudentAccessLink.account_id == account.id,
+                StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+            )
+            .limit(1)
+        )
+        if not staff_roles and active_access_link is None:
+            raise MiniAppStoreError("Нет доступа к выбранному партнеру", status_code=403)
+
     if include_inactive:
         if max_user_id is None:
             raise MiniAppStoreError(
                 "MAX user_id обязателен для админского каталога",
                 status_code=403,
             )
-        account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
-        if account is None:
-            raise MiniAppStoreError("MAX-account not found", status_code=403)
-        admin_role = await db.scalar(
-            select(StaffRoleAssignment.role).where(
-                StaffRoleAssignment.tenant_id == tenant.id,
-                StaffRoleAssignment.account_id == account.id,
-                StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-                StaffRoleAssignment.role.in_(STORE_ADMIN_ROLES),
-            )
+        admin_role = await _active_staff_role(
+            db,
+            tenant_id=tenant.id,
+            account_id=account.id,
+            allowed_roles=STORE_ADMIN_ROLES,
         )
         if admin_role is None:
             raise MiniAppStoreError("Нет прав на админский каталог", status_code=403)
@@ -499,13 +550,11 @@ async def _store_admin_context(
     if account is None:
         raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
 
-    admin_role = await db.scalar(
-        select(StaffRoleAssignment.role).where(
-            StaffRoleAssignment.tenant_id == tenant.id,
-            StaffRoleAssignment.account_id == account.id,
-            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-            StaffRoleAssignment.role.in_(STORE_ADMIN_ROLES),
-        )
+    admin_role = await _active_staff_role(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        allowed_roles=STORE_ADMIN_ROLES,
     )
     if admin_role is None:
         raise MiniAppStoreError(denied_message, status_code=403)
@@ -618,13 +667,11 @@ async def upsert_miniapp_product(
     if account is None:
         raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
 
-    staff_role = await db.scalar(
-        select(StaffRoleAssignment.role).where(
-            StaffRoleAssignment.tenant_id == tenant.id,
-            StaffRoleAssignment.account_id == account.id,
-            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-            StaffRoleAssignment.role.in_(STORE_ADMIN_ROLES),
-        )
+    staff_role = await _active_staff_role(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        allowed_roles=STORE_ADMIN_ROLES,
     )
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на управление товарами", status_code=403)
@@ -738,7 +785,11 @@ async def get_miniapp_session(
     tenant_slug: str,
 ) -> MiniAppSessionRead:
     normalized_tenant_slug = tenant_slug.strip().lower()
-    tenant = await get_tenant_by_slug(db, normalized_tenant_slug)
+    tenant = await db.scalar(
+        select(Tenant)
+        .options(selectinload(Tenant.city), selectinload(Tenant.partner))
+        .where(Tenant.slug == normalized_tenant_slug)
+    )
     account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
 
     if tenant is None or account is None:
@@ -760,19 +811,14 @@ async def get_miniapp_session(
             ledger=[],
         )
 
-    staff_roles = list(
-        (
-            await db.scalars(
-                select(StaffRoleAssignment.role)
-                .where(
-                    StaffRoleAssignment.tenant_id == tenant.id,
-                    StaffRoleAssignment.account_id == account.id,
-                    StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-                )
-                .order_by(StaffRoleAssignment.role)
-            )
-        ).all()
+    effective_staff_roles = await active_staff_roles_for_tenant(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
     )
+    staff_roles = [
+        role for role in STAFF_ROLE_PRIORITY if role in effective_staff_roles
+    ]
     explicit_student_roles = list(
         (
             await db.scalars(
@@ -786,6 +832,23 @@ async def get_miniapp_session(
             )
         ).all()
     )
+
+    if not staff_roles and not explicit_student_roles:
+        return MiniAppSessionRead(
+            tenant_slug=normalized_tenant_slug,
+            account=MiniAppAccountRead(
+                max_user_id=account.max_user_id,
+                username=account.username,
+                display_name=account.display_name,
+            ),
+            staff_roles=[],
+            student_roles=[],
+            students=[],
+            access_links=[],
+            staff_assignments=[],
+            orders=[],
+            ledger=[],
+        )
 
     if staff_roles:
         tenant_students = (
@@ -878,6 +941,13 @@ async def get_miniapp_session(
         ),
         staff_roles=staff_roles,
         student_roles=sorted(set(explicit_student_roles)),
+        tenant=_tenant_to_read(tenant),
+        available_tenants=(
+            await _active_tenants_for_superadmin(db)
+            if StaffRole.SUPERADMIN in effective_staff_roles
+            else []
+        ),
+        can_manage_tenants=StaffRole.SUPERADMIN in effective_staff_roles,
         students=students,
         access_links=access_links,
         staff_assignments=staff_assignments,
@@ -2000,13 +2070,11 @@ async def update_miniapp_access_link_status(
     if account is None:
         raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
 
-    staff_role = await db.scalar(
-        select(StaffRoleAssignment.role).where(
-            StaffRoleAssignment.tenant_id == tenant.id,
-            StaffRoleAssignment.account_id == account.id,
-            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-            StaffRoleAssignment.role.in_(STORE_ADMIN_ROLES),
-        )
+    staff_role = await _active_staff_role(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        allowed_roles=STORE_ADMIN_ROLES,
     )
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на управление связями доступа", status_code=403)
@@ -2066,26 +2134,12 @@ async def update_miniapp_staff_assignment(
     if actor is None:
         raise MiniAppStoreError("MAX-аккаунт администратора не найден", status_code=403)
 
-    actor_roles = set(
-        (
-            await db.scalars(
-                select(StaffRoleAssignment.role).where(
-                    StaffRoleAssignment.tenant_id == tenant.id,
-                    StaffRoleAssignment.account_id == actor.id,
-                    StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-                )
-            )
-        ).all()
+    actor_roles = await active_staff_roles_for_tenant(
+        db,
+        tenant_id=tenant.id,
+        account_id=actor.id,
     )
-    is_global_superadmin = bool(
-        await db.scalar(
-            select(func.count(StaffRoleAssignment.id)).where(
-                StaffRoleAssignment.account_id == actor.id,
-                StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-                StaffRoleAssignment.role == StaffRole.SUPERADMIN,
-            )
-        )
-    )
+    is_global_superadmin = StaffRole.SUPERADMIN in actor_roles
     if not actor_roles.intersection(STORE_ADMIN_ROLES) and not is_global_superadmin:
         raise MiniAppStoreError("Нет прав на управление сотрудниками", status_code=403)
     if payload.role in ELEVATED_STAFF_ROLES and not is_global_superadmin:
@@ -2238,6 +2292,98 @@ async def list_miniapp_staff_onboarding_options(
     )
 
 
+async def create_miniapp_tenant(
+    db: AsyncSession,
+    *,
+    payload: MiniAppTenantCreate,
+) -> MiniAppTenantCreatedRead:
+    actor = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == payload.max_user_id))
+    if actor is None:
+        raise MiniAppStoreError("MAX-аккаунт суперadmin не найден", status_code=403)
+    if not await is_global_superadmin(db, account_id=actor.id):
+        raise MiniAppStoreError(
+            "Создавать города и партнеров может только superadmin",
+            status_code=403,
+        )
+
+    city_name = payload.city_name.strip()
+    partner_name = payload.partner_name.strip()
+    city, _ = await get_or_create_city(db, city_name)
+    partner, _ = await get_or_create_partner(
+        db,
+        slug=_slugify(partner_name),
+        name=partner_name,
+    )
+    tenant, tenant_created = await get_or_create_tenant(
+        db,
+        city=city,
+        partner=partner,
+    )
+    tenant.status = TenantStatus.ACTIVE
+
+    director_read = None
+    if payload.partner_director_max_user_id is not None:
+        director, _ = await get_or_create_max_account(
+            db,
+            max_user_id=payload.partner_director_max_user_id,
+            display_name=(payload.partner_director_display_name or "").strip() or None,
+        )
+        assignment = await db.scalar(
+            select(StaffRoleAssignment).where(
+                StaffRoleAssignment.tenant_id == tenant.id,
+                StaffRoleAssignment.account_id == director.id,
+                StaffRoleAssignment.role == StaffRole.PARTNER_DIRECTOR,
+            )
+        )
+        if assignment is None:
+            assignment = StaffRoleAssignment(
+                tenant_id=tenant.id,
+                account_id=director.id,
+                role=StaffRole.PARTNER_DIRECTOR,
+                status=AssignmentStatus.ACTIVE,
+            )
+            db.add(assignment)
+            await db.flush()
+        else:
+            assignment.status = AssignmentStatus.ACTIVE
+        director_read = MiniAppStaffAssignmentRead(
+            id=UUID(str(assignment.id)),
+            account_id=UUID(str(director.id)),
+            max_user_id=director.max_user_id,
+            username=director.username,
+            display_name=director.display_name,
+            role=assignment.role,
+            status=assignment.status,
+        )
+
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_account_id=actor.id,
+            action="tenant.created" if tenant_created else "tenant.reopened",
+            entity_type="tenant",
+            entity_id=str(tenant.id),
+            payload={
+                "city": city.name,
+                "partner": partner.name,
+                "partner_director_max_user_id": payload.partner_director_max_user_id,
+            },
+        )
+    )
+    await db.commit()
+
+    return MiniAppTenantCreatedRead(
+        tenant=MiniAppTenantRead(
+            tenant_slug=tenant.slug,
+            tenant_name=tenant.name,
+            city_name=city.name,
+            partner_name=partner.name,
+        ),
+        created=tenant_created,
+        partner_director=director_read,
+    )
+
+
 async def upsert_miniapp_warehouse(
     db: AsyncSession,
     *,
@@ -2255,13 +2401,11 @@ async def upsert_miniapp_warehouse(
     if account is None:
         raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
 
-    staff_role = await db.scalar(
-        select(StaffRoleAssignment.role).where(
-            StaffRoleAssignment.tenant_id == tenant.id,
-            StaffRoleAssignment.account_id == account.id,
-            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-            StaffRoleAssignment.role.in_(STORE_ADMIN_ROLES),
-        )
+    staff_role = await _active_staff_role(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        allowed_roles=STORE_ADMIN_ROLES,
     )
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на управление складами", status_code=403)
@@ -2353,13 +2497,11 @@ async def adjust_miniapp_inventory(
     if account is None:
         raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
 
-    staff_role = await db.scalar(
-        select(StaffRoleAssignment.role).where(
-            StaffRoleAssignment.tenant_id == tenant.id,
-            StaffRoleAssignment.account_id == account.id,
-            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-            StaffRoleAssignment.role.in_(STORE_ADMIN_ROLES),
-        )
+    staff_role = await _active_staff_role(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        allowed_roles=STORE_ADMIN_ROLES,
     )
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на корректировку остатков", status_code=403)
@@ -2472,13 +2614,11 @@ async def transfer_miniapp_inventory(
     if account is None:
         raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
 
-    staff_role = await db.scalar(
-        select(StaffRoleAssignment.role).where(
-            StaffRoleAssignment.tenant_id == tenant.id,
-            StaffRoleAssignment.account_id == account.id,
-            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-            StaffRoleAssignment.role.in_(STORE_ADMIN_ROLES),
-        )
+    staff_role = await _active_staff_role(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        allowed_roles=STORE_ADMIN_ROLES,
     )
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на перемещение остатков", status_code=403)
