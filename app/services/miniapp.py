@@ -1252,20 +1252,11 @@ async def create_miniapp_order(
             StudentAccessLink.status == StudentAccessStatus.ACTIVE,
         )
     )
-    active_staff_role = await _active_staff_role(
-        db,
-        tenant_id=tenant.id,
-        account_id=account.id,
-        allowed_roles=set(STAFF_ROLE_PRIORITY),
-    )
-    if active_student_link is None and active_staff_role is None:
-        raise MiniAppStoreError("Нет доступа к выбранному ученику", status_code=403)
-    if (
-        active_student_link is None
-        and active_staff_role == StaffRole.TEACHER
-        and not _teacher_owns_student(account, student)
-    ):
-        raise MiniAppStoreError("Нет доступа к ученику чужой группы", status_code=403)
+    if active_student_link is None:
+        raise MiniAppStoreError(
+            "Покупки доступны только ученикам и родителям",
+            status_code=403,
+        )
 
     wallet = await db.scalar(
         select(Wallet)

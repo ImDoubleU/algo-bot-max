@@ -195,6 +195,35 @@ async def test_order_waits_for_admin_warehouse_and_debits_wallet(db_session) -> 
     assert ledger_entries[0].direction == LedgerDirection.DEBIT
 
 
+async def test_staff_without_student_link_cannot_place_order(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, _inventory = await seed_product(db_session, student)
+    staff_account = MaxAccount(max_user_id=90000001, display_name="Сотрудник")
+    db_session.add(staff_account)
+    await db_session.flush()
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=staff_account.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    with pytest.raises(MiniAppStoreError, match="только ученикам и родителям"):
+        await create_miniapp_order(
+            db_session,
+            payload=MiniAppOrderCreate(
+                max_user_id=staff_account.max_user_id,
+                tenant_slug="nizhniy-novgorod-partner-a",
+                student_id=student.id,
+                items=[MiniAppOrderItemCreate(product_id=product.id, quantity=1)],
+            ),
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
+
+
 async def test_ops_summary_reports_open_orders_and_low_stock(db_session) -> None:
     student = await seed_linked_student(db_session)
     product, _inventory = await seed_product(db_session, student)

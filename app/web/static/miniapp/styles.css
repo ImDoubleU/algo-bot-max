@@ -6771,3 +6771,14 @@ body[data-active-role="student"] #studentContext {
     grid-column: 1 / -1;
   }
 }
+
+/* Staff operate student wallets but never present an own AC balance. */
+.status-strip.is-staff-profile .status-balance {
+  display: none;
+}
+
+@media (min-width: 641px) {
+  .status-strip.is-staff-profile.has-student-context {
+    grid-template-columns: minmax(250px, 1fr);
+  }
+}
