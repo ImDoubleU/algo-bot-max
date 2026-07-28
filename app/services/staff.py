@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,6 +58,48 @@ class StaffRoleBootstrapResult:
 
 async def get_tenant_by_slug(db: AsyncSession, tenant_slug: str) -> Tenant | None:
     return await db.scalar(select(Tenant).where(Tenant.slug == tenant_slug.strip().lower()))
+
+
+async def is_global_superadmin(
+    db: AsyncSession,
+    *,
+    account_id: UUID,
+) -> bool:
+    """A superadmin assignment grants access to every active tenant."""
+    assignment_id = await db.scalar(
+        select(StaffRoleAssignment.id)
+        .where(
+            StaffRoleAssignment.account_id == account_id,
+            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+            StaffRoleAssignment.role == StaffRole.SUPERADMIN,
+        )
+        .limit(1)
+    )
+    return assignment_id is not None
+
+
+async def active_staff_roles_for_tenant(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    account_id: UUID,
+    allowed_roles: set[StaffRole] | None = None,
+) -> set[StaffRole]:
+    """Return tenant roles and the global superadmin role when applicable."""
+    query = select(StaffRoleAssignment.role).where(
+        StaffRoleAssignment.tenant_id == tenant_id,
+        StaffRoleAssignment.account_id == account_id,
+        StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+    )
+    if allowed_roles is not None:
+        query = query.where(StaffRoleAssignment.role.in_(allowed_roles))
+
+    roles = set((await db.scalars(query)).all())
+    if (
+        allowed_roles is None or StaffRole.SUPERADMIN in allowed_roles
+    ) and await is_global_superadmin(db, account_id=account_id):
+        roles.add(StaffRole.SUPERADMIN)
+    return roles
 
 
 async def get_or_create_max_account(

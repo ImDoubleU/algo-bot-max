@@ -47,6 +47,8 @@ from app.schemas.miniapp import (
     MiniAppStaffAssignmentRead,
     MiniAppStaffAssignmentUpdate,
     MiniAppStaffOnboardingOptionsRead,
+    MiniAppTenantCreate,
+    MiniAppTenantCreatedRead,
     MiniAppWarehouseRead,
     MiniAppWarehouseUpsert,
 )
@@ -57,6 +59,7 @@ from app.services.miniapp import (
     assign_miniapp_order_warehouses,
     cancel_miniapp_order,
     create_miniapp_order,
+    create_miniapp_tenant,
     get_miniapp_ops_summary,
     get_miniapp_session,
     import_miniapp_crm_students,
@@ -117,6 +120,23 @@ async def miniapp_session(
     )
 
 
+@router.post("/tenants", response_model=MiniAppTenantCreatedRead)
+async def miniapp_create_tenant(
+    payload: MiniAppTenantCreate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppTenantCreatedRead:
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await create_miniapp_tenant(db, payload=payload)
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
 @router.get("/catalog", response_model=MiniAppCatalogRead)
 async def miniapp_catalog(
     db: DbSession,
@@ -125,16 +145,17 @@ async def miniapp_catalog(
     max_user_id: Annotated[int | None, Query(gt=0)] = None,
     include_inactive: bool = False,
 ) -> MiniAppCatalogRead:
+    effective_max_user_id = max_user_id or (identity.max_user_id if identity else None)
     resolved_tenant = _authorized_tenant_slug(
         identity,
-        max_user_id=max_user_id,
+        max_user_id=effective_max_user_id,
         tenant_slug=tenant_slug,
     )
     try:
         return await list_miniapp_catalog(
             db,
             tenant_slug=resolved_tenant,
-            max_user_id=max_user_id,
+            max_user_id=effective_max_user_id,
             include_inactive=include_inactive,
         )
     except MiniAppStoreError as exc:

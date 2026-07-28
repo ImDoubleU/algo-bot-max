@@ -7,9 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.account import MaxAccount, StaffRoleAssignment
+from app.models.account import MaxAccount
 from app.models.audit import AuditLog
-from app.models.enums import AssignmentStatus, StaffRole, StudentStatus
+from app.models.enums import StaffRole, StudentStatus
 from app.models.student import Student
 from app.models.teaching import (
     Course,
@@ -33,7 +33,11 @@ from app.schemas.teaching import (
     TeachingScheduleUpsert,
     TeachingWorkspaceRead,
 )
-from app.services.staff import normalize_staff_name, staff_names_match
+from app.services.staff import (
+    active_staff_roles_for_tenant,
+    normalize_staff_name,
+    staff_names_match,
+)
 
 TEACHING_ROLES = {
     StaffRole.SUPERADMIN,
@@ -75,17 +79,11 @@ async def load_teaching_context(
     account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
     if account is None:
         raise TeachingServiceError("MAX-аккаунт не найден", status_code=403)
-    roles = set(
-        (
-            await db.scalars(
-                select(StaffRoleAssignment.role).where(
-                    StaffRoleAssignment.tenant_id == tenant.id,
-                    StaffRoleAssignment.account_id == account.id,
-                    StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-                    StaffRoleAssignment.role.in_(TEACHING_ROLES),
-                )
-            )
-        ).all()
+    roles = await active_staff_roles_for_tenant(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        allowed_roles=TEACHING_ROLES,
     )
     role = next((candidate for candidate in STAFF_ROLE_PRIORITY if candidate in roles), None)
     if role is None:

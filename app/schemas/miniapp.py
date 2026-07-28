@@ -22,6 +22,28 @@ class MiniAppAccountRead(BaseModel):
     display_name: str | None = None
 
 
+class MiniAppTenantRead(BaseModel):
+    tenant_slug: str
+    tenant_name: str
+    city_name: str
+    partner_name: str
+
+
+class MiniAppTenantCreate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    city_name: str = Field(min_length=2, max_length=160)
+    partner_name: str = Field(min_length=2, max_length=160)
+    partner_director_max_user_id: int | None = Field(default=None, gt=0)
+    partner_director_display_name: str | None = Field(default=None, max_length=160)
+
+
+class MiniAppTenantCreatedRead(BaseModel):
+    tenant: MiniAppTenantRead
+    created: bool
+    partner_director: "MiniAppStaffAssignmentRead | None" = None
+
+
 class MiniAppStudentRead(BaseModel):
     student_id: UUID
     lms_student_id: str | None = None
@@ -363,6 +385,9 @@ class MiniAppSessionRead(BaseModel):
     account: MiniAppAccountRead | None
     staff_roles: list[StaffRole]
     student_roles: list[StudentAccessRole]
+    tenant: MiniAppTenantRead | None = None
+    available_tenants: list[MiniAppTenantRead] = Field(default_factory=list)
+    can_manage_tenants: bool = False
     students: list[MiniAppStudentRead]
     access_links: list[MiniAppAccessLinkRead] = Field(default_factory=list)
     staff_assignments: list[MiniAppStaffAssignmentRead] = Field(default_factory=list)
