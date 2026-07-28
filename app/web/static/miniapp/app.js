@@ -20,8 +20,8 @@ const sessionStartedAt = new Date();
 const ROLE_VIEWS = Object.freeze({
   student: ["dashboard", "store", "cart", "orders", "wallet"],
   parent: ["dashboard", "store", "cart", "orders", "wallet"],
-  teacher: ["dashboard", "orders", "wallet", "report", "accrual", "teaching"],
-  admin: ["dashboard", "orders", "wallet", "report", "accrual", "teaching", "admin"],
+  teacher: ["dashboard", "store", "orders", "wallet", "report", "accrual", "teaching"],
+  admin: ["dashboard", "store", "orders", "wallet", "report", "accrual", "teaching", "admin"],
 });
 
 const ROLE_DASHBOARD_ACTION = Object.freeze({
@@ -1800,6 +1800,10 @@ function roleViews(role) {
   return views;
 }
 
+function canUseStoreCart() {
+  return ["student", "parent"].includes(state.role);
+}
+
 function setRole(role) {
   if (!state.availableRoles.includes(role)) return;
   const roleChanged = state.role !== role;
@@ -1944,9 +1948,11 @@ function renderStatus() {
   });
   const storeAudience = qs("#storeAudience");
   if (storeAudience) {
-    storeAudience.textContent = student
-      ? `${student.name} · ${state.balance} AC доступно`
-      : "Выберите ученика, чтобы оформить заказ";
+    storeAudience.textContent = isStaff
+      ? "Каталог наград для учеников · просмотр товаров, цен и наличия"
+      : student
+        ? `${student.name} · ${state.balance} AC доступно`
+        : "Выберите ученика, чтобы оформить заказ";
   }
 
   const dashboardTitle = {
@@ -2183,7 +2189,9 @@ function renderProducts() {
   grid.innerHTML = visible
     .map((product) => {
       const available = productAvailable(product);
-      const availableLeft = Math.max(available - cartQuantityFor(product.id), 0);
+      const availableLeft = canUseStoreCart()
+        ? Math.max(available - cartQuantityFor(product.id), 0)
+        : available;
       const disabled = availableLeft <= 0;
       const favorite = state.favorites.has(product.id);
       const stockText =
@@ -2230,15 +2238,26 @@ function renderProducts() {
           </div>
           <div class="product-card-footer">
             <strong>${product.price} <span>AC</span></strong>
-            <button
-              class="primary-action"
-              type="button"
-              data-add="${escapeHtml(product.id)}"
-              ${disabled ? "disabled" : ""}
-            >
-              <i data-lucide="shopping-bag"></i>
-              <span>${disabled ? "Недоступно" : "В корзину"}</span>
-            </button>
+            ${
+              canUseStoreCart()
+                ? `<button
+                    class="primary-action"
+                    type="button"
+                    data-add="${escapeHtml(product.id)}"
+                    ${disabled ? "disabled" : ""}
+                  >
+                    <i data-lucide="shopping-bag"></i>
+                    <span>${disabled ? "Недоступно" : "В корзину"}</span>
+                  </button>`
+                : `<button
+                    class="secondary-action"
+                    type="button"
+                    data-product-details="${escapeHtml(product.id)}"
+                  >
+                    <i data-lucide="eye"></i>
+                    <span>Подробнее</span>
+                  </button>`
+            }
           </div>
         </article>
       `;
@@ -2444,6 +2463,14 @@ function syncProductDialogControls() {
   const quantityInput = qs("#productDialogQuantity");
   const addButton = qs("#productDialogAddButton");
   const stock = qs("#productDialogStock");
+  const shopper = canUseStoreCart();
+  addButton.hidden = !shopper;
+  if (!shopper) {
+    const available = productAvailable(product);
+    stock.textContent = available > 0 ? `В наличии: ${available} шт.` : "Нет в наличии";
+    stock.classList.toggle("is-empty", available <= 0);
+    return;
+  }
   const availableLeft = Math.max(productAvailable(product) - cartQuantityFor(product.id), 0);
   quantityInput.max = String(availableLeft);
   quantityInput.disabled = availableLeft <= 0;
@@ -2485,12 +2512,16 @@ function openProductDialog(productId) {
           ? `<p class="product-dialog-description">${escapeHtml(product.description)}</p>`
           : ""
       }
-      <div class="product-dialog-controls">
-        <label>
-          <span>Количество</span>
-          <input id="productDialogQuantity" type="number" min="1" value="1" />
-        </label>
-      </div>
+      ${
+        canUseStoreCart()
+          ? `<div class="product-dialog-controls">
+              <label>
+                <span>Количество</span>
+                <input id="productDialogQuantity" type="number" min="1" value="1" />
+              </label>
+            </div>`
+          : ""
+      }
       <div id="productDialogStock" class="product-dialog-stock"></div>
     </div>
   `;
@@ -2498,7 +2529,9 @@ function openProductDialog(productId) {
   syncDialogBodyClass();
   syncProductDialogControls();
   refreshIcons();
-  qs("#productDialogAddButton").focus();
+  const backButton = qs("#productDialogBackButton");
+  backButton.textContent = canUseStoreCart() ? "Продолжить выбор" : "Закрыть";
+  (canUseStoreCart() ? qs("#productDialogAddButton") : backButton).focus();
 }
 
 function closeProductDialog() {
