@@ -1870,6 +1870,7 @@ function setActiveStudent(studentId) {
 
 function renderStatus() {
   const student = selectedStudent();
+  const isStaff = ["teacher", "admin"].includes(state.role);
   const accountName = state.account?.display_name?.trim() || "";
   const primaryRole =
     primaryStaffRole() || (state.role === "admin" ? "admin" : "teacher");
@@ -1878,8 +1879,21 @@ function renderStatus() {
   const linkedCount = roleStudents.length;
   const statusStrip = qs(".status-strip");
   const studentContext = qs("#studentContext");
-  if (studentContext) studentContext.hidden = linkedCount === 0;
+  if (studentContext) {
+    studentContext.hidden = linkedCount === 0 || (isStaff && state.view !== "wallet");
+  }
   if (statusStrip) statusStrip.classList.toggle("has-no-students", linkedCount === 0);
+  if (statusStrip) statusStrip.classList.toggle("is-staff-profile", isStaff);
+  if (statusStrip) {
+    statusStrip.classList.toggle(
+      "has-student-context",
+      Boolean(studentContext && !studentContext.hidden),
+    );
+  }
+  const balancePanel = qs(".status-balance");
+  if (balancePanel) balancePanel.hidden = isStaff;
+  const profileLabel = qs(".status-profile-label");
+  if (profileLabel) profileLabel.textContent = isStaff ? "Рабочий профиль" : "Личный профиль";
   const labels = {
     student: student ? `${student.name}, ученик` : "Ученик",
     parent: accountName
@@ -1907,6 +1921,9 @@ function renderStatus() {
     }[state.view] || "Ученик";
   }
   qs("#balanceValue").textContent = state.balance;
+  qsa('.nav-button[data-view="wallet"] span').forEach((walletNavLabel) => {
+    walletNavLabel.textContent = isStaff ? "История учеников" : "История AC";
+  });
   const storeAudience = qs("#storeAudience");
   if (storeAudience) {
     storeAudience.textContent = student
