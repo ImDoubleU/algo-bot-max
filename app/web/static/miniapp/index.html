@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.50.2" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.51.1" />
   </head>
   <body>
     <div class="app-shell">
@@ -44,6 +44,9 @@
             </button>
             <button class="nav-button" data-view="wallet">
               <i data-lucide="wallet-cards"></i><span>История AC</span>
+            </button>
+            <button class="nav-button" data-view="report">
+              <i data-lucide="file-chart-column"></i><span>Отчет AC</span>
             </button>
             <button class="nav-button" data-view="accrual">
               <i data-lucide="circle-plus"></i><span>Начисления</span>
@@ -254,6 +257,22 @@
             <div id="ledgerList" class="ledger-list"></div>
           </section>
 
+          <section id="reportView" class="view" data-view-panel="report">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Контроль начислений</p>
+                <h2>Отчет по преподавателям</h2>
+              </div>
+            </div>
+            <div class="report-toolbar">
+              <label><span>С даты</span><input id="acReportDateFrom" type="date" /></label>
+              <label><span>По дату</span><input id="acReportDateTo" type="date" /></label>
+              <button id="loadAcReportButton" class="primary-action" type="button">Показать</button>
+            </div>
+            <div id="acReportSummary" class="report-summary"></div>
+            <div id="acReportList" class="report-list"></div>
+          </section>
+
           <section id="accrualView" class="view" data-view-panel="accrual">
             <div class="accrual-page">
               <div class="accrual-page-head">
@@ -280,10 +299,10 @@
                 </label>
               </div>
 
-              <div class="accrual-bulk" hidden>
+              <div class="accrual-bulk">
                 <div class="accrual-bulk-copy">
-                  <h3>Начислить всей группе</h3>
-                  <p>Сначала выберите конкретную группу в фильтре.</p>
+                  <h3>Начислить выбранным</h3>
+                  <p>Отметьте учеников в списке ниже.</p>
                 </div>
                 <label>
                   <span>Причина</span>
@@ -297,8 +316,8 @@
                     <option value="">Сумма</option>
                   </select>
                 </label>
-                <button class="primary-action" type="button" data-group-accrual>
-                  Начислить группе
+                <button class="primary-action" type="button" data-selected-accrual>
+                  Начислить выбранным
                 </button>
               </div>
 
@@ -321,6 +340,24 @@
 
             <div id="teachingSummary" class="teaching-summary"></div>
             <div id="scheduleEditor" class="schedule-editor" hidden></div>
+
+            <section class="attendance-journal">
+              <div class="panel-head">
+                <div>
+                  <h3>Журнал посещаемости</h3>
+                  <span>Фактическое присутствие на уроке</span>
+                </div>
+              </div>
+              <div class="attendance-toolbar">
+                <label><span>Группа</span><select id="attendanceScheduleSelect"></select></label>
+                <label><span>Дата урока</span><input id="attendanceLessonDate" type="date" /></label>
+                <button id="loadAttendanceButton" class="secondary-action" type="button">Открыть журнал</button>
+              </div>
+              <div id="attendanceJournalList" class="attendance-list"></div>
+              <button id="saveAttendanceButton" class="primary-action" type="button" hidden>
+                Сохранить посещаемость
+              </button>
+            </section>
 
             <div class="teaching-grid">
               <section class="teaching-column">
@@ -566,6 +603,6 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app.js?v=0.50.2"></script>
+    <script src="/miniapp/static/app.js?v=0.51.1"></script>
   </body>
 </html>

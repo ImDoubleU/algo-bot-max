@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -12,6 +13,8 @@ from app.core.config import get_settings
 from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
 from app.schemas.teaching import (
+    AttendanceJournalRead,
+    AttendanceMarkRequest,
     CourseLessonSummaryRead,
     FeedbackDeliveryRead,
     FeedbackDeliveryRequest,
@@ -27,9 +30,11 @@ from app.services.teaching import (
     TeachingServiceError,
     generate_manual_feedback,
     generate_schedule_feedback,
+    get_attendance_journal,
     get_teaching_workspace,
     list_course_lessons,
     list_manual_feedback,
+    mark_attendance,
     send_feedback_to_parents,
     send_manual_feedback_to_parents,
     upsert_teaching_schedule,
@@ -99,6 +104,62 @@ async def teaching_course_lessons(
             max_user_id=max_user_id,
             tenant_slug=resolved_tenant,
             course_id=course_id,
+        )
+    except TeachingServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get(
+    "/schedules/{schedule_id}/attendance",
+    response_model=AttendanceJournalRead,
+)
+async def teaching_attendance_journal(
+    schedule_id: UUID,
+    lesson_date: date,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: str | None = None,
+) -> AttendanceJournalRead:
+    resolved_tenant = _authorize(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        return await get_attendance_journal(
+            db,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+            schedule_id=schedule_id,
+            lesson_date=lesson_date,
+        )
+    except TeachingServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.put(
+    "/schedules/{schedule_id}/attendance",
+    response_model=AttendanceJournalRead,
+)
+async def teaching_attendance_mark(
+    schedule_id: UUID,
+    payload: AttendanceMarkRequest,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> AttendanceJournalRead:
+    settings = get_settings()
+    _authorize(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await mark_attendance(
+            db,
+            schedule_id=schedule_id,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
         )
     except TeachingServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

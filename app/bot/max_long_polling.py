@@ -56,9 +56,11 @@ from app.bot.keyboards import (
     feedback_menu_keyboard,
     feedback_preview_keyboard,
     feedback_setup_keyboard,
+    inline_keyboard_with_main_menu,
     knowledge_menu_keyboard,
     knowledge_section_keyboard,
     main_menu_keyboard,
+    miniapp_button,
     onboarding_cancelled_keyboard,
     onboarding_contact_keyboard,
     order_actions_keyboard,
@@ -86,7 +88,7 @@ from app.bot.runtime import APP_REVISION, APP_VERSION, MARKER_FILE, configure_lo
 from app.core.config import get_settings, is_placeholder
 from app.services.deep_links import (
     DeepLinkError,
-    build_max_bot_deeplink,
+    build_max_bot_shop_deeplink,
     parse_contact_payload,
 )
 from app.services.knowledge_base import (
@@ -6174,7 +6176,11 @@ class LongPollingBot:
         payload: str | None,
         user_id: int | None,
     ) -> BotResponse | None:
-        contact_id = parse_contact_payload(payload)
+        raw_payload = (payload or "").strip()
+        open_store_after_link = raw_payload.casefold().startswith("shop_")
+        contact_id = parse_contact_payload(
+            raw_payload[len("shop_") :] if open_store_after_link else raw_payload
+        )
         if not contact_id:
             return None
 
@@ -6221,6 +6227,27 @@ class LongPollingBot:
                     contact_id=resolved_contact_id,
                     tenant_slug=tenant_slug,
                     students=students,
+                )
+            if open_store_after_link:
+                linked = self.handle_role_selection_response(
+                    user_id=user_id,
+                    role="parent",
+                )
+                if not linked.text.startswith("Связи доступа созданы"):
+                    return linked
+                store_url = build_miniapp_url(
+                    user_id=user_id,
+                    tenant_slug=tenant_slug,
+                    view="store",
+                )
+                rows = [[miniapp_button("Перейти в магазин", store_url)]] if store_url else []
+                return BotResponse(
+                    (
+                        "Здравствуйте! Данные из письма школы распознаны.\n\n"
+                        f"Найдено учеников: {len(students)}. "
+                        "Личный кабинет готов, можно перейти в магазин."
+                    ),
+                    inline_keyboard_with_main_menu(rows),
                 )
             return BotResponse(
                 self.contact_entry_text(
@@ -6312,16 +6339,16 @@ class LongPollingBot:
             )
 
         try:
-            link = build_max_bot_deeplink(username, contact_id)
+            link = build_max_bot_shop_deeplink(username, contact_id)
         except DeepLinkError as exc:
             return f"Не получилось создать ссылку: {exc}"
 
         return (
-            "Deep link для Contact ID:\n"
+            "Прямая ссылка в магазин для CRM Contact ID:\n"
             f"{link}\n\n"
             f"Текущий tenant в этом чате: {tenant_slug}\n\n"
-            "Отправьте эту ссылку родителю или ученику. MAX передаст Contact ID боту "
-            "через start payload."
+            "Добавьте ссылку в письмо родителю. MAX передаст CRM Contact ID боту, "
+            "автоматически создаст родительскую связь и предложит открыть магазин."
         )
 
     def handle_role_selection_response(

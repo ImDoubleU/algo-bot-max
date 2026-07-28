@@ -14,9 +14,14 @@ from app.bot.keyboards import (
 )
 from app.bot.max_client import MaxApiClient
 from app.core.config import get_settings, is_placeholder
-from app.models.account import MaxAccount
-from app.models.enums import OrderStatus, StudentAccessStatus
-from app.models.store import Order
+from app.models.account import MaxAccount, StaffRoleAssignment
+from app.models.enums import (
+    AssignmentStatus,
+    OrderStatus,
+    StaffRole,
+    StudentAccessStatus,
+)
+from app.models.store import Order, Product, WarehouseInventory
 from app.models.student import Student, StudentAccessLink
 from app.models.tenant import Tenant
 
@@ -27,6 +32,7 @@ _background_tasks: set[asyncio.Task[None]] = set()
 def _order_status_text(status: OrderStatus) -> str:
     return {
         OrderStatus.RESERVED: "Зарезервировано",
+        OrderStatus.TRANSFERRED_TO_TEACHER: "Передан учителю",
         OrderStatus.CANCELLED: "Заказ отменен",
         OrderStatus.ISSUED_TO_STUDENT: "Заказ выдан ученику",
         OrderStatus.RETURNED: "Возврат оформлен",
@@ -47,6 +53,12 @@ def _order_message(
     ]
     if order.status in {OrderStatus.CANCELLED, OrderStatus.RETURNED}:
         lines.append(f"Возвращено: {order.total_astrocoins} AC")
+    if order.status == OrderStatus.CANCELLED:
+        lines.insert(0, "К сожалению, заказ пришлось отменить.")
+        if order.cancellation_reason:
+            lines.append(f"Причина: {order.cancellation_reason}")
+    if order.status == OrderStatus.TRANSFERRED_TO_TEACHER:
+        lines.append("Заказ уже у преподавателя. Он передаст его ученику на занятии.")
     if balance_after is not None:
         lines.append(f"Баланс: {balance_after} AC")
     return "\n".join(lines)
@@ -120,6 +132,159 @@ async def _deliver_order_notification(
                 user_id,
                 result,
             )
+
+
+async def _staff_user_ids(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    roles: set[StaffRole],
+) -> set[int]:
+    return set(
+        (
+            await db.scalars(
+                select(MaxAccount.max_user_id)
+                .join(StaffRoleAssignment, StaffRoleAssignment.account_id == MaxAccount.id)
+                .where(
+                    StaffRoleAssignment.tenant_id == tenant_id,
+                    StaffRoleAssignment.role.in_(roles),
+                    StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+                )
+            )
+        ).all()
+    )
+
+
+async def _tenant_customer_user_ids(db: AsyncSession, *, tenant_id: UUID) -> set[int]:
+    return set(
+        (
+            await db.scalars(
+                select(MaxAccount.max_user_id)
+                .join(StudentAccessLink, StudentAccessLink.account_id == MaxAccount.id)
+                .where(
+                    StudentAccessLink.tenant_id == tenant_id,
+                    StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+                )
+                .distinct()
+            )
+        ).all()
+    )
+
+
+def _schedule_direct_notification(
+    *,
+    user_ids: set[int],
+    tenant_slug: str,
+    text: str,
+    view: str,
+    button_label: str,
+    product_id: str | None = None,
+    image_url: str | None = None,
+) -> None:
+    if not user_ids:
+        return
+
+    async def deliver() -> None:
+        settings = get_settings()
+        client = MaxApiClient(
+            settings.max_bot_token or "",
+            settings.max_api_base,
+            timeout_seconds=settings.max_api_timeout_seconds,
+            poll_timeout_seconds=settings.max_poll_timeout_seconds,
+        )
+
+        async def send(user_id: int) -> None:
+            miniapp_url = build_miniapp_url(
+                user_id=user_id,
+                tenant_slug=tenant_slug,
+                view=view,
+                product_id=product_id,
+            )
+            rows = [[miniapp_button(button_label, miniapp_url)]] if miniapp_url else []
+            attachments = inline_keyboard_with_main_menu(rows)
+            if image_url:
+                attachments.insert(0, {"type": "image", "payload": {"url": image_url}})
+            await asyncio.to_thread(
+                client.send_message,
+                text=text,
+                attachments=attachments,
+                user_id=user_id,
+            )
+
+        results = await asyncio.gather(
+            *(send(user_id) for user_id in user_ids),
+            return_exceptions=True,
+        )
+        for user_id, result in zip(user_ids, results, strict=True):
+            if isinstance(result, Exception):
+                logger.warning(
+                    "Не удалось отправить уведомление пользователю %s: %s",
+                    user_id,
+                    result,
+                )
+
+    task = asyncio.create_task(deliver())
+    _background_tasks.add(task)
+    task.add_done_callback(_log_notification_task_error)
+
+
+async def schedule_new_product_notification(
+    db: AsyncSession,
+    *,
+    tenant: Tenant,
+    product: Product,
+) -> None:
+    settings = get_settings()
+    if not settings.max_order_notifications_enabled or is_placeholder(settings.max_bot_token):
+        return
+    user_ids = await _tenant_customer_user_ids(db, tenant_id=UUID(str(tenant.id)))
+    text = (
+        "В магазине появился новый товар.\n\n"
+        f"{product.name}\n"
+        f"Цена: {product.price_astrocoins} AC"
+    )
+    if product.photo_url:
+        text += "\nФото товара прикреплено к сообщению."
+    _schedule_direct_notification(
+        user_ids=user_ids,
+        tenant_slug=tenant.slug,
+        text=text,
+        view="store",
+        button_label="Посмотреть товар",
+        product_id=str(product.id),
+        image_url=product.photo_url,
+    )
+
+
+async def schedule_low_stock_notification(
+    db: AsyncSession,
+    *,
+    tenant: Tenant,
+    product: Product,
+    inventory: WarehouseInventory,
+) -> None:
+    settings = get_settings()
+    if not settings.max_order_notifications_enabled or is_placeholder(settings.max_bot_token):
+        return
+    user_ids = await _staff_user_ids(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+        roles={StaffRole.SUPERADMIN, StaffRole.PARTNER_DIRECTOR, StaffRole.ADMIN},
+    )
+    warehouse_name = inventory.warehouse.name if inventory.warehouse else "Склад"
+    free_quantity = max(inventory.available_quantity - inventory.reserved_quantity, 0)
+    _schedule_direct_notification(
+        user_ids=user_ids,
+        tenant_slug=tenant.slug,
+        text=(
+            "Низкий остаток товара.\n\n"
+            f"{product.name}\n"
+            f"Склад: {warehouse_name}\n"
+            f"Доступно: {free_quantity} шт."
+        ),
+        view="admin",
+        button_label="Проверить остатки",
+    )
 
 
 async def schedule_order_notification(

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -182,6 +182,7 @@ class MiniAppOrderRead(BaseModel):
     total_astrocoins: int
     teacher_name: str | None = None
     venue_name: str | None = None
+    cancellation_reason: str | None = None
     created_at: datetime
     items: list[MiniAppOrderItemRead] = Field(default_factory=list)
     status_history: list[MiniAppOrderStatusHistoryRead] = Field(default_factory=list)
@@ -205,6 +206,13 @@ class MiniAppOrderActionCreate(BaseModel):
     max_user_id: int = Field(gt=0)
     tenant_slug: str | None = None
     comment: str | None = Field(default=None, max_length=500)
+
+
+class MiniAppOrderCancelCreate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    reason: str = Field(min_length=2, max_length=160)
+    custom_reason: str | None = Field(default=None, max_length=500)
 
 
 class MiniAppOrderWarehouseAssignmentItem(BaseModel):
@@ -271,6 +279,24 @@ class MiniAppAccrualRead(BaseModel):
     credited_students: int
     amount: int
     total_astrocoins: int
+
+
+class MiniAppAccrualReportEntryRead(BaseModel):
+    created_at: datetime
+    teacher_name: str
+    teacher_role: StaffRole | None = None
+    student_id: UUID
+    student_name: str
+    group_name: str | None = None
+    amount: int
+    reason: str
+
+
+class MiniAppAccrualReportRead(BaseModel):
+    date_from: date
+    date_to: date
+    total_astrocoins: int
+    entries: list[MiniAppAccrualReportEntryRead] = Field(default_factory=list)
 
 
 class MiniAppAccessStatusUpdate(BaseModel):
@@ -380,6 +406,17 @@ class MiniAppWarehouseUpsert(BaseModel):
     address: str | None = Field(default=None, max_length=260)
 
 
+class MiniAppWarehousePreferenceUpdate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    warehouse_id: UUID
+
+
+class MiniAppWarehousePreferenceRead(BaseModel):
+    warehouse_id: UUID
+    warehouse_name: str
+
+
 class MiniAppSessionRead(BaseModel):
     tenant_slug: str
     account: MiniAppAccountRead | None
@@ -388,6 +425,7 @@ class MiniAppSessionRead(BaseModel):
     tenant: MiniAppTenantRead | None = None
     available_tenants: list[MiniAppTenantRead] = Field(default_factory=list)
     can_manage_tenants: bool = False
+    default_warehouse_id: UUID | None = None
     students: list[MiniAppStudentRead]
     access_links: list[MiniAppAccessLinkRead] = Field(default_factory=list)
     staff_assignments: list[MiniAppStaffAssignmentRead] = Field(default_factory=list)
