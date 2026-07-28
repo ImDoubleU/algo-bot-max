@@ -8,6 +8,7 @@ const apiContext = {
   maxWebAppData: maxWebAppLaunch.initData,
   demoMode: queryParam("demo") === "1",
   demoRole: queryParam("demo_role") || "",
+  productId: queryParam("product") || "",
 };
 if (queryParam("miniapp_token")) {
   const cleanUrl = new URL(window.location.href);
@@ -19,8 +20,8 @@ const sessionStartedAt = new Date();
 const ROLE_VIEWS = Object.freeze({
   student: ["dashboard", "store", "cart", "orders", "wallet"],
   parent: ["dashboard", "store", "cart", "orders", "wallet"],
-  teacher: ["dashboard", "orders", "wallet", "accrual", "teaching"],
-  admin: ["dashboard", "orders", "wallet", "accrual", "teaching", "admin"],
+  teacher: ["dashboard", "orders", "wallet", "report", "accrual", "teaching"],
+  admin: ["dashboard", "orders", "wallet", "report", "accrual", "teaching", "admin"],
 });
 
 const ROLE_DASHBOARD_ACTION = Object.freeze({
@@ -35,11 +36,12 @@ const state = {
   account: null,
   staffRoles: [],
   currentTenant: null,
+  defaultWarehouseId: "",
   availableTenants: [],
   canManageTenants: false,
   tenantSaving: false,
   availableRoles: ["student", "parent", "teacher", "admin"],
-  view: ["dashboard", "store", "cart", "orders", "wallet", "accrual", "teaching", "admin"].includes(
+  view: ["dashboard", "store", "cart", "orders", "wallet", "report", "accrual", "teaching", "admin"].includes(
     queryParam("view"),
   )
     ? queryParam("view")
@@ -50,6 +52,7 @@ const state = {
   orderSearch: "",
   accrualGroup: "all",
   accrualNameFilter: "",
+  selectedAccrualStudents: new Set(),
   balance: 1240,
   activeStudentId: "demo-alisa",
   cart: new Map(),
@@ -82,6 +85,7 @@ const state = {
   staffStatusFilter: "active",
   inventorySavingKey: "",
   warehouseSaving: false,
+  warehousePreferenceSaving: false,
   warehouseEditorOpen: false,
   editingWarehouseId: "",
   opsSummary: null,
@@ -94,6 +98,10 @@ const state = {
   scheduleDayFilter: "all",
   generatedFeedback: "",
   generatedFeedbackId: "",
+  attendanceJournal: null,
+  attendanceLoading: false,
+  accrualReport: null,
+  accrualReportLoading: false,
 };
 
 let accrualSearchTimer = null;
@@ -1336,6 +1344,7 @@ function applySession(session) {
     ? session.available_tenants
     : [];
   state.canManageTenants = Boolean(session.can_manage_tenants);
+  state.defaultWarehouseId = String(session.default_warehouse_id || "");
   state.account = session.account || null;
   state.staffRoles = Array.isArray(session.staff_roles) ? session.staff_roles : [];
 
@@ -1744,7 +1753,7 @@ async function refreshAllData() {
 }
 
 function setView(view) {
-  const allowedViews = ROLE_VIEWS[state.role] || ROLE_VIEWS.student;
+  const allowedViews = roleViews(state.role);
   const nextView = allowedViews.includes(view) ? view : "dashboard";
   const previousView = state.view;
   if (previousView !== nextView) hideNotice();
@@ -1762,7 +1771,7 @@ function setView(view) {
   const mobileMoreButton = qs("#mobileMoreButton");
   mobileMoreButton?.classList.toggle(
     "is-active",
-    ["wallet", "accrual", "teaching", "admin"].includes(nextView),
+    ["wallet", "report", "accrual", "teaching", "admin"].includes(nextView),
   );
   closeMobileMorePanel();
   if (previousView !== nextView && window.matchMedia("(max-width: 640px)").matches) {
@@ -1780,6 +1789,15 @@ function setView(view) {
       });
   }
   renderStatus();
+  if (nextView === "report") renderAccrualReport();
+}
+
+function roleViews(role) {
+  const views = [...(ROLE_VIEWS[role] || ROLE_VIEWS.student)];
+  if (role === "teacher" && primaryStaffRole() === "teacher") {
+    return views.filter((view) => view !== "report");
+  }
+  return views;
 }
 
 function setRole(role) {
@@ -1806,7 +1824,7 @@ function setRole(role) {
   const roleSwitch = qs(".role-switch");
   if (roleSwitch) roleSwitch.hidden = state.availableRoles.length <= 1;
 
-  const allowedViews = ROLE_VIEWS[role] || ROLE_VIEWS.student;
+  const allowedViews = roleViews(role);
   qsa(".nav-button[data-view]").forEach((button) => {
     const allowed = allowedViews.includes(button.dataset.view);
     button.disabled = !allowed;
@@ -1829,7 +1847,7 @@ function setRole(role) {
 
   const cartButton = qs("#openCartButton");
   if (cartButton) cartButton.hidden = !allowedViews.includes("cart");
-  const moreViews = ["wallet", "accrual", "teaching", "admin"];
+  const moreViews = ["wallet", "report", "accrual", "teaching", "admin"];
   const mobileMoreButton = qs("#mobileMoreButton");
   if (mobileMoreButton) {
     mobileMoreButton.hidden = !moreViews.some((view) => allowedViews.includes(view));
@@ -2515,6 +2533,14 @@ function canIssueOrder(order) {
   );
 }
 
+function canTransferOrder(order) {
+  return (
+    state.role === "admin" &&
+    order.rawStatus === "reserved" &&
+    orderHasAssignedWarehouses(order)
+  );
+}
+
 function canCancelOrder(order) {
   return ["reserved", "transferred_to_teacher"].includes(order.rawStatus);
 }
@@ -2580,6 +2606,13 @@ function orderActionButtons(order, includeOpen = true) {
       `<button class="secondary-action" type="button" data-order-action="issue" data-order-action-id="${escapeHtml(
         order.backendId || order.id,
       )}">Выдать</button>`,
+    );
+  }
+  if (canTransferOrder(order)) {
+    buttons.push(
+      `<button class="secondary-action" type="button" data-order-action="transfer" data-order-action-id="${escapeHtml(
+        order.backendId || order.id,
+      )}">Передать учителю</button>`,
     );
   }
   if (canCancelOrder(order)) {
@@ -2728,6 +2761,85 @@ function ledgerAmountValue(amount) {
   return Number.isFinite(value) ? value : 0;
 }
 
+function reportDateValue(date) {
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 10);
+}
+
+function renderAccrualReport() {
+  const fromInput = qs("#acReportDateFrom");
+  const toInput = qs("#acReportDateTo");
+  const summary = qs("#acReportSummary");
+  const list = qs("#acReportList");
+  if (!fromInput || !toInput || !summary || !list) return;
+  const today = new Date();
+  if (!toInput.value) toInput.value = reportDateValue(today);
+  if (!fromInput.value) {
+    fromInput.value = reportDateValue(new Date(today.getFullYear(), today.getMonth(), 1));
+  }
+  if (state.accrualReportLoading) {
+    summary.textContent = "Загрузка отчета...";
+    list.innerHTML = "";
+    return;
+  }
+  const report = state.accrualReport;
+  if (!report) {
+    summary.textContent = "Выберите период и нажмите «Показать».";
+    list.innerHTML = "";
+    return;
+  }
+  summary.textContent = `${report.entries.length} начислений · ${report.total_astrocoins} AC`;
+  list.innerHTML = report.entries.length
+    ? report.entries
+        .map(
+          (entry) => `
+            <article class="report-row">
+              <div>
+                <strong>${escapeHtml(entry.teacher_name)}</strong>
+                <span>${escapeHtml(new Date(entry.created_at).toLocaleString("ru-RU"))}</span>
+              </div>
+              <div>
+                <strong>${escapeHtml(entry.student_name)}</strong>
+                <span>${escapeHtml(entry.group_name || "Без группы")}</span>
+              </div>
+              <div>
+                <strong>+${Number(entry.amount)} AC</strong>
+                <span>${escapeHtml(entry.reason)}</span>
+              </div>
+            </article>
+          `,
+        )
+        .join("")
+    : '<div class="empty-state">За выбранный период начислений нет</div>';
+}
+
+async function loadAccrualReport() {
+  const dateFrom = qs("#acReportDateFrom")?.value || "";
+  const dateTo = qs("#acReportDateTo")?.value || "";
+  if (!dateFrom || !dateTo) {
+    showNotice("Выберите начало и конец периода", "danger");
+    return;
+  }
+  state.accrualReportLoading = true;
+  renderAccrualReport();
+  try {
+    const params = new URLSearchParams({
+      max_user_id: String(apiContext.maxUserId),
+      tenant_slug: apiContext.tenantSlug || "",
+      date_from: dateFrom,
+      date_to: dateTo,
+    });
+    const response = await apiFetch(`/api/v1/miniapp/coins/report?${params}`);
+    if (!response.ok) throw new Error(await parseApiError(response));
+    state.accrualReport = await response.json();
+  } catch (error) {
+    showNotice(error.message || "Не удалось загрузить отчет", "danger");
+  } finally {
+    state.accrualReportLoading = false;
+    renderAccrualReport();
+  }
+}
+
 function renderAccrual() {
   const groupSelect = qs("#accrualGroupSelect");
   const studentList = qs("#accrualStudentList");
@@ -2767,21 +2879,21 @@ function renderAccrual() {
   const visibleStudents = groupStudents.filter((student) =>
     student.name.toLowerCase().includes(normalizedName),
   );
-  const groupFilterActive = state.accrualGroup !== "all";
   const resultCount = qs("#accrualResultCount");
   if (resultCount) resultCount.textContent = `Найдено: ${visibleStudents.length}`;
-  const bulkPanel = qs(".accrual-bulk");
-  if (bulkPanel) bulkPanel.hidden = !groupFilterActive;
-  const groupButton = qs("[data-group-accrual]");
-  if (groupButton) {
-    groupButton.disabled = state.accrualSaving || !groupFilterActive;
-    groupButton.textContent = state.accrualSaving ? "Начисление..." : "Начислить группе";
+  const selectedCount = state.selectedAccrualStudents.size;
+  const selectedButton = qs("[data-selected-accrual]");
+  if (selectedButton) {
+    selectedButton.disabled = state.accrualSaving || selectedCount === 0;
+    selectedButton.textContent = state.accrualSaving
+      ? "Начисление..."
+      : `Начислить выбранным (${selectedCount})`;
   }
   const bulkHint = qs(".accrual-bulk p");
   if (bulkHint) {
-    bulkHint.textContent = groupFilterActive
-      ? `${groupStudents.length} учен. получат начисление`
-      : "Сначала выберите конкретную группу в фильтре.";
+    bulkHint.textContent = selectedCount
+      ? `Выбрано учеников: ${selectedCount}`
+      : "Отметьте учеников в списке ниже.";
   }
 
   if (visibleStudents.length === 0) {
@@ -2790,73 +2902,29 @@ function renderAccrual() {
   }
 
   studentList.innerHTML = visibleStudents
-    .map((student, index) => {
-      const meta =
-        groupFilterActive
-          ? ""
-          : `<span class="accrual-student-meta">
-              <span>${escapeHtml(studentGroupName(student))}</span>
-              ${
-                state.role === "teacher"
-                  ? ""
-                  : `<span>${escapeHtml(student.teacher)}</span>`
-              }
-            </span>`;
+    .map((student) => {
+      const checked = state.selectedAccrualStudents.has(student.id);
       return `
-        <article class="accrual-card ${groupFilterActive ? "is-group-filtered" : ""}">
-          <button
-            class="accrual-student-head"
-            type="button"
-            data-accrual-card-toggle="${escapeHtml(student.id)}"
-            aria-expanded="false"
-            aria-controls="accrual-controls-${index}"
-          >
+        <label class="accrual-card accrual-select-card ${checked ? "is-selected" : ""}">
+          <input
+            type="checkbox"
+            data-accrual-student-check="${escapeHtml(student.id)}"
+            ${checked ? "checked" : ""}
+          />
+          <span class="accrual-student-head">
             <span class="accrual-student-mark">${escapeHtml(student.name.slice(0, 1))}</span>
             <span class="accrual-student-copy">
               <strong>${escapeHtml(student.name)}</strong>
-              ${meta}
+              <span class="accrual-student-meta">
+                <span>${escapeHtml(studentGroupName(student))}</span>
+                ${state.role === "teacher" ? "" : `<span>${escapeHtml(student.teacher)}</span>`}
+              </span>
             </span>
             <span class="accrual-student-actions">
               <span class="soft-badge">${student.balance} AC</span>
-              <i
-                class="accrual-card-toggle-icon accrual-toggle-closed-icon"
-                data-lucide="chevron-down"
-              ></i>
-              <i
-                class="accrual-card-toggle-icon accrual-toggle-open-icon"
-                data-lucide="chevron-up"
-              ></i>
             </span>
-          </button>
-          <div id="accrual-controls-${index}" class="accrual-card-controls">
-            <label>
-              <span>Причина</span>
-              <select data-accrual-reason="${escapeHtml(student.id)}">
-                <option value="">Выберите причину</option>
-                ${accrualReasons
-                  .map(
-                    (reason) => `<option value="${escapeHtml(reason)}">${escapeHtml(reason)}</option>`,
-                  )
-                  .join("")}
-              </select>
-            </label>
-            <label>
-              <span>Сумма</span>
-              <select data-accrual-amount="${escapeHtml(student.id)}">
-                <option value="">Сумма</option>
-                ${accrualAmounts
-                  .map((amount) => `<option value="${amount}">+${amount} AC</option>`)
-                  .join("")}
-              </select>
-            </label>
-            <button
-              class="primary-action"
-              type="button"
-              data-accrue-student="${escapeHtml(student.id)}"
-              ${state.accrualSaving ? "disabled" : ""}
-            >${state.accrualSaving ? "Начисление..." : "Начислить"}</button>
-          </div>
-        </article>
+          </span>
+        </label>
       `;
     })
     .join("");
@@ -3384,6 +3452,28 @@ function renderAdminPanel() {
         }
       </div>
       ` : ""}
+      <div class="warehouse-preference">
+        <div>
+          <strong>Мой основной склад</strong>
+          <span>Будет выбран заранее в новых зарезервированных заказах.</span>
+        </div>
+        <select id="defaultWarehouseSelect">
+          <option value="">Выберите склад</option>
+          ${allCatalogWarehouses()
+            .map(
+              (warehouse) => `<option value="${escapeHtml(warehouse.id)}" ${
+                warehouse.id === state.defaultWarehouseId ? "selected" : ""
+              }>${escapeHtml(warehouse.name)}</option>`,
+            )
+            .join("")}
+        </select>
+        <button
+          id="saveWarehousePreferenceButton"
+          class="secondary-action"
+          type="button"
+          ${state.warehousePreferenceSaving ? "disabled" : ""}
+        >${state.warehousePreferenceSaving ? "Сохранение..." : "Сохранить"}</button>
+      </div>
       <div class="admin-card-list">
         ${rows || '<div class="empty-state">Складов пока нет</div>'}
       </div>
@@ -3668,6 +3758,142 @@ function renderTeaching() {
   renderScheduleEditor();
   renderScheduleList();
   renderFeedbackHistory();
+  renderAttendanceJournal();
+}
+
+function renderAttendanceJournal() {
+  const scheduleSelect = qs("#attendanceScheduleSelect");
+  const dateInput = qs("#attendanceLessonDate");
+  const list = qs("#attendanceJournalList");
+  const saveButton = qs("#saveAttendanceButton");
+  if (!scheduleSelect || !dateInput || !list || !saveButton) return;
+  const schedules = teachingWorkspace().schedules.filter((item) => item.is_active);
+  const selectedSchedule = scheduleSelect.value;
+  scheduleSelect.innerHTML = schedules
+    .map(
+      (schedule) =>
+        `<option value="${escapeHtml(schedule.id)}">${escapeHtml(schedule.group_name)}</option>`,
+    )
+    .join("");
+  if (schedules.some((item) => item.id === selectedSchedule)) {
+    scheduleSelect.value = selectedSchedule;
+  }
+  if (!dateInput.value) {
+    const schedule = schedules.find((item) => item.id === scheduleSelect.value);
+    dateInput.value = schedule?.next_lesson_date || reportDateValue(new Date());
+  }
+  if (state.attendanceLoading) {
+    list.innerHTML = '<div class="empty-state">Загружаем журнал...</div>';
+    saveButton.hidden = true;
+    return;
+  }
+  const journal = state.attendanceJournal;
+  if (!journal) {
+    list.innerHTML = '<div class="empty-state">Выберите группу и дату урока.</div>';
+    saveButton.hidden = true;
+    return;
+  }
+  list.innerHTML = journal.students.length
+    ? journal.students
+        .map(
+          (student) => `
+            <label class="attendance-row">
+              <input
+                type="checkbox"
+                data-attendance-student="${escapeHtml(student.student_id)}"
+                ${student.present === false ? "" : "checked"}
+              />
+              <span>
+                <strong>${escapeHtml(student.student_name)}</strong>
+                <small>${student.present === false ? "Отсутствовал" : "Присутствовал"}</small>
+              </span>
+            </label>
+          `,
+        )
+        .join("")
+    : '<div class="empty-state">В этой группе нет активных учеников.</div>';
+  saveButton.hidden = journal.students.length === 0;
+}
+
+async function loadAttendanceJournal() {
+  const scheduleId = qs("#attendanceScheduleSelect")?.value || "";
+  const lessonDate = qs("#attendanceLessonDate")?.value || "";
+  if (!scheduleId || !lessonDate) {
+    showNotice("Выберите группу и дату урока", "danger");
+    return;
+  }
+  state.attendanceLoading = true;
+  renderAttendanceJournal();
+  try {
+    if (apiContext.demoMode || !apiContext.maxUserId) {
+      const schedule = teachingWorkspace().schedules.find((item) => item.id === scheduleId);
+      state.attendanceJournal = {
+        schedule_id: scheduleId,
+        group_name: schedule?.group_name || "",
+        lesson_date: lessonDate,
+        students: studentsForGroup(schedule?.group_name || "").map((student) => ({
+          student_id: student.id,
+          student_name: student.name,
+          present: null,
+        })),
+      };
+    } else {
+      const params = new URLSearchParams({
+        max_user_id: String(apiContext.maxUserId),
+        tenant_slug: apiContext.tenantSlug || "",
+        lesson_date: lessonDate,
+      });
+      const response = await apiFetch(
+        `/api/v1/teaching/schedules/${encodeURIComponent(scheduleId)}/attendance?${params}`,
+      );
+      if (!response.ok) throw new Error(await parseApiError(response));
+      state.attendanceJournal = await response.json();
+    }
+  } catch (error) {
+    showNotice(error.message || "Не удалось открыть журнал", "danger");
+  } finally {
+    state.attendanceLoading = false;
+    renderAttendanceJournal();
+  }
+}
+
+async function saveAttendanceJournal() {
+  const journal = state.attendanceJournal;
+  if (!journal) return;
+  const items = qsa("[data-attendance-student]").map((input) => ({
+    student_id: input.dataset.attendanceStudent,
+    present: input.checked,
+  }));
+  if (apiContext.demoMode || !apiContext.maxUserId) {
+    journal.students.forEach((student) => {
+      const item = items.find((candidate) => candidate.student_id === student.student_id);
+      if (item) student.present = item.present;
+    });
+    showNotice("Посещаемость сохранена в демо-режиме");
+    renderAttendanceJournal();
+    return;
+  }
+  try {
+    const response = await apiFetch(
+      `/api/v1/teaching/schedules/${encodeURIComponent(journal.schedule_id)}/attendance`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          max_user_id: Number(apiContext.maxUserId),
+          tenant_slug: apiContext.tenantSlug || undefined,
+          lesson_date: journal.lesson_date,
+          items,
+        }),
+      },
+    );
+    if (!response.ok) throw new Error(await parseApiError(response));
+    state.attendanceJournal = await response.json();
+    showNotice("Посещаемость сохранена");
+    renderAttendanceJournal();
+  } catch (error) {
+    showNotice(error.message || "Не удалось сохранить посещаемость", "danger");
+  }
 }
 
 function renderScheduleEditor() {
@@ -3855,8 +4081,10 @@ function renderAll() {
   renderCart();
   renderOrders();
   renderLedger();
+  renderAccrualReport();
   renderAccrual();
   renderTeaching();
+  renderAttendanceJournal();
   renderAdminPanel();
   refreshIcons();
 }
@@ -4256,7 +4484,10 @@ function renderOrderDialog(order) {
                       ${warehouseOptions
                         .map(
                           (warehouse) => `
-                            <option value="${escapeHtml(warehouse.id)}">
+                            <option
+                              value="${escapeHtml(warehouse.id)}"
+                              ${warehouse.id === state.defaultWarehouseId ? "selected" : ""}
+                            >
                               ${escapeHtml(warehouse.name)} · доступно ${warehouse.available}
                             </option>
                           `,
@@ -4370,6 +4601,33 @@ function closeOrderDialog() {
   syncDialogBodyClass();
 }
 
+function showCancelOrderForm(orderId) {
+  const order = orders.find((item) => item.backendId === orderId || item.id === orderId);
+  if (!order) return;
+  qs("#orderDialogActions").innerHTML = `
+    <div class="order-cancel-form">
+      <label>
+        <span>Причина отмены</span>
+        <select id="orderCancelReason">
+          <option value="Товар закончился">Товар закончился</option>
+          <option value="Ошибка в заказе">Ошибка в заказе</option>
+          <option value="По просьбе родителя">По просьбе родителя</option>
+          <option value="Заказ не актуален">Заказ не актуален</option>
+          <option value="Другое">Другое</option>
+        </select>
+      </label>
+      <label>
+        <span>Своя причина</span>
+        <input id="orderCancelCustomReason" type="text" maxlength="500" placeholder="Заполняется для варианта «Другое»" />
+      </label>
+      <div class="order-cancel-actions">
+        <button class="secondary-action" type="button" data-cancel-order-back="${escapeHtml(orderId)}">Назад</button>
+        <button class="secondary-action danger-action" type="button" data-confirm-order-cancel="${escapeHtml(orderId)}">Отменить заказ</button>
+      </div>
+    </div>
+  `;
+}
+
 async function assignOrderWarehouses(orderId) {
   const order = orders.find((item) => item.backendId === orderId || item.id === orderId);
   if (!order || !canAssignOrderWarehouses(order)) return;
@@ -4451,13 +4709,14 @@ async function assignOrderWarehouses(orderId) {
   }
 }
 
-async function updateOrderAction(orderId, action) {
+async function updateOrderAction(orderId, action, cancelData = null) {
   const order = orders.find((item) => item.backendId === orderId || item.id === orderId);
   if (!order) return;
 
   if (orderId.startsWith("demo-") || apiContext.demoMode || !apiContext.maxUserId) {
     const previousStatus = order.rawStatus;
     if (action === "issue") order.rawStatus = "issued_to_student";
+    else if (action === "transfer") order.rawStatus = "transferred_to_teacher";
     else if (action === "return") order.rawStatus = "returned";
     else order.rawStatus = "cancelled";
     order.status = orderStatusLabel(order.rawStatus);
@@ -4468,14 +4727,16 @@ async function updateOrderAction(orderId, action) {
       toStatus: order.rawStatus,
       comment: {
         issue: "Заказ выдан ученику",
+        transfer: "Заказ передан учителю",
         return: "Заказ возвращен",
-        cancel: "Заказ отменен",
+        cancel: cancelData?.customReason || cancelData?.reason || "Заказ отменен",
       }[action],
       createdAt: new Date().toISOString(),
     });
     showNotice(
       {
         issue: `Заказ №${order.id} отмечен как выданный`,
+        transfer: `Заказ №${order.id} передан учителю`,
         return: `Заказ №${order.id} возвращен в демо-режиме`,
         cancel: `Заказ №${order.id} отменен в демо-режиме`,
       }[action],
@@ -4485,22 +4746,38 @@ async function updateOrderAction(orderId, action) {
     return;
   }
 
-  const endpoint = action === "issue" ? "issue" : action === "return" ? "return" : "cancel";
+  const endpoint =
+    action === "issue"
+      ? "issue"
+      : action === "transfer"
+        ? "transfer-to-teacher"
+        : action === "return"
+          ? "return"
+          : "cancel";
   try {
     const response = await apiFetch(
       `/api/v1/miniapp/orders/${encodeURIComponent(order.backendId)}/${endpoint}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          max_user_id: Number(apiContext.maxUserId),
-          tenant_slug: apiContext.tenantSlug || undefined,
-          comment: {
-            issue: "Выдано из MAX mini app",
-            return: "Возврат из MAX mini app",
-            cancel: "Отменено из MAX mini app",
-          }[action],
-        }),
+        body: JSON.stringify(
+          action === "cancel"
+            ? {
+                max_user_id: Number(apiContext.maxUserId),
+                tenant_slug: apiContext.tenantSlug || undefined,
+                reason: cancelData?.reason || "Другое",
+                custom_reason: cancelData?.customReason || undefined,
+              }
+            : {
+                max_user_id: Number(apiContext.maxUserId),
+                tenant_slug: apiContext.tenantSlug || undefined,
+                comment: {
+                  issue: "Выдано из MAX mini app",
+                  transfer: "Передано учителю из MAX mini app",
+                  return: "Возврат из MAX mini app",
+                }[action],
+              },
+        ),
       },
     );
     if (!response.ok) throw new Error(await parseApiError(response));
@@ -4509,6 +4786,7 @@ async function updateOrderAction(orderId, action) {
     showNotice(
       {
         issue: `Заказ №${result.order.order_number} выдан ученику`,
+        transfer: `Заказ №${result.order.order_number} передан учителю`,
         return: `Заказ №${result.order.order_number} возвращен, астрокоины зачислены`,
         cancel: `Заказ №${result.order.order_number} отменен, астрокоины возвращены`,
       }[action],
@@ -4524,25 +4802,23 @@ async function updateOrderAction(orderId, action) {
   }
 }
 
-async function accrueGroupCoins() {
-  const group = qs("#accrualGroupSelect")?.value || "all";
+async function accrueSelectedStudents() {
   const reason = qs("#groupAccrualReason")?.value || "";
   const amount = Number.parseInt(qs("#groupAccrualAmount")?.value || "0", 10);
-  if (group === "all") {
-    showNotice("Выберите конкретную группу для группового начисления", "danger");
-    return;
-  }
   if (!reason) {
-    showNotice("Выберите причину группового начисления", "danger");
+    showNotice("Выберите причину начисления", "danger");
     return;
   }
   if (!amount || amount <= 0) {
-    showNotice("Выберите сумму группового начисления", "danger");
+    showNotice("Выберите сумму начисления", "danger");
     return;
   }
-
-  state.accrualGroup = group;
-  await accrueStudents(studentsForGroup(group), amount, reason, group);
+  const targets = students.filter((student) => state.selectedAccrualStudents.has(student.id));
+  if (targets.length === 0) {
+    showNotice("Отметьте хотя бы одного ученика", "danger");
+    return;
+  }
+  await accrueStudents(targets, amount, reason);
 }
 
 function cycleProductWarehouse(productId) {
@@ -4623,6 +4899,36 @@ async function saveWarehouseFromForm() {
     showNotice(error.message || "Не удалось сохранить склад", "danger");
   } finally {
     state.warehouseSaving = false;
+    renderAdminPanel();
+  }
+}
+
+async function saveWarehousePreference() {
+  const warehouseId = qs("#defaultWarehouseSelect")?.value || "";
+  if (!warehouseId) {
+    showNotice("Выберите основной склад", "danger");
+    return;
+  }
+  state.warehousePreferenceSaving = true;
+  renderAdminPanel();
+  try {
+    const response = await apiFetch("/api/v1/miniapp/warehouse-preference", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        max_user_id: Number(apiContext.maxUserId),
+        tenant_slug: apiContext.tenantSlug || undefined,
+        warehouse_id: warehouseId,
+      }),
+    });
+    if (!response.ok) throw new Error(await parseApiError(response));
+    const result = await response.json();
+    state.defaultWarehouseId = String(result.warehouse_id);
+    showNotice(`Основной склад: ${result.warehouse_name}`);
+  } catch (error) {
+    showNotice(error.message || "Не удалось сохранить основной склад", "danger");
+  } finally {
+    state.warehousePreferenceSaving = false;
     renderAdminPanel();
   }
 }
@@ -4932,6 +5238,7 @@ async function accrueStudents(targets, amount, reason, groupLabel = "") {
         ? `${targets[0].name}: начислено ${amount} AC`
         : `Группе «${state.accrualGroup}» начислено по ${amount} AC`,
     );
+    state.selectedAccrualStudents.clear();
     renderAll();
     return;
   }
@@ -4962,6 +5269,7 @@ async function accrueStudents(targets, amount, reason, groupLabel = "") {
         : `Группе «${state.accrualGroup}» начислено по ${amount} AC: ${result.credited_students} учен.`,
     );
     await loadSession();
+    state.selectedAccrualStudents.clear();
     renderAll();
   } catch (error) {
     showNotice(error.message || "Не удалось начислить астрокоины", "danger");
@@ -4969,29 +5277,6 @@ async function accrueStudents(targets, amount, reason, groupLabel = "") {
     state.accrualSaving = false;
     renderAccrual();
   }
-}
-
-async function accrueStudentFromRow(studentId) {
-  const student = students.find((item) => item.id === studentId);
-  const reason =
-    qsa("[data-accrual-reason]").find((item) => item.dataset.accrualReason === studentId)
-      ?.value || "";
-  const amountValue =
-    qsa("[data-accrual-amount]").find((item) => item.dataset.accrualAmount === studentId)
-      ?.value || "";
-  const amount = Number.parseInt(amountValue, 10);
-
-  if (!student || !amountValue) return;
-  if (!reason) {
-    showNotice("Выберите причину начисления", "danger");
-    return;
-  }
-  if (!amount || amount <= 0) {
-    showNotice("Выберите количество астрокоинов", "danger");
-    return;
-  }
-
-  await accrueStudents([student], amount, reason);
 }
 
 async function placeOrder() {
@@ -5138,29 +5423,53 @@ document.addEventListener("click", (event) => {
   const orderActionId = target.dataset.orderActionId;
   const orderAction = target.dataset.orderAction;
   if (orderActionId && orderAction) {
-    updateOrderAction(orderActionId, orderAction);
+    if (orderAction === "cancel") {
+      openOrderDetails(orderActionId);
+      showCancelOrderForm(orderActionId);
+    } else {
+      updateOrderAction(orderActionId, orderAction);
+    }
+  }
+
+  const confirmCancelOrderId = target.dataset.confirmOrderCancel;
+  if (confirmCancelOrderId) {
+    const reason = qs("#orderCancelReason")?.value || "";
+    const customReason = qs("#orderCancelCustomReason")?.value.trim() || "";
+    if (reason === "Другое" && !customReason) {
+      showNotice("Укажите свою причину отмены", "danger");
+      return;
+    }
+    updateOrderAction(confirmCancelOrderId, "cancel", { reason, customReason });
+  }
+
+  const cancelOrderBackId = target.dataset.cancelOrderBack;
+  if (cancelOrderBackId) {
+    const order = orders.find(
+      (item) => item.backendId === cancelOrderBackId || item.id === cancelOrderBackId,
+    );
+    if (order) renderOrderDialog(order);
   }
 
   if (target.id === "assignOrderWarehousesButton") {
     assignOrderWarehouses(target.dataset.orderId || "");
   }
 
-  if ("groupAccrual" in target.dataset) {
-    accrueGroupCoins();
+  if (target.id === "loadAcReportButton") {
+    loadAccrualReport();
   }
 
-  const accrualCardStudentId = target.dataset.accrualCardToggle;
-  if (accrualCardStudentId) {
-    const card = target.closest(".accrual-card");
-    const expanded = card?.classList.toggle("is-open") || false;
-    target.setAttribute("aria-expanded", String(expanded));
-    return;
+  if (target.id === "loadAttendanceButton") {
+    loadAttendanceJournal();
   }
 
-  const accrueStudentId = target.dataset.accrueStudent;
-  if (accrueStudentId) {
-    accrueStudentFromRow(accrueStudentId);
+  if (target.id === "saveAttendanceButton") {
+    saveAttendanceJournal();
   }
+
+  if ("selectedAccrual" in target.dataset) {
+    accrueSelectedStudents();
+  }
+
 
   const warehouseName = target.dataset.warehouseAction;
   if (warehouseName) showWarehouseAction(warehouseName);
@@ -5186,6 +5495,10 @@ document.addEventListener("click", (event) => {
 
   if (target.id === "warehouseSaveButton") {
     saveWarehouseFromForm();
+  }
+
+  if (target.id === "saveWarehousePreferenceButton") {
+    saveWarehousePreference();
   }
 
   const transferProductId = target.dataset.transferProduct;
@@ -5361,6 +5674,13 @@ document.addEventListener("change", (event) => {
     renderAccrual();
   }
 
+  const accrualStudentId = target.dataset.accrualStudentCheck;
+  if (accrualStudentId) {
+    if (target.checked) state.selectedAccrualStudents.add(accrualStudentId);
+    else state.selectedAccrualStudents.delete(accrualStudentId);
+    renderAccrual();
+  }
+
   if (target.id === "orderStatusFilter") {
     state.orderStatusFilter = target.value;
     renderOrders();
@@ -5370,6 +5690,21 @@ document.addEventListener("change", (event) => {
   if (target.id === "scheduleDayFilter") {
     state.scheduleDayFilter = target.value;
     renderScheduleList();
+  }
+
+  if (target.id === "attendanceScheduleSelect") {
+    const schedule = teachingWorkspace().schedules.find((item) => item.id === target.value);
+    const dateInput = qs("#attendanceLessonDate");
+    if (dateInput && schedule?.next_lesson_date) {
+      dateInput.value = schedule.next_lesson_date;
+    }
+    state.attendanceJournal = null;
+    renderAttendanceJournal();
+  }
+
+  if (target.id === "attendanceLessonDate") {
+    state.attendanceJournal = null;
+    renderAttendanceJournal();
   }
 
   if (target.id === "productDialogQuantity") {
@@ -5499,6 +5834,14 @@ async function init() {
   renderAll();
   renderSyncStatus();
   refreshIcons();
+  if (
+    apiContext.productId &&
+    ["student", "parent"].includes(state.role) &&
+    productById(apiContext.productId)
+  ) {
+    setView("store");
+    openProductDialog(apiContext.productId);
+  }
 }
 
 init();

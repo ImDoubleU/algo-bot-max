@@ -6782,3 +6782,157 @@ body[data-active-role="student"] #studentContext {
     grid-template-columns: minmax(250px, 1fr);
   }
 }
+
+.accrual-select-card {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.accrual-select-card > input {
+  width: 21px;
+  height: 21px;
+  margin: 0;
+  accent-color: var(--brand-purple);
+}
+
+.accrual-select-card .accrual-student-head {
+  width: 100%;
+  padding: 0;
+  cursor: pointer;
+}
+
+.accrual-select-card.is-selected {
+  border-color: var(--brand-purple);
+  background: var(--brand-purple-soft);
+}
+
+.warehouse-preference,
+.report-toolbar,
+.attendance-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 320px) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: #ffffff;
+}
+
+.warehouse-preference > div,
+.warehouse-preference label,
+.report-toolbar label,
+.attendance-toolbar label {
+  display: grid;
+  gap: 5px;
+}
+
+.warehouse-preference span,
+.report-toolbar span,
+.attendance-toolbar span,
+.report-row span,
+.attendance-row small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.report-summary {
+  padding: 12px 2px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.report-list,
+.attendance-list {
+  border: 1px solid var(--line);
+  background: #ffffff;
+}
+
+.report-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1fr) minmax(180px, 0.8fr);
+  gap: 14px;
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--line);
+}
+
+.report-row:last-child,
+.attendance-row:last-child {
+  border-bottom: 0;
+}
+
+.report-row > div,
+.attendance-row > span {
+  display: grid;
+  gap: 3px;
+}
+
+.attendance-journal {
+  margin: 16px 0;
+  border: 1px solid var(--line);
+  background: #ffffff;
+}
+
+.attendance-journal > .panel-head,
+.attendance-journal > .primary-action {
+  margin: 14px;
+}
+
+.attendance-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.attendance-row input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--brand-purple);
+}
+
+.order-cancel-form {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.order-cancel-form label {
+  display: grid;
+  gap: 5px;
+  text-align: left;
+}
+
+.order-cancel-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .warehouse-preference,
+  .report-toolbar,
+  .attendance-toolbar,
+  .report-row,
+  .order-cancel-form {
+    grid-template-columns: 1fr;
+  }
+
+  .order-cancel-actions {
+    grid-column: auto;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .report-row {
+    gap: 9px;
+  }
+}

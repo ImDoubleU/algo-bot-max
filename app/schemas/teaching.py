@@ -132,3 +132,32 @@ class ManualFeedbackOutputRead(BaseModel):
     status: str
     sent_at: datetime | None = None
     created_at: datetime
+
+
+class AttendanceStudentRead(BaseModel):
+    student_id: UUID
+    student_name: str
+    group_name: str
+    present: bool | None = None
+    comment: str | None = None
+
+
+class AttendanceJournalRead(BaseModel):
+    schedule_id: UUID
+    group_name: str
+    lesson_date: date
+    lesson_number: int
+    students: list[AttendanceStudentRead]
+
+
+class AttendanceMarkItem(BaseModel):
+    student_id: UUID
+    present: bool
+    comment: str | None = Field(default=None, max_length=300)
+
+
+class AttendanceMarkRequest(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    lesson_date: date
+    items: list[AttendanceMarkItem] = Field(min_length=1, max_length=100)

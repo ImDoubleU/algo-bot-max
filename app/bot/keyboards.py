@@ -216,15 +216,27 @@ def build_miniapp_url(
     user_id: int | None = None,
     tenant_slug: str | None = None,
     view: str | None = None,
+    product_id: str | None = None,
 ) -> str:
     # Keep the configured site URL exact for the external-link fallback.
     # User and tenant context come from signed WebApp init data after launch.
-    _ = user_id, tenant_slug, view
+    _ = user_id, tenant_slug
     configured_url = os.getenv("MAX_MINIAPP_URL", "").strip()
-    if configured_url:
-        return configured_url
     settings_url = get_settings().max_miniapp_url
-    return "" if is_placeholder(settings_url) else str(settings_url).strip()
+    base_url = configured_url or (
+        "" if is_placeholder(settings_url) else str(settings_url).strip()
+    )
+    if not base_url or not any((view, product_id)):
+        return base_url
+    parsed = parse.urlsplit(base_url)
+    query = dict(parse.parse_qsl(parsed.query, keep_blank_values=True))
+    if view:
+        query["view"] = view
+    if product_id:
+        query["product"] = product_id
+    return parse.urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, parse.urlencode(query), parsed.fragment)
+    )
 
 
 def main_menu_keyboard(

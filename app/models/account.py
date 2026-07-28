@@ -46,3 +46,30 @@ class StaffRoleAssignment(TimestampMixin, Base):
 
     tenant = relationship("Tenant", back_populates="staff_assignments")
     account = relationship("MaxAccount", back_populates="staff_assignments")
+
+
+class StaffWarehousePreference(TimestampMixin, Base):
+    __tablename__ = "staff_warehouse_preferences"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "account_id",
+            name="uq_staff_warehouse_preferences_tenant_account",
+        ),
+    )
+
+    id: Mapped[UUID] = uuid_pk()
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), index=True, nullable=False)
+    account_id: Mapped[UUID] = mapped_column(
+        ForeignKey("max_accounts.id"),
+        index=True,
+        nullable=False,
+    )
+    warehouse_id: Mapped[UUID] = mapped_column(
+        ForeignKey("warehouses.id"),
+        index=True,
+        nullable=False,
+    )
+
+    account = relationship("MaxAccount")
+    warehouse = relationship("Warehouse")

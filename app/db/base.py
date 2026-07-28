@@ -1,4 +1,4 @@
-from app.models.account import MaxAccount, StaffRoleAssignment
+from app.models.account import MaxAccount, StaffRoleAssignment, StaffWarehousePreference
 from app.models.audit import AuditLog
 from app.models.store import (
     Order,
@@ -19,6 +19,7 @@ from app.models.student import (
     Wallet,
 )
 from app.models.teaching import (
+    AttendanceRecord,
     Course,
     CourseLesson,
     FeedbackOutput,
@@ -29,6 +30,7 @@ from app.models.tenant import City, Partner, Tenant, Venue
 
 __all__ = [
     "AstrocoinLedgerEntry",
+    "AttendanceRecord",
     "AuditLog",
     "City",
     "Contact",
@@ -45,6 +47,7 @@ __all__ = [
     "Product",
     "ProductCategory",
     "StaffRoleAssignment",
+    "StaffWarehousePreference",
     "StockMovement",
     "Student",
     "StudentAccessLink",

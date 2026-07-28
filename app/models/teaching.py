@@ -150,3 +150,40 @@ class ManualFeedbackOutput(TimestampMixin, Base):
 
     author_account = relationship("MaxAccount")
     course = relationship("Course")
+
+
+class AttendanceRecord(TimestampMixin, Base):
+    __tablename__ = "attendance_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "schedule_id",
+            "student_id",
+            "lesson_date",
+            name="uq_attendance_schedule_student_lesson_date",
+        ),
+    )
+
+    id: Mapped[UUID] = uuid_pk()
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), index=True, nullable=False)
+    schedule_id: Mapped[UUID] = mapped_column(
+        ForeignKey("teaching_schedules.id"),
+        index=True,
+        nullable=False,
+    )
+    student_id: Mapped[UUID] = mapped_column(
+        ForeignKey("students.id"),
+        index=True,
+        nullable=False,
+    )
+    lesson_date: Mapped[date] = mapped_column(Date, nullable=False)
+    present: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    marked_by_account_id: Mapped[UUID] = mapped_column(
+        ForeignKey("max_accounts.id"),
+        index=True,
+        nullable=False,
+    )
+    comment: Mapped[str | None] = mapped_column(String(300))
+
+    schedule = relationship("TeachingSchedule")
+    student = relationship("Student")
+    marked_by = relationship("MaxAccount")

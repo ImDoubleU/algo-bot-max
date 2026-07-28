@@ -3,6 +3,7 @@ from urllib.parse import quote
 from app.services.access import normalize_contact_id
 
 CONTACT_PAYLOAD_PREFIX = "cid_"
+SHOP_PAYLOAD_PREFIX = "shop_"
 STUDENT_PAYLOAD_PREFIX = "sid_"
 MAX_PAYLOAD_LIMIT = 128
 
@@ -48,6 +49,19 @@ def build_max_bot_deeplink(bot_username: str, contact_id: str) -> str:
         raise DeepLinkError("Bot username is empty")
 
     payload = make_contact_payload(contact_id)
+    return f"https://max.ru/{username}?start={quote(payload, safe='')}"
+
+
+def build_max_bot_shop_deeplink(bot_username: str, contact_id: str) -> str:
+    username = bot_username.strip().lstrip("@")
+    if not username:
+        raise DeepLinkError("Bot username is empty")
+    normalized = normalize_contact_id(contact_id)
+    if not normalized:
+        raise DeepLinkError("Contact ID is empty")
+    payload = f"{SHOP_PAYLOAD_PREFIX}{normalized}"
+    if len(payload) > MAX_PAYLOAD_LIMIT:
+        raise DeepLinkError(f"Payload is longer than {MAX_PAYLOAD_LIMIT} characters")
     return f"https://max.ru/{username}?start={quote(payload, safe='')}"
 
 

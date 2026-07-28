@@ -30,11 +30,13 @@ from app.schemas.miniapp import (
     MiniAppInventoryAdjustmentCreate,
     MiniAppInventoryTransferCreate,
     MiniAppOrderActionCreate,
+    MiniAppOrderCancelCreate,
     MiniAppOrderCreate,
     MiniAppOrderItemCreate,
     MiniAppOrderWarehouseAssignmentCreate,
     MiniAppOrderWarehouseAssignmentItem,
     MiniAppProductUpsert,
+    MiniAppWarehousePreferenceUpdate,
     MiniAppWarehouseUpsert,
 )
 from app.services.access import create_contact_access_links
@@ -51,6 +53,7 @@ from app.services.miniapp import (
     issue_miniapp_order,
     list_miniapp_catalog,
     return_miniapp_order,
+    set_miniapp_warehouse_preference,
     transfer_miniapp_inventory,
     upsert_miniapp_product,
     upsert_miniapp_warehouse,
@@ -193,6 +196,36 @@ async def test_order_waits_for_admin_warehouse_and_debits_wallet(db_session) -> 
     assert len(order_items) == 1
     assert len(ledger_entries) == 1
     assert ledger_entries[0].direction == LedgerDirection.DEBIT
+
+
+async def test_admin_can_save_personal_default_warehouse(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    _product, inventory = await seed_product(db_session, student)
+    account = await db_session.scalar(
+        select(MaxAccount).where(MaxAccount.max_user_id == 53364725)
+    )
+    assert account is not None
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    preference = await set_miniapp_warehouse_preference(
+        db_session,
+        payload=MiniAppWarehousePreferenceUpdate(
+            max_user_id=account.max_user_id,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            warehouse_id=inventory.warehouse_id,
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    assert preference.warehouse_id == inventory.warehouse_id
 
 
 async def test_staff_without_student_link_cannot_place_order(db_session) -> None:
@@ -363,10 +396,10 @@ async def test_cancel_order_releases_stock_and_refunds_wallet(db_session) -> Non
     cancelled = await cancel_miniapp_order(
         db_session,
         order_id=created.order.id,
-        payload=MiniAppOrderActionCreate(
+        payload=MiniAppOrderCancelCreate(
             max_user_id=53364725,
             tenant_slug="nizhniy-novgorod-partner-a",
-            comment="Передумали",
+            reason="Передумали",
         ),
         default_tenant_slug="nizhniy-novgorod-partner-a",
     )

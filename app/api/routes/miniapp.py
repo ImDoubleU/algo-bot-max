@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -28,6 +29,7 @@ from app.schemas.miniapp import (
     MiniAppAccessStatusUpdate,
     MiniAppAccrualCreate,
     MiniAppAccrualRead,
+    MiniAppAccrualReportRead,
     MiniAppCatalogRead,
     MiniAppCrmImportRead,
     MiniAppInventoryAdjustmentCreate,
@@ -37,6 +39,7 @@ from app.schemas.miniapp import (
     MiniAppOpsSummaryRead,
     MiniAppOrderActionCreate,
     MiniAppOrderActionRead,
+    MiniAppOrderCancelCreate,
     MiniAppOrderCreate,
     MiniAppOrderCreatedRead,
     MiniAppOrderWarehouseAssignmentCreate,
@@ -49,6 +52,8 @@ from app.schemas.miniapp import (
     MiniAppStaffOnboardingOptionsRead,
     MiniAppTenantCreate,
     MiniAppTenantCreatedRead,
+    MiniAppWarehousePreferenceRead,
+    MiniAppWarehousePreferenceUpdate,
     MiniAppWarehouseRead,
     MiniAppWarehouseUpsert,
 )
@@ -60,6 +65,7 @@ from app.services.miniapp import (
     cancel_miniapp_order,
     create_miniapp_order,
     create_miniapp_tenant,
+    get_miniapp_accrual_report,
     get_miniapp_ops_summary,
     get_miniapp_session,
     import_miniapp_crm_students,
@@ -68,7 +74,9 @@ from app.services.miniapp import (
     list_miniapp_catalog,
     list_miniapp_staff_onboarding_options,
     return_miniapp_order,
+    set_miniapp_warehouse_preference,
     transfer_miniapp_inventory,
+    transfer_miniapp_order_to_teacher,
     update_miniapp_access_link_status,
     update_miniapp_staff_assignment,
     upsert_miniapp_product,
@@ -497,7 +505,7 @@ async def miniapp_create_order(
 @router.post("/orders/{order_id}/cancel", response_model=MiniAppOrderActionRead)
 async def miniapp_cancel_order(
     order_id: UUID,
-    payload: MiniAppOrderActionCreate,
+    payload: MiniAppOrderCancelCreate,
     db: DbSession,
     identity: MiniAppIdentityDep,
 ) -> MiniAppOrderActionRead:
@@ -509,6 +517,30 @@ async def miniapp_cancel_order(
     )
     try:
         return await cancel_miniapp_order(
+            db,
+            order_id=order_id,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/orders/{order_id}/transfer-to-teacher", response_model=MiniAppOrderActionRead)
+async def miniapp_transfer_order_to_teacher(
+    order_id: UUID,
+    payload: MiniAppOrderActionCreate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppOrderActionRead:
+    settings = get_settings()
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await transfer_miniapp_order_to_teacher(
             db,
             order_id=order_id,
             payload=payload,
@@ -604,6 +636,54 @@ async def miniapp_accrue_coins(
     )
     try:
         return await accrue_miniapp_astrocoins(
+            db,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/coins/report", response_model=MiniAppAccrualReportRead)
+async def miniapp_accrual_report(
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    date_from: date,
+    date_to: date,
+    tenant_slug: str | None = None,
+) -> MiniAppAccrualReportRead:
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        return await get_miniapp_accrual_report(
+            db,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.put("/warehouse-preference", response_model=MiniAppWarehousePreferenceRead)
+async def miniapp_warehouse_preference(
+    payload: MiniAppWarehousePreferenceUpdate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppWarehousePreferenceRead:
+    settings = get_settings()
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await set_miniapp_warehouse_preference(
             db,
             payload=payload,
             default_tenant_slug=settings.default_tenant_slug,

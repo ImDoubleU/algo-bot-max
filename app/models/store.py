@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, uuid_pk
@@ -87,6 +87,7 @@ class WarehouseInventory(TimestampMixin, Base):
     reserved_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     issued_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     returned_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    low_stock_notified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     warehouse = relationship("Warehouse", back_populates="inventory_items")
     product = relationship("Product", back_populates="inventory_items")
@@ -111,6 +112,7 @@ class Order(TimestampMixin, Base):
     teacher_name: Mapped[str | None] = mapped_column(String(160))
     venue_name: Mapped[str | None] = mapped_column(String(160))
     comment: Mapped[str | None] = mapped_column(String(500))
+    cancellation_reason: Mapped[str | None] = mapped_column(String(500))
 
     items = relationship("OrderItem", back_populates="order")
     status_history = relationship("OrderStatusHistory", back_populates="order")

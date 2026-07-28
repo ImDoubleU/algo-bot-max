@@ -12,6 +12,7 @@ from app.models.audit import AuditLog
 from app.models.enums import StaffRole, StudentStatus
 from app.models.student import Student
 from app.models.teaching import (
+    AttendanceRecord,
     Course,
     CourseLesson,
     FeedbackOutput,
@@ -20,6 +21,9 @@ from app.models.teaching import (
 )
 from app.models.tenant import Tenant
 from app.schemas.teaching import (
+    AttendanceJournalRead,
+    AttendanceMarkRequest,
+    AttendanceStudentRead,
     CourseLessonSummaryRead,
     CourseSummaryRead,
     FeedbackDeliveryRead,
@@ -253,6 +257,151 @@ async def get_teaching_workspace(
         ],
         schedules=[schedule_to_read(schedule) for schedule in schedules],
         feedback_outputs=[feedback_to_read(output) for output in outputs],
+    )
+
+
+async def get_attendance_journal(
+    db: AsyncSession,
+    *,
+    max_user_id: int,
+    tenant_slug: str,
+    schedule_id: UUID,
+    lesson_date: date,
+) -> AttendanceJournalRead:
+    tenant, account, role = await load_teaching_context(
+        db,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    schedule = await db.scalar(
+        select(TeachingSchedule).where(
+            TeachingSchedule.tenant_id == tenant.id,
+            TeachingSchedule.id == schedule_id,
+        )
+    )
+    if schedule is None:
+        raise TeachingServiceError("Расписание не найдено", status_code=404)
+    if role == StaffRole.TEACHER and schedule.teacher_account_id != account.id:
+        raise TeachingServiceError("Нельзя редактировать журнал чужой группы", status_code=403)
+
+    students = (
+        await db.scalars(
+            select(Student)
+            .where(
+                Student.tenant_id == tenant.id,
+                Student.group_name == schedule.group_name,
+                Student.status == StudentStatus.ACTIVE,
+            )
+            .order_by(Student.last_name, Student.first_name)
+        )
+    ).all()
+    records = (
+        await db.scalars(
+            select(AttendanceRecord).where(
+                AttendanceRecord.schedule_id == schedule.id,
+                AttendanceRecord.lesson_date == lesson_date,
+            )
+        )
+    ).all()
+    records_by_student = {record.student_id: record for record in records}
+    lesson_number = max(1, ((lesson_date - schedule.first_lesson_date).days // 7) + 1)
+    return AttendanceJournalRead(
+        schedule_id=UUID(str(schedule.id)),
+        group_name=schedule.group_name,
+        lesson_date=lesson_date,
+        lesson_number=lesson_number,
+        students=[
+            AttendanceStudentRead(
+                student_id=UUID(str(student.id)),
+                student_name=student.display_name,
+                group_name=schedule.group_name,
+                present=(
+                    records_by_student[student.id].present
+                    if student.id in records_by_student
+                    else None
+                ),
+                comment=(
+                    records_by_student[student.id].comment
+                    if student.id in records_by_student
+                    else None
+                ),
+            )
+            for student in students
+        ],
+    )
+
+
+async def mark_attendance(
+    db: AsyncSession,
+    *,
+    schedule_id: UUID,
+    payload: AttendanceMarkRequest,
+    default_tenant_slug: str,
+) -> AttendanceJournalRead:
+    tenant_slug = (payload.tenant_slug or default_tenant_slug).strip().lower()
+    tenant, account, role = await load_teaching_context(
+        db,
+        max_user_id=payload.max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    schedule = await db.scalar(
+        select(TeachingSchedule).where(
+            TeachingSchedule.tenant_id == tenant.id,
+            TeachingSchedule.id == schedule_id,
+        )
+    )
+    if schedule is None:
+        raise TeachingServiceError("Расписание не найдено", status_code=404)
+    if role == StaffRole.TEACHER and schedule.teacher_account_id != account.id:
+        raise TeachingServiceError("Нельзя редактировать журнал чужой группы", status_code=403)
+
+    student_ids = list(dict.fromkeys(item.student_id for item in payload.items))
+    students = (
+        await db.scalars(
+            select(Student).where(
+                Student.tenant_id == tenant.id,
+                Student.id.in_(student_ids),
+                Student.group_name == schedule.group_name,
+                Student.status == StudentStatus.ACTIVE,
+            )
+        )
+    ).all()
+    if len(students) != len(student_ids):
+        raise TeachingServiceError("В списке есть ученик из другой группы", status_code=409)
+    existing = (
+        await db.scalars(
+            select(AttendanceRecord).where(
+                AttendanceRecord.schedule_id == schedule.id,
+                AttendanceRecord.lesson_date == payload.lesson_date,
+                AttendanceRecord.student_id.in_(student_ids),
+            )
+        )
+    ).all()
+    records = {record.student_id: record for record in existing}
+    for item in payload.items:
+        record = records.get(item.student_id)
+        if record is None:
+            record = AttendanceRecord(
+                tenant_id=tenant.id,
+                schedule_id=schedule.id,
+                student_id=item.student_id,
+                lesson_date=payload.lesson_date,
+                present=item.present,
+                marked_by_account_id=account.id,
+                comment=item.comment,
+            )
+            db.add(record)
+        else:
+            record.present = item.present
+            record.comment = item.comment
+            record.marked_by_account_id = account.id
+    await db.commit()
+    return await get_attendance_journal(
+        db,
+        max_user_id=payload.max_user_id,
+        tenant_slug=tenant.slug,
+        schedule_id=schedule.id,
+        lesson_date=payload.lesson_date,
     )
 
 
