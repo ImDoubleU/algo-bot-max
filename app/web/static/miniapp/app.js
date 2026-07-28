@@ -32,6 +32,7 @@ const ROLE_DASHBOARD_ACTION = Object.freeze({
 });
 
 const state = {
+  hasAccess: apiContext.demoMode,
   role: "student",
   account: null,
   staffRoles: [],
@@ -65,6 +66,9 @@ const state = {
   lastSyncAt: null,
   catalogLoaded: false,
   sessionLoaded: false,
+  studentInvitations: new Map(),
+  studentInvitationsLoading: false,
+  studentInvitationsLoaded: false,
   productImporting: false,
   productImportFile: null,
   productImportFileName: "",
@@ -1338,6 +1342,7 @@ function orderStatusHistoryDetails(order) {
 function applySession(session) {
   if (!session || !Array.isArray(session.students)) return;
 
+  state.hasAccess = apiContext.demoMode || Boolean(session.has_access);
   apiContext.tenantSlug = session.tenant_slug || apiContext.tenantSlug;
   state.currentTenant = session.tenant || null;
   state.availableTenants = Array.isArray(session.available_tenants)
@@ -1347,6 +1352,20 @@ function applySession(session) {
   state.defaultWarehouseId = String(session.default_warehouse_id || "");
   state.account = session.account || null;
   state.staffRoles = Array.isArray(session.staff_roles) ? session.staff_roles : [];
+  if (!state.hasAccess) {
+    students = [];
+    orders = [];
+    ledger = [];
+    accessLinks = [];
+    staffAssignments = [];
+    products = [];
+    catalogWarehouses = [];
+    state.availableRoles = [];
+    state.activeStudentId = "";
+    state.catalogLoaded = false;
+    state.sessionLoaded = true;
+    return;
+  }
 
   students = session.students.map((student) => ({
     id: String(student.student_id),
@@ -1428,12 +1447,78 @@ function applySession(session) {
   const hasParentRole = session.student_roles?.includes("parent");
   const availableRoles = new Set(session.student_roles || []);
   if (staffRole) availableRoles.add(staffRole);
-  if (availableRoles.size === 0) availableRoles.add("student");
   state.availableRoles = Array.from(availableRoles).filter((role) =>
     ["student", "parent", "teacher", "admin"].includes(role),
   );
   state.role = staffRole || (hasParentRole ? "parent" : "student");
   state.sessionLoaded = true;
+}
+
+function applyAccessGate(message = "") {
+  const locked = !apiContext.demoMode && !state.hasAccess;
+  const gate = qs("#accessGate");
+  const shell = qs(".app-shell");
+  if (gate) gate.hidden = !locked;
+  if (shell) shell.hidden = locked;
+  if (locked && message) {
+    const label = qs("#accessGateMessage");
+    if (label) label.textContent = message;
+  }
+  document.body.dataset.access = locked ? "locked" : "granted";
+  refreshIcons();
+  return locked;
+}
+
+function parentStudents() {
+  const unique = new Map();
+  students
+    .filter((student) => student.role === "parent")
+    .forEach((student) => unique.set(student.id, student));
+  return Array.from(unique.values());
+}
+
+async function loadParentInvitations() {
+  if (
+    apiContext.demoMode ||
+    !state.hasAccess ||
+    !apiContext.maxUserId ||
+    !state.availableRoles.includes("parent") ||
+    state.studentInvitationsLoading
+  ) {
+    return;
+  }
+  const linkedStudents = parentStudents();
+  if (linkedStudents.length === 0) {
+    state.studentInvitationsLoaded = true;
+    return;
+  }
+
+  state.studentInvitationsLoading = true;
+  renderParentInvitations();
+  const invitations = new Map();
+  await Promise.all(
+    linkedStudents.map(async (student) => {
+      try {
+        const response = await apiFetch(
+          apiUrl(`/api/v1/miniapp/students/${encodeURIComponent(student.id)}/invitation`, {
+            max_user_id: apiContext.maxUserId,
+            tenant_slug: apiContext.tenantSlug,
+          }),
+        );
+        if (!response.ok) throw new Error(await parseApiError(response));
+        invitations.set(student.id, { data: await response.json(), error: "" });
+      } catch (error) {
+        invitations.set(student.id, {
+          data: null,
+          error: error.message || "Не удалось создать QR-код",
+        });
+      }
+    }),
+  );
+  state.studentInvitations = invitations;
+  state.studentInvitationsLoading = false;
+  state.studentInvitationsLoaded = true;
+  renderParentInvitations();
 }
 
 async function loadTeachingWorkspace() {
@@ -1515,6 +1600,7 @@ async function loadSession() {
 
 async function loadCatalog() {
   if (apiContext.demoMode) return;
+  if (!state.hasAccess) return;
 
   const params = { tenant_slug: apiContext.tenantSlug };
   if (apiContext.maxUserId) params.max_user_id = apiContext.maxUserId;
@@ -1529,7 +1615,12 @@ async function loadCatalog() {
 }
 
 async function loadOpsSummary() {
-  if (apiContext.demoMode || !apiContext.maxUserId || !["teacher", "admin"].includes(state.role)) {
+  if (
+    apiContext.demoMode ||
+    !state.hasAccess ||
+    !apiContext.maxUserId ||
+    !["teacher", "admin"].includes(state.role)
+  ) {
     applyOpsSummary(null);
     return;
   }
@@ -1547,11 +1638,13 @@ async function loadOpsSummary() {
 
 async function refreshOrderAndInventoryState() {
   await loadSession();
+  if (applyAccessGate()) return;
   await loadCatalog();
   await loadOpsSummary();
 }
 
 async function refreshCatalogAndOpsSummary() {
+  if (!state.hasAccess) return;
   await loadCatalog();
   await loadOpsSummary();
 }
@@ -1634,8 +1727,11 @@ async function switchTenant(tenantSlug) {
   closeTenantDialog();
   try {
     await loadSession();
+    if (applyAccessGate()) return;
     await loadCatalog();
     await loadOpsSummary();
+    state.studentInvitations = new Map();
+    state.studentInvitationsLoaded = false;
     state.cart = new Map();
     state.favorites = new Set();
     state.teachingWorkspace = null;
@@ -1721,15 +1817,22 @@ async function refreshAllData() {
   renderSyncStatus();
 
   const errors = [];
-  const results = await Promise.allSettled([loadSession(), loadCatalog()]);
-  results.forEach((result) => {
-    if (result.status === "rejected") errors.push(result.reason);
-  });
   try {
-    await loadOpsSummary();
+    await loadSession();
   } catch (error) {
     errors.push(error);
   }
+  if (applyAccessGate()) {
+    state.refreshing = false;
+    return;
+  }
+  const results = await Promise.allSettled([loadCatalog(), loadOpsSummary()]);
+  results.forEach((result) => {
+    if (result.status === "rejected") errors.push(result.reason);
+  });
+  state.studentInvitations = new Map();
+  state.studentInvitationsLoaded = false;
+  await loadParentInvitations();
   if (["teacher", "admin"].includes(state.role)) {
     try {
       await loadTeachingWorkspace();
@@ -1869,6 +1972,13 @@ function setRole(role) {
     loadOpsSummary()
       .then(renderAdminPanel)
       .catch((error) => console.warn(error));
+  }
+  if (
+    role === "parent" &&
+    !state.studentInvitationsLoaded &&
+    !state.studentInvitationsLoading
+  ) {
+    loadParentInvitations().catch((error) => console.warn(error));
   }
 }
 
@@ -2083,6 +2193,72 @@ function renderStudents() {
     .join("");
 
   list.innerHTML = grouped;
+}
+
+function renderParentInvitations() {
+  const panel = qs("#parentInvitesPanel");
+  const list = qs("#parentInviteList");
+  if (!panel || !list) return;
+
+  const visible = state.role === "parent" && state.hasAccess && !apiContext.demoMode;
+  panel.hidden = !visible;
+  if (!visible) return;
+
+  const linkedStudents = parentStudents();
+  if (state.studentInvitationsLoading) {
+    list.innerHTML = '<div class="empty-state">Создаем персональные QR-коды...</div>';
+    return;
+  }
+  if (linkedStudents.length === 0) {
+    list.innerHTML = '<div class="empty-state">Связанные дети не найдены</div>';
+    return;
+  }
+
+  list.innerHTML = linkedStudents
+    .map((student) => {
+      const invitation = state.studentInvitations.get(student.id);
+      if (!invitation) {
+        return `
+          <article class="parent-invite-card">
+            <div class="empty-state">QR-код загружается</div>
+          </article>
+        `;
+      }
+      if (invitation.error || !invitation.data) {
+        return `
+          <article class="parent-invite-card">
+            <div class="parent-invite-copy">
+              <strong>${escapeHtml(student.name)}</strong>
+              <span>${escapeHtml(invitation.error || "QR-код недоступен")}</span>
+            </div>
+          </article>
+        `;
+      }
+      return `
+        <article class="parent-invite-card">
+          <img
+            src="${escapeHtml(invitation.data.qr_data_url)}"
+            alt="QR-код для входа: ${escapeHtml(student.name)}"
+          />
+          <div class="parent-invite-copy">
+            <strong>${escapeHtml(student.name)}</strong>
+            <span>${escapeHtml(student.group)}</span>
+            <div class="parent-invite-actions">
+              <a
+                class="secondary-action"
+                href="${escapeHtml(invitation.data.bot_url)}"
+              >Открыть</a>
+              <button
+                class="secondary-action"
+                type="button"
+                data-copy-student-invite="${escapeHtml(student.id)}"
+              >Копировать</button>
+            </div>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
 }
 
 function renderDashboardOrders() {
@@ -4108,6 +4284,7 @@ function renderAll() {
   renderTenantControl();
   renderStatus();
   renderStudents();
+  renderParentInvitations();
   renderDashboardOrders();
   renderCategories();
   renderProducts();
@@ -5366,6 +5543,17 @@ document.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target.closest("button") : null;
   if (!target) return;
 
+  const invitationStudentId = target.dataset.copyStudentInvite;
+  if (invitationStudentId) {
+    const invitation = state.studentInvitations.get(invitationStudentId)?.data;
+    if (invitation?.bot_url) {
+      navigator.clipboard
+        .writeText(invitation.bot_url)
+        .then(() => showNotice("Ссылка ребенка скопирована"))
+        .catch(() => showNotice("Не удалось скопировать ссылку", "danger"));
+    }
+  }
+
   if ("mobileMore" in target.dataset) {
     toggleMobileMorePanel();
     return;
@@ -5842,17 +6030,30 @@ async function init() {
       (reason) => ({ status: "rejected", reason }),
     ),
   );
+  const sessionError = results.find((result) => result.status === "rejected");
+  if (sessionError && !apiContext.demoMode) {
+    state.hasAccess = false;
+  }
+  if (
+    applyAccessGate(
+      sessionError
+        ? "Не удалось проверить привязку профиля. Откройте бота и попробуйте войти снова."
+        : "",
+    )
+  ) {
+    return;
+  }
   results.push(
-    await Promise.resolve(loadCatalog()).then(
-      () => ({ status: "fulfilled" }),
-      (reason) => ({ status: "rejected", reason }),
-    ),
-  );
-  results.push(
-    await Promise.resolve(loadOpsSummary()).then(
-      () => ({ status: "fulfilled" }),
-      (reason) => ({ status: "rejected", reason }),
-    ),
+    ...(await Promise.all([
+      Promise.resolve(loadCatalog()).then(
+        () => ({ status: "fulfilled" }),
+        (reason) => ({ status: "rejected", reason }),
+      ),
+      Promise.resolve(loadOpsSummary()).then(
+        () => ({ status: "fulfilled" }),
+        (reason) => ({ status: "rejected", reason }),
+      ),
+    ])),
   );
   results
     .filter((result) => result.status === "rejected")
@@ -5862,6 +6063,7 @@ async function init() {
   restoreFavorites();
 
   setRole(state.role);
+  await loadParentInvitations();
   setView(state.view);
   state.lastSyncAt = new Date();
   renderAll();

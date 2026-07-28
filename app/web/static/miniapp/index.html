@@ -7,9 +7,24 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.51.2" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.52.0" />
   </head>
   <body>
+    <main id="accessGate" class="access-gate" hidden>
+      <section class="access-gate-card">
+        <span class="brand-mark" aria-hidden="true">A</span>
+        <p class="eyebrow">Algo MAX</p>
+        <h1>Сначала привяжите профиль</h1>
+        <p id="accessGateMessage">
+          Откройте чат с ботом по ссылке из письма школы. После привязки личный
+          кабинет станет доступен автоматически.
+        </p>
+        <a class="primary-action access-gate-action" href="https://max.ru/id525601030904_3_bot">
+          Открыть бота
+        </a>
+      </section>
+    </main>
+
     <div class="app-shell">
       <header class="topbar">
         <div class="brand-block">
@@ -133,6 +148,16 @@
                 <div id="dashboardOrders" class="compact-order-list"></div>
               </section>
             </div>
+
+            <section id="parentInvitesPanel" class="panel parent-invites-panel" hidden>
+              <div class="panel-head">
+                <div>
+                  <h3>Вход для ребенка</h3>
+                  <p>Покажите ребенку его QR-код. Он привяжет только выбранный профиль.</p>
+                </div>
+              </div>
+              <div id="parentInviteList" class="parent-invite-list"></div>
+            </section>
           </section>
 
           <section id="storeView" class="view" data-view-panel="store">
@@ -603,6 +628,6 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app.js?v=0.51.2"></script>
+    <script src="/miniapp/static/app.js?v=0.52.0"></script>
   </body>
 </html>

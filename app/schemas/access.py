@@ -53,3 +53,19 @@ class AccessLinkBatchRead(BaseModel):
     tenant_id: UUID
     contact_id: str
     links: list[AccessLinkRead]
+
+
+class StudentInvitationLinkCreate(BaseModel):
+    tenant_slug: str = Field(min_length=2, max_length=80)
+    token: str = Field(min_length=20, max_length=120)
+    max_user_id: int = Field(gt=0)
+    username: str | None = Field(default=None, max_length=120)
+    display_name: str | None = Field(default=None, max_length=160)
+
+
+class StudentInvitationLinkRead(BaseModel):
+    tenant_slug: str
+    student_id: UUID
+    student_name: str
+    group_name: str | None = None
+    link: AccessLinkRead

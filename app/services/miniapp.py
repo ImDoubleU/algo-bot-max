@@ -75,6 +75,7 @@ from app.schemas.miniapp import (
     MiniAppStaffOnboardingOptionsRead,
     MiniAppStaffOnboardingTenantRead,
     MiniAppStudentRead,
+    MiniAppStudentInvitationRead,
     MiniAppTenantCreate,
     MiniAppTenantCreatedRead,
     MiniAppTenantRead,
@@ -109,6 +110,11 @@ from app.services.staff import (
     is_global_superadmin,
     normalize_staff_name,
     staff_names_match,
+)
+from app.services.student_invitations import (
+    StudentInvitationError,
+    build_student_invitation_link,
+    invitation_qr_data_url,
 )
 from app.services.warehouse import (
     WarehouseServiceError,
@@ -410,7 +416,7 @@ async def list_miniapp_catalog(
     db: AsyncSession,
     *,
     tenant_slug: str,
-    max_user_id: int | None = None,
+    max_user_id: int,
     include_inactive: bool = False,
 ) -> MiniAppCatalogRead:
     normalized_tenant_slug = tenant_slug.strip().lower()
@@ -419,33 +425,27 @@ async def list_miniapp_catalog(
         return MiniAppCatalogRead(tenant_slug=normalized_tenant_slug, products=[], warehouses=[])
 
     product_filters = [Product.tenant_id == tenant.id]
-    if max_user_id is not None:
-        account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
-        if account is None:
-            raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
-        staff_roles = await active_staff_roles_for_tenant(
-            db,
-            tenant_id=tenant.id,
-            account_id=account.id,
+    account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
+    if account is None:
+        raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
+    staff_roles = await active_staff_roles_for_tenant(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+    )
+    active_access_link = await db.scalar(
+        select(StudentAccessLink.id)
+        .where(
+            StudentAccessLink.tenant_id == tenant.id,
+            StudentAccessLink.account_id == account.id,
+            StudentAccessLink.status == StudentAccessStatus.ACTIVE,
         )
-        active_access_link = await db.scalar(
-            select(StudentAccessLink.id)
-            .where(
-                StudentAccessLink.tenant_id == tenant.id,
-                StudentAccessLink.account_id == account.id,
-                StudentAccessLink.status == StudentAccessStatus.ACTIVE,
-            )
-            .limit(1)
-        )
-        if not staff_roles and active_access_link is None:
-            raise MiniAppStoreError("Нет доступа к выбранному партнеру", status_code=403)
+        .limit(1)
+    )
+    if not staff_roles and active_access_link is None:
+        raise MiniAppStoreError("Нет доступа к выбранному партнеру", status_code=403)
 
     if include_inactive:
-        if max_user_id is None:
-            raise MiniAppStoreError(
-                "MAX user_id обязателен для админского каталога",
-                status_code=403,
-            )
         admin_role = await _active_staff_role(
             db,
             tenant_id=tenant.id,
@@ -959,6 +959,7 @@ async def get_miniapp_session(
 
     return MiniAppSessionRead(
         tenant_slug=tenant.slug,
+        has_access=True,
         account=MiniAppAccountRead(
             max_user_id=account.max_user_id,
             username=account.username,
@@ -981,6 +982,71 @@ async def get_miniapp_session(
         staff_assignments=staff_assignments,
         orders=orders,
         ledger=ledger,
+    )
+
+
+async def get_miniapp_student_invitation(
+    db: AsyncSession,
+    *,
+    max_user_id: int,
+    tenant_slug: str,
+    student_id: UUID,
+) -> MiniAppStudentInvitationRead:
+    tenant = await get_tenant_by_slug(db, tenant_slug)
+    if tenant is None:
+        raise MiniAppStoreError("Контур школы не найден", status_code=404)
+
+    account = await db.scalar(
+        select(MaxAccount).where(MaxAccount.max_user_id == max_user_id)
+    )
+    if account is None:
+        raise MiniAppStoreError("Сначала привяжите профиль в боте", status_code=403)
+
+    parent_link = await db.scalar(
+        select(StudentAccessLink).where(
+            StudentAccessLink.tenant_id == tenant.id,
+            StudentAccessLink.account_id == account.id,
+            StudentAccessLink.student_id == student_id,
+            StudentAccessLink.role == StudentAccessRole.PARENT,
+            StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+        )
+    )
+    if parent_link is None:
+        raise MiniAppStoreError(
+            "QR-код доступен только родителю связанного ученика",
+            status_code=403,
+        )
+
+    student = await db.scalar(
+        select(Student).where(
+            Student.id == student_id,
+            Student.tenant_id == tenant.id,
+            Student.status == StudentStatus.ACTIVE,
+        )
+    )
+    if student is None:
+        raise MiniAppStoreError("Ученик не найден", status_code=404)
+
+    settings = get_settings()
+    if is_placeholder(settings.max_bot_username):
+        raise MiniAppStoreError(
+            "Имя MAX-бота не настроено",
+            status_code=503,
+        )
+    try:
+        bot_url = build_student_invitation_link(
+            str(settings.max_bot_username),
+            UUID(str(tenant.id)),
+            UUID(str(student.id)),
+        )
+    except StudentInvitationError as exc:
+        raise MiniAppStoreError(str(exc), status_code=503) from exc
+
+    return MiniAppStudentInvitationRead(
+        student_id=UUID(str(student.id)),
+        student_name=student.display_name,
+        bot_url=bot_url,
+        qr_data_url=invitation_qr_data_url(bot_url),
     )
 
 

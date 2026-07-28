@@ -7,10 +7,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.models.account import MaxAccount
 from app.models.audit import AuditLog
-from app.models.enums import StudentAccessSource, StudentAccessStatus, StudentStatus
+from app.models.enums import (
+    StudentAccessRole,
+    StudentAccessSource,
+    StudentAccessStatus,
+    StudentStatus,
+)
 from app.models.student import Contact, ContactStudentLink, Student, StudentAccessLink
 from app.models.tenant import Tenant
-from app.schemas.access import AccessLinkCreate, StudentResolveRequest
+from app.schemas.access import (
+    AccessLinkCreate,
+    StudentInvitationLinkCreate,
+    StudentResolveRequest,
+)
+from app.services.student_invitations import (
+    StudentInvitationError,
+    verify_student_invitation_token,
+)
 
 
 class AccessServiceError(RuntimeError):
@@ -116,7 +129,10 @@ async def record_student_access_attempt(
     )
 
 
-async def get_or_create_max_account(db: AsyncSession, payload: AccessLinkCreate) -> MaxAccount:
+async def get_or_create_max_account(
+    db: AsyncSession,
+    payload: AccessLinkCreate | StudentInvitationLinkCreate,
+) -> MaxAccount:
     account = await db.scalar(
         select(MaxAccount).where(MaxAccount.max_user_id == payload.max_user_id),
     )
@@ -220,6 +236,71 @@ async def create_contact_access_links(
     for link in links:
         await db.refresh(link)
     return links
+
+
+async def create_invited_student_access_link(
+    db: AsyncSession,
+    payload: StudentInvitationLinkCreate,
+) -> tuple[Tenant, Student, StudentAccessLink]:
+    try:
+        token_tenant_id, student_id = verify_student_invitation_token(payload.token)
+    except StudentInvitationError as exc:
+        raise AccessServiceError(str(exc)) from exc
+    tenant = await db.scalar(select(Tenant).where(Tenant.id == token_tenant_id))
+    if tenant is None:
+        raise AccessServiceError("Контур школы из ссылки не найден")
+    student = await db.scalar(
+        select(Student).where(
+            Student.id == student_id,
+            Student.tenant_id == tenant.id,
+            Student.status == StudentStatus.ACTIVE,
+        )
+    )
+    if student is None:
+        raise AccessServiceError("Student was not found for this tenant")
+
+    account = await get_or_create_max_account(db, payload)
+    link = await db.scalar(
+        select(StudentAccessLink).where(
+            StudentAccessLink.tenant_id == tenant.id,
+            StudentAccessLink.account_id == account.id,
+            StudentAccessLink.student_id == student.id,
+            StudentAccessLink.role == StudentAccessRole.STUDENT,
+        )
+    )
+    created = link is None
+    if link is None:
+        link = StudentAccessLink(
+            tenant_id=tenant.id,
+            account_id=account.id,
+            student_id=student.id,
+            role=StudentAccessRole.STUDENT,
+            status=StudentAccessStatus.ACTIVE,
+            source=StudentAccessSource.ID_ENTRY,
+        )
+        db.add(link)
+        await db.flush()
+    else:
+        link.status = StudentAccessStatus.ACTIVE
+        link.revoked_at = None
+
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_account_id=account.id,
+            action="student_qr_access_link.created",
+            entity_type="student_access",
+            entity_id=str(student.id),
+            payload={
+                "created": created,
+                "max_user_id": payload.max_user_id,
+                "source": "parent_qr",
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(link)
+    return tenant, student, link
 
 
 async def create_student_access_link(
