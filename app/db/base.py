@@ -7,6 +7,7 @@ from app.models.store import (
     Product,
     ProductCategory,
     StockMovement,
+    StudentCartItem,
     Warehouse,
     WarehouseInventory,
 )
@@ -46,6 +47,7 @@ __all__ = [
     "Partner",
     "Product",
     "ProductCategory",
+    "StudentCartItem",
     "StaffRoleAssignment",
     "StaffWarehousePreference",
     "StockMovement",

@@ -30,6 +30,8 @@ from app.schemas.miniapp import (
     MiniAppAccrualCreate,
     MiniAppAccrualRead,
     MiniAppAccrualReportRead,
+    MiniAppCartRead,
+    MiniAppCartWrite,
     MiniAppCatalogRead,
     MiniAppCrmImportRead,
     MiniAppInventoryAdjustmentCreate,
@@ -67,6 +69,7 @@ from app.services.miniapp import (
     create_miniapp_order,
     create_miniapp_tenant,
     get_miniapp_accrual_report,
+    get_miniapp_cart,
     get_miniapp_ops_summary,
     get_miniapp_session,
     get_miniapp_student_invitation,
@@ -75,6 +78,7 @@ from app.services.miniapp import (
     issue_miniapp_order,
     list_miniapp_catalog,
     list_miniapp_staff_onboarding_options,
+    replace_miniapp_cart,
     return_miniapp_order,
     set_miniapp_warehouse_preference,
     transfer_miniapp_inventory,
@@ -526,6 +530,59 @@ async def miniapp_create_order(
             db,
             payload=payload,
             default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get(
+    "/students/{student_id}/cart",
+    response_model=MiniAppCartRead,
+)
+async def miniapp_cart(
+    student_id: UUID,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: str | None = None,
+) -> MiniAppCartRead:
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        return await get_miniapp_cart(
+            db,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+            student_id=student_id,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.put(
+    "/students/{student_id}/cart",
+    response_model=MiniAppCartRead,
+)
+async def miniapp_replace_cart(
+    student_id: UUID,
+    payload: MiniAppCartWrite,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppCartRead:
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await replace_miniapp_cart(
+            db,
+            student_id=student_id,
+            payload=payload,
+            tenant_slug=resolved_tenant,
         )
     except MiniAppStoreError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
