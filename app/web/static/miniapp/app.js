@@ -2,11 +2,12 @@ const maxWebAppLaunch = resolveMaxWebAppLaunch();
 const launchMaxUserId =
   maxWebAppLaunch.userId || positiveIntegerParam("max_user_id");
 const launchTenantSlug = queryParam("tenant_slug") || "";
+const localDemoHost = ["127.0.0.1", "localhost"].includes(window.location.hostname);
 const apiContext = {
   maxUserId: launchMaxUserId,
   tenantSlug: launchTenantSlug,
   maxWebAppData: maxWebAppLaunch.initData,
-  demoMode: queryParam("demo") === "1",
+  demoMode: localDemoHost && queryParam("demo") === "1",
   demoRole: queryParam("demo_role") || "",
   productId: queryParam("product") || "",
 };
@@ -1470,6 +1471,7 @@ function applyAccessGate(message = "") {
 }
 
 function parentStudents() {
+  if (apiContext.demoMode) return [...students];
   const unique = new Map();
   students
     .filter((student) => student.role === "parent")
@@ -1478,8 +1480,25 @@ function parentStudents() {
 }
 
 async function loadParentInvitations() {
+  if (apiContext.demoMode) {
+    state.studentInvitations = new Map(
+      parentStudents().map((student) => [
+        student.id,
+        {
+          data: {
+            qr_data_url: `/miniapp/static/assets/${student.id}-qr.svg`,
+            bot_url: "",
+          },
+          demo: true,
+          error: "",
+        },
+      ]),
+    );
+    state.studentInvitationsLoaded = true;
+    renderParentInvitations();
+    return;
+  }
   if (
-    apiContext.demoMode ||
     !state.hasAccess ||
     !apiContext.maxUserId ||
     !state.availableRoles.includes("parent") ||
@@ -2198,11 +2217,17 @@ function renderStudents() {
 function renderParentInvitations() {
   const panel = qs("#parentInvitesPanel");
   const list = qs("#parentInviteList");
+  const description = qs("#parentInvitesDescription");
   if (!panel || !list) return;
 
-  const visible = state.role === "parent" && state.hasAccess && !apiContext.demoMode;
+  const visible = state.role === "parent" && state.hasAccess;
   panel.hidden = !visible;
   if (!visible) return;
+  if (description) {
+    description.textContent = apiContext.demoMode
+      ? "Демонстрационный вид. Рабочие QR-ссылки появляются после реальной привязки родителя."
+      : "Покажите ребенку его QR-код. Он привяжет только выбранный профиль.";
+  }
 
   const linkedStudents = parentStudents();
   if (state.studentInvitationsLoading) {
@@ -2243,17 +2268,23 @@ function renderParentInvitations() {
           <div class="parent-invite-copy">
             <strong>${escapeHtml(student.name)}</strong>
             <span>${escapeHtml(student.group)}</span>
-            <div class="parent-invite-actions">
-              <a
-                class="secondary-action"
-                href="${escapeHtml(invitation.data.bot_url)}"
-              >Открыть</a>
-              <button
-                class="secondary-action"
-                type="button"
-                data-copy-student-invite="${escapeHtml(student.id)}"
-              >Копировать</button>
-            </div>
+            ${
+              invitation.demo
+                ? '<span class="soft-badge">Демо QR</span>'
+                : `
+                  <div class="parent-invite-actions">
+                    <a
+                      class="secondary-action"
+                      href="${escapeHtml(invitation.data.bot_url)}"
+                    >Открыть</a>
+                    <button
+                      class="secondary-action"
+                      type="button"
+                      data-copy-student-invite="${escapeHtml(student.id)}"
+                    >Копировать</button>
+                  </div>
+                `
+            }
           </div>
         </article>
       `;
