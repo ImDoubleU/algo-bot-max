@@ -6100,6 +6100,14 @@ async function init() {
   renderAll();
   renderSyncStatus();
   refreshIcons();
+  if (queryParam("focus") === "qr" && state.role === "parent") {
+    window.setTimeout(() => {
+      qs("#parentInvitesPanel")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 80);
+  }
   if (
     apiContext.productId &&
     ["student", "parent"].includes(state.role) &&
