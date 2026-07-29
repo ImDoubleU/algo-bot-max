@@ -163,6 +163,27 @@ class MiniAppOrderItemCreate(BaseModel):
     quantity: int = Field(gt=0, le=20)
 
 
+class MiniAppCartItemWrite(BaseModel):
+    product_id: UUID
+    quantity: int = Field(gt=0, le=20)
+
+
+class MiniAppCartWrite(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    items: list[MiniAppCartItemWrite] = Field(default_factory=list, max_length=20)
+
+
+class MiniAppCartItemRead(BaseModel):
+    product_id: UUID
+    quantity: int
+
+
+class MiniAppCartRead(BaseModel):
+    student_id: UUID
+    items: list[MiniAppCartItemRead] = Field(default_factory=list)
+
+
 class MiniAppOrderItemRead(BaseModel):
     product_id: UUID
     product_name: str

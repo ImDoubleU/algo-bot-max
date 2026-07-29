@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, uuid_pk
@@ -41,6 +41,39 @@ class Product(TimestampMixin, Base):
     category = relationship("ProductCategory", back_populates="products")
     inventory_items = relationship("WarehouseInventory", back_populates="product")
     order_items = relationship("OrderItem", back_populates="product")
+
+
+class StudentCartItem(TimestampMixin, Base):
+    __tablename__ = "student_cart_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "student_id",
+            "product_id",
+            name="uq_student_cart_items_tenant_student_product",
+        ),
+        CheckConstraint("quantity > 0", name="student_cart_item_quantity_positive"),
+    )
+
+    id: Mapped[UUID] = uuid_pk()
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), index=True, nullable=False)
+    student_id: Mapped[UUID] = mapped_column(
+        ForeignKey("students.id"),
+        index=True,
+        nullable=False,
+    )
+    product_id: Mapped[UUID] = mapped_column(
+        ForeignKey("products.id"),
+        index=True,
+        nullable=False,
+    )
+    updated_by_account_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("max_accounts.id"),
+        index=True,
+    )
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    product = relationship("Product")
 
 
 class Warehouse(TimestampMixin, Base):

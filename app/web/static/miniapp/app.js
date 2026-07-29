@@ -57,7 +57,18 @@ const state = {
   selectedAccrualStudents: new Set(),
   balance: 1240,
   activeStudentId: "demo-alisa",
-  cart: new Map(),
+  carts: new Map(),
+  loadedCartStudentIds: new Set(),
+  cartVersions: new Map(),
+  get cart() {
+    const scope = this.activeStudentId || "unassigned";
+    if (!this.carts.has(scope)) this.carts.set(scope, new Map());
+    return this.carts.get(scope);
+  },
+  set cart(value) {
+    const scope = this.activeStudentId || "unassigned";
+    this.carts.set(scope, value);
+  },
   favorites: new Set(["demo-pen"]),
   favoritesOnly: false,
   inStockOnly: false,
@@ -110,6 +121,7 @@ const state = {
 };
 
 let accrualSearchTimer = null;
+const cartSyncChains = new Map();
 
 const demoTeachingWorkspace = {
   tenant_slug: "demo",
@@ -742,42 +754,210 @@ function cartKey(productId) {
   return `${productId}::auto`;
 }
 
-function cartStorageKey() {
+function legacyCartStorageKey() {
   const tenant = apiContext.tenantSlug || (apiContext.demoMode ? "demo" : "default");
   const user = apiContext.maxUserId || "guest";
   return `algo-max-cart:${tenant}:${user}`;
 }
 
-function saveCart() {
+function cartStorageKey(studentId = state.activeStudentId) {
+  const student = studentId || "unassigned";
+  return `${legacyCartStorageKey()}:${student}`;
+}
+
+function cartServerMarkerKey(studentId = state.activeStudentId) {
+  return `${cartStorageKey(studentId)}:server`;
+}
+
+function canUseServerCart(studentId = state.activeStudentId) {
+  return Boolean(
+    !apiContext.demoMode &&
+      apiContext.maxUserId &&
+      state.hasAccess &&
+      studentId &&
+      !String(studentId).startsWith("demo-"),
+  );
+}
+
+function buildCartMap(storedItems) {
+  const cart = new Map();
+  if (!Array.isArray(storedItems)) return cart;
+  storedItems.forEach((item) => {
+    const productId = String(item.productId || item.product_id || "");
+    const product = productById(productId);
+    const available = product ? productAvailable(product) : 0;
+    if (!product || available <= 0) return;
+    const key = cartKey(product.id);
+    const current = cart.get(key)?.quantity || 0;
+    const quantity = clampQuantity(current + Number(item.quantity || 0), available);
+    cart.set(key, {
+      productId: product.id,
+      quantity,
+    });
+  });
+  return cart;
+}
+
+function queueCartSync(studentId = state.activeStudentId) {
+  const scope = String(studentId || "");
+  if (!canUseServerCart(scope)) return Promise.resolve();
+  const tenantSlug = apiContext.tenantSlug || undefined;
+  const maxUserId = Number(apiContext.maxUserId);
+  const markerKey = cartServerMarkerKey(scope);
+  const syncKey = `${tenantSlug || "default"}:${scope}`;
+  const cart = state.carts.get(scope) || new Map();
+  const items = Array.from(cart.values()).map((item) => ({
+    product_id: item.productId,
+    quantity: item.quantity,
+  }));
+  const previous = cartSyncChains.get(syncKey) || Promise.resolve();
+  const request = previous
+    .catch(() => undefined)
+    .then(async () => {
+      const response = await apiFetch(
+        apiUrl(`/api/v1/miniapp/students/${encodeURIComponent(scope)}/cart`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            max_user_id: maxUserId,
+            tenant_slug: tenantSlug,
+            items,
+          }),
+        },
+      );
+      if (!response.ok) throw new Error(await parseApiError(response));
+      try {
+        localStorage.setItem(markerKey, "1");
+      } catch (error) {
+        console.warn("Не удалось отметить синхронизацию корзины", error);
+      }
+    });
+  cartSyncChains.set(syncKey, request);
+  const handledRequest = request.catch((error) => {
+    console.warn("Не удалось синхронизировать корзину", error);
+  });
+  handledRequest.finally(() => {
+    if (cartSyncChains.get(syncKey) === request) cartSyncChains.delete(syncKey);
+  });
+  return handledRequest;
+}
+
+function saveCart(
+  studentId = state.activeStudentId,
+  { sync = true, bumpVersion = true } = {},
+) {
+  const scope = studentId || "unassigned";
+  const cart = state.carts.get(scope);
+  if (!cart && !state.loadedCartStudentIds.has(scope)) return Promise.resolve();
   try {
-    localStorage.setItem(cartStorageKey(), JSON.stringify(Array.from(state.cart.values())));
+    localStorage.setItem(
+      cartStorageKey(studentId),
+      JSON.stringify(Array.from((cart || new Map()).values())),
+    );
+    state.loadedCartStudentIds.add(scope);
+    if (bumpVersion) {
+      state.cartVersions.set(scope, (state.cartVersions.get(scope) || 0) + 1);
+    }
   } catch (error) {
     console.warn("Не удалось сохранить корзину", error);
   }
+  return sync ? queueCartSync(studentId) : Promise.resolve();
 }
 
-function restoreCart() {
+function restoreCart(studentId = state.activeStudentId) {
+  const scope = studentId || "unassigned";
+  let serialized = null;
+  const storageKey = cartStorageKey(studentId);
   let storedItems = [];
   try {
-    storedItems = JSON.parse(localStorage.getItem(cartStorageKey()) || "[]");
+    serialized = localStorage.getItem(storageKey);
+    if (serialized === null) {
+      const legacyKey = legacyCartStorageKey();
+      serialized = localStorage.getItem(legacyKey);
+      if (serialized !== null) {
+        localStorage.setItem(storageKey, serialized);
+        localStorage.removeItem(legacyKey);
+      }
+    }
+    storedItems = JSON.parse(serialized || "[]");
   } catch (error) {
     console.warn("Не удалось восстановить корзину", error);
     return;
   }
   if (!Array.isArray(storedItems)) return;
 
-  storedItems.forEach((item) => {
-    const product = productById(String(item.productId || ""));
-    const available = product ? productAvailable(product) : 0;
-    if (!product || available <= 0) return;
-    const key = cartKey(product.id);
-    const current = state.cart.get(key)?.quantity || 0;
-    const quantity = clampQuantity(current + Number(item.quantity || 0), available);
-    state.cart.set(key, {
-      productId: product.id,
-      quantity,
-    });
-  });
+  state.carts.set(scope, buildCartMap(storedItems));
+  state.loadedCartStudentIds.add(scope);
+}
+
+async function loadServerCart(studentId = state.activeStudentId) {
+  const scope = String(studentId || "");
+  if (!canUseServerCart(scope) || !state.catalogLoaded) return;
+  const syncKey = `${apiContext.tenantSlug || "default"}:${scope}`;
+  const pendingSync = cartSyncChains.get(syncKey);
+  if (pendingSync) await pendingSync.catch(() => undefined);
+
+  const versionBeforeLoad = state.cartVersions.get(scope) || 0;
+  const localCart = state.carts.get(scope) || new Map();
+  try {
+    const response = await apiFetch(
+      apiUrl(`/api/v1/miniapp/students/${encodeURIComponent(scope)}/cart`, {
+        max_user_id: apiContext.maxUserId,
+        tenant_slug: apiContext.tenantSlug,
+      }),
+    );
+    if (!response.ok) throw new Error(await parseApiError(response));
+    const result = await response.json();
+    if ((state.cartVersions.get(scope) || 0) !== versionBeforeLoad) return;
+
+    let serverKnown = false;
+    try {
+      serverKnown = localStorage.getItem(cartServerMarkerKey(scope)) === "1";
+    } catch (error) {
+      console.warn("Не удалось проверить синхронизацию корзины", error);
+    }
+    const serverItems = Array.isArray(result.items) ? result.items : [];
+    if (serverItems.length === 0 && localCart.size > 0 && !serverKnown) {
+      await queueCartSync(scope);
+      return;
+    }
+
+    state.carts.set(scope, buildCartMap(serverItems));
+    state.loadedCartStudentIds.add(scope);
+    saveCart(scope, { sync: false, bumpVersion: false });
+    try {
+      localStorage.setItem(cartServerMarkerKey(scope), "1");
+    } catch (error) {
+      console.warn("Не удалось отметить загрузку корзины", error);
+    }
+    if (state.activeStudentId === scope) {
+      renderProducts();
+      renderCart();
+    }
+  } catch (error) {
+    console.warn("Не удалось загрузить корзину ученика", error);
+  }
+}
+
+function changeActiveStudent(studentId, { restore = true } = {}) {
+  const nextStudentId = String(studentId || "");
+  const previousStudentId = state.activeStudentId;
+  if (previousStudentId === nextStudentId) {
+    if (
+      restore &&
+      nextStudentId &&
+      !state.loadedCartStudentIds.has(nextStudentId)
+    ) {
+      restoreCart(nextStudentId);
+    }
+    return;
+  }
+  if (previousStudentId) saveCart(previousStudentId);
+  state.activeStudentId = nextStudentId;
+  if (restore && nextStudentId && (apiContext.demoMode || state.catalogLoaded)) {
+    restoreCart(nextStudentId);
+  }
 }
 
 function favoritesStorageKey() {
@@ -1381,11 +1561,8 @@ function applySession(session) {
   }));
 
   const previousStudentExists = students.some((student) => student.id === state.activeStudentId);
-  if (!previousStudentExists && students.length > 0) {
-    state.activeStudentId = students[0].id;
-  } else if (students.length === 0) {
-    state.activeStudentId = "";
-  }
+  const nextStudentId = previousStudentExists ? state.activeStudentId : students[0]?.id || "";
+  changeActiveStudent(nextStudentId, { restore: state.catalogLoaded });
 
   orders = (session.orders || []).map((order) => ({
     id: String(order.order_number),
@@ -1741,7 +1918,11 @@ async function switchTenant(tenantSlug) {
     return;
   }
   const previousTenantSlug = apiContext.tenantSlug;
+  saveCart();
   apiContext.tenantSlug = tenantSlug;
+  state.carts = new Map();
+  state.loadedCartStudentIds = new Set();
+  state.cartVersions = new Map();
   syncTenantToUrl();
   closeTenantDialog();
   try {
@@ -1751,11 +1932,11 @@ async function switchTenant(tenantSlug) {
     await loadOpsSummary();
     state.studentInvitations = new Map();
     state.studentInvitationsLoaded = false;
-    state.cart = new Map();
     state.favorites = new Set();
     state.teachingWorkspace = null;
     state.teachingLoaded = false;
     restoreCart();
+    await loadServerCart(state.activeStudentId);
     restoreFavorites();
     setRole(state.role);
     state.lastSyncAt = new Date();
@@ -1936,9 +2117,12 @@ function setRole(role) {
     state.accrualNameFilter = "";
   }
   const roleStudents = studentsForCurrentRole();
-  if (!roleStudents.some((student) => student.id === state.activeStudentId)) {
-    state.activeStudentId = roleStudents[0]?.id || "";
-  }
+  const nextStudentId = roleStudents.some(
+    (student) => student.id === state.activeStudentId,
+  )
+    ? state.activeStudentId
+    : roleStudents[0]?.id || "";
+  changeActiveStudent(nextStudentId);
   document.body.dataset.activeRole = role;
   qsa(".role-button").forEach((button) => {
     if (button.dataset.role === "admin") {
@@ -2014,9 +2198,10 @@ function toggleMobileMorePanel() {
 
 function setActiveStudent(studentId) {
   if (!studentsForCurrentRole().some((student) => student.id === studentId)) return;
-  state.activeStudentId = studentId;
+  changeActiveStudent(studentId);
   savePreferences();
   renderAll();
+  void loadServerCart(studentId);
 }
 
 function renderStatus() {
@@ -2555,6 +2740,15 @@ function renderCart() {
   const total = cartTotal();
   const count = cartCount();
   const student = selectedStudent();
+  const studentFirstName = student?.name?.trim().split(/\s+/).at(-1) || "";
+  qs("#cartTitle").textContent =
+    state.role === "parent" && studentFirstName
+      ? `Корзина: ${studentFirstName}`
+      : "Корзина";
+  qs("#storeCartAction").textContent =
+    state.role === "parent" && studentFirstName
+      ? `Корзина ${studentFirstName}`
+      : "Открыть корзину";
   const balance = Number(student?.balance || 0);
   const remaining = balance - total;
   const canCheckout = state.cart.size > 0 && Boolean(student) && remaining >= 0;
@@ -5555,7 +5749,7 @@ async function placeOrder() {
 
     const result = await response.json();
     state.cart.clear();
-    saveCart();
+    await saveCart();
     closeCheckoutDialog();
     await refreshOrderAndInventoryState();
     setView("orders");
@@ -6090,10 +6284,11 @@ async function init() {
     .filter((result) => result.status === "rejected")
     .forEach((result) => console.warn(result.reason));
 
-  if (apiContext.demoMode || state.catalogLoaded) restoreCart();
   restoreFavorites();
 
   setRole(state.role);
+  if (apiContext.demoMode || state.catalogLoaded) restoreCart();
+  await loadServerCart(state.activeStudentId);
   await loadParentInvitations();
   setView(state.view);
   state.lastSyncAt = new Date();

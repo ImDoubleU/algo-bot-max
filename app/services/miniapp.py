@@ -3,7 +3,7 @@ import re
 from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -32,6 +32,7 @@ from app.models.store import (
     OrderStatusHistory,
     Product,
     ProductCategory,
+    StudentCartItem,
     Warehouse,
     WarehouseInventory,
 )
@@ -46,6 +47,9 @@ from app.schemas.miniapp import (
     MiniAppAccrualRead,
     MiniAppAccrualReportEntryRead,
     MiniAppAccrualReportRead,
+    MiniAppCartItemRead,
+    MiniAppCartRead,
+    MiniAppCartWrite,
     MiniAppCatalogRead,
     MiniAppCrmImportRead,
     MiniAppInventoryAdjustmentCreate,
@@ -74,8 +78,8 @@ from app.schemas.miniapp import (
     MiniAppStaffAssignmentUpdate,
     MiniAppStaffOnboardingOptionsRead,
     MiniAppStaffOnboardingTenantRead,
-    MiniAppStudentRead,
     MiniAppStudentInvitationRead,
+    MiniAppStudentRead,
     MiniAppTenantCreate,
     MiniAppTenantCreatedRead,
     MiniAppTenantRead,
@@ -1047,6 +1051,157 @@ async def get_miniapp_student_invitation(
         student_name=student.display_name,
         bot_url=bot_url,
         qr_data_url=invitation_qr_data_url(bot_url),
+    )
+
+
+async def _student_cart_context(
+    db: AsyncSession,
+    *,
+    max_user_id: int,
+    tenant_slug: str,
+    student_id: UUID,
+    lock_student: bool = False,
+) -> tuple[Tenant, MaxAccount, Student]:
+    tenant = await get_tenant_by_slug(db, tenant_slug.strip().lower())
+    if tenant is None:
+        raise MiniAppStoreError("Контур школы не найден", status_code=404)
+
+    account = await db.scalar(
+        select(MaxAccount).where(MaxAccount.max_user_id == max_user_id)
+    )
+    if account is None:
+        raise MiniAppStoreError("Сначала привяжите профиль в боте", status_code=403)
+
+    student_query = select(Student).where(
+        Student.tenant_id == tenant.id,
+        Student.id == student_id,
+        Student.status == StudentStatus.ACTIVE,
+    )
+    if lock_student:
+        student_query = student_query.with_for_update()
+    student = await db.scalar(student_query)
+    if student is None:
+        raise MiniAppStoreError("Ученик не найден", status_code=404)
+
+    active_link = await db.scalar(
+        select(StudentAccessLink.id).where(
+            StudentAccessLink.tenant_id == tenant.id,
+            StudentAccessLink.account_id == account.id,
+            StudentAccessLink.student_id == student.id,
+            StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+        )
+    )
+    if active_link is None:
+        raise MiniAppStoreError(
+            "Нет доступа к корзине выбранного ученика",
+            status_code=403,
+        )
+    return tenant, account, student
+
+
+async def get_miniapp_cart(
+    db: AsyncSession,
+    *,
+    max_user_id: int,
+    tenant_slug: str,
+    student_id: UUID,
+) -> MiniAppCartRead:
+    tenant, _, student = await _student_cart_context(
+        db,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+        student_id=student_id,
+    )
+    cart_items = (
+        await db.scalars(
+            select(StudentCartItem)
+            .join(Product, Product.id == StudentCartItem.product_id)
+            .where(
+                StudentCartItem.tenant_id == tenant.id,
+                StudentCartItem.student_id == student.id,
+                Product.tenant_id == tenant.id,
+                Product.status == ProductStatus.ACTIVE,
+            )
+            .order_by(StudentCartItem.created_at, StudentCartItem.id)
+        )
+    ).all()
+    return MiniAppCartRead(
+        student_id=UUID(str(student.id)),
+        items=[
+            MiniAppCartItemRead(
+                product_id=UUID(str(item.product_id)),
+                quantity=item.quantity,
+            )
+            for item in cart_items
+        ],
+    )
+
+
+async def replace_miniapp_cart(
+    db: AsyncSession,
+    *,
+    student_id: UUID,
+    payload: MiniAppCartWrite,
+    tenant_slug: str,
+) -> MiniAppCartRead:
+    tenant, account, student = await _student_cart_context(
+        db,
+        max_user_id=payload.max_user_id,
+        tenant_slug=tenant_slug,
+        student_id=student_id,
+        lock_student=True,
+    )
+    quantities: dict[UUID, int] = {}
+    for item in payload.items:
+        product_id = UUID(str(item.product_id))
+        quantities[product_id] = quantities.get(product_id, 0) + item.quantity
+        if quantities[product_id] > 20:
+            raise MiniAppStoreError(
+                "В корзине может быть не больше 20 штук одного товара"
+            )
+
+    if quantities:
+        product_ids = set(
+            await db.scalars(
+                select(Product.id).where(
+                    Product.tenant_id == tenant.id,
+                    Product.id.in_(quantities),
+                    Product.status == ProductStatus.ACTIVE,
+                )
+            )
+        )
+        missing_product_ids = set(quantities) - product_ids
+        if missing_product_ids:
+            raise MiniAppStoreError(
+                "Один или несколько товаров больше недоступны",
+                status_code=409,
+            )
+
+    await db.execute(
+        delete(StudentCartItem).where(
+            StudentCartItem.tenant_id == tenant.id,
+            StudentCartItem.student_id == student.id,
+        )
+    )
+    db.add_all(
+        [
+            StudentCartItem(
+                tenant_id=tenant.id,
+                student_id=student.id,
+                product_id=product_id,
+                updated_by_account_id=account.id,
+                quantity=quantity,
+            )
+            for product_id, quantity in quantities.items()
+        ]
+    )
+    await db.commit()
+    return MiniAppCartRead(
+        student_id=UUID(str(student.id)),
+        items=[
+            MiniAppCartItemRead(product_id=product_id, quantity=quantity)
+            for product_id, quantity in quantities.items()
+        ],
     )
 
 

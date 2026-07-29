@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.52.2" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.54.0" />
   </head>
   <body>
     <main id="accessGate" class="access-gate" hidden>
@@ -216,7 +216,7 @@
                 <strong id="storeCartCount">0 товаров</strong>
                 <small><span id="storeCartTotal">0</span> AC</small>
               </span>
-              <strong>Открыть корзину</strong>
+              <strong id="storeCartAction">Открыть корзину</strong>
             </button>
           </section>
 
@@ -224,7 +224,7 @@
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Оформление</p>
-                <h2>Корзина</h2>
+                <h2 id="cartTitle">Корзина</h2>
               </div>
               <button class="secondary-action" type="button" data-view-jump="store">Продолжить покупки</button>
             </div>
@@ -631,6 +631,6 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app.js?v=0.52.2"></script>
+    <script src="/miniapp/static/app.js?v=0.54.0"></script>
   </body>
 </html>
