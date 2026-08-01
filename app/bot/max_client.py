@@ -13,7 +13,7 @@ except Exception:
     pass
 
 API_BASE = os.getenv("MAX_API_BASE", "https://platform-api2.max.ru")
-UPDATE_TYPES = "message_created,bot_started,message_callback"
+UPDATE_TYPES = "message_created,bot_started,bot_stopped,message_callback"
 
 
 class MaxApiError(RuntimeError):

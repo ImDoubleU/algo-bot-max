@@ -49,16 +49,18 @@ def _order_message(
         f"Заказ №{order.order_number}",
         f"Ученик: {student.display_name}",
         f"Статус: {_order_status_text(order.status)}",
-        f"Сумма: {order.total_astrocoins} AC",
+        f"Сумма: {order.total_astrocoins} астрокоинов",
     ]
     if order.status in {OrderStatus.CANCELLED, OrderStatus.RETURNED}:
-        lines.append(f"Возвращено: {order.total_astrocoins} AC")
+        lines.append(f"Возвращено: {order.total_astrocoins} астрокоинов")
     if order.status == OrderStatus.CANCELLED:
         lines.insert(0, "К сожалению, заказ пришлось отменить.")
         if order.cancellation_reason:
             lines.append(f"Причина: {order.cancellation_reason}")
     if order.status == OrderStatus.TRANSFERRED_TO_TEACHER:
-        lines.append("Заказ уже у преподавателя. Он передаст его ученику на занятии.")
+        lines.append(
+            "Преподаватель получил ваш заказ. Получить его можно уже на следующем занятии!"
+        )
     if balance_after is not None:
         lines.append(f"Баланс: {balance_after} AC")
     return "\n".join(lines)
@@ -239,12 +241,10 @@ async def schedule_new_product_notification(
         return
     user_ids = await _tenant_customer_user_ids(db, tenant_id=UUID(str(tenant.id)))
     text = (
-        "В магазине появился новый товар.\n\n"
+        "В магазине появился новый товар!\n\n"
         f"{product.name}\n"
         f"Цена: {product.price_astrocoins} AC"
     )
-    if product.photo_url:
-        text += "\nФото товара прикреплено к сообщению."
     _schedule_direct_notification(
         user_ids=user_ids,
         tenant_slug=tenant.slug,

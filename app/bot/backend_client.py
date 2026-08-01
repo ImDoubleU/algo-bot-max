@@ -137,6 +137,22 @@ class AccessBackendClient:
             },
         )
 
+    def revoke_stopped_bot_access(
+        self,
+        *,
+        tenant_slug: str,
+        max_user_id: int,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/access/bot-stopped",
+            body={
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
+                "reason": "bot_stopped",
+            },
+        )
+
     def update_access_link_status(
         self,
         *,
@@ -326,22 +342,6 @@ class AccessBackendClient:
             },
         )
 
-    def send_manual_feedback(
-        self,
-        *,
-        output_id: str,
-        tenant_slug: str,
-        max_user_id: int,
-    ) -> dict[str, Any]:
-        return self._request(
-            "POST",
-            f"/teaching/manual-feedback/{parse.quote(str(output_id))}/send",
-            body={
-                "tenant_slug": tenant_slug,
-                "max_user_id": max_user_id,
-            },
-        )
-
     def generate_feedback(
         self,
         *,
@@ -360,22 +360,6 @@ class AccessBackendClient:
                 "absent_students": absent_students,
                 "is_repetition": is_repetition,
                 "advance_lesson": False,
-            },
-        )
-
-    def send_feedback(
-        self,
-        *,
-        output_id: str,
-        tenant_slug: str,
-        max_user_id: int,
-    ) -> dict[str, Any]:
-        return self._request(
-            "POST",
-            f"/teaching/feedback/{parse.quote(str(output_id))}/send",
-            body={
-                "tenant_slug": tenant_slug,
-                "max_user_id": max_user_id,
             },
         )
 

@@ -385,7 +385,7 @@ class LongPollingBot:
                 "/canbuy <SKU> [шт.][, SKU шт.] [| фильтр] - кто может купить без списания AC.\n"
                 "/buy <SKU> [шт.][, SKU шт.] [| <ученик>] - заказ из чата.\n"
                 "/balance [ученик] - балансы учеников.\n"
-                "/miniapp - ссылка на магазин.\n\n"
+                "Приложение открывается кнопкой в главном меню.\n\n"
                 "Без команды можно написать название товара или SKU: если это не Contact ID, "
                 "бот покажет поиск по каталогу."
             )
@@ -456,24 +456,23 @@ class LongPollingBot:
                 "/groups - группы и состав учеников.\n"
                 "/students - поиск ученика.\n"
                 "/accrue <AC> <ученик> | <причина> - начислить астрокоины.\n\n"
-                "В mini-app можно добавить группу, выбрать курс, дату и время, "
-                "настроить автоматическую ОС и доставку связанным родителям."
+                "В приложении можно добавить группу, выбрать курс, дату и время, "
+                "настроить автоматическую подготовку ОС после занятия."
             )
         if resolved_topic == "setup":
             return (
                 "Помощь: запуск и настройка\n\n"
-                "/status - текущий tenant, backend API, miniapp и marker polling.\n"
+                "/status - текущий партнер, сервер и состояние приложения.\n"
                 "/setup - открыть этот раздел короткой командой.\n"
                 "/version или /about - версия, revision, окружение и runtime-ссылки.\n"
                 "/config или /doctor - безопасный локальный config report без секретов.\n"
                 "/ready - readiness backend, БД и seed-данных.\n"
                 "/health - alias для /ready.\n"
-                "/id - MAX user_id, tenant и miniapp URL.\n"
+                "/id - техническая информация о профиле и приложении.\n"
                 "/tenant <slug|reset> - сменить tenant в текущем чате или вернуть default.\n"
                 "/link <Contact ID> - создать deep link для входа.\n"
-                "/miniapp - проверить персональную ссылку.\n\n"
-                "Перед polling проверьте .env: MAX_BOT_TOKEN, MAX_BACKEND_API_BASE, "
-                "DEFAULT_TENANT_SLUG и MAX_MINIAPP_URL."
+                "Ссылка на приложение доступна в главном меню.\n\n"
+                "Перед запуском проверьте настройки бота, сервера и адрес приложения."
             )
         if normalized_topic:
             return (
@@ -515,7 +514,7 @@ class LongPollingBot:
             "/repeat <номер> - повторить заказ теми же товарами.\n"
             "/sales [open|issued|cancelled|all] - суммы и топ товаров; alias: /revenue.\n"
             "/me - профиль, роли и связанные ученики.\n"
-            "/miniapp - персональная ссылка на магазин.\n"
+                "Приложение открывается кнопкой в главном меню.\n"
             "/stock [порог] - проблемные остатки для staff/admin; alias: /lowstock.\n"
             "/inventory [порог] - расширенный список остатков.\n"
             "/lowbalance [AC] - ученики с балансом ниже порога; alias: /lowwallets.\n"
@@ -538,7 +537,7 @@ class LongPollingBot:
             "/version или /about - версия, revision и окружение.\n"
             "/config или /doctor - безопасный config report без секретов.\n"
             "/ready - readiness backend, БД и seed-данных.\n"
-            "/id - диагностический MAX user_id, tenant и miniapp URL."
+            "/id - техническая информация о профиле и приложении."
         )
 
     def help_response(self, user_id: int | None = None, topic: str = "") -> BotResponse:
@@ -563,7 +562,8 @@ class LongPollingBot:
         if role == "student":
             return (
                 "Личный кабинет ученика\n\n"
-                "Баланс, магазин, заказы и история AC находятся в личном кабинете.\n\n"
+                "Баланс, магазин, заказы и история начисления астрокоинов "
+                "находятся в личном кабинете.\n\n"
                 "Откройте его кнопкой ниже."
             )
         if role == "parent":
@@ -576,7 +576,7 @@ class LongPollingBot:
             role_title = "Кабинет куратора" if role == "curator" else "Рабочий кабинет"
             return (
                 f"{role_title}\n\n"
-                "Расписание, ученики, начисления и заказы находятся в mini-app.\n\n"
+                "Расписание, ученики, начисления и заказы находятся в приложении.\n\n"
                 "Для подготовки и отправки сообщения родителям откройте отдельный "
                 "раздел «Обратная связь». Инструкции и рабочие ссылки находятся "
                 "в разделе «База знаний»."
@@ -589,7 +589,7 @@ class LongPollingBot:
             }[role]
             return (
                 f"{role_title}\n\n"
-                "Управление, импорт, склады, заказы и пользователи находятся в mini-app.\n\n"
+                "Управление, импорт, склады, заказы и пользователи находятся в приложении.\n\n"
                 "Подготовка сообщений родителям вынесена в раздел «Обратная связь», "
                 "инструкции и ссылки — в раздел «База знаний»."
             )
@@ -615,8 +615,8 @@ class LongPollingBot:
         return BotResponse(
             (
                 "Первый вход\n\n"
-                "Выберите, для кого открываете кабинет. Затем бот попросит Contact ID "
-                "из CRM и привяжет только доступных вам учеников."
+                "Выберите вашу роль. Затем бот попросит ввести родительский ID, "
+                "указанный в письме на почте."
             ),
             role_selection_keyboard(),
         )
@@ -1099,8 +1099,8 @@ class LongPollingBot:
             f"Backend API: {'подключен' if self.backend_client else 'выключен'}",
             f"Backend URL: {settings.max_backend_api_base or 'не задан'}",
             f"Backend timeout: {settings.max_backend_timeout_seconds}s",
-            f"Miniapp: {'настроен' if miniapp_url else 'не настроен'}",
-            f"Miniapp URL: {miniapp_url or 'не задан'}",
+            f"Приложение: {'настроено' if miniapp_url else 'не настроено'}",
+            f"Адрес приложения: {miniapp_url or 'не задан'}",
             f"Marker: {marker if marker is not None else 'нет'}",
             "Polling: long polling",
             (
@@ -1114,7 +1114,7 @@ class LongPollingBot:
                 "Проверки:",
                 "/version - версия, revision и окружение",
                 "/ready - backend, БД и seed-данные",
-                "/id - MAX user_id, tenant и miniapp URL",
+                "/id - техническая информация о профиле и приложении",
                 "/help setup - запуск и переменные .env",
             ]
         )
@@ -1141,7 +1141,7 @@ class LongPollingBot:
             f"Backend timeout: {settings.max_backend_timeout_seconds}s",
             f"MAX API timeout: {settings.max_api_timeout_seconds}s",
             f"MAX poll timeout: {settings.max_poll_timeout_seconds}s",
-            f"Miniapp URL: {miniapp_url or 'not set'}",
+            f"Адрес приложения: {miniapp_url or 'не задан'}",
             f"Bot username: @{bot_username}" if bot_username else "Bot username: not set",
             "",
             "Для глубокой проверки: /doctor или /ready",
@@ -1190,17 +1190,16 @@ class LongPollingBot:
         if not miniapp_url:
             return BotResponse(
                 (
-                    "Miniapp URL не настроен.\n\n"
-                    "Задайте MAX_MINIAPP_URL в .env или окружении, затем перезапустите бота."
+                    "Приложение пока недоступно. Попробуйте позже."
                 ),
                 self.main_menu_attachments(user_id),
             )
 
         return BotResponse(
             (
-                "Miniapp для текущего профиля:\n"
+                "Личный кабинет:\n"
                 f"{miniapp_url}\n\n"
-                f"Tenant: {tenant_slug}"
+                "Откройте ссылку кнопкой ниже."
             ),
             self.cabinet_attachments(user_id, tenant_slug),
         )
@@ -1223,7 +1222,7 @@ class LongPollingBot:
             f"display_name: {display_name_from_user(sender) or '-'}",
             f"tenant: {tenant_slug}",
             f"backend_api: {'подключен' if self.backend_client else 'выключен'}",
-            f"miniapp_url: {miniapp_url or 'не настроен'}",
+            f"Адрес приложения: {miniapp_url or 'не настроен'}",
         ]
         lines.extend(
             [
@@ -1259,7 +1258,7 @@ class LongPollingBot:
     def order_response(self, user_id: int | None = None, order_ref: str = "") -> BotResponse:
         if not order_ref.strip():
             return BotResponse(
-                "Укажите номер заказа: /order <номер>",
+                "Откройте раздел «Заказы» и выберите нужный заказ.",
                 self.main_menu_attachments(user_id),
             )
 
@@ -1272,8 +1271,8 @@ class LongPollingBot:
         if order is None:
             return BotResponse(
                 (
-                    f"Не нашел заказ `{order_ref}` в доступном профиле.\n\n"
-                    "Отправьте /orders, чтобы увидеть доступные номера."
+                    "Не удалось найти этот заказ. Откройте раздел «Заказы» "
+                    "и выберите его из списка."
                 ),
                 self.cabinet_attachments(user_id, tenant_slug),
             )
@@ -1346,7 +1345,7 @@ class LongPollingBot:
             view="teaching",
         )
         if user_id is None or self.backend_client is None:
-            text = "Расписание доступно в mini-app."
+            text = "Расписание доступно в приложении."
             if schedule_url:
                 text = f"{text}\n\n{schedule_url}"
             return BotResponse(text, self.cabinet_attachments(user_id, tenant_slug))
@@ -1407,7 +1406,7 @@ class LongPollingBot:
             "Обратная связь",
             "",
             "Здесь ОС создается вручную: выберите группу, курс и конкретный урок.",
-            "Расписание и автоматическое формирование находятся в mini-app.",
+            "Расписание и автоматическое формирование находятся в приложении.",
         ]
         unsent_count = sum(
             1
@@ -1865,54 +1864,14 @@ class LongPollingBot:
 
     @staticmethod
     def feedback_output_preview_response(output: dict[str, Any]) -> BotResponse:
-        sent = str(output.get("status") or "") == "sent_to_parents"
-        status_text = "Отправлено родителям" if sent else "Готово к отправке"
         text = (
-            f"{status_text} · {output.get('group_name') or 'Группа'}\n\n"
+            f"Черновик ОС · {output.get('group_name') or 'Группа'}\n\n"
             f"{output.get('feedback_text') or 'Текст обратной связи пуст.'}"
         )
         return BotResponse(
             text,
-            feedback_preview_keyboard(
-                output_id=str(output.get("id") or ""),
-                can_send=not sent,
-            ),
+            feedback_preview_keyboard(),
         )
-
-    def feedback_send_response(
-        self,
-        *,
-        user_id: int | None,
-        output_id: str,
-    ) -> BotResponse:
-        tenant_slug = self.current_tenant_slug(user_id)
-        if user_id is None or self.backend_client is None:
-            return self.feedback_menu_response(user_id)
-        try:
-            result = self.backend_client.send_manual_feedback(
-                output_id=output_id,
-                tenant_slug=tenant_slug,
-                max_user_id=user_id,
-            )
-        except BackendApiError as exc:
-            return BotResponse(
-                f"Не получилось отправить ОС.\n\n{format_backend_error(exc)}",
-                self.main_menu_attachments(user_id),
-            )
-        eligible = int(result.get("parent_recipients") or 0)
-        sent = int(result.get("sent_recipients") or 0)
-        if eligible == 0:
-            text = (
-                "ОС сохранена, но отправлять некому.\n\n"
-                "У учеников этой группы нет связанных родительских аккаунтов."
-            )
-        elif sent == eligible:
-            text = f"ОС отправлена всем родителям: {sent}."
-        elif sent == 0:
-            text = f"ОС не отправлена. Получателей: {eligible}."
-        else:
-            text = f"ОС отправлена частично: {sent} из {eligible}."
-        return BotResponse(text, self.main_menu_attachments(user_id))
 
     def feedback_callback_response(
         self,
@@ -1975,8 +1934,6 @@ class LongPollingBot:
             return self.feedback_drafts_response(user_id)
         if action == "manual_output" and value:
             return self.feedback_output_response(user_id=user_id, output_id=value)
-        if action == "manual_send" and value:
-            return self.feedback_send_response(user_id=user_id, output_id=value)
         return self.feedback_menu_response(user_id)
 
     def balance_response(self, user_id: int | None = None, query: str = "") -> BotResponse:
@@ -3855,19 +3812,13 @@ class LongPollingBot:
                 self.main_menu_attachments(user_id),
             )
         if not order_ref:
-            command = {"cancel": "/cancel", "issue": "/issue", "return": "/return"}[action]
             return BotResponse(
-                f"Укажите номер заказа: {command} <номер>",
+                "Откройте раздел «Заказы» и выберите нужный заказ.",
                 self.main_menu_attachments(user_id),
             )
         if self.is_ambiguous_order_ref(order_ref):
             return BotResponse(
-                (
-                    "Для действия с заказом нужен точный номер, а не `last` или `open`.\n\n"
-                    "Сначала откройте нужный заказ: /last open или /orders open.\n"
-                    "Затем выполните действие по номеру: /order <номер>, "
-                    "/done <номер>, /void <номер>."
-                ),
+                "Откройте раздел «Заказы» и выберите нужный заказ.",
                 self.main_menu_attachments(user_id),
             )
         if self.backend_client is None:
@@ -3900,8 +3851,8 @@ class LongPollingBot:
         if order is None:
             return BotResponse(
                 (
-                    f"Не нашел заказ `{order_ref}` в доступном профиле.\n\n"
-                    "Отправьте /orders, чтобы увидеть доступные номера."
+                    "Не удалось найти этот заказ. Откройте раздел «Заказы» "
+                    "и выберите его из списка."
                 ),
                 self.cabinet_attachments(user_id, tenant_slug),
             )
@@ -3909,7 +3860,7 @@ class LongPollingBot:
         order_id = str(order.get("id") or "")
         if not order_id:
             return BotResponse(
-                "У заказа нет backend id. Откройте miniapp и попробуйте действие там.",
+                "Не удалось открыть заказ. Попробуйте выполнить действие в приложении.",
                 self.cabinet_attachments(user_id, tenant_slug),
             )
 
@@ -3992,16 +3943,12 @@ class LongPollingBot:
             )
         if not order_ref.strip():
             return BotResponse(
-                "Укажите номер заказа: /repeat <номер>",
+                "Откройте раздел «Заказы» и выберите нужный заказ.",
                 self.main_menu_attachments(user_id),
             )
         if self.is_ambiguous_order_ref(order_ref):
             return BotResponse(
-                (
-                    "Для повтора нужен точный номер заказа, а не `last` или `open`.\n\n"
-                    "Сначала откройте нужный заказ: /last open или /orders open.\n"
-                    "Затем повторите его по номеру: /repeat <номер>."
-                ),
+                "Откройте раздел «Заказы» и выберите нужный заказ.",
                 self.main_menu_attachments(user_id),
             )
         if self.backend_client is None:
@@ -4034,8 +3981,8 @@ class LongPollingBot:
         if source_order is None:
             return BotResponse(
                 (
-                    f"Не нашел заказ `{order_ref}` в доступном профиле.\n\n"
-                    "Отправьте /orders, чтобы увидеть доступные номера."
+                    "Не удалось найти этот заказ. Откройте раздел «Заказы» "
+                    "и выберите его из списка."
                 ),
                 self.cabinet_attachments(user_id, tenant_slug),
             )
@@ -4407,20 +4354,6 @@ class LongPollingBot:
                 comment_text = f" - {comment}" if comment else ""
                 lines.append(f"- {date}: {from_status} -> {to_status}{comment_text}")
 
-        action_lines: list[str] = []
-        action_lines.append(f"/repeat {order_number} - повторить заказ")
-        if status in self.open_order_statuses():
-            action_lines.extend(
-                [
-                    f"/cancel {order_number} или /void {order_number} - отменить заказ",
-                    f"/issue {order_number} или /done {order_number} - выдать заказ",
-                ]
-            )
-        elif status == "issued_to_student":
-            action_lines.append(f"/return {order_number} или /refund {order_number} - возврат")
-        if action_lines:
-            lines.extend(["", "Действия:"])
-            lines.extend(action_lines)
         return "\n".join(lines)
 
     def format_sales_text(
@@ -5026,7 +4959,7 @@ class LongPollingBot:
                 [
                     "",
                     "Подходящих учеников не найдено.",
-                    "Проверьте Contact ID или откройте miniapp для полного профиля.",
+                    "Проверьте ID из письма или откройте личный кабинет.",
                 ]
             )
             return "\n".join(lines)
@@ -5184,7 +5117,7 @@ class LongPollingBot:
         if not students:
             return BotResponse(
                 "Связанных учеников пока нет, заказ не создан.\n\n"
-                "Сначала привяжите доступ по Contact ID или откройте miniapp."
+                "Сначала привяжите профиль по ID из письма или откройте личный кабинет."
             )
         if len(students) == 1:
             return students[0]
@@ -5500,7 +5433,7 @@ class LongPollingBot:
             f"MAX bot token: {report.get('max_bot_token') or 'missing'}",
             f"Backend API: {report.get('max_backend_api_base') or 'disabled'}",
             f"Backend timeout: {report.get('max_backend_timeout_seconds') or '-'}s",
-            f"Miniapp URL: {report.get('max_miniapp_url') or 'disabled'}",
+            f"Адрес приложения: {report.get('max_miniapp_url') or 'не задан'}",
             (
                 "Drop webhooks on start: "
                 f"{'true' if report.get('max_drop_webhooks_on_start') else 'false'}"
@@ -5580,7 +5513,7 @@ class LongPollingBot:
                 [
                     "",
                     "Подходящих активных товаров не найдено.",
-                    "Откройте miniapp, чтобы посмотреть полный каталог.",
+                    "Откройте приложение, чтобы посмотреть весь каталог.",
                 ]
             )
             return "\n".join(lines)
@@ -5633,7 +5566,7 @@ class LongPollingBot:
                 [
                     "",
                     "Активных категорий пока нет.",
-                    "Добавьте товары в miniapp или проверьте seed-данные.",
+                    "Добавьте товары в приложении.",
                 ]
             )
             return "\n".join(lines)
@@ -5682,7 +5615,7 @@ class LongPollingBot:
                 [
                     "",
                     "Склады пока не заведены.",
-                    "Добавьте склад в miniapp: Операции -> Склады.",
+                    "Добавьте склад в приложении: Управление → Склады.",
                 ]
             )
             return "\n".join(lines)
@@ -6154,14 +6087,6 @@ class LongPollingBot:
                 lines.append(f"{index}. {label or student.get('student_id')}")
             if not students:
                 lines.append("Backend не вернул связанных учеников.")
-        else:
-            lines.extend(
-                [
-                    "",
-                    "Доменный API не подключен. Сейчас это только локальная проверка связи.",
-                ]
-            )
-
         lines.extend(
             [
                 "",
@@ -6443,7 +6368,7 @@ class LongPollingBot:
             return BotResponse(
                 (
                     f"Выбрана роль: {role_text}.\n\n"
-                    "Теперь отправьте Contact ID из CRM одним сообщением. "
+                    "Теперь отправьте ID из письма одним сообщением. "
                     "После проверки бот покажет найденных учеников и создаст связь."
                 ),
                 onboarding_contact_keyboard(),
@@ -6477,24 +6402,20 @@ class LongPollingBot:
             self.pending_onboarding_roles.pop(user_id, None)
             return BotResponse(
                 (
-                    "Связи доступа созданы.\n\n"
-                    f"Tenant: {pending.tenant_slug}\n"
-                    f"Contact ID: {pending.contact_id}\n"
+                    "Профиль привязан.\n\n"
+                    f"ID: {pending.contact_id}\n"
                     f"Роль: {role_text}\n"
                     f"Связанных учеников: {len(links)}\n\n"
-                    "Готово. Теперь можно проверить личный кабинет в mini app."
+                    "Теперь можно открыть личный кабинет."
                 ),
                 self.cabinet_attachments(user_id, pending.tenant_slug),
             )
 
         return BotResponse(
             (
-                "Тестовая связь создана.\n\n"
-                f"Tenant: {pending.tenant_slug}\n"
-                f"Contact ID: {pending.contact_id}\n"
-                f"Роль: {role_text}\n\n"
-                "После подключения backend будут создаваться связи доступа для всех учеников, "
-                "которые привязаны к этому контакту внутри выбранного tenant."
+                "Данные приняты.\n\n"
+                f"ID: {pending.contact_id}\n"
+                f"Роль: {role_text}"
             ),
             self.cabinet_attachments(user_id, pending.tenant_slug),
         )
@@ -6526,6 +6447,54 @@ class LongPollingBot:
         ) or self.first_entry_response(user_id)
 
         self.send_response(response, chat_id=chat_id, user_id=user_id)
+
+    def handle_bot_stopped(self, update: dict[str, Any]) -> None:
+        user = update.get("user") or {}
+        raw_user_id = user.get("user_id") or update.get("user_id")
+        try:
+            user_id = int(raw_user_id)
+        except (TypeError, ValueError):
+            logger.warning("bot_stopped received without MAX user_id")
+            return
+
+        self.pending_contact_ids.pop(user_id, None)
+        self.pending_onboarding_roles.pop(user_id, None)
+        self.pending_staff_invites.pop(user_id, None)
+        self.feedback_drafts.pop(user_id, None)
+        self.user_tenant_slugs.pop(user_id, None)
+        self.user_menu_roles = {
+            key: role
+            for key, role in self.user_menu_roles.items()
+            if key[0] != user_id
+        }
+
+        if self.backend_client is None:
+            logger.error(
+                "Cannot revoke access after bot_stopped: backend client is disabled "
+                "for max_user_id=%s",
+                user_id,
+            )
+            return
+        try:
+            result = self.backend_client.revoke_stopped_bot_access(
+                tenant_slug=self.default_tenant_slug,
+                max_user_id=user_id,
+            )
+        except BackendApiError:
+            logger.exception(
+                "Failed to revoke access after bot_stopped for max_user_id=%s",
+                user_id,
+            )
+            return
+
+        logger.info(
+            "Access revoked after bot_stopped: max_user_id=%s "
+            "account_links=%s child_links=%s tenants=%s",
+            user_id,
+            result.get("revoked_account_links", 0),
+            result.get("revoked_child_links", 0),
+            result.get("affected_tenants", 0),
+        )
 
     def handle_message_created(self, update: dict[str, Any]) -> None:
         message = update.get("message") or {}
@@ -6907,7 +6876,6 @@ class LongPollingBot:
                     "generate": "ОС готова",
                     "drafts": "Черновики",
                     "manual_output": "Черновик",
-                    "manual_send": "Отправка",
                 }.get(action, "Обратная связь")
             elif payload == CALLBACK_MENU:
                 response = self.main_menu_response(user_id=user_id)
@@ -7049,10 +7017,10 @@ class LongPollingBot:
             notification = "Помощь"
         elif payload == CALLBACK_MINIAPP:
             response = BotResponse(
-                "Mini app будет открываться кнопкой после настройки публичного HTTPS-адреса.",
+                "Личный кабинет пока недоступен. Попробуйте позже.",
                 self.main_menu_attachments(user_id),
             )
-            notification = "Mini app"
+            notification = "Личный кабинет"
         else:
             response = BotResponse(
                 "Кнопка пока не поддерживается. Вернемся в меню.",
@@ -7084,6 +7052,10 @@ class LongPollingBot:
 
         if update_type == "bot_started":
             self.handle_bot_started(update)
+            return
+
+        if update_type == "bot_stopped":
+            self.handle_bot_stopped(update)
             return
 
         if update_type == "message_created":

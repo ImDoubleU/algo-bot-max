@@ -61,7 +61,16 @@ def test_build_max_bot_shop_deeplink() -> None:
 def test_student_invitation_token_keeps_tenant_and_student_scope() -> None:
     tenant_id = uuid4()
     student_id = uuid4()
+    sponsor_access_link_id = uuid4()
 
-    token = issue_student_invitation_token(tenant_id, student_id)
+    token = issue_student_invitation_token(
+        tenant_id,
+        student_id,
+        sponsor_access_link_id,
+    )
 
-    assert verify_student_invitation_token(token) == (tenant_id, student_id)
+    assert verify_student_invitation_token(token) == (
+        tenant_id,
+        student_id,
+        sponsor_access_link_id,
+    )

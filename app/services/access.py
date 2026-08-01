@@ -1,4 +1,5 @@
 import hashlib
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -17,6 +18,7 @@ from app.models.student import Contact, ContactStudentLink, Student, StudentAcce
 from app.models.tenant import Tenant
 from app.schemas.access import (
     AccessLinkCreate,
+    BotStoppedAccessRevoke,
     StudentInvitationLinkCreate,
     StudentResolveRequest,
 )
@@ -151,6 +153,135 @@ async def get_or_create_max_account(
     return account
 
 
+async def revoke_dependent_student_links(
+    db: AsyncSession,
+    *,
+    parent_links: list[StudentAccessLink],
+    revoked_at: datetime | None = None,
+    reason: str = "sponsor_revoked",
+) -> list[StudentAccessLink]:
+    parents = [
+        link for link in parent_links if link.role == StudentAccessRole.PARENT
+    ]
+    if not parents:
+        return []
+
+    revoked_at = revoked_at or datetime.now(UTC)
+    parent_ids = [link.id for link in parents]
+    dependent_by_id: dict[UUID, StudentAccessLink] = {}
+
+    sponsored_links = (
+        await db.scalars(
+            select(StudentAccessLink).where(
+                StudentAccessLink.sponsor_access_link_id.in_(parent_ids),
+                StudentAccessLink.role == StudentAccessRole.STUDENT,
+                StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+            )
+        )
+    ).all()
+    for link in sponsored_links:
+        dependent_by_id[UUID(str(link.id))] = link
+
+    # Links created by older QR codes have no sponsor reference. Revoke them
+    # only when the student has no other active parent connection.
+    scopes = {(link.tenant_id, link.student_id) for link in parents}
+    for tenant_id, student_id in scopes:
+        other_parent_id = await db.scalar(
+            select(StudentAccessLink.id)
+            .where(
+                StudentAccessLink.tenant_id == tenant_id,
+                StudentAccessLink.student_id == student_id,
+                StudentAccessLink.role == StudentAccessRole.PARENT,
+                StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+                ~StudentAccessLink.id.in_(parent_ids),
+            )
+            .limit(1)
+        )
+        if other_parent_id is not None:
+            continue
+        legacy_links = (
+            await db.scalars(
+                select(StudentAccessLink).where(
+                    StudentAccessLink.tenant_id == tenant_id,
+                    StudentAccessLink.student_id == student_id,
+                    StudentAccessLink.role == StudentAccessRole.STUDENT,
+                    StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+                    StudentAccessLink.sponsor_access_link_id.is_(None),
+                )
+            )
+        ).all()
+        for link in legacy_links:
+            dependent_by_id[UUID(str(link.id))] = link
+
+    for link in dependent_by_id.values():
+        link.status = StudentAccessStatus.REVOKED
+        link.revoked_at = revoked_at
+        link.revoked_reason = reason
+    return list(dependent_by_id.values())
+
+
+async def revoke_access_for_stopped_bot(
+    db: AsyncSession,
+    payload: BotStoppedAccessRevoke,
+) -> tuple[int, int, int]:
+    account = await db.scalar(
+        select(MaxAccount).where(MaxAccount.max_user_id == payload.max_user_id)
+    )
+    if account is None:
+        return 0, 0, 0
+
+    account_links = list(
+        (
+            await db.scalars(
+                select(StudentAccessLink).where(
+                    StudentAccessLink.account_id == account.id,
+                    StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+                )
+            )
+        ).all()
+    )
+    if not account_links:
+        return 0, 0, 0
+
+    revoked_at = datetime.now(UTC)
+    for link in account_links:
+        link.status = StudentAccessStatus.REVOKED
+        link.revoked_at = revoked_at
+        link.revoked_reason = payload.reason
+
+    child_links = await revoke_dependent_student_links(
+        db,
+        parent_links=account_links,
+        revoked_at=revoked_at,
+        reason="sponsor_bot_stopped",
+    )
+    affected_tenant_ids = {
+        link.tenant_id for link in [*account_links, *child_links]
+    }
+    for tenant_id in affected_tenant_ids:
+        db.add(
+            AuditLog(
+                tenant_id=tenant_id,
+                actor_account_id=account.id,
+                action="max_bot_access.revoked",
+                entity_type="max_account",
+                entity_id=str(account.id),
+                payload={
+                    "max_user_id": payload.max_user_id,
+                    "reason": payload.reason,
+                    "revoked_account_links": sum(
+                        link.tenant_id == tenant_id for link in account_links
+                    ),
+                    "revoked_child_links": sum(
+                        link.tenant_id == tenant_id for link in child_links
+                    ),
+                },
+            )
+        )
+    await db.commit()
+    return len(account_links), len(child_links), len(affected_tenant_ids)
+
+
 async def create_contact_access_links(
     db: AsyncSession,
     payload: AccessLinkCreate,
@@ -188,6 +319,7 @@ async def create_contact_access_links(
     account = await get_or_create_max_account(db, payload)
     links: list[StudentAccessLink] = []
     created = 0
+    reactivated = 0
 
     for student in students:
         existing = await db.scalar(
@@ -199,6 +331,15 @@ async def create_contact_access_links(
             ),
         )
         if existing is not None:
+            if (
+                payload.role == StudentAccessRole.PARENT
+                and existing.status == StudentAccessStatus.REVOKED
+                and existing.revoked_reason == "bot_stopped"
+            ):
+                existing.status = StudentAccessStatus.ACTIVE
+                existing.revoked_at = None
+                existing.revoked_reason = None
+                reactivated += 1
             links.append(existing)
             continue
 
@@ -226,6 +367,7 @@ async def create_contact_access_links(
                 "contact_id_hash": hash_contact_id(payload.contact_id),
                 "student_ids": [str(student.id) for student in students],
                 "created_links": created,
+                "reactivated_links": reactivated,
                 "total_links": len(links),
                 "role": payload.role.value,
                 "source": StudentAccessSource.ID_ENTRY.value,
@@ -243,12 +385,20 @@ async def create_invited_student_access_link(
     payload: StudentInvitationLinkCreate,
 ) -> tuple[Tenant, Student, StudentAccessLink]:
     try:
-        token_tenant_id, student_id = verify_student_invitation_token(payload.token)
+        (
+            token_tenant_id,
+            student_id,
+            sponsor_access_link_id,
+        ) = verify_student_invitation_token(payload.token)
     except StudentInvitationError as exc:
         raise AccessServiceError(str(exc)) from exc
+    if sponsor_access_link_id is None:
+        raise AccessServiceError(
+            "QR-код устарел. Попросите родителя получить новый код в личном кабинете."
+        )
     tenant = await db.scalar(select(Tenant).where(Tenant.id == token_tenant_id))
     if tenant is None:
-        raise AccessServiceError("Контур школы из ссылки не найден")
+        raise AccessServiceError("Школа из ссылки не найдена")
     student = await db.scalar(
         select(Student).where(
             Student.id == student_id,
@@ -258,6 +408,20 @@ async def create_invited_student_access_link(
     )
     if student is None:
         raise AccessServiceError("Student was not found for this tenant")
+
+    sponsor_link = await db.scalar(
+        select(StudentAccessLink).where(
+            StudentAccessLink.id == sponsor_access_link_id,
+            StudentAccessLink.tenant_id == tenant.id,
+            StudentAccessLink.student_id == student.id,
+            StudentAccessLink.role == StudentAccessRole.PARENT,
+            StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+        )
+    )
+    if sponsor_link is None:
+        raise AccessServiceError(
+            "Родительская связь больше не активна. Получите новый QR-код."
+        )
 
     account = await get_or_create_max_account(db, payload)
     link = await db.scalar(
@@ -276,13 +440,17 @@ async def create_invited_student_access_link(
             student_id=student.id,
             role=StudentAccessRole.STUDENT,
             status=StudentAccessStatus.ACTIVE,
-            source=StudentAccessSource.ID_ENTRY,
+            source=StudentAccessSource.PARENT_QR,
+            sponsor_access_link_id=sponsor_link.id,
         )
         db.add(link)
         await db.flush()
     else:
         link.status = StudentAccessStatus.ACTIVE
+        link.source = StudentAccessSource.PARENT_QR
+        link.sponsor_access_link_id = sponsor_link.id
         link.revoked_at = None
+        link.revoked_reason = None
 
     db.add(
         AuditLog(
@@ -294,7 +462,8 @@ async def create_invited_student_access_link(
             payload={
                 "created": created,
                 "max_user_id": payload.max_user_id,
-                "source": "parent_qr",
+                "source": StudentAccessSource.PARENT_QR.value,
+                "sponsor_access_link_id": str(sponsor_link.id),
             },
         )
     )

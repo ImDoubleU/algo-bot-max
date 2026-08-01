@@ -21,8 +21,8 @@ const sessionStartedAt = new Date();
 const ROLE_VIEWS = Object.freeze({
   student: ["dashboard", "store", "cart", "orders", "wallet"],
   parent: ["dashboard", "store", "cart", "orders", "wallet"],
-  teacher: ["dashboard", "store", "orders", "wallet", "report", "accrual", "teaching"],
-  admin: ["dashboard", "store", "orders", "wallet", "report", "accrual", "teaching", "admin"],
+  teacher: ["dashboard", "store", "orders", "wallet", "report", "accrual", "teaching", "broadcasts"],
+  admin: ["dashboard", "store", "orders", "wallet", "report", "accrual", "teaching", "broadcasts", "admin"],
 });
 
 const ROLE_DASHBOARD_ACTION = Object.freeze({
@@ -43,7 +43,7 @@ const state = {
   canManageTenants: false,
   tenantSaving: false,
   availableRoles: ["student", "parent", "teacher", "admin"],
-  view: ["dashboard", "store", "cart", "orders", "wallet", "report", "accrual", "teaching", "admin"].includes(
+  view: ["dashboard", "store", "cart", "orders", "wallet", "report", "accrual", "teaching", "broadcasts", "admin"].includes(
     queryParam("view"),
   )
     ? queryParam("view")
@@ -111,13 +111,29 @@ const state = {
   teachingLoading: false,
   scheduleEditorOpen: false,
   editingScheduleId: "",
-  scheduleDayFilter: "all",
+  scheduleDraftGroup: "",
   generatedFeedback: "",
   generatedFeedbackId: "",
+  attendanceScheduleId: "",
   attendanceJournal: null,
   attendanceLoading: false,
+  attendanceSaving: false,
+  attendanceDirty: new Map(),
+  attendanceLessonDirty: new Map(),
+  attendanceAutoScroll: false,
   accrualReport: null,
   accrualReportLoading: false,
+  broadcastHistory: [],
+  broadcastHistoryLoaded: false,
+  broadcastHistoryLoading: false,
+  broadcastSaving: false,
+  broadcastPreviewLoading: false,
+  broadcastPreview: null,
+  broadcastPreviewSignature: "",
+  broadcastSelectedGroups: new Set(),
+  broadcastAllGroups: true,
+  broadcastPhotoFile: null,
+  broadcastPhotoPreviewUrl: "",
 };
 
 let accrualSearchTimer = null;
@@ -554,8 +570,8 @@ function tenantTitle() {
   if (state.currentTenant && !apiContext.demoMode) {
     return `${state.currentTenant.city_name} · ${state.currentTenant.partner_name}`;
   }
-  if (apiContext.demoMode) return "Демо-магазин";
-  if (!apiContext.tenantSlug) return "Контур по умолчанию";
+  if (apiContext.demoMode) return "Algo MAX";
+  if (!apiContext.tenantSlug) return "Не выбран";
   return apiContext.tenantSlug
     .split(/[-_]+/)
     .filter(Boolean)
@@ -604,7 +620,7 @@ function studentWelcome(firstName) {
           : "Доброй ночи";
   return {
     title: `${greeting}${firstName ? `, ${firstName}` : ""}`,
-    text: "Здесь собраны баланс, заказы и история AC.",
+    text: "Баланс, заказы и история начисления астрокоинов.",
   };
 }
 
@@ -986,7 +1002,7 @@ function savePreferences() {
       }),
     );
   } catch (error) {
-    console.warn("Не удалось сохранить настройки mini-app", error);
+    console.warn("Не удалось сохранить настройки приложения", error);
   }
 }
 
@@ -1016,7 +1032,7 @@ function restorePreferences() {
       state.orderStatusFilter = preferences.orderStatusFilter;
     }
   } catch (error) {
-    console.warn("Не удалось восстановить настройки mini-app", error);
+    console.warn("Не удалось восстановить настройки приложения", error);
   }
 }
 
@@ -1892,8 +1908,8 @@ function setTenantCreateMode(enabled) {
   if (form) form.hidden = !enabled;
   if (list) list.hidden = enabled;
   if (hint) hint.textContent = enabled
-    ? "Создайте отдельный контур. Его данные не будут смешиваться с другими партнерами."
-    : "Выберите контур, с которым хотите работать.";
+    ? "Добавьте нового партнера. Его данные будут храниться отдельно."
+    : "Выберите город и партнера.";
   if (showButton) showButton.hidden = enabled;
   if (cancelButton) cancelButton.hidden = !enabled;
   if (saveButton) saveButton.hidden = !enabled;
@@ -1935,6 +1951,17 @@ async function switchTenant(tenantSlug) {
     state.favorites = new Set();
     state.teachingWorkspace = null;
     state.teachingLoaded = false;
+    state.attendanceScheduleId = "";
+    state.attendanceJournal = null;
+    state.attendanceDirty = new Map();
+    state.attendanceLessonDirty = new Map();
+    state.broadcastHistory = [];
+    state.broadcastHistoryLoaded = false;
+    state.broadcastPreview = null;
+    state.broadcastPreviewSignature = "";
+    state.broadcastSelectedGroups = new Set();
+    state.broadcastAllGroups = true;
+    clearBroadcastPhoto();
     restoreCart();
     await loadServerCart(state.activeStudentId);
     restoreFavorites();
@@ -1942,11 +1969,11 @@ async function switchTenant(tenantSlug) {
     state.lastSyncAt = new Date();
     renderAll();
     renderSyncStatus();
-    showNotice("Контур переключен");
+    showNotice("Партнер выбран");
   } catch (error) {
     apiContext.tenantSlug = previousTenantSlug;
     syncTenantToUrl();
-    showNotice(error.message || "Не удалось переключить контур", "danger");
+    showNotice(error.message || "Не удалось выбрать партнера", "danger");
   }
 }
 
@@ -1983,7 +2010,7 @@ async function createTenantFromForm(event) {
     const result = await response.json();
     qs("#tenantCreateForm")?.reset();
     await switchTenant(result.tenant.tenant_slug);
-    showNotice(result.created ? "Партнер создан" : "Контур уже существовал и открыт");
+    showNotice(result.created ? "Партнер создан" : "Партнер уже существует и открыт");
   } catch (error) {
     showNotice(error.message || "Не удалось создать партнера", "danger");
   } finally {
@@ -2004,7 +2031,7 @@ function renderSyncStatus() {
       minute: "2-digit",
     })}`;
   } else {
-    label.textContent = apiContext.demoMode ? "Демо-данные" : "Данные не обновлялись";
+    label.textContent = "Данные не обновлялись";
   }
   button.disabled = state.refreshing;
   button.classList.toggle("is-loading", state.refreshing);
@@ -2040,6 +2067,14 @@ async function refreshAllData() {
       errors.push(error);
     }
   }
+  if (roleViews(state.role).includes("broadcasts")) {
+    state.broadcastHistoryLoaded = false;
+    try {
+      await loadBroadcastHistory();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
 
   state.lastSyncAt = new Date();
   state.refreshing = false;
@@ -2051,7 +2086,7 @@ async function refreshAllData() {
       "danger",
     );
   } else {
-    showNotice(apiContext.demoMode ? "Демо-данные обновлены" : "Данные обновлены");
+    showNotice("Данные обновлены");
   }
 }
 
@@ -2074,7 +2109,7 @@ function setView(view) {
   const mobileMoreButton = qs("#mobileMoreButton");
   mobileMoreButton?.classList.toggle(
     "is-active",
-    ["wallet", "report", "accrual", "teaching", "admin"].includes(nextView),
+    ["wallet", "report", "accrual", "teaching", "broadcasts", "admin"].includes(nextView),
   );
   closeMobileMorePanel();
   if (previousView !== nextView && window.matchMedia("(max-width: 640px)").matches) {
@@ -2091,14 +2126,24 @@ function setView(view) {
         renderTeaching();
       });
   }
+  if (
+    nextView === "broadcasts" &&
+    !state.broadcastHistoryLoaded &&
+    !state.broadcastHistoryLoading
+  ) {
+    loadBroadcastHistory().catch((error) => {
+      showNotice(error.message || "Не удалось загрузить историю рассылок", "danger");
+    });
+  }
   renderStatus();
   if (nextView === "report") renderAccrualReport();
+  if (nextView === "broadcasts") renderBroadcasts();
 }
 
 function roleViews(role) {
   const views = [...(ROLE_VIEWS[role] || ROLE_VIEWS.student)];
   if (role === "teacher" && primaryStaffRole() === "teacher") {
-    return views.filter((view) => view !== "report");
+    return views.filter((view) => !["report", "broadcasts"].includes(view));
   }
   return views;
 }
@@ -2157,7 +2202,7 @@ function setRole(role) {
 
   const cartButton = qs("#openCartButton");
   if (cartButton) cartButton.hidden = !allowedViews.includes("cart");
-  const moreViews = ["wallet", "report", "accrual", "teaching", "admin"];
+  const moreViews = ["wallet", "report", "accrual", "teaching", "broadcasts", "admin"];
   const mobileMoreButton = qs("#mobileMoreButton");
   if (mobileMoreButton) {
     mobileMoreButton.hidden = !moreViews.some((view) => allowedViews.includes(view));
@@ -2263,7 +2308,7 @@ function renderStatus() {
   const storeAudience = qs("#storeAudience");
   if (storeAudience) {
     storeAudience.textContent = isStaff
-      ? "Каталог наград для учеников · просмотр товаров, цен и наличия"
+      ? ""
       : student
         ? `${student.name} · ${state.balance} AC доступно`
         : "Выберите ученика, чтобы оформить заказ";
@@ -2409,9 +2454,8 @@ function renderParentInvitations() {
   panel.hidden = !visible;
   if (!visible) return;
   if (description) {
-    description.textContent = apiContext.demoMode
-      ? "Демонстрационный вид. Рабочие QR-ссылки появляются после реальной привязки родителя."
-      : "Покажите ребенку его QR-код. Он привяжет только выбранный профиль.";
+    description.textContent =
+      "Покажите ребенку его QR-код. Он привяжет только выбранный профиль.";
   }
 
   const linkedStudents = parentStudents();
@@ -2455,7 +2499,7 @@ function renderParentInvitations() {
             <span>${escapeHtml(student.group)}</span>
             ${
               invitation.demo
-                ? '<span class="soft-badge">Демо QR</span>'
+                ? ""
                 : `
                   <div class="parent-invite-actions">
                     <a
@@ -3842,7 +3886,7 @@ function renderAdminPanel() {
       <div class="admin-section-toolbar">
         <div>
           <h3>Склады</h3>
-          <span>${allCatalogWarehouses().length} складов в текущем контуре</span>
+          <span>${allCatalogWarehouses().length} складов у выбранного партнера</span>
         </div>
         ${
           editorOpen
@@ -4195,138 +4239,425 @@ function renderTeaching() {
   renderAttendanceJournal();
 }
 
+function formatJournalDate(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit" }).format(
+    new Date(`${value}T12:00:00`),
+  );
+}
+
+function dateAfterWeeks(value, weekOffset) {
+  const dateValue = new Date(`${value}T12:00:00`);
+  dateValue.setDate(dateValue.getDate() + weekOffset * 7);
+  return dateValue.toISOString().slice(0, 10);
+}
+
+function attendanceMark(student, lessonDate) {
+  return student.marks.find((mark) => mark.lesson_date === lessonDate) || null;
+}
+
+function attendanceDirtyKey(studentId, lessonDate) {
+  return `${studentId}:${lessonDate}`;
+}
+
+function rememberAttendanceChange(student, lessonDate) {
+  const mark = attendanceMark(student, lessonDate);
+  state.attendanceDirty.set(attendanceDirtyKey(student.student_id, lessonDate), {
+    student_id: student.student_id,
+    lesson_date: lessonDate,
+    present: mark?.present ?? null,
+    makeup_completed: Boolean(mark?.makeup_completed),
+    comment: mark?.comment || null,
+  });
+}
+
+function cycleAttendanceStatus(studentId, lessonDate) {
+  const student = state.attendanceJournal?.students.find((item) => item.student_id === studentId);
+  if (!student) return;
+  let mark = attendanceMark(student, lessonDate);
+  if (!mark) {
+    mark = {
+      lesson_date: lessonDate,
+      present: true,
+      makeup_completed: false,
+      comment: null,
+    };
+    student.marks.push(mark);
+  } else if (mark.present === true) {
+    mark.present = false;
+    mark.makeup_completed = false;
+  } else if (!mark.makeup_completed) {
+    mark.makeup_completed = true;
+  } else {
+    student.marks = student.marks.filter((item) => item.lesson_date !== lessonDate);
+  }
+  rememberAttendanceChange(student, lessonDate);
+  renderAttendanceJournal();
+}
+
+function attendanceChangesCount() {
+  return state.attendanceDirty.size + state.attendanceLessonDirty.size;
+}
+
+function hasAttendanceChanges() {
+  return attendanceChangesCount() > 0;
+}
+
+function openAttendanceLessonEditor(position) {
+  const lesson = state.attendanceJournal?.lessons.find(
+    (item) => Number(item.position) === Number(position),
+  );
+  const dialog = qs("#attendanceLessonDialog");
+  if (!lesson || !dialog) return;
+  dialog.dataset.position = String(lesson.position);
+  qs("#attendanceLessonDate").value = lesson.lesson_date;
+  qs("#attendanceLessonNumber").value = String(lesson.lesson_number);
+  qs("#attendanceLessonDialogTitle").textContent = `Занятие ${lesson.position}`;
+  dialog.hidden = false;
+  document.body.classList.add("dialog-open");
+  qs("#attendanceLessonDate").focus();
+}
+
+function closeAttendanceLessonEditor() {
+  const dialog = qs("#attendanceLessonDialog");
+  if (!dialog || dialog.hidden) return;
+  dialog.hidden = true;
+  dialog.dataset.position = "";
+  syncDialogBodyClass();
+}
+
+function applyAttendanceLessonEditor() {
+  const dialog = qs("#attendanceLessonDialog");
+  const journal = state.attendanceJournal;
+  const position = Number(dialog?.dataset.position || 0);
+  const lesson = journal?.lessons.find((item) => Number(item.position) === position);
+  const lessonDate = qs("#attendanceLessonDate")?.value || "";
+  const lessonNumber = Number(qs("#attendanceLessonNumber")?.value || 0);
+  if (!dialog || !journal || !lesson) return;
+  if (!lessonDate || lessonNumber < 1) {
+    showNotice("Укажите дату и номер урока", "danger");
+    return;
+  }
+  const duplicateDate = journal.lessons.some(
+    (item) => Number(item.position) !== position && item.lesson_date === lessonDate,
+  );
+  if (duplicateDate) {
+    showNotice("На эту дату уже назначено занятие группы", "danger");
+    return;
+  }
+
+  const previousDate = lesson.lesson_date;
+  if (previousDate !== lessonDate) {
+    journal.students.forEach((student) => {
+      const mark = attendanceMark(student, previousDate);
+      if (mark) mark.lesson_date = lessonDate;
+    });
+    [...state.attendanceDirty.entries()].forEach(([key, item]) => {
+      if (item.lesson_date !== previousDate) return;
+      state.attendanceDirty.delete(key);
+      item.lesson_date = lessonDate;
+      state.attendanceDirty.set(
+        attendanceDirtyKey(item.student_id, lessonDate),
+        item,
+      );
+    });
+  }
+  lesson.lesson_date = lessonDate;
+  lesson.lesson_number = lessonNumber;
+  lesson.lesson_title = null;
+  lesson.is_future = lessonDate > reportDateValue(new Date());
+  journal.lessons.sort((left, right) =>
+    `${left.lesson_date}:${left.position}`.localeCompare(`${right.lesson_date}:${right.position}`),
+  );
+  state.attendanceLessonDirty.set(position, {
+    position,
+    lesson_date: lessonDate,
+    lesson_number: lessonNumber,
+  });
+  closeAttendanceLessonEditor();
+  renderAttendanceJournal();
+}
+
+function syncJournalScrollControls(scroll) {
+  if (!scroll) return;
+  const controls = scroll.previousElementSibling;
+  const range = controls?.querySelector("[data-journal-scroll-range]");
+  const previousButton = controls?.querySelector('[data-journal-scroll="-1"]');
+  const nextButton = controls?.querySelector('[data-journal-scroll="1"]');
+  if (!range || !previousButton || !nextButton) return;
+  const maximum = Math.max(scroll.scrollWidth - scroll.clientWidth, 0);
+  range.disabled = maximum === 0;
+  range.value = maximum ? String(Math.round((scroll.scrollLeft / maximum) * 1000)) : "0";
+  previousButton.disabled = maximum === 0 || scroll.scrollLeft <= 1;
+  nextButton.disabled = maximum === 0 || scroll.scrollLeft >= maximum - 1;
+}
+
+function scrollAttendanceJournal(direction) {
+  const scroll = qs("#attendanceJournalList .school-journal-scroll");
+  if (!scroll) return;
+  const distance = Math.max(Math.round(scroll.clientWidth * 0.72), 280);
+  scroll.scrollBy({ left: direction * distance, behavior: "smooth" });
+}
+
 function renderAttendanceJournal() {
-  const scheduleSelect = qs("#attendanceScheduleSelect");
-  const dateInput = qs("#attendanceLessonDate");
   const list = qs("#attendanceJournalList");
+  const title = qs("#attendanceJournalTitle");
+  const meta = qs("#attendanceJournalMeta");
   const saveButton = qs("#saveAttendanceButton");
-  if (!scheduleSelect || !dateInput || !list || !saveButton) return;
-  const schedules = teachingWorkspace().schedules.filter((item) => item.is_active);
-  const selectedSchedule = scheduleSelect.value;
-  scheduleSelect.innerHTML = schedules
-    .map(
-      (schedule) =>
-        `<option value="${escapeHtml(schedule.id)}">${escapeHtml(schedule.group_name)}</option>`,
-    )
-    .join("");
-  if (schedules.some((item) => item.id === selectedSchedule)) {
-    scheduleSelect.value = selectedSchedule;
-  }
-  if (!dateInput.value) {
-    const schedule = schedules.find((item) => item.id === scheduleSelect.value);
-    dateInput.value = schedule?.next_lesson_date || reportDateValue(new Date());
-  }
+  const saveHint = qs("#attendanceSaveHint");
+  const closeButton = qs("#closeAttendanceJournalButton");
+  if (!list || !title || !meta || !saveButton || !saveHint || !closeButton) return;
+  const previousScroll = list.querySelector(".school-journal-scroll")?.scrollLeft || 0;
   if (state.attendanceLoading) {
+    title.textContent = "Открываем журнал";
+    meta.textContent = "Загружаем учеников и даты занятий";
     list.innerHTML = '<div class="empty-state">Загружаем журнал...</div>';
     saveButton.hidden = true;
+    closeButton.hidden = false;
     return;
   }
   const journal = state.attendanceJournal;
   if (!journal) {
-    list.innerHTML = '<div class="empty-state">Выберите группу и дату урока.</div>';
+    title.textContent = "Выберите группу";
+    meta.textContent = "Посещаемость и отработки";
+    list.innerHTML = '<div class="empty-state">Откройте журнал нужной группы.</div>';
     saveButton.hidden = true;
+    saveHint.textContent = "";
+    closeButton.hidden = true;
     return;
   }
-  list.innerHTML = journal.students.length
-    ? journal.students
-        .map(
-          (student) => `
-            <label class="attendance-row">
-              <input
-                type="checkbox"
-                data-attendance-student="${escapeHtml(student.student_id)}"
-                ${student.present === false ? "" : "checked"}
-              />
-              <span>
-                <strong>${escapeHtml(student.student_name)}</strong>
-                <small>${student.present === false ? "Отсутствовал" : "Присутствовал"}</small>
-              </span>
-            </label>
-          `,
-        )
-        .join("")
-    : '<div class="empty-state">В этой группе нет активных учеников.</div>';
-  saveButton.hidden = journal.students.length === 0;
+  title.textContent = journal.group_name;
+  meta.textContent = `${journal.course_name} · ${journal.lesson_time.slice(0, 5)}`;
+  closeButton.hidden = false;
+  if (!journal.students.length) {
+    list.innerHTML = '<div class="empty-state">В этой группе нет активных учеников.</div>';
+    saveButton.hidden = true;
+    saveHint.textContent = "";
+    return;
+  }
+  const lessonHeaders = journal.lessons
+    .map(
+      (lesson) => `
+        <th class="journal-date ${lesson.is_current ? "is-current" : ""} ${lesson.is_future ? "is-future" : ""}" data-current-lesson="${lesson.is_current ? "true" : "false"}">
+          <button
+            class="journal-lesson-edit"
+            type="button"
+            data-edit-attendance-lesson="${lesson.position}"
+            title="Изменить дату и номер урока"
+            aria-label="Изменить занятие ${lesson.lesson_number} от ${formatJournalDate(lesson.lesson_date)}"
+          >
+            <span>${formatJournalDate(lesson.lesson_date)}</span>
+            <small>Урок ${lesson.lesson_number}</small>
+            <i data-lucide="pencil"></i>
+          </button>
+        </th>`,
+    )
+    .join("");
+  const studentRows = journal.students
+    .map((student) => {
+      const cells = journal.lessons
+        .map((lesson) => {
+          const mark = attendanceMark(student, lesson.lesson_date);
+          const disabled = lesson.is_future ? "disabled" : "";
+          const status = mark?.present === true
+            ? "present"
+            : mark?.present === false && mark?.makeup_completed
+              ? "makeup"
+              : mark?.present === false
+                ? "absent"
+                : "empty";
+          const statusLabel = status === "present"
+            ? "Был на уроке"
+            : status === "makeup"
+              ? "Пропуск отработан"
+              : status === "absent"
+                ? "Не был на уроке"
+                : "Отметка не поставлена";
+          return `
+            <td class="journal-mark ${mark?.present === true ? "is-present" : ""} ${mark?.present === false ? "is-absent" : ""} ${mark?.makeup_completed ? "has-makeup" : ""}">
+              <button
+                type="button"
+                class="journal-attendance-box is-${status}"
+                data-attendance-cycle="true"
+                data-student-id="${escapeHtml(student.student_id)}"
+                data-lesson-date="${lesson.lesson_date}"
+                aria-label="${escapeHtml(student.student_name)}, ${formatJournalDate(lesson.lesson_date)}: ${statusLabel}"
+                title="${statusLabel}"
+                ${disabled}
+              >${status === "makeup" ? '<span aria-hidden="true">✓</span>' : ""}</button>
+            </td>`;
+        })
+        .join("");
+      return `<tr><th class="journal-student" scope="row">${escapeHtml(student.student_name)}</th>${cells}</tr>`;
+    })
+    .join("");
+  list.innerHTML = `
+    <div class="journal-legend">
+      <span><b class="legend-present"></b> был</span>
+      <span><b class="legend-absent"></b> не был</span>
+      <span><b class="legend-makeup">✓</b> отработано</span>
+    </div>
+    <div class="journal-scroll-controls" aria-label="Прокрутка уроков">
+      <button type="button" data-journal-scroll="-1" title="Предыдущие уроки" aria-label="Предыдущие уроки">
+        <i data-lucide="chevron-left"></i>
+      </button>
+      <input
+        type="range"
+        min="0"
+        max="1000"
+        value="0"
+        step="1"
+        data-journal-scroll-range="true"
+        aria-label="Прокрутить список уроков"
+      />
+      <button type="button" data-journal-scroll="1" title="Следующие уроки" aria-label="Следующие уроки">
+        <i data-lucide="chevron-right"></i>
+      </button>
+    </div>
+    <div class="school-journal-scroll" tabindex="0">
+      <table class="school-journal-table">
+        <thead><tr><th class="journal-student">Ученик</th>${lessonHeaders}</tr></thead>
+        <tbody>${studentRows}</tbody>
+      </table>
+    </div>`;
+  refreshIcons();
+  const changeCount = attendanceChangesCount();
+  saveButton.hidden = false;
+  saveButton.disabled = state.attendanceSaving || changeCount === 0;
+  saveButton.textContent = state.attendanceSaving ? "Сохраняем..." : "Сохранить журнал";
+  saveHint.textContent = changeCount
+    ? `Изменений: ${changeCount}`
+    : "Все изменения сохранены";
+  requestAnimationFrame(() => {
+    const scroll = list.querySelector(".school-journal-scroll");
+    if (!scroll) return;
+    if (state.attendanceAutoScroll) {
+      const current = scroll.querySelector('[data-current-lesson="true"]');
+      current?.scrollIntoView({ block: "nearest", inline: "center" });
+      state.attendanceAutoScroll = false;
+    } else {
+      scroll.scrollLeft = previousScroll;
+    }
+    syncJournalScrollControls(scroll);
+    scroll.addEventListener("scroll", () => syncJournalScrollControls(scroll), { passive: true });
+  });
 }
 
-async function loadAttendanceJournal() {
-  const scheduleId = qs("#attendanceScheduleSelect")?.value || "";
-  const lessonDate = qs("#attendanceLessonDate")?.value || "";
-  if (!scheduleId || !lessonDate) {
-    showNotice("Выберите группу и дату урока", "danger");
+function demoGroupAttendanceJournal(schedule) {
+  const today = reportDateValue(new Date());
+  const lessons = Array.from({ length: Math.max(schedule.lesson_count || 1, 1) }, (_, index) => {
+    const lessonDate = dateAfterWeeks(schedule.first_lesson_date, index);
+    return {
+      position: index + 1,
+      lesson_date: lessonDate,
+      lesson_number: index + 1,
+      lesson_title: `Урок ${index + 1}`,
+      is_current: index + 1 === schedule.current_lesson_number,
+      is_future: lessonDate > today,
+    };
+  });
+  return {
+    schedule_id: schedule.id,
+    group_name: schedule.group_name,
+    course_name: schedule.course_name,
+    lesson_time: schedule.lesson_time,
+    current_lesson_number: schedule.current_lesson_number,
+    lessons,
+    students: studentsForGroup(schedule.group_name).map((student) => ({
+      student_id: student.id,
+      student_name: student.name,
+      group_name: schedule.group_name,
+      marks: [],
+    })),
+  };
+}
+
+async function loadAttendanceJournal(scheduleId) {
+  const schedule = teachingWorkspace().schedules.find((item) => item.id === scheduleId);
+  if (!schedule) return;
+  if (hasAttendanceChanges() && scheduleId !== state.attendanceScheduleId) {
+    showNotice("Сначала сохраните изменения в открытом журнале", "danger");
     return;
   }
+  state.attendanceScheduleId = scheduleId;
+  state.attendanceJournal = null;
+  state.attendanceDirty = new Map();
+  state.attendanceLessonDirty = new Map();
   state.attendanceLoading = true;
-  renderAttendanceJournal();
+  state.attendanceAutoScroll = true;
+  renderTeaching();
   try {
     if (apiContext.demoMode || !apiContext.maxUserId) {
-      const schedule = teachingWorkspace().schedules.find((item) => item.id === scheduleId);
-      state.attendanceJournal = {
-        schedule_id: scheduleId,
-        group_name: schedule?.group_name || "",
-        lesson_date: lessonDate,
-        students: studentsForGroup(schedule?.group_name || "").map((student) => ({
-          student_id: student.id,
-          student_name: student.name,
-          present: null,
-        })),
-      };
+      state.attendanceJournal = demoGroupAttendanceJournal(schedule);
     } else {
       const params = new URLSearchParams({
         max_user_id: String(apiContext.maxUserId),
         tenant_slug: apiContext.tenantSlug || "",
-        lesson_date: lessonDate,
       });
       const response = await apiFetch(
-        `/api/v1/teaching/schedules/${encodeURIComponent(scheduleId)}/attendance?${params}`,
+        `/api/v1/teaching/schedules/${encodeURIComponent(scheduleId)}/journal?${params}`,
       );
       if (!response.ok) throw new Error(await parseApiError(response));
       state.attendanceJournal = await response.json();
     }
   } catch (error) {
+    state.attendanceScheduleId = "";
     showNotice(error.message || "Не удалось открыть журнал", "danger");
   } finally {
     state.attendanceLoading = false;
-    renderAttendanceJournal();
+    renderTeaching();
+    if (window.matchMedia("(max-width: 960px)").matches) {
+      qs("#attendanceJournalPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   }
+}
+
+function closeAttendanceJournal() {
+  if (hasAttendanceChanges()) {
+    showNotice("Сначала сохраните изменения в журнале", "danger");
+    return;
+  }
+  state.attendanceScheduleId = "";
+  state.attendanceJournal = null;
+  state.attendanceDirty = new Map();
+  state.attendanceLessonDirty = new Map();
+  renderTeaching();
+  qs(".journal-groups-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function saveAttendanceJournal() {
   const journal = state.attendanceJournal;
-  if (!journal) return;
-  const items = qsa("[data-attendance-student]").map((input) => ({
-    student_id: input.dataset.attendanceStudent,
-    present: input.checked,
-  }));
-  if (apiContext.demoMode || !apiContext.maxUserId) {
-    journal.students.forEach((student) => {
-      const item = items.find((candidate) => candidate.student_id === student.student_id);
-      if (item) student.present = item.present;
-    });
-    showNotice("Посещаемость сохранена в демо-режиме");
-    renderAttendanceJournal();
-    return;
-  }
+  const items = [...state.attendanceDirty.values()];
+  const lessons = [...state.attendanceLessonDirty.values()];
+  if (!journal || (!items.length && !lessons.length) || state.attendanceSaving) return;
+  state.attendanceSaving = true;
+  renderAttendanceJournal();
   try {
-    const response = await apiFetch(
-      `/api/v1/teaching/schedules/${encodeURIComponent(journal.schedule_id)}/attendance`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          max_user_id: Number(apiContext.maxUserId),
-          tenant_slug: apiContext.tenantSlug || undefined,
-          lesson_date: journal.lesson_date,
-          items,
-        }),
-      },
-    );
-    if (!response.ok) throw new Error(await parseApiError(response));
-    state.attendanceJournal = await response.json();
-    showNotice("Посещаемость сохранена");
-    renderAttendanceJournal();
+    if (!apiContext.demoMode && apiContext.maxUserId) {
+      const response = await apiFetch(
+        `/api/v1/teaching/schedules/${encodeURIComponent(journal.schedule_id)}/journal`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            max_user_id: Number(apiContext.maxUserId),
+            tenant_slug: apiContext.tenantSlug || undefined,
+            items,
+            lessons,
+          }),
+        },
+      );
+      if (!response.ok) throw new Error(await parseApiError(response));
+      state.attendanceJournal = await response.json();
+    }
+    state.attendanceDirty = new Map();
+    state.attendanceLessonDirty = new Map();
+    showNotice("Журнал сохранен");
   } catch (error) {
-    showNotice(error.message || "Не удалось сохранить посещаемость", "danger");
+    showNotice(error.message || "Не удалось сохранить журнал", "danger");
+  } finally {
+    state.attendanceSaving = false;
+    renderAttendanceJournal();
   }
 }
 
@@ -4337,6 +4668,7 @@ function renderScheduleEditor() {
   if (!state.scheduleEditorOpen) return;
   const workspace = teachingWorkspace();
   const item = workspace.schedules.find((schedule) => schedule.id === state.editingScheduleId);
+  const selectedGroup = item?.group_name || state.scheduleDraftGroup;
   const today = new Date().toISOString().slice(0, 10);
   const scheduledGroups = new Set(
     workspace.schedules
@@ -4344,7 +4676,7 @@ function renderScheduleEditor() {
       .map((schedule) => schedule.group_name),
   );
   const groupNames = [...new Set([
-    ...(item?.group_name ? [item.group_name] : []),
+    ...(selectedGroup ? [selectedGroup] : []),
     ...workspace.groups
       .map((group) => group.name)
       .filter((groupName) => !scheduledGroups.has(groupName)),
@@ -4353,12 +4685,12 @@ function renderScheduleEditor() {
     ? `<select id="scheduleGroupName"><option value="">Выберите группу</option>${groupNames
         .map(
           (groupName) =>
-            `<option value="${escapeHtml(groupName)}" ${groupName === item?.group_name ? "selected" : ""}>${escapeHtml(groupName)}</option>`,
+            `<option value="${escapeHtml(groupName)}" ${groupName === selectedGroup ? "selected" : ""}>${escapeHtml(groupName)}</option>`,
         )
         .join("")}</select>`
     : '<input id="scheduleGroupName" value="" placeholder="Название группы" />';
   editor.innerHTML = `
-    <div class="schedule-editor-head"><div><p class="eyebrow">${item ? "Редактирование" : "Новая группа"}</p><h3>${item ? escapeHtml(item.group_name) : "Добавить занятие"}</h3></div><button class="icon-button" type="button" data-close-schedule title="Закрыть">×</button></div>
+    <div class="schedule-editor-head"><div><p class="eyebrow">${item ? "Редактирование" : "Новая группа"}</p><h3>${escapeHtml(selectedGroup || "Добавить занятие")}</h3></div><button class="icon-button" type="button" data-close-schedule title="Закрыть">×</button></div>
     <div class="schedule-form-grid">
       <label class="schedule-field-wide"><span>Группа</span>${groupField}</label>
       <label class="schedule-field-wide"><span>Курс</span><select id="scheduleCourseId">${workspace.courses.map((course) => `<option value="${escapeHtml(course.id)}" ${course.id === item?.course_id ? "selected" : ""}>${escapeHtml(course.name)} · ${course.lesson_count} уроков</option>`).join("")}</select></label>
@@ -4371,7 +4703,6 @@ function renderScheduleEditor() {
     </div>
     <div class="schedule-toggle-list">
       <label class="schedule-toggle"><input id="scheduleAutoFeedback" type="checkbox" ${item?.auto_feedback_enabled === false ? "" : "checked"} /><span>Автоматически готовить ОС после занятия</span></label>
-      <label class="schedule-toggle"><input id="scheduleParentDelivery" type="checkbox" ${item?.parent_delivery_enabled ? "checked" : ""} /><span>Отправлять готовую ОС связанным родителям</span></label>
     </div>
     <div class="schedule-editor-actions"><button class="secondary-action" type="button" data-close-schedule>Отмена</button><button id="scheduleSaveButton" class="primary-action" type="button">Сохранить расписание</button></div>`;
 }
@@ -4379,17 +4710,76 @@ function renderScheduleEditor() {
 function renderScheduleList() {
   const list = qs("#scheduleList");
   if (!list) return;
-  const items = teachingWorkspace().schedules.filter(
-    (item) => state.scheduleDayFilter === "all" || String(item.weekday) === state.scheduleDayFilter,
-  );
+  const workspace = teachingWorkspace();
+  const items = workspace.schedules;
   if (state.teachingLoading) return void (list.innerHTML = '<div class="empty-state">Загружаем расписание...</div>');
-  if (items.length === 0) return void (list.innerHTML = '<div class="empty-state">Добавьте первую группу и выберите курс.</div>');
-  list.innerHTML = items.map((item) => `
-    <article class="schedule-card ${item.is_active ? "" : "is-paused"}">
-      <div class="schedule-time"><strong>${escapeHtml(item.lesson_time.slice(0, 5))}</strong><span>${escapeHtml(weekdayNames[item.weekday] || "")}</span></div>
-      <div class="schedule-main"><div class="schedule-card-title"><h3>${escapeHtml(item.group_name)}</h3><span class="soft-badge">Урок ${item.current_lesson_number}/${item.lesson_count}</span></div><p>${escapeHtml(item.course_name)}</p><div class="schedule-next"><strong>${formatTeachingDate(item.next_lesson_date)}</strong><span>${escapeHtml(item.next_lesson_title || "Тема будет определена курсом")}</span></div><div class="schedule-flags"><span>${escapeHtml(item.lesson_place)}</span><span>${item.auto_feedback_enabled ? "Авто-ОС включена" : "Авто-ОС выключена"}</span><span>${item.parent_delivery_enabled ? "Доставка родителям" : "Без автоотправки"}</span></div></div>
-      <div class="schedule-actions"><button class="secondary-action" type="button" data-edit-schedule="${escapeHtml(item.id)}">Изменить</button></div>
-    </article>`).join("");
+  const groupsByName = new Map();
+  workspace.groups.forEach((group) => {
+    const existing = groupsByName.get(group.name);
+    groupsByName.set(group.name, {
+      ...group,
+      student_count: (existing?.student_count || 0) + group.student_count,
+      course_name: existing?.course_name || group.course_name,
+    });
+  });
+  const scheduledNames = new Set(items.map((item) => item.group_name));
+  const unscheduledGroups = [...groupsByName.values()].filter(
+    (group) => !scheduledNames.has(group.name),
+  );
+  if (!items.length && !unscheduledGroups.length) {
+    list.innerHTML = '<div class="empty-state">Доступных групп пока нет.</div>';
+    return;
+  }
+  const scheduledRows = items
+    .map((item) => {
+      const group = groupsByName.get(item.group_name);
+      return `
+        <article class="schedule-card ${item.is_active ? "" : "is-paused"} ${state.attendanceScheduleId === item.id ? "is-selected" : ""}">
+          <div class="schedule-time">
+            <strong>${escapeHtml(item.lesson_time.slice(0, 5))}</strong>
+            <span>${escapeHtml(weekdayNames[item.weekday] || "")}</span>
+          </div>
+          <div class="schedule-main">
+            <div class="schedule-card-title">
+              <h3>${escapeHtml(item.group_name)}</h3>
+              <span class="soft-badge">${group?.student_count || 0} учеников</span>
+            </div>
+            <p>${escapeHtml(item.course_name)}</p>
+            <div class="schedule-next">
+              <strong>${formatTeachingDate(item.next_lesson_date)}</strong>
+              <span>Урок ${item.next_lesson_number || item.current_lesson_number} из ${item.lesson_count}</span>
+            </div>
+          </div>
+          <div class="schedule-actions">
+            <button class="primary-action" type="button" data-open-attendance="${escapeHtml(item.id)}">Журнал</button>
+            <button class="secondary-action" type="button" data-edit-schedule="${escapeHtml(item.id)}">Изменить</button>
+          </div>
+        </article>`;
+    })
+    .join("");
+  const unscheduledRows = unscheduledGroups
+    .map(
+      (group) => `
+        <article class="schedule-card is-unconfigured">
+          <div class="schedule-time">
+            <strong>--:--</strong>
+            <span>Не настроено</span>
+          </div>
+          <div class="schedule-main">
+            <div class="schedule-card-title">
+              <h3>${escapeHtml(group.name)}</h3>
+              <span class="soft-badge">${group.student_count} учеников</span>
+            </div>
+            <p>${escapeHtml(group.course_name || "Курс не указан")}</p>
+            <div class="schedule-next"><strong>Добавьте день и время занятия</strong></div>
+          </div>
+          <div class="schedule-actions">
+            <button class="primary-action" type="button" data-configure-schedule="${escapeHtml(group.name)}">Настроить</button>
+          </div>
+        </article>`,
+    )
+    .join("");
+  list.innerHTML = scheduledRows + unscheduledRows;
 }
 
 function renderFeedbackHistory() {
@@ -4400,8 +4790,9 @@ function renderFeedbackHistory() {
   list.innerHTML = outputs.slice(0, 10).map((item) => `<button class="feedback-history-row" type="button" data-open-feedback="${escapeHtml(item.id)}"><span><strong>${escapeHtml(item.group_name)}</strong><small>${formatTeachingDate(item.lesson_date)} · урок ${item.lesson_number}</small></span><span>›</span></button>`).join("");
 }
 
-function openScheduleEditor(scheduleId = "") {
+function openScheduleEditor(scheduleId = "", groupName = "") {
   state.editingScheduleId = scheduleId;
+  state.scheduleDraftGroup = groupName;
   state.scheduleEditorOpen = true;
   renderTeaching();
   qs("#scheduleEditor")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -4410,6 +4801,7 @@ function openScheduleEditor(scheduleId = "") {
 function closeScheduleEditor() {
   state.scheduleEditorOpen = false;
   state.editingScheduleId = "";
+  state.scheduleDraftGroup = "";
   renderTeaching();
 }
 
@@ -4417,7 +4809,7 @@ async function saveTeachingSchedule() {
   const groupName = qs("#scheduleGroupName")?.value.trim();
   const courseId = qs("#scheduleCourseId")?.value;
   if (!groupName || !courseId) return showNotice("Укажите группу и курс", "danger");
-  const payload = { max_user_id: Number(apiContext.maxUserId || 1), tenant_slug: apiContext.tenantSlug || null, schedule_id: state.editingScheduleId || null, group_name: groupName, course_id: courseId, first_lesson_date: qs("#scheduleFirstDate").value, lesson_time: qs("#scheduleTime").value, duration_minutes: Number(qs("#scheduleDuration").value), lesson_mode: qs("#scheduleMode").value, lesson_place: qs("#schedulePlace").value.trim() || "offline", current_lesson_number: Number(qs("#scheduleLessonNumber").value || 1), lesson_offset: 0, auto_feedback_enabled: qs("#scheduleAutoFeedback").checked, parent_delivery_enabled: qs("#scheduleParentDelivery").checked, is_active: true };
+  const payload = { max_user_id: Number(apiContext.maxUserId || 1), tenant_slug: apiContext.tenantSlug || null, schedule_id: state.editingScheduleId || null, group_name: groupName, course_id: courseId, first_lesson_date: qs("#scheduleFirstDate").value, lesson_time: qs("#scheduleTime").value, duration_minutes: Number(qs("#scheduleDuration").value), lesson_mode: qs("#scheduleMode").value, lesson_place: qs("#schedulePlace").value.trim() || "offline", current_lesson_number: Number(qs("#scheduleLessonNumber").value || 1), lesson_offset: 0, auto_feedback_enabled: qs("#scheduleAutoFeedback").checked, parent_delivery_enabled: false, is_active: true };
   const button = qs("#scheduleSaveButton");
   button.disabled = true;
   button.textContent = "Сохраняем...";
@@ -4451,7 +4843,6 @@ function openFeedbackDialog(outputId) {
   qs("#feedbackDialogTitle").textContent = output.group_name;
   qs("#feedbackDialogContent").innerHTML = `<textarea id="feedbackResult" class="feedback-result" readonly>${escapeHtml(output.feedback_text)}</textarea>`;
   qs("#copyFeedbackButton").hidden = false;
-  qs("#sendFeedbackButton").hidden = false;
   qs("#feedbackDialog").hidden = false;
 }
 
@@ -4467,41 +4858,423 @@ async function copyGeneratedFeedback() {
   showNotice("Текст ОС скопирован");
 }
 
-async function sendGeneratedFeedback() {
-  if (!state.generatedFeedbackId) return;
-  const button = qs("#sendFeedbackButton");
-  button.disabled = true;
-  button.textContent = "Отправляем...";
+function availableBroadcastGroups() {
+  return [...new Set(
+    students
+      .map((student) => String(student.group || "").trim())
+      .filter(Boolean),
+  )].sort((left, right) => left.localeCompare(right, "ru"));
+}
+
+function selectedBroadcastGroups() {
+  const available = new Set(availableBroadcastGroups());
+  return [...state.broadcastSelectedGroups]
+    .filter((groupName) => available.has(groupName))
+    .sort((left, right) => left.localeCompare(right, "ru"));
+}
+
+function broadcastAudiencePayload() {
+  return {
+    max_user_id: Number(apiContext.maxUserId || 1),
+    tenant_slug: apiContext.tenantSlug || undefined,
+    recipient_category: qs("#broadcastRecipientCategory")?.value || "all",
+    audience_filter: qs("#broadcastAudienceFilter")?.value || "all",
+    group_names: state.broadcastAllGroups ? [] : selectedBroadcastGroups(),
+    balance_threshold:
+      qs("#broadcastAudienceFilter")?.value === "low_balance"
+        ? Number(qs("#broadcastBalanceThreshold")?.value || 300)
+        : null,
+  };
+}
+
+function broadcastAudienceSignature() {
+  return JSON.stringify(broadcastAudiencePayload());
+}
+
+function invalidateBroadcastPreview() {
+  state.broadcastPreview = null;
+  state.broadcastPreviewSignature = "";
+  renderBroadcastAudiencePreview();
+}
+
+function renderBroadcastGroups() {
+  const list = qs("#broadcastGroupList");
+  const hint = qs("#broadcastGroupHint");
+  if (!list || !hint) return;
+  const groups = availableBroadcastGroups();
+  if (groups.length === 0) {
+    list.innerHTML = '<div class="empty-state">У выбранного партнера пока нет групп.</div>';
+    hint.textContent = "После импорта учеников группы появятся здесь.";
+    return;
+  }
+  hint.textContent = state.broadcastAllGroups
+    ? `Выбраны все группы: ${groups.length}`
+    : state.broadcastSelectedGroups.size
+      ? `Выбрано групп: ${state.broadcastSelectedGroups.size}`
+      : "Выберите хотя бы одну группу.";
+  list.innerHTML = groups
+    .map(
+      (groupName) => `
+        <label class="broadcast-group-option">
+          <input
+            type="checkbox"
+            data-broadcast-group="${escapeHtml(groupName)}"
+            ${state.broadcastAllGroups || state.broadcastSelectedGroups.has(groupName) ? "checked" : ""}
+          />
+          <span>${escapeHtml(groupName)}</span>
+        </label>
+      `,
+    )
+    .join("");
+}
+
+function renderBroadcastPhoto() {
+  const preview = qs("#broadcastPhotoPreview");
+  const pickerLabel = qs(".broadcast-photo-picker span");
+  if (!preview) return;
+  if (!state.broadcastPhotoPreviewUrl) {
+    preview.hidden = true;
+    preview.innerHTML = "";
+    if (pickerLabel) pickerLabel.textContent = "Добавить фото";
+    return;
+  }
+  preview.hidden = false;
+  preview.innerHTML = `
+    <img src="${escapeHtml(state.broadcastPhotoPreviewUrl)}" alt="Фото к новости" />
+    <button type="button" data-remove-broadcast-photo title="Убрать фото" aria-label="Убрать фото">
+      <i data-lucide="x"></i>
+    </button>
+  `;
+  if (pickerLabel) pickerLabel.textContent = state.broadcastPhotoFile?.name || "Заменить фото";
+}
+
+function broadcastStatusLabel(status) {
+  return {
+    sending: "Отправляется",
+    sent: "Отправлено",
+    partial: "Частично",
+    failed: "Ошибка",
+  }[status] || status;
+}
+
+function broadcastAudienceLabel(item) {
+  const recipients = {
+    all: "родители и ученики",
+    parents: "родители",
+    students: "ученики",
+  }[item.recipient_category] || "получатели";
+  const groups = item.group_names?.length
+    ? `${item.group_names.length} гр.`
+    : "все группы";
+  return `${recipients} · ${groups}`;
+}
+
+function formatBroadcastDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function renderBroadcastHistory() {
+  const list = qs("#broadcastHistory");
+  if (!list) return;
+  if (state.broadcastHistoryLoading) {
+    list.innerHTML = '<div class="empty-state">Загружаем историю...</div>';
+    return;
+  }
+  if (state.broadcastHistory.length === 0) {
+    list.innerHTML = '<div class="empty-state">Отправленных новостей пока нет.</div>';
+    return;
+  }
+  list.innerHTML = state.broadcastHistory
+    .map(
+      (item) => `
+        <article class="broadcast-history-item">
+          <div class="broadcast-history-head">
+            <strong>${escapeHtml(item.title || "Без заголовка")}</strong>
+            <span class="broadcast-status is-${escapeHtml(item.status)}">${escapeHtml(broadcastStatusLabel(item.status))}</span>
+          </div>
+          <p>${escapeHtml(item.message)}</p>
+          <div class="broadcast-history-meta">
+            <span>${escapeHtml(broadcastAudienceLabel(item))}</span>
+            <span>${Number(item.delivered_count || 0)} из ${Number(item.recipient_count || 0)}</span>
+          </div>
+          <div class="broadcast-history-meta">
+            <span>${escapeHtml(item.creator_name || "Сотрудник")}</span>
+            <time>${escapeHtml(formatBroadcastDate(item.sent_at || item.created_at))}</time>
+          </div>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function renderBroadcastAudiencePreview() {
+  const preview = qs("#broadcastAudiencePreview");
+  const previewButton = qs("#previewBroadcastButton");
+  const sendButton = qs("#sendBroadcastButton");
+  if (!preview || !previewButton || !sendButton) return;
+  preview.classList.remove("is-empty");
+  if (state.broadcastPreviewLoading) {
+    preview.innerHTML = '<i data-lucide="loader-circle"></i><span>Считаем получателей...</span>';
+  } else if (!state.broadcastAllGroups && state.broadcastSelectedGroups.size === 0) {
+    preview.classList.add("is-empty");
+    preview.innerHTML = '<i data-lucide="users"></i><span>Выберите хотя бы одну группу</span>';
+  } else if (!state.broadcastPreview) {
+    preview.innerHTML = '<i data-lucide="users"></i><span>Сначала проверьте количество получателей</span>';
+  } else if (state.broadcastPreview.recipient_count === 0) {
+    preview.classList.add("is-empty");
+    preview.innerHTML = '<i data-lucide="user-round-x"></i><span>По выбранным условиям получателей нет</span>';
+  } else {
+    preview.innerHTML = `
+      <i data-lucide="users-round"></i>
+      <span><strong>${Number(state.broadcastPreview.recipient_count)}</strong> получателей · ${Number(state.broadcastPreview.matched_students)} учеников</span>
+    `;
+  }
+  const previewIsCurrent =
+    state.broadcastPreviewSignature === broadcastAudienceSignature();
+  previewButton.disabled = state.broadcastPreviewLoading || state.broadcastSaving;
+  sendButton.disabled =
+    state.broadcastSaving ||
+    state.broadcastPreviewLoading ||
+    !previewIsCurrent ||
+    !state.broadcastPreview?.recipient_count;
+  const sendLabel = sendButton.querySelector("span");
+  if (sendLabel) {
+    sendLabel.textContent = state.broadcastSaving
+      ? "Отправляем..."
+      : "Отправить новость";
+  }
+  refreshIcons();
+}
+
+function renderBroadcasts() {
+  const tenantLabel = qs("#broadcastTenantLabel");
+  if (tenantLabel) tenantLabel.textContent = tenantTitle();
+  const filter = qs("#broadcastAudienceFilter")?.value || "all";
+  const thresholdField = qs("#broadcastBalanceThresholdField");
+  if (thresholdField) thresholdField.hidden = filter !== "low_balance";
+  const message = qs("#broadcastMessage")?.value || "";
+  const count = qs("#broadcastMessageCount");
+  if (count) count.textContent = String(message.length);
+  renderBroadcastGroups();
+  renderBroadcastPhoto();
+  renderBroadcastAudiencePreview();
+  renderBroadcastHistory();
+}
+
+function demoBroadcastPreview(payload) {
+  let matched = [...students];
+  if (payload.group_names.length) {
+    const groupNames = new Set(payload.group_names);
+    matched = matched.filter((student) => groupNames.has(student.group));
+  }
+  if (payload.audience_filter === "low_balance") {
+    const threshold = Number(payload.balance_threshold ?? 300);
+    matched = matched.filter((student) => Number(student.balance || 0) <= threshold);
+  } else if (payload.audience_filter === "active_orders") {
+    const studentIds = new Set(
+      orders
+        .filter((order) => ["created", "reserved", "transferred_to_teacher", "problem"].includes(order.status))
+        .map((order) => order.studentId),
+    );
+    matched = matched.filter((student) => studentIds.has(student.id));
+  } else if (payload.audience_filter === "no_orders") {
+    const studentIds = new Set(orders.map((order) => order.studentId));
+    matched = matched.filter((student) => !studentIds.has(student.id));
+  }
+  const multiplier = payload.recipient_category === "all" ? 2 : 1;
+  return {
+    recipient_count: matched.length * multiplier,
+    matched_students: matched.length,
+    selected_groups: payload.group_names,
+  };
+}
+
+async function loadBroadcastHistory() {
+  if (!roleViews(state.role).includes("broadcasts")) return;
+  state.broadcastHistoryLoading = true;
+  renderBroadcastHistory();
   try {
     if (apiContext.demoMode || !apiContext.maxUserId) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      showNotice("Демо: ОС отправлена 3 родителям");
-      button.textContent = "Отправлено";
+      state.broadcastHistoryLoaded = true;
       return;
     }
-    const response = await apiFetch(`/api/v1/teaching/feedback/${encodeURIComponent(state.generatedFeedbackId)}/send`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ max_user_id: Number(apiContext.maxUserId), tenant_slug: apiContext.tenantSlug || null }),
+    const params = new URLSearchParams({
+      max_user_id: String(apiContext.maxUserId),
+      tenant_slug: apiContext.tenantSlug || "",
     });
+    const response = await apiFetch(`/api/v1/miniapp/broadcasts?${params}`);
     if (!response.ok) throw new Error(await parseApiError(response));
-    const result = await response.json();
-    if (result.status === "sent") {
-      showNotice(`ОС отправлена: ${result.sent_recipients} получ.`);
-      button.textContent = "Отправлено";
-    } else if (result.status === "delivery_unavailable") {
-      showNotice(`Найдено родителей: ${result.parent_recipients}. Проверьте MAX-токен.`, "danger");
-      button.disabled = false;
-      button.textContent = "Отправить родителям";
+    state.broadcastHistory = await response.json();
+    state.broadcastHistoryLoaded = true;
+  } finally {
+    state.broadcastHistoryLoading = false;
+    renderBroadcastHistory();
+  }
+}
+
+async function previewBroadcastAudience() {
+  if (!state.broadcastAllGroups && state.broadcastSelectedGroups.size === 0) {
+    invalidateBroadcastPreview();
+    return null;
+  }
+  const payload = broadcastAudiencePayload();
+  const signature = JSON.stringify(payload);
+  state.broadcastPreviewLoading = true;
+  state.broadcastPreview = null;
+  state.broadcastPreviewSignature = "";
+  renderBroadcastAudiencePreview();
+  try {
+    if (apiContext.demoMode || !apiContext.maxUserId) {
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      state.broadcastPreview = demoBroadcastPreview(payload);
     } else {
-      showNotice("У группы нет связанных MAX-аккаунтов родителей", "danger");
-      button.disabled = false;
-      button.textContent = "Отправить родителям";
+      const response = await apiFetch("/api/v1/miniapp/broadcasts/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(await parseApiError(response));
+      state.broadcastPreview = await response.json();
     }
+    state.broadcastPreviewSignature = signature;
+    return state.broadcastPreview;
   } catch (error) {
-    showNotice(error.message || "Не удалось отправить ОС", "danger");
-    button.disabled = false;
-    button.textContent = "Отправить родителям";
+    showNotice(error.message || "Не удалось проверить аудиторию", "danger");
+    return null;
+  } finally {
+    state.broadcastPreviewLoading = false;
+    renderBroadcastAudiencePreview();
+  }
+}
+
+function clearBroadcastPhoto() {
+  if (state.broadcastPhotoPreviewUrl) {
+    URL.revokeObjectURL(state.broadcastPhotoPreviewUrl);
+  }
+  state.broadcastPhotoFile = null;
+  state.broadcastPhotoPreviewUrl = "";
+  const input = qs("#broadcastPhotoFile");
+  if (input) input.value = "";
+  renderBroadcastPhoto();
+}
+
+function selectBroadcastPhoto(file) {
+  const supportedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+  if (!supportedTypes.has(file.type)) {
+    showNotice("Выберите изображение JPEG, PNG или WebP", "danger");
+    return false;
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    showNotice("Изображение должно быть не больше 10 МБ", "danger");
+    return false;
+  }
+  clearBroadcastPhoto();
+  state.broadcastPhotoFile = file;
+  state.broadcastPhotoPreviewUrl = URL.createObjectURL(file);
+  renderBroadcastPhoto();
+  refreshIcons();
+  return true;
+}
+
+async function sendSchoolBroadcast(event) {
+  event?.preventDefault();
+  if (state.broadcastSaving) return;
+  const title = qs("#broadcastTitle")?.value.trim() || "";
+  const message = qs("#broadcastMessage")?.value.trim() || "";
+  if (!message) {
+    showNotice("Введите текст новости", "danger");
+    qs("#broadcastMessage")?.focus();
+    return;
+  }
+
+  let preview = state.broadcastPreview;
+  if (
+    !preview ||
+    state.broadcastPreviewSignature !== broadcastAudienceSignature()
+  ) {
+    preview = await previewBroadcastAudience();
+  }
+  if (!preview?.recipient_count) return;
+  if (!window.confirm(`Отправить новость ${preview.recipient_count} получателям?`)) {
+    return;
+  }
+
+  const payload = broadcastAudiencePayload();
+  state.broadcastSaving = true;
+  renderBroadcastAudiencePreview();
+  try {
+    let result;
+    if (apiContext.demoMode || !apiContext.maxUserId) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      result = {
+        id: `demo-broadcast-${Date.now()}`,
+        title: title || null,
+        message,
+        image_url: state.broadcastPhotoPreviewUrl || null,
+        recipient_category: payload.recipient_category,
+        audience_filter: payload.audience_filter,
+        group_names: payload.group_names,
+        balance_threshold: payload.balance_threshold,
+        status: "sent",
+        recipient_count: preview.recipient_count,
+        delivered_count: preview.recipient_count,
+        failed_count: 0,
+        creator_name: state.account?.display_name || "Сотрудник",
+        sent_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      };
+    } else {
+      const formData = new FormData();
+      formData.set("max_user_id", String(apiContext.maxUserId));
+      if (apiContext.tenantSlug) formData.set("tenant_slug", apiContext.tenantSlug);
+      if (title) formData.set("title", title);
+      formData.set("message", message);
+      formData.set("recipient_category", payload.recipient_category);
+      formData.set("audience_filter", payload.audience_filter);
+      if (payload.balance_threshold !== null) {
+        formData.set("balance_threshold", String(payload.balance_threshold));
+      }
+      payload.group_names.forEach((groupName) => {
+        formData.append("group_names", groupName);
+      });
+      if (state.broadcastPhotoFile) {
+        formData.set("photo", state.broadcastPhotoFile);
+      }
+      const response = await apiFetch("/api/v1/miniapp/broadcasts", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) throw new Error(await parseApiError(response));
+      result = await response.json();
+    }
+
+    state.broadcastHistory.unshift(result);
+    state.broadcastHistoryLoaded = true;
+    qs("#broadcastForm")?.reset();
+    state.broadcastSelectedGroups = new Set();
+    state.broadcastAllGroups = true;
+    state.broadcastPreview = null;
+    state.broadcastPreviewSignature = "";
+    clearBroadcastPhoto();
+    showNotice(
+      result.failed_count
+        ? `Доставлено ${result.delivered_count} из ${result.recipient_count}`
+        : `Новость отправлена: ${result.delivered_count} получ.`,
+      result.failed_count ? "danger" : "ok",
+    );
+  } catch (error) {
+    showNotice(error.message || "Не удалось отправить новость", "danger");
+  } finally {
+    state.broadcastSaving = false;
+    renderBroadcasts();
   }
 }
 
@@ -4520,6 +5293,7 @@ function renderAll() {
   renderAccrual();
   renderTeaching();
   renderAttendanceJournal();
+  renderBroadcasts();
   renderAdminPanel();
   refreshIcons();
 }
@@ -5125,7 +5899,7 @@ async function assignOrderWarehouses(orderId) {
             product_id: item.productId,
             warehouse_id: warehouseId,
           })),
-          comment: "Склад назначен из MAX mini app",
+          comment: "Склад назначен в приложении",
         }),
       },
     );
@@ -5172,8 +5946,8 @@ async function updateOrderAction(orderId, action, cancelData = null) {
       {
         issue: `Заказ №${order.id} отмечен как выданный`,
         transfer: `Заказ №${order.id} передан учителю`,
-        return: `Заказ №${order.id} возвращен в демо-режиме`,
-        cancel: `Заказ №${order.id} отменен в демо-режиме`,
+        return: `Заказ №${order.id} возвращен`,
+        cancel: `Заказ №${order.id} отменен`,
       }[action],
     );
     renderAll();
@@ -5207,9 +5981,9 @@ async function updateOrderAction(orderId, action, cancelData = null) {
                 max_user_id: Number(apiContext.maxUserId),
                 tenant_slug: apiContext.tenantSlug || undefined,
                 comment: {
-                  issue: "Выдано из MAX mini app",
-                  transfer: "Передано учителю из MAX mini app",
-                  return: "Возврат из MAX mini app",
+                  issue: "Выдано в приложении",
+                  transfer: "Передано учителю в приложении",
+                  return: "Возврат оформлен в приложении",
                 }[action],
               },
         ),
@@ -5408,7 +6182,7 @@ async function adjustInventory(inventoryKey) {
         product_id: product.id,
         warehouse_id: warehouse.id,
         available_quantity: nextQuantity,
-        comment: "Корректировка из MAX mini app",
+        comment: "Корректировка в приложении",
       }),
     });
     if (!response.ok) throw new Error(await parseApiError(response));
@@ -5478,7 +6252,7 @@ async function transferInventory(inventoryKey) {
         from_warehouse_id: source.id,
         to_warehouse_id: target.id,
         quantity,
-        comment: "Перемещение из MAX mini app",
+        comment: "Перемещение в приложении",
       }),
     });
     if (!response.ok) throw new Error(await parseApiError(response));
@@ -5690,7 +6464,7 @@ async function accrueStudents(targets, amount, reason, groupLabel = "") {
         student_ids: targets.map((student) => student.id),
         amount,
         reason,
-        comment: "MAX mini app",
+        comment: "Algo MAX",
       }),
     });
     if (!response.ok) throw new Error(await parseApiError(response));
@@ -5734,7 +6508,7 @@ async function placeOrder() {
       product_id: item.productId,
       quantity: item.quantity,
     })),
-    comment: "MAX mini app",
+    comment: "Algo MAX",
   };
 
   const button = qs("#confirmOrderButton");
@@ -5797,12 +6571,61 @@ document.addEventListener("click", (event) => {
   const editScheduleId = target.dataset.editSchedule;
   if (editScheduleId) openScheduleEditor(editScheduleId);
 
+  const configureScheduleGroup = target.dataset.configureSchedule;
+  if (configureScheduleGroup) openScheduleEditor("", configureScheduleGroup);
+
+  const attendanceScheduleId = target.dataset.openAttendance;
+  if (attendanceScheduleId) loadAttendanceJournal(attendanceScheduleId);
+
+  const attendanceLessonPosition = target.dataset.editAttendanceLesson;
+  if (attendanceLessonPosition) openAttendanceLessonEditor(attendanceLessonPosition);
+
+  if (target.dataset.attendanceCycle) {
+    cycleAttendanceStatus(
+      target.dataset.studentId || "",
+      target.dataset.lessonDate || "",
+    );
+  }
+
+  const journalScrollDirection = Number(target.dataset.journalScroll || 0);
+  if (journalScrollDirection) scrollAttendanceJournal(journalScrollDirection);
+
+  if (target.id === "closeAttendanceJournalButton") closeAttendanceJournal();
+  if (
+    target.id === "closeAttendanceLessonDialogButton"
+    || target.id === "cancelAttendanceLessonButton"
+  ) {
+    closeAttendanceLessonEditor();
+  }
+  if (target.id === "applyAttendanceLessonButton") applyAttendanceLessonEditor();
+
   const feedbackOutputId = target.dataset.openFeedback;
   if (feedbackOutputId) openFeedbackDialog(feedbackOutputId);
 
   if (target.id === "closeFeedbackDialogButton") closeFeedbackDialog();
   if (target.id === "copyFeedbackButton") copyGeneratedFeedback();
-  if (target.id === "sendFeedbackButton") sendGeneratedFeedback();
+
+  if (target.id === "previewBroadcastButton") {
+    previewBroadcastAudience();
+  }
+
+  const broadcastGroupAction = target.dataset.broadcastGroups;
+  if (broadcastGroupAction === "all") {
+    state.broadcastAllGroups = true;
+    state.broadcastSelectedGroups.clear();
+    invalidateBroadcastPreview();
+    renderBroadcastGroups();
+  } else if (broadcastGroupAction === "none") {
+    state.broadcastAllGroups = false;
+    state.broadcastSelectedGroups.clear();
+    invalidateBroadcastPreview();
+    renderBroadcastGroups();
+  }
+
+  if ("removeBroadcastPhoto" in target.dataset) {
+    clearBroadcastPhoto();
+    refreshIcons();
+  }
 
   const addId = target.dataset.add;
   if (addId) addToCart(addId);
@@ -5902,10 +6725,6 @@ document.addEventListener("click", (event) => {
 
   if (target.id === "loadAcReportButton") {
     loadAccrualReport();
-  }
-
-  if (target.id === "loadAttendanceButton") {
-    loadAttendanceJournal();
   }
 
   if (target.id === "saveAttendanceButton") {
@@ -6057,8 +6876,16 @@ qs("#feedbackDialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) closeFeedbackDialog();
 });
 
+qs("#attendanceLessonDialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) closeAttendanceLessonEditor();
+});
+
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
+  if (!qs("#attendanceLessonDialog").hidden) {
+    closeAttendanceLessonEditor();
+    return;
+  }
   if (!qs("#productDialog").hidden) {
     closeProductDialog();
     return;
@@ -6091,6 +6918,13 @@ document.addEventListener("change", (event) => {
     if (file && selectProductPhoto(file)) {
       renderAdminPanel();
     } else {
+      target.value = "";
+    }
+  }
+
+  if (target.id === "broadcastPhotoFile") {
+    const file = target.files?.[0] || null;
+    if (file && !selectBroadcastPhoto(file)) {
       target.value = "";
     }
   }
@@ -6133,24 +6967,24 @@ document.addEventListener("change", (event) => {
     savePreferences();
   }
 
-  if (target.id === "scheduleDayFilter") {
-    state.scheduleDayFilter = target.value;
-    renderScheduleList();
+  if (
+    target.id === "broadcastRecipientCategory" ||
+    target.id === "broadcastAudienceFilter"
+  ) {
+    invalidateBroadcastPreview();
+    renderBroadcasts();
   }
 
-  if (target.id === "attendanceScheduleSelect") {
-    const schedule = teachingWorkspace().schedules.find((item) => item.id === target.value);
-    const dateInput = qs("#attendanceLessonDate");
-    if (dateInput && schedule?.next_lesson_date) {
-      dateInput.value = schedule.next_lesson_date;
+  const broadcastGroupName = target.dataset.broadcastGroup;
+  if (broadcastGroupName) {
+    if (state.broadcastAllGroups) {
+      state.broadcastAllGroups = false;
+      state.broadcastSelectedGroups = new Set(availableBroadcastGroups());
     }
-    state.attendanceJournal = null;
-    renderAttendanceJournal();
-  }
-
-  if (target.id === "attendanceLessonDate") {
-    state.attendanceJournal = null;
-    renderAttendanceJournal();
+    if (target.checked) state.broadcastSelectedGroups.add(broadcastGroupName);
+    else state.broadcastSelectedGroups.delete(broadcastGroupName);
+    invalidateBroadcastPreview();
+    renderBroadcastGroups();
   }
 
   if (target.id === "productDialogQuantity") {
@@ -6166,6 +7000,20 @@ document.addEventListener("change", (event) => {
 
 document.addEventListener("input", (event) => {
   const target = event.target;
+  if (!(target instanceof HTMLInputElement) || !target.dataset.journalScrollRange) return;
+  const scroll = qs("#attendanceJournalList .school-journal-scroll");
+  if (!scroll) return;
+  const maximum = Math.max(scroll.scrollWidth - scroll.clientWidth, 0);
+  scroll.scrollLeft = maximum * (Number(target.value) / 1000);
+});
+
+document.addEventListener("input", (event) => {
+  const target = event.target;
+  if (target instanceof HTMLTextAreaElement && target.id === "broadcastMessage") {
+    const count = qs("#broadcastMessageCount");
+    if (count) count.textContent = String(target.value.length);
+    return;
+  }
   if (!(target instanceof HTMLInputElement)) return;
 
   if (target.id === "productDialogQuantity") {
@@ -6181,6 +7029,10 @@ document.addEventListener("input", (event) => {
     state.accrualNameFilter = target.value;
     window.clearTimeout(accrualSearchTimer);
     accrualSearchTimer = window.setTimeout(renderAccrual, 140);
+  }
+
+  if (target.id === "broadcastBalanceThreshold") {
+    invalidateBroadcastPreview();
   }
 });
 
@@ -6232,6 +7084,7 @@ qs("#favoritesFilter").addEventListener("click", () => {
 });
 qs("#placeOrderButton").addEventListener("click", openCheckoutDialog);
 qs("#storeCartBar").addEventListener("click", () => setView("cart"));
+qs("#broadcastForm")?.addEventListener("submit", sendSchoolBroadcast);
 
 async function init() {
   qs("#tenantTitle").textContent = tenantTitle();

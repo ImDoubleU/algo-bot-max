@@ -40,6 +40,7 @@ class StudentAccessSource(StrEnum):
     ID_ENTRY = "id_entry"
     ADMIN = "admin"
     IMPORT = "import"
+    PARENT_QR = "parent_qr"
 
 
 class LedgerDirection(StrEnum):

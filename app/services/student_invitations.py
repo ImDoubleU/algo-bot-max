@@ -13,7 +13,8 @@ from qrcode.image.svg import SvgPathImage
 from app.core.config import get_settings
 
 STUDENT_INVITE_PREFIX = "student_"
-STUDENT_INVITE_VERSION = b"s1"
+STUDENT_INVITE_VERSION_V1 = b"s1"
+STUDENT_INVITE_VERSION_V2 = b"s2"
 STUDENT_INVITE_SIGNATURE_BYTES = 16
 MAX_PAYLOAD_LIMIT = 128
 
@@ -22,47 +23,72 @@ class StudentInvitationError(ValueError):
     pass
 
 
-def _signature(payload: bytes) -> bytes:
+def _signature(version: bytes, payload: bytes) -> bytes:
     secret = get_settings().app_secret_key.encode("utf-8")
     return hmac.new(
         secret,
-        STUDENT_INVITE_VERSION + payload,
+        version + payload,
         hashlib.sha256,
     ).digest()[:STUDENT_INVITE_SIGNATURE_BYTES]
 
 
-def issue_student_invitation_token(tenant_id: UUID, student_id: UUID) -> str:
+def issue_student_invitation_token(
+    tenant_id: UUID,
+    student_id: UUID,
+    sponsor_access_link_id: UUID | None = None,
+) -> str:
     identity = tenant_id.bytes + student_id.bytes
-    payload = identity + _signature(identity)
+    version = STUDENT_INVITE_VERSION_V1
+    if sponsor_access_link_id is not None:
+        identity += sponsor_access_link_id.bytes
+        version = STUDENT_INVITE_VERSION_V2
+    payload = identity + _signature(version, identity)
     return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
 
 
-def verify_student_invitation_token(token: str) -> tuple[UUID, UUID]:
+def verify_student_invitation_token(token: str) -> tuple[UUID, UUID, UUID | None]:
     try:
         padding = "=" * (-len(token) % 4)
         payload = base64.urlsafe_b64decode(f"{token}{padding}")
     except (binascii.Error, ValueError, TypeError) as exc:
         raise StudentInvitationError("Некорректная ссылка ученика") from exc
-    if len(payload) != 32 + STUDENT_INVITE_SIGNATURE_BYTES:
+    legacy_length = 32 + STUDENT_INVITE_SIGNATURE_BYTES
+    sponsored_length = 48 + STUDENT_INVITE_SIGNATURE_BYTES
+    if len(payload) == legacy_length:
+        version = STUDENT_INVITE_VERSION_V1
+        identity_length = 32
+    elif len(payload) == sponsored_length:
+        version = STUDENT_INVITE_VERSION_V2
+        identity_length = 48
+    else:
         raise StudentInvitationError("Некорректная ссылка ученика")
-    identity = payload[:32]
-    supplied_signature = payload[32:]
-    if not hmac.compare_digest(supplied_signature, _signature(identity)):
+
+    identity = payload[:identity_length]
+    supplied_signature = payload[identity_length:]
+    if not hmac.compare_digest(supplied_signature, _signature(version, identity)):
         raise StudentInvitationError("Некорректная подпись ссылки ученика")
-    return UUID(bytes=identity[:16]), UUID(bytes=identity[16:])
+    sponsor_access_link_id = (
+        UUID(bytes=identity[32:48]) if identity_length == 48 else None
+    )
+    return (
+        UUID(bytes=identity[:16]),
+        UUID(bytes=identity[16:32]),
+        sponsor_access_link_id,
+    )
 
 
 def build_student_invitation_link(
     bot_username: str,
     tenant_id: UUID,
     student_id: UUID,
+    sponsor_access_link_id: UUID | None = None,
 ) -> str:
     username = bot_username.strip().lstrip("@")
     if not username:
         raise StudentInvitationError("Bot username is empty")
     payload = (
         f"{STUDENT_INVITE_PREFIX}"
-        f"{issue_student_invitation_token(tenant_id, student_id)}"
+        f"{issue_student_invitation_token(tenant_id, student_id, sponsor_access_link_id)}"
     )
     if len(payload) > MAX_PAYLOAD_LIMIT:
         raise StudentInvitationError(

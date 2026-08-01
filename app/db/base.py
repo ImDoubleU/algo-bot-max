@@ -1,5 +1,6 @@
 from app.models.account import MaxAccount, StaffRoleAssignment, StaffWarehousePreference
 from app.models.audit import AuditLog
+from app.models.communication import SchoolBroadcast
 from app.models.store import (
     Order,
     OrderItem,
@@ -25,6 +26,7 @@ from app.models.teaching import (
     CourseLesson,
     FeedbackOutput,
     ManualFeedbackOutput,
+    TeachingLessonOverride,
     TeachingSchedule,
 )
 from app.models.tenant import City, Partner, Tenant, Venue
@@ -47,6 +49,7 @@ __all__ = [
     "Partner",
     "Product",
     "ProductCategory",
+    "SchoolBroadcast",
     "StudentCartItem",
     "StaffRoleAssignment",
     "StaffWarehousePreference",
@@ -55,6 +58,7 @@ __all__ = [
     "StudentAccessLink",
     "Tenant",
     "TeachingSchedule",
+    "TeachingLessonOverride",
     "Venue",
     "Wallet",
     "Warehouse",

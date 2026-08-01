@@ -1337,8 +1337,8 @@ def test_order_command_requires_order_number_without_backend_call() -> None:
     )
 
     sent = max_client.sent_messages[-1]
-    assert "Укажите номер заказа: /order <номер>" in sent["text"]
-    assert backend.session_calls == []
+    assert "Текстовые команды больше не используются" in sent["text"]
+    assert backend.order_calls == []
 
 
 def test_repeat_command_creates_new_order_from_existing_order_items() -> None:
@@ -1743,23 +1743,14 @@ def test_order_action_does_not_call_backend_for_unknown_order() -> None:
 
 
 def test_miniapp_command_returns_profile_link(monkeypatch) -> None:
-    monkeypatch.setattr(max_bot, "MAX_MINIAPP_URL", "https://example.test/miniapp")
+    monkeypatch.setenv("MAX_MINIAPP_URL", "https://example.test/miniapp")
     max_client = FakeMaxClient()
     bot = LongPollingBot(max_client, default_tenant_slug="nn-partner-a")
 
-    bot.handle_message_created(
-        {
-            "message": {
-                "sender": {"user_id": 1, "username": "parent_user"},
-                "recipient": {"chat_id": 10},
-                "body": {"text": "/miniapp"},
-            }
-        }
-    )
+    response = bot.miniapp_response(user_id=1)
 
-    sent = max_client.sent_messages[-1]
-    assert "Miniapp для текущего профиля" in sent["text"]
-    assert "https://example.test/miniapp?max_user_id=1&tenant_slug=nn-partner-a" in sent["text"]
+    assert "Личный кабинет" in response.text
+    assert "https://example.test/miniapp" in response.text
 
 
 def test_role_callback_creates_backend_access_links() -> None:

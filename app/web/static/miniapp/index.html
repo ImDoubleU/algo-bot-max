@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.54.0" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.58.1" />
   </head>
   <body>
     <main id="accessGate" class="access-gate" hidden>
@@ -37,7 +37,7 @@
 
         <button id="tenantSwitcherButton" class="tenant-control" type="button" aria-label="Сменить город или партнера" aria-haspopup="dialog" hidden>
           <span>Город / партнер</span>
-          <strong id="tenantTitle">Текущий контур</strong>
+          <strong id="tenantTitle">Не выбран</strong>
           <i data-lucide="chevrons-up-down" aria-hidden="true"></i>
         </button>
       </header>
@@ -68,6 +68,9 @@
             </button>
             <button class="nav-button" data-view="teaching">
               <i data-lucide="calendar-days"></i><span>Расписание</span>
+            </button>
+            <button class="nav-button" data-view="broadcasts">
+              <i data-lucide="megaphone"></i><span>Рассылки</span>
             </button>
             <button class="nav-button" data-view="admin">
               <i data-lucide="settings-2"></i><span>Управление</span>
@@ -359,7 +362,7 @@
             <div class="section-heading teaching-heading">
               <div>
                 <p class="eyebrow">Преподавателю</p>
-                <h2>Расписание и автоматические ОС</h2>
+                <h2>Расписание и журнал</h2>
               </div>
               <button id="scheduleCreateButton" class="primary-action" type="button">
                 Добавить группу
@@ -369,47 +372,143 @@
             <div id="teachingSummary" class="teaching-summary"></div>
             <div id="scheduleEditor" class="schedule-editor" hidden></div>
 
-            <section class="attendance-journal">
-              <div class="panel-head">
-                <div>
-                  <h3>Журнал посещаемости</h3>
-                  <span>Фактическое присутствие на уроке</span>
-                </div>
-              </div>
-              <div class="attendance-toolbar">
-                <label><span>Группа</span><select id="attendanceScheduleSelect"></select></label>
-                <label><span>Дата урока</span><input id="attendanceLessonDate" type="date" /></label>
-                <button id="loadAttendanceButton" class="secondary-action" type="button">Открыть журнал</button>
-              </div>
-              <div id="attendanceJournalList" class="attendance-list"></div>
-              <button id="saveAttendanceButton" class="primary-action" type="button" hidden>
-                Сохранить посещаемость
-              </button>
-            </section>
-
-            <div class="teaching-grid">
-              <section class="teaching-column">
+            <div class="journal-workspace">
+              <section class="teaching-column journal-groups-panel">
                 <div class="panel-head">
-                  <h3>Мои занятия</h3>
-                  <select id="scheduleDayFilter" aria-label="День занятий">
-                    <option value="all">Вся неделя</option>
-                    <option value="0">Понедельник</option>
-                    <option value="1">Вторник</option>
-                    <option value="2">Среда</option>
-                    <option value="3">Четверг</option>
-                    <option value="4">Пятница</option>
-                    <option value="5">Суббота</option>
-                    <option value="6">Воскресенье</option>
-                  </select>
+                  <div>
+                    <h3>Доступные группы</h3>
+                    <span>Расписание занятий</span>
+                  </div>
                 </div>
                 <div id="scheduleList" class="schedule-list"></div>
               </section>
 
-              <section class="teaching-column feedback-history-column">
+              <section id="attendanceJournalPanel" class="attendance-journal">
                 <div class="panel-head">
-                  <h3>Автоматически сформированные ОС</h3>
+                  <div>
+                    <p class="eyebrow">Журнал группы</p>
+                    <h3 id="attendanceJournalTitle">Выберите группу</h3>
+                    <span id="attendanceJournalMeta">Посещаемость и отработки</span>
+                  </div>
+                  <button id="closeAttendanceJournalButton" class="secondary-action" type="button" hidden>
+                    К группам
+                  </button>
                 </div>
-                <div id="feedbackHistory" class="feedback-history"></div>
+                <div id="attendanceJournalList" class="attendance-list">
+                  <div class="empty-state">Откройте журнал нужной группы.</div>
+                </div>
+                <div class="journal-save-bar">
+                  <span id="attendanceSaveHint"></span>
+                  <button id="saveAttendanceButton" class="primary-action" type="button" hidden>
+                    Сохранить журнал
+                  </button>
+                </div>
+              </section>
+            </div>
+
+            <section class="teaching-column feedback-history-column">
+              <div class="panel-head">
+                <h3>Автоматически сформированные ОС</h3>
+              </div>
+              <div id="feedbackHistory" class="feedback-history"></div>
+            </section>
+          </section>
+
+          <section id="broadcastsView" class="view" data-view-panel="broadcasts">
+            <div class="section-heading broadcasts-heading">
+              <div>
+                <p class="eyebrow">Коммуникации</p>
+                <h2>Новость для учеников и родителей</h2>
+              </div>
+              <span id="broadcastTenantLabel" class="broadcast-tenant-label"></span>
+            </div>
+
+            <div class="broadcast-layout">
+              <form id="broadcastForm" class="broadcast-composer">
+                <div class="broadcast-form-row">
+                  <label>
+                    <span>Заголовок</span>
+                    <input id="broadcastTitle" type="text" maxlength="160" placeholder="Например, летний интенсив" />
+                  </label>
+                  <label>
+                    <span>Получатели</span>
+                    <select id="broadcastRecipientCategory">
+                      <option value="all">Родители и ученики</option>
+                      <option value="parents">Только родители</option>
+                      <option value="students">Только ученики</option>
+                    </select>
+                  </label>
+                </div>
+
+                <label class="broadcast-message-field">
+                  <span>Текст новости</span>
+                  <textarea id="broadcastMessage" maxlength="3500" rows="7" placeholder="Напишите сообщение" required></textarea>
+                  <small><span id="broadcastMessageCount">0</span> / 3500</small>
+                </label>
+
+                <div class="broadcast-photo-row">
+                  <label class="file-picker broadcast-photo-picker">
+                    <input id="broadcastPhotoFile" type="file" accept="image/jpeg,image/png,image/webp" />
+                    <i data-lucide="image-plus"></i>
+                    <span>Добавить фото</span>
+                  </label>
+                  <div id="broadcastPhotoPreview" class="broadcast-photo-preview" hidden></div>
+                </div>
+
+                <div class="broadcast-form-row broadcast-filter-row">
+                  <label>
+                    <span>Фильтр аудитории</span>
+                    <select id="broadcastAudienceFilter">
+                      <option value="all">Все по выбранным группам</option>
+                      <option value="low_balance">Низкий баланс AC</option>
+                      <option value="active_orders">Есть активный заказ</option>
+                      <option value="no_orders">Ещё не делали заказов</option>
+                    </select>
+                  </label>
+                  <label id="broadcastBalanceThresholdField" hidden>
+                    <span>Баланс не выше</span>
+                    <input id="broadcastBalanceThreshold" type="number" min="0" max="1000000" value="300" inputmode="numeric" />
+                  </label>
+                </div>
+
+                <fieldset class="broadcast-groups">
+                  <div class="broadcast-groups-head">
+                    <legend>Группы</legend>
+                    <div>
+                      <button class="text-action" type="button" data-broadcast-groups="all">Выбрать все</button>
+                      <button class="text-action" type="button" data-broadcast-groups="none">Сбросить</button>
+                    </div>
+                  </div>
+                  <p id="broadcastGroupHint">Если группы не отмечены, новость получат все подходящие пользователи.</p>
+                  <div id="broadcastGroupList" class="broadcast-group-list"></div>
+                </fieldset>
+
+                <div class="broadcast-send-bar">
+                  <div id="broadcastAudiencePreview" class="broadcast-audience-preview" aria-live="polite">
+                    <i data-lucide="users"></i>
+                    <span>Сначала проверьте количество получателей</span>
+                  </div>
+                  <div class="broadcast-actions">
+                    <button id="previewBroadcastButton" class="secondary-action" type="button">
+                      <i data-lucide="scan-search"></i>
+                      <span>Проверить аудиторию</span>
+                    </button>
+                    <button id="sendBroadcastButton" class="primary-action" type="submit">
+                      <i data-lucide="send"></i>
+                      <span>Отправить новость</span>
+                    </button>
+                  </div>
+                </div>
+              </form>
+
+              <section class="broadcast-history-panel">
+                <div class="panel-head">
+                  <div>
+                    <h3>История рассылок</h3>
+                    <span>Последние отправленные новости</span>
+                  </div>
+                </div>
+                <div id="broadcastHistory" class="broadcast-history"></div>
               </section>
             </div>
           </section>
@@ -557,7 +656,47 @@
           <div id="feedbackDialogContent" class="feedback-dialog-content"></div>
           <div class="dialog-actions feedback-dialog-actions">
             <button id="copyFeedbackButton" class="secondary-action" type="button" hidden>Копировать</button>
-            <button id="sendFeedbackButton" class="secondary-action" type="button" hidden>Отправить родителям</button>
+          </div>
+        </section>
+      </div>
+
+      <div id="attendanceLessonDialog" class="dialog-backdrop" hidden>
+        <section
+          class="checkout-dialog attendance-lesson-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="attendanceLessonDialogTitle"
+        >
+          <div class="dialog-head">
+            <div>
+              <p class="eyebrow">Журнал группы</p>
+              <h2 id="attendanceLessonDialogTitle">Занятие</h2>
+            </div>
+            <button
+              id="closeAttendanceLessonDialogButton"
+              class="icon-button dialog-close"
+              type="button"
+              title="Закрыть"
+              aria-label="Закрыть"
+            >×</button>
+          </div>
+          <div class="attendance-lesson-fields">
+            <label>
+              <span>Дата занятия</span>
+              <input id="attendanceLessonDate" type="date" required />
+            </label>
+            <label>
+              <span>Номер урока</span>
+              <input id="attendanceLessonNumber" type="number" min="1" max="1000" inputmode="numeric" required />
+            </label>
+          </div>
+          <div class="dialog-actions">
+            <button id="cancelAttendanceLessonButton" class="secondary-action" type="button">
+              Отмена
+            </button>
+            <button id="applyAttendanceLessonButton" class="primary-action" type="button">
+              Применить
+            </button>
           </div>
         </section>
       </div>
@@ -566,13 +705,13 @@
         <section class="checkout-dialog tenant-dialog" role="dialog" aria-modal="true" aria-labelledby="tenantDialogTitle">
           <div class="dialog-head">
             <div>
-              <p class="eyebrow">Рабочий контур</p>
+              <p class="eyebrow">Город и партнер</p>
               <h2 id="tenantDialogTitle">Города и партнеры</h2>
             </div>
             <button id="closeTenantDialogButton" class="icon-button dialog-close" type="button" title="Закрыть" aria-label="Закрыть">×</button>
           </div>
           <div class="tenant-dialog-content">
-            <p id="tenantDialogHint" class="tenant-dialog-hint">Выберите контур, с которым хотите работать.</p>
+            <p id="tenantDialogHint" class="tenant-dialog-hint">Выберите город и партнера.</p>
             <div id="tenantList" class="tenant-list"></div>
             <form id="tenantCreateForm" class="tenant-create-form" hidden>
               <label>Город<input id="tenantCityName" name="city_name" type="text" minlength="2" maxlength="160" autocomplete="address-level2" required /></label>
@@ -598,6 +737,9 @@
         </button>
         <button class="mobile-more-action nav-button" type="button" data-view="teaching">
           <i data-lucide="calendar-days"></i><span>Расписание</span>
+        </button>
+        <button class="mobile-more-action nav-button" type="button" data-view="broadcasts">
+          <i data-lucide="megaphone"></i><span>Рассылки</span>
         </button>
         <button class="mobile-more-action nav-button" type="button" data-view="admin">
           <i data-lucide="settings-2"></i><span>Управление</span>
@@ -631,6 +773,6 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app.js?v=0.54.0"></script>
+    <script src="/miniapp/static/app.js?v=0.58.1"></script>
   </body>
 </html>

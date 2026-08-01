@@ -4,11 +4,18 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import (
+    get_miniapp_identity,
+    require_matching_miniapp_identity,
+)
+from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
 from app.schemas.access import (
     AccessLinkBatchRead,
     AccessLinkCreate,
     AccessLinkRead,
+    BotStoppedAccessRevoke,
+    BotStoppedAccessRevokeRead,
     ContactResolveResponse,
     StudentAccessTarget,
     StudentInvitationLinkCreate,
@@ -23,11 +30,13 @@ from app.services.access import (
     get_tenant_by_slug,
     record_student_access_attempt,
     resolve_students_by_contact_id,
+    revoke_access_for_stopped_bot,
 )
 from app.services.rate_limit import student_id_entry_limiter
 
 router = APIRouter()
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
+MiniAppIdentityDep = Annotated[MiniAppIdentity | None, Depends(get_miniapp_identity)]
 
 
 @router.post("/resolve-contact", response_model=ContactResolveResponse)
@@ -127,6 +136,8 @@ async def create_link(
                 role=link.role,
                 status=link.status,
                 source=link.source,
+                sponsor_access_link_id=link.sponsor_access_link_id,
+                revoked_reason=link.revoked_reason,
                 created_at=link.created_at,
             )
             for link in links
@@ -160,6 +171,30 @@ async def create_student_invite_link(
             role=link.role,
             status=link.status,
             source=link.source,
+            sponsor_access_link_id=link.sponsor_access_link_id,
+            revoked_reason=link.revoked_reason,
             created_at=link.created_at,
         ),
+    )
+
+
+@router.post("/bot-stopped", response_model=BotStoppedAccessRevokeRead)
+async def revoke_stopped_bot_access(
+    payload: BotStoppedAccessRevoke,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> BotStoppedAccessRevokeRead:
+    require_matching_miniapp_identity(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    account_links, child_links, affected_tenants = (
+        await revoke_access_for_stopped_bot(db, payload)
+    )
+    return BotStoppedAccessRevokeRead(
+        max_user_id=payload.max_user_id,
+        revoked_account_links=account_links,
+        revoked_child_links=child_links,
+        affected_tenants=affected_tenants,
     )

@@ -46,6 +46,8 @@ class AccessLinkRead(BaseModel):
     role: StudentAccessRole
     status: StudentAccessStatus
     source: StudentAccessSource
+    sponsor_access_link_id: UUID | None = None
+    revoked_reason: str | None = None
     created_at: datetime
 
 
@@ -69,3 +71,16 @@ class StudentInvitationLinkRead(BaseModel):
     student_name: str
     group_name: str | None = None
     link: AccessLinkRead
+
+
+class BotStoppedAccessRevoke(BaseModel):
+    tenant_slug: str = Field(min_length=2, max_length=80)
+    max_user_id: int = Field(gt=0)
+    reason: str = Field(default="bot_stopped", min_length=2, max_length=80)
+
+
+class BotStoppedAccessRevokeRead(BaseModel):
+    max_user_id: int
+    revoked_account_links: int
+    revoked_child_links: int
+    affected_tenants: int

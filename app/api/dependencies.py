@@ -48,7 +48,7 @@ async def get_miniapp_identity(
             return None
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Откройте mini-app из актуального меню MAX-бота",
+            detail="Откройте личный кабинет из меню бота",
         )
     try:
         return verify_miniapp_token(token)
