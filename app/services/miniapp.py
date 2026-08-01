@@ -88,6 +88,7 @@ from app.schemas.miniapp import (
     MiniAppWarehouseRead,
     MiniAppWarehouseUpsert,
 )
+from app.services.access import revoke_dependent_student_links
 from app.services.crm_import import CrmImportError, parse_crm_students_content
 from app.services.crm_sync import (
     CrmSyncDefaults,
@@ -998,7 +999,7 @@ async def get_miniapp_student_invitation(
 ) -> MiniAppStudentInvitationRead:
     tenant = await get_tenant_by_slug(db, tenant_slug)
     if tenant is None:
-        raise MiniAppStoreError("Контур школы не найден", status_code=404)
+        raise MiniAppStoreError("Школа не найдена", status_code=404)
 
     account = await db.scalar(
         select(MaxAccount).where(MaxAccount.max_user_id == max_user_id)
@@ -1042,6 +1043,7 @@ async def get_miniapp_student_invitation(
             str(settings.max_bot_username),
             UUID(str(tenant.id)),
             UUID(str(student.id)),
+            UUID(str(parent_link.id)),
         )
     except StudentInvitationError as exc:
         raise MiniAppStoreError(str(exc), status_code=503) from exc
@@ -1064,7 +1066,7 @@ async def _student_cart_context(
 ) -> tuple[Tenant, MaxAccount, Student]:
     tenant = await get_tenant_by_slug(db, tenant_slug.strip().lower())
     if tenant is None:
-        raise MiniAppStoreError("Контур школы не найден", status_code=404)
+        raise MiniAppStoreError("Школа не найдена", status_code=404)
 
     account = await db.scalar(
         select(MaxAccount).where(MaxAccount.max_user_id == max_user_id)
@@ -1640,7 +1642,7 @@ async def create_miniapp_order(
             actor_account_id=account.id,
             from_status=None,
             to_status=OrderStatus.RESERVED,
-            comment="Заказ создан из MAX mini app",
+            comment="Заказ создан в приложении Algo MAX",
         )
     )
     db.add(
@@ -2582,9 +2584,46 @@ async def update_miniapp_access_link_status(
     if link is None:
         raise MiniAppStoreError("Связь доступа не найдена", status_code=404)
 
+    if (
+        payload.status == StudentAccessStatus.ACTIVE
+        and link.role == StudentAccessRole.STUDENT
+    ):
+        parent_conditions = [
+            StudentAccessLink.tenant_id == tenant.id,
+            StudentAccessLink.student_id == link.student_id,
+            StudentAccessLink.role == StudentAccessRole.PARENT,
+            StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+        ]
+        if link.sponsor_access_link_id is not None:
+            parent_conditions.append(
+                StudentAccessLink.id == link.sponsor_access_link_id
+            )
+        active_parent_id = await db.scalar(
+            select(StudentAccessLink.id).where(*parent_conditions).limit(1)
+        )
+        if active_parent_id is None:
+            raise MiniAppStoreError(
+                "Сначала восстановите родительскую связь, затем выдайте ребенку новый QR-код.",
+                status_code=409,
+            )
+
     previous_status = link.status
     link.status = payload.status
-    link.revoked_at = datetime.now(UTC) if payload.status == StudentAccessStatus.REVOKED else None
+    revoked_at = (
+        datetime.now(UTC)
+        if payload.status == StudentAccessStatus.REVOKED
+        else None
+    )
+    link.revoked_at = revoked_at
+    link.revoked_reason = "admin" if revoked_at is not None else None
+    revoked_child_links: list[StudentAccessLink] = []
+    if revoked_at is not None and link.role == StudentAccessRole.PARENT:
+        revoked_child_links = await revoke_dependent_student_links(
+            db,
+            parent_links=[link],
+            revoked_at=revoked_at,
+            reason="sponsor_admin_revoked",
+        )
     db.add(
         AuditLog(
             tenant_id=tenant.id,
@@ -2599,6 +2638,7 @@ async def update_miniapp_access_link_status(
                 "from_status": previous_status.value,
                 "to_status": link.status.value,
                 "actor_role": staff_role.value,
+                "revoked_child_links": len(revoked_child_links),
             },
         )
     )
@@ -3058,7 +3098,7 @@ async def adjust_miniapp_inventory(
                 actor_account_id=account.id,
                 from_warehouse_id=warehouse.id if delta < 0 else None,
                 to_warehouse_id=warehouse.id if delta > 0 else None,
-                comment=payload.comment or "Корректировка остатка из MAX mini app",
+                comment=payload.comment or "Корректировка остатка в приложении Algo MAX",
             )
         )
 
@@ -3192,7 +3232,7 @@ async def transfer_miniapp_inventory(
             actor_account_id=account.id,
             from_warehouse_id=source_warehouse.id,
             to_warehouse_id=target_warehouse.id,
-            comment=payload.comment or "Перемещение остатка из MAX mini app",
+            comment=payload.comment or "Перемещение остатка в приложении Algo MAX",
         )
     )
     db.add(

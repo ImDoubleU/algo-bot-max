@@ -13,10 +13,16 @@ from app.models.enums import (
     OrderStatus,
     StaffRole,
     StudentAccessRole,
+    StudentAccessSource,
     StudentAccessStatus,
 )
 from app.models.store import Order, OrderItem, OrderStatusHistory, Product
-from app.models.student import AstrocoinLedgerEntry, Student, Wallet
+from app.models.student import (
+    AstrocoinLedgerEntry,
+    Student,
+    StudentAccessLink,
+    Wallet,
+)
 from app.schemas.access import AccessLinkCreate
 from app.schemas.miniapp import MiniAppAccessStatusUpdate, MiniAppStaffAssignmentUpdate
 from app.services.access import create_contact_access_links
@@ -245,6 +251,19 @@ async def test_admin_can_revoke_student_access_link(db_session) -> None:
             status=AssignmentStatus.ACTIVE,
         )
     )
+    child_account = MaxAccount(max_user_id=1001, username="student_user")
+    db_session.add(child_account)
+    await db_session.flush()
+    child_link = StudentAccessLink(
+        tenant_id=student.tenant_id,
+        account_id=child_account.id,
+        student_id=student.id,
+        role=StudentAccessRole.STUDENT,
+        status=StudentAccessStatus.ACTIVE,
+        source=StudentAccessSource.PARENT_QR,
+        sponsor_access_link_id=links[0].id,
+    )
+    db_session.add(child_link)
     await db_session.commit()
 
     result = await update_miniapp_access_link_status(
@@ -265,6 +284,8 @@ async def test_admin_can_revoke_student_access_link(db_session) -> None:
     )
     assert result.status == StudentAccessStatus.REVOKED
     assert session.access_links[0].status == StudentAccessStatus.REVOKED
+    await db_session.refresh(child_link)
+    assert child_link.status == StudentAccessStatus.REVOKED
 
 
 async def test_admin_can_assign_teacher_staff_role(db_session) -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -17,19 +17,23 @@ from app.models.teaching import (
     CourseLesson,
     FeedbackOutput,
     ManualFeedbackOutput,
+    TeachingLessonOverride,
     TeachingSchedule,
 )
 from app.models.tenant import Tenant
 from app.schemas.teaching import (
     AttendanceJournalRead,
+    AttendanceJournalUpdateRequest,
+    AttendanceLessonRead,
+    AttendanceMarkRead,
     AttendanceMarkRequest,
     AttendanceStudentRead,
     CourseLessonSummaryRead,
     CourseSummaryRead,
-    FeedbackDeliveryRead,
-    FeedbackDeliveryRequest,
     FeedbackGenerateRequest,
     FeedbackOutputRead,
+    GroupAttendanceJournalRead,
+    GroupAttendanceStudentRead,
     ManualFeedbackCreate,
     ManualFeedbackOutputRead,
     TeachingGroupOptionRead,
@@ -95,8 +99,52 @@ async def load_teaching_context(
     return tenant, account, role
 
 
+async def teacher_has_group_access(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    account: MaxAccount,
+    group_name: str,
+) -> bool:
+    teacher_names = (
+        await db.scalars(
+            select(Student.teacher_name).where(
+                Student.tenant_id == tenant_id,
+                Student.status == StudentStatus.ACTIVE,
+                Student.group_name == group_name,
+            )
+        )
+    ).all()
+    return any(
+        staff_names_match(account.display_name, teacher_name)
+        for teacher_name in teacher_names
+    )
+
+
+def lesson_override_for_position(
+    schedule: TeachingSchedule,
+    position: int,
+) -> TeachingLessonOverride | None:
+    return next(
+        (item for item in schedule.lesson_overrides if item.position == position),
+        None,
+    )
+
+
+def lesson_date_for_position(schedule: TeachingSchedule, position: int) -> date:
+    override = lesson_override_for_position(schedule, position)
+    if override is not None:
+        return override.lesson_date
+    return schedule.first_lesson_date + timedelta(days=7 * (position - 1))
+
+
+def lesson_number_for_position(schedule: TeachingSchedule, position: int) -> int:
+    override = lesson_override_for_position(schedule, position)
+    return override.lesson_number if override is not None else position
+
+
 def next_lesson_date(schedule: TeachingSchedule) -> date:
-    return schedule.first_lesson_date + timedelta(days=7 * (schedule.current_lesson_number - 1))
+    return lesson_date_for_position(schedule, schedule.current_lesson_number)
 
 
 def lesson_for_number(course: Course, lesson_number: int) -> CourseLesson | None:
@@ -107,7 +155,11 @@ def lesson_for_number(course: Course, lesson_number: int) -> CourseLesson | None
 
 
 def schedule_to_read(schedule: TeachingSchedule) -> TeachingScheduleRead:
-    lesson = lesson_for_number(schedule.course, schedule.current_lesson_number)
+    next_lesson_number = lesson_number_for_position(
+        schedule,
+        schedule.current_lesson_number,
+    )
+    lesson = lesson_for_number(schedule.course, next_lesson_number)
     return TeachingScheduleRead(
         id=UUID(str(schedule.id)),
         group_name=schedule.group_name,
@@ -121,6 +173,7 @@ def schedule_to_read(schedule: TeachingSchedule) -> TeachingScheduleRead:
         lesson_mode=schedule.lesson_mode,
         lesson_place=schedule.lesson_place,
         current_lesson_number=schedule.current_lesson_number,
+        next_lesson_number=next_lesson_number,
         lesson_offset=schedule.lesson_offset,
         auto_feedback_enabled=schedule.auto_feedback_enabled,
         parent_delivery_enabled=schedule.parent_delivery_enabled,
@@ -208,11 +261,21 @@ async def get_teaching_workspace(
     schedule_query = (
         select(TeachingSchedule)
         .where(TeachingSchedule.tenant_id == tenant.id)
-        .options(selectinload(TeachingSchedule.course).selectinload(Course.lessons))
+        .options(
+            selectinload(TeachingSchedule.course).selectinload(Course.lessons),
+            selectinload(TeachingSchedule.lesson_overrides),
+        )
         .order_by(TeachingSchedule.weekday, TeachingSchedule.lesson_time)
     )
     if role not in MANAGER_ROLES:
-        schedule_query = schedule_query.where(TeachingSchedule.teacher_account_id == account.id)
+        accessible_group_names = {
+            student.group_name
+            for student in group_students
+            if student.group_name
+        }
+        schedule_query = schedule_query.where(
+            TeachingSchedule.group_name.in_(accessible_group_names)
+        )
     schedules = (await db.scalars(schedule_query)).unique().all()
 
     schedule_ids = [schedule.id for schedule in schedules]
@@ -274,14 +337,24 @@ async def get_attendance_journal(
         tenant_slug=tenant_slug,
     )
     schedule = await db.scalar(
-        select(TeachingSchedule).where(
+        select(TeachingSchedule)
+        .where(
             TeachingSchedule.tenant_id == tenant.id,
             TeachingSchedule.id == schedule_id,
+        )
+        .options(
+            selectinload(TeachingSchedule.course).selectinload(Course.lessons),
+            selectinload(TeachingSchedule.lesson_overrides),
         )
     )
     if schedule is None:
         raise TeachingServiceError("Расписание не найдено", status_code=404)
-    if role == StaffRole.TEACHER and schedule.teacher_account_id != account.id:
+    if role == StaffRole.TEACHER and not await teacher_has_group_access(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+        account=account,
+        group_name=schedule.group_name,
+    ):
         raise TeachingServiceError("Нельзя редактировать журнал чужой группы", status_code=403)
 
     students = (
@@ -304,7 +377,18 @@ async def get_attendance_journal(
         )
     ).all()
     records_by_student = {record.student_id: record for record in records}
-    lesson_number = max(1, ((lesson_date - schedule.first_lesson_date).days // 7) + 1)
+    lesson = next(
+        (
+            item
+            for item in _attendance_lessons(schedule)
+            if item.lesson_date == lesson_date
+        ),
+        None,
+    )
+    lesson_number = lesson.lesson_number if lesson else max(
+        1,
+        ((lesson_date - schedule.first_lesson_date).days // 7) + 1,
+    )
     return AttendanceJournalRead(
         schedule_id=UUID(str(schedule.id)),
         group_name=schedule.group_name,
@@ -319,6 +403,11 @@ async def get_attendance_journal(
                     records_by_student[student.id].present
                     if student.id in records_by_student
                     else None
+                ),
+                makeup_completed=(
+                    records_by_student[student.id].makeup_completed
+                    if student.id in records_by_student
+                    else False
                 ),
                 comment=(
                     records_by_student[student.id].comment
@@ -352,7 +441,12 @@ async def mark_attendance(
     )
     if schedule is None:
         raise TeachingServiceError("Расписание не найдено", status_code=404)
-    if role == StaffRole.TEACHER and schedule.teacher_account_id != account.id:
+    if role == StaffRole.TEACHER and not await teacher_has_group_access(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+        account=account,
+        group_name=schedule.group_name,
+    ):
         raise TeachingServiceError("Нельзя редактировать журнал чужой группы", status_code=403)
 
     student_ids = list(dict.fromkeys(item.student_id for item in payload.items))
@@ -379,6 +473,11 @@ async def mark_attendance(
     ).all()
     records = {record.student_id: record for record in existing}
     for item in payload.items:
+        if item.makeup_completed and item.present:
+            raise TeachingServiceError(
+                "Отработку можно отметить только для пропущенного урока",
+                status_code=409,
+            )
         record = records.get(item.student_id)
         if record is None:
             record = AttendanceRecord(
@@ -387,12 +486,14 @@ async def mark_attendance(
                 student_id=item.student_id,
                 lesson_date=payload.lesson_date,
                 present=item.present,
+                makeup_completed=item.makeup_completed,
                 marked_by_account_id=account.id,
                 comment=item.comment,
             )
             db.add(record)
         else:
             record.present = item.present
+            record.makeup_completed = item.makeup_completed
             record.comment = item.comment
             record.marked_by_account_id = account.id
     await db.commit()
@@ -402,6 +503,395 @@ async def mark_attendance(
         tenant_slug=tenant.slug,
         schedule_id=schedule.id,
         lesson_date=payload.lesson_date,
+    )
+
+
+async def _load_attendance_schedule(
+    db: AsyncSession,
+    *,
+    tenant: Tenant,
+    account: MaxAccount,
+    role: StaffRole,
+    schedule_id: UUID,
+) -> TeachingSchedule:
+    schedule = await db.scalar(
+        select(TeachingSchedule)
+        .where(
+            TeachingSchedule.tenant_id == tenant.id,
+            TeachingSchedule.id == schedule_id,
+        )
+        .options(selectinload(TeachingSchedule.course).selectinload(Course.lessons))
+        .options(selectinload(TeachingSchedule.lesson_overrides))
+    )
+    if schedule is None:
+        raise TeachingServiceError("Расписание не найдено", status_code=404)
+    if role not in MANAGER_ROLES and not await teacher_has_group_access(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+        account=account,
+        group_name=schedule.group_name,
+    ):
+        raise TeachingServiceError("Нельзя редактировать журнал чужой группы", status_code=403)
+    return schedule
+
+
+async def _attendance_students(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    group_name: str,
+) -> list[Student]:
+    return list(
+        (
+            await db.scalars(
+                select(Student)
+                .where(
+                    Student.tenant_id == tenant_id,
+                    Student.group_name == group_name,
+                    Student.status == StudentStatus.ACTIVE,
+                )
+                .order_by(Student.last_name, Student.first_name)
+            )
+        ).all()
+    )
+
+
+def _attendance_lessons(
+    schedule: TeachingSchedule,
+    *,
+    extra_dates: set[date] | None = None,
+) -> list[AttendanceLessonRead]:
+    lessons_by_number = {lesson.lesson_number: lesson for lesson in schedule.course.lessons}
+    override_positions = [item.position for item in schedule.lesson_overrides]
+    lesson_count = max(
+        len(schedule.course.lessons),
+        schedule.current_lesson_number,
+        max(override_positions, default=0),
+        1,
+    )
+    today = date.today()
+    result: list[AttendanceLessonRead] = []
+    used_dates: set[date] = set()
+    for position in range(1, lesson_count + 1):
+        lesson_date = lesson_date_for_position(schedule, position)
+        lesson_number = lesson_number_for_position(schedule, position)
+        course_lesson = lessons_by_number.get(lesson_number)
+        used_dates.add(lesson_date)
+        result.append(
+            AttendanceLessonRead(
+                position=position,
+                lesson_date=lesson_date,
+                lesson_number=lesson_number,
+                lesson_title=course_lesson.title if course_lesson else None,
+                is_current=position == schedule.current_lesson_number,
+                is_future=lesson_date > today,
+            )
+        )
+    next_position = lesson_count + 1
+    for lesson_date in sorted((extra_dates or set()) - used_dates):
+        lesson_number = max(
+            1,
+            ((lesson_date - schedule.first_lesson_date).days // 7) + 1,
+        )
+        course_lesson = lessons_by_number.get(lesson_number)
+        result.append(
+            AttendanceLessonRead(
+                position=next_position,
+                lesson_date=lesson_date,
+                lesson_number=lesson_number,
+                lesson_title=course_lesson.title if course_lesson else None,
+                is_current=False,
+                is_future=lesson_date > today,
+            )
+        )
+        next_position += 1
+    result.sort(key=lambda item: (item.lesson_date, item.position))
+    return result
+
+
+async def get_group_attendance_journal(
+    db: AsyncSession,
+    *,
+    max_user_id: int,
+    tenant_slug: str,
+    schedule_id: UUID,
+) -> GroupAttendanceJournalRead:
+    tenant, account, role = await load_teaching_context(
+        db,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    schedule = await _load_attendance_schedule(
+        db,
+        tenant=tenant,
+        account=account,
+        role=role,
+        schedule_id=schedule_id,
+    )
+    students = await _attendance_students(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+        group_name=schedule.group_name,
+    )
+    student_ids = [student.id for student in students]
+    records: list[AttendanceRecord] = []
+    if student_ids:
+        records = list(
+            (
+                await db.scalars(
+                    select(AttendanceRecord).where(
+                        AttendanceRecord.schedule_id == schedule.id,
+                        AttendanceRecord.student_id.in_(student_ids),
+                    )
+                )
+            ).all()
+        )
+    records_by_student: dict[UUID, list[AttendanceRecord]] = {}
+    for record in records:
+        records_by_student.setdefault(record.student_id, []).append(record)
+    lessons = _attendance_lessons(
+        schedule,
+        extra_dates={record.lesson_date for record in records},
+    )
+    return GroupAttendanceJournalRead(
+        schedule_id=UUID(str(schedule.id)),
+        group_name=schedule.group_name,
+        course_name=schedule.course.name,
+        lesson_time=schedule.lesson_time,
+        current_lesson_number=schedule.current_lesson_number,
+        lessons=lessons,
+        students=[
+            GroupAttendanceStudentRead(
+                student_id=UUID(str(student.id)),
+                student_name=student.display_name,
+                group_name=schedule.group_name,
+                marks=[
+                    AttendanceMarkRead(
+                        lesson_date=record.lesson_date,
+                        present=record.present,
+                        makeup_completed=record.makeup_completed,
+                        comment=record.comment,
+                    )
+                    for record in sorted(
+                        records_by_student.get(student.id, []),
+                        key=lambda item: item.lesson_date,
+                    )
+                ],
+            )
+            for student in students
+        ],
+    )
+
+
+async def update_group_attendance_journal(
+    db: AsyncSession,
+    *,
+    schedule_id: UUID,
+    payload: AttendanceJournalUpdateRequest,
+    default_tenant_slug: str,
+) -> GroupAttendanceJournalRead:
+    tenant_slug = (payload.tenant_slug or default_tenant_slug).strip().lower()
+    tenant, account, role = await load_teaching_context(
+        db,
+        max_user_id=payload.max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    schedule = await _load_attendance_schedule(
+        db,
+        tenant=tenant,
+        account=account,
+        role=role,
+        schedule_id=schedule_id,
+    )
+    if not payload.items and not payload.lessons:
+        raise TeachingServiceError("В журнале нет изменений")
+
+    all_schedule_records: list[AttendanceRecord] = []
+    if payload.lessons:
+        all_schedule_records = list(
+            (
+                await db.scalars(
+                    select(AttendanceRecord).where(
+                        AttendanceRecord.schedule_id == schedule.id,
+                    )
+                )
+            ).all()
+        )
+        lessons_before = _attendance_lessons(
+            schedule,
+            extra_dates={record.lesson_date for record in all_schedule_records},
+        )
+        lessons_by_position = {item.position: item for item in lessons_before}
+        lesson_updates = {item.position: item for item in payload.lessons}
+        unknown_positions = set(lesson_updates) - set(lessons_by_position)
+        if unknown_positions:
+            raise TeachingServiceError("Занятие не найдено в расписании", status_code=404)
+
+        proposed_dates = {
+            position: item.lesson_date
+            for position, item in lessons_by_position.items()
+        }
+        for position, item in lesson_updates.items():
+            proposed_dates[position] = item.lesson_date
+        if len(set(proposed_dates.values())) != len(proposed_dates):
+            raise TeachingServiceError(
+                "На одну дату нельзя поставить два занятия одной группы",
+                status_code=409,
+            )
+
+        overrides_by_position = {
+            item.position: item
+            for item in schedule.lesson_overrides
+        }
+        date_moves: dict[date, date] = {}
+        changed_lessons: list[dict[str, object]] = []
+        for position, item in lesson_updates.items():
+            previous = lessons_by_position[position]
+            if previous.lesson_date != item.lesson_date:
+                date_moves[previous.lesson_date] = item.lesson_date
+            if (
+                previous.lesson_date != item.lesson_date
+                or previous.lesson_number != item.lesson_number
+            ):
+                changed_lessons.append(
+                    {
+                        "position": position,
+                        "old_date": previous.lesson_date.isoformat(),
+                        "new_date": item.lesson_date.isoformat(),
+                        "old_number": previous.lesson_number,
+                        "new_number": item.lesson_number,
+                    }
+                )
+
+            default_date = schedule.first_lesson_date + timedelta(days=7 * (position - 1))
+            override = overrides_by_position.get(position)
+            if item.lesson_date == default_date and item.lesson_number == position:
+                if override is not None:
+                    await db.delete(override)
+                    schedule.lesson_overrides.remove(override)
+                continue
+            if override is None:
+                override = TeachingLessonOverride(
+                    tenant_id=tenant.id,
+                    schedule_id=schedule.id,
+                    position=position,
+                    lesson_date=item.lesson_date,
+                    lesson_number=item.lesson_number,
+                )
+                db.add(override)
+                schedule.lesson_overrides.append(override)
+            else:
+                override.lesson_date = item.lesson_date
+                override.lesson_number = item.lesson_number
+
+        if date_moves:
+            used_dates = {record.lesson_date for record in all_schedule_records}
+            temporary_dates: dict[date, date] = {}
+            candidate = date(9999, 12, 31)
+            for source_date in date_moves:
+                while candidate in used_dates:
+                    candidate -= timedelta(days=1)
+                temporary_dates[source_date] = candidate
+                used_dates.add(candidate)
+                candidate -= timedelta(days=1)
+            records_to_move = [
+                record
+                for record in all_schedule_records
+                if record.lesson_date in date_moves
+            ]
+            for record in records_to_move:
+                record.lesson_date = temporary_dates[record.lesson_date]
+            await db.flush()
+            reverse_temporary_dates = {
+                temporary: date_moves[source]
+                for source, temporary in temporary_dates.items()
+            }
+            for record in records_to_move:
+                record.lesson_date = reverse_temporary_dates[record.lesson_date]
+
+        if changed_lessons:
+            db.add(
+                AuditLog(
+                    tenant_id=tenant.id,
+                    actor_account_id=account.id,
+                    action="teaching_journal.lessons_updated",
+                    entity_type="teaching_schedule",
+                    entity_id=str(schedule.id),
+                    payload={"lessons": changed_lessons},
+                )
+            )
+
+    items_by_key = {
+        (item.student_id, item.lesson_date): item
+        for item in payload.items
+    }
+    student_ids = list({student_id for student_id, _ in items_by_key})
+    if student_ids:
+        students = await db.scalars(
+            select(Student).where(
+                Student.tenant_id == tenant.id,
+                Student.id.in_(student_ids),
+                Student.group_name == schedule.group_name,
+                Student.status == StudentStatus.ACTIVE,
+            )
+        )
+        if len(students.all()) != len(student_ids):
+            raise TeachingServiceError("В списке есть ученик из другой группы", status_code=409)
+
+    lesson_dates = list({lesson_date for _, lesson_date in items_by_key})
+    existing: list[AttendanceRecord] = []
+    if student_ids and lesson_dates:
+        existing = list(
+            (
+                await db.scalars(
+                    select(AttendanceRecord).where(
+                        AttendanceRecord.schedule_id == schedule.id,
+                        AttendanceRecord.student_id.in_(student_ids),
+                        AttendanceRecord.lesson_date.in_(lesson_dates),
+                    )
+                )
+            ).all()
+        )
+    records = {
+        (record.student_id, record.lesson_date): record
+        for record in existing
+    }
+    for key, item in items_by_key.items():
+        if item.makeup_completed and item.present is not False:
+            raise TeachingServiceError(
+                "Отработку можно отметить только для пропущенного урока",
+                status_code=409,
+            )
+        record = records.get(key)
+        if item.present is None:
+            if record is not None:
+                await db.delete(record)
+            continue
+        comment = item.comment.strip() if item.comment else None
+        if record is None:
+            db.add(
+                AttendanceRecord(
+                    tenant_id=tenant.id,
+                    schedule_id=schedule.id,
+                    student_id=item.student_id,
+                    lesson_date=item.lesson_date,
+                    present=item.present,
+                    makeup_completed=item.makeup_completed,
+                    marked_by_account_id=account.id,
+                    comment=comment,
+                )
+            )
+            continue
+        record.present = item.present
+        record.makeup_completed = item.makeup_completed
+        record.comment = comment
+        record.marked_by_account_id = account.id
+    await db.commit()
+    return await get_group_attendance_journal(
+        db,
+        max_user_id=payload.max_user_id,
+        tenant_slug=tenant.slug,
+        schedule_id=schedule.id,
     )
 
 
@@ -515,15 +1005,22 @@ async def upsert_teaching_schedule(
         )
         if schedule is None:
             raise TeachingServiceError("Расписание не найдено", status_code=404)
-        if role not in MANAGER_ROLES and schedule.teacher_account_id != account.id:
+        if role not in MANAGER_ROLES and not await teacher_has_group_access(
+            db,
+            tenant_id=UUID(str(tenant.id)),
+            account=account,
+            group_name=payload.group_name.strip(),
+        ):
             raise TeachingServiceError("Нельзя изменить чужое расписание", status_code=403)
     else:
         schedule = await db.scalar(
-            select(TeachingSchedule).where(
+            select(TeachingSchedule)
+            .where(
                 TeachingSchedule.tenant_id == tenant.id,
-                TeachingSchedule.teacher_account_id == account.id,
                 TeachingSchedule.group_name == payload.group_name.strip(),
             )
+            .order_by(TeachingSchedule.updated_at.desc())
+            .limit(1)
         )
 
     created = schedule is None
@@ -550,8 +1047,10 @@ async def upsert_teaching_schedule(
     schedule.current_lesson_number = payload.current_lesson_number
     schedule.lesson_offset = payload.lesson_offset
     schedule.auto_feedback_enabled = payload.auto_feedback_enabled
-    schedule.parent_delivery_enabled = payload.parent_delivery_enabled
+    schedule.parent_delivery_enabled = False
     schedule.is_active = payload.is_active
+    if role == StaffRole.TEACHER:
+        schedule.teacher_account_id = account.id
     await db.flush()
     db.add(
         AuditLog(
@@ -572,7 +1071,10 @@ async def upsert_teaching_schedule(
     schedule = await db.scalar(
         select(TeachingSchedule)
         .where(TeachingSchedule.id == schedule.id)
-        .options(selectinload(TeachingSchedule.course).selectinload(Course.lessons))
+        .options(
+            selectinload(TeachingSchedule.course).selectinload(Course.lessons),
+            selectinload(TeachingSchedule.lesson_overrides),
+        )
     )
     return schedule_to_read(schedule)
 
@@ -644,13 +1146,20 @@ async def generate_schedule_feedback(
     schedule = await db.scalar(
         select(TeachingSchedule)
         .where(TeachingSchedule.tenant_id == tenant.id, TeachingSchedule.id == schedule_id)
-        .options(selectinload(TeachingSchedule.course).selectinload(Course.lessons))
+        .options(
+            selectinload(TeachingSchedule.course).selectinload(Course.lessons),
+            selectinload(TeachingSchedule.lesson_overrides),
+        )
     )
     if schedule is None:
         raise TeachingServiceError("Расписание не найдено", status_code=404)
     if role not in MANAGER_ROLES and schedule.teacher_account_id != account.id:
         raise TeachingServiceError("Нельзя сформировать ОС для чужой группы", status_code=403)
-    lesson = lesson_for_number(schedule.course, schedule.current_lesson_number)
+    lesson_number = lesson_number_for_position(
+        schedule,
+        schedule.current_lesson_number,
+    )
+    lesson = lesson_for_number(schedule.course, lesson_number)
     if lesson is None:
         raise TeachingServiceError("Урок курса не найден", status_code=409)
     lesson_date = payload.lesson_date or next_lesson_date(schedule)
@@ -787,100 +1296,3 @@ async def generate_manual_feedback(
         .options(selectinload(ManualFeedbackOutput.course))
     )
     return manual_feedback_to_read(output)
-
-
-async def send_manual_feedback_to_parents(
-    db: AsyncSession,
-    *,
-    output_id: UUID,
-    payload: FeedbackDeliveryRequest,
-    default_tenant_slug: str,
-) -> FeedbackDeliveryRead:
-    tenant, account, role = await load_teaching_context(
-        db,
-        max_user_id=payload.max_user_id,
-        tenant_slug=payload.tenant_slug or default_tenant_slug,
-    )
-    output = await db.scalar(
-        select(ManualFeedbackOutput).where(
-            ManualFeedbackOutput.tenant_id == tenant.id,
-            ManualFeedbackOutput.id == output_id,
-        )
-    )
-    if output is None:
-        raise TeachingServiceError("Ручная ОС не найдена", status_code=404)
-    if role not in MANAGER_ROLES and output.author_account_id != account.id:
-        raise TeachingServiceError("Нельзя отправить чужую ОС", status_code=403)
-
-    from app.services.feedback_notifications import deliver_group_feedback_to_parents
-
-    delivery = await deliver_group_feedback_to_parents(
-        db,
-        tenant_id=tenant.id,
-        group_name=output.group_name,
-        feedback_text=output.feedback_text,
-        tenant_slug=tenant.slug,
-    )
-    if delivery.sent:
-        output.status = "sent_to_parents"
-        output.sent_at = datetime.now(UTC)
-        await db.commit()
-    if delivery.eligible == 0:
-        delivery_status = "no_recipients"
-    elif delivery.sent == delivery.eligible:
-        delivery_status = "sent"
-    elif delivery.sent == 0:
-        delivery_status = "delivery_unavailable"
-    else:
-        delivery_status = "partial"
-    return FeedbackDeliveryRead(
-        output_id=UUID(str(output.id)),
-        parent_recipients=delivery.eligible,
-        sent_recipients=delivery.sent,
-        status=delivery_status,
-    )
-
-
-async def send_feedback_to_parents(
-    db: AsyncSession,
-    *,
-    output_id: UUID,
-    payload: FeedbackDeliveryRequest,
-    default_tenant_slug: str,
-) -> FeedbackDeliveryRead:
-    tenant, account, role = await load_teaching_context(
-        db,
-        max_user_id=payload.max_user_id,
-        tenant_slug=payload.tenant_slug or default_tenant_slug,
-    )
-    output = await db.scalar(
-        select(FeedbackOutput)
-        .where(FeedbackOutput.tenant_id == tenant.id, FeedbackOutput.id == output_id)
-        .options(selectinload(FeedbackOutput.schedule))
-    )
-    if output is None:
-        raise TeachingServiceError("Обратная связь не найдена", status_code=404)
-    if role not in MANAGER_ROLES and output.schedule.teacher_account_id != account.id:
-        raise TeachingServiceError("Нельзя отправить ОС чужой группы", status_code=403)
-
-    from app.services.feedback_notifications import deliver_feedback_to_parents
-
-    delivery = await deliver_feedback_to_parents(
-        db,
-        output=output,
-        tenant_slug=tenant.slug,
-    )
-    if delivery.eligible == 0:
-        delivery_status = "no_recipients"
-    elif delivery.sent == delivery.eligible:
-        delivery_status = "sent"
-    elif delivery.sent == 0:
-        delivery_status = "delivery_unavailable"
-    else:
-        delivery_status = "partial"
-    return FeedbackDeliveryRead(
-        output_id=UUID(str(output.id)),
-        parent_recipients=delivery.eligible,
-        sent_recipients=delivery.sent,
-        status=delivery_status,
-    )

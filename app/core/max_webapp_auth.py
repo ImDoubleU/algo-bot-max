@@ -72,7 +72,7 @@ def verify_max_webapp_data(
     if auth_date > current_time + 60:
         raise MaxWebAppAuthError("Некорректное время запуска MAX")
     if current_time - auth_date > max_age_seconds:
-        raise MaxWebAppAuthError("Сессия MAX устарела. Откройте mini-app заново")
+        raise MaxWebAppAuthError("Сессия MAX устарела. Откройте приложение заново")
 
     return MaxWebAppIdentity(
         max_user_id=max_user_id,

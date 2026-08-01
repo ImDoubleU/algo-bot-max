@@ -112,7 +112,12 @@ class StudentAccessLink(TimestampMixin, Base):
         default=StudentAccessSource.ID_ENTRY,
         nullable=False,
     )
+    sponsor_access_link_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("student_access_links.id"),
+        index=True,
+    )
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_reason: Mapped[str | None] = mapped_column(String(40))
 
     account = relationship("MaxAccount", back_populates="student_links")
     student = relationship("Student", back_populates="access_links")

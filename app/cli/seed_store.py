@@ -113,7 +113,7 @@ def demo_student_rows(args: argparse.Namespace) -> list[CrmStudentRow]:
 
 def parse_args() -> argparse.Namespace:
     settings = get_settings()
-    parser = argparse.ArgumentParser(description="Заполнить демо-каталог магазина MAX mini app")
+    parser = argparse.ArgumentParser(description="Заполнить тестовый каталог магазина Algo MAX")
     parser.add_argument("--tenant-slug", default=settings.default_tenant_slug)
     parser.add_argument("--tenant-name", default="Нижний Новгород / Партнер A")
     parser.add_argument("--city-slug", default="nizhniy-novgorod")

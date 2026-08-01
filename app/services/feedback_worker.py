@@ -7,13 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.teaching import Course, FeedbackOutput, TeachingSchedule
+from app.models.teaching import Course, TeachingSchedule
 from app.models.tenant import Tenant
 from app.schemas.teaching import FeedbackGenerateRequest
-from app.services.feedback_notifications import (
-    deliver_feedback_to_parents,
-    deliver_feedback_to_teacher,
-)
+from app.services.feedback_notifications import deliver_feedback_to_teacher
 from app.services.teaching import generate_schedule_feedback, next_lesson_date
 
 logger = logging.getLogger(__name__)
@@ -30,6 +27,7 @@ async def process_due_feedback(db: AsyncSession, *, now: datetime | None = None)
             )
             .options(
                 selectinload(TeachingSchedule.course).selectinload(Course.lessons),
+                selectinload(TeachingSchedule.lesson_overrides),
                 selectinload(TeachingSchedule.teacher_account),
             )
         )
@@ -65,12 +63,4 @@ async def process_due_feedback(db: AsyncSession, *, now: datetime | None = None)
             group_name=schedule.group_name,
             feedback_text=output.feedback_text,
         )
-        if schedule.parent_delivery_enabled:
-            record = await db.scalar(
-                select(FeedbackOutput)
-                .where(FeedbackOutput.id == output.id)
-                .options(selectinload(FeedbackOutput.schedule))
-            )
-            if record is not None:
-                await deliver_feedback_to_parents(db, output=record, tenant_slug=tenant_slug)
     return generated

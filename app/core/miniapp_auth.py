@@ -81,24 +81,24 @@ def verify_miniapp_token(
         max_user_id = int(user_id_text)
         expires_at = int(expires_text)
     except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
-        raise MiniAppAuthError("Некорректная подпись mini-app") from exc
+        raise MiniAppAuthError("Не удалось проверить ссылку на приложение") from exc
 
     if (
         version != TOKEN_VERSION
         or audience != TOKEN_AUDIENCE
         or max_user_id < 1
     ):
-        raise MiniAppAuthError("Некорректная подпись mini-app")
+        raise MiniAppAuthError("Не удалось проверить ссылку на приложение")
 
     normalized_tenant = _normalized_tenant_slug(tenant_slug)
     payload = f"{version}|{audience}|{max_user_id}|{normalized_tenant}|{expires_at}"
     expected_signature = _signature(payload, get_settings().app_secret_key)
     if not hmac.compare_digest(supplied_signature, expected_signature):
-        raise MiniAppAuthError("Некорректная подпись mini-app")
+        raise MiniAppAuthError("Не удалось проверить ссылку на приложение")
 
     current_time = int(time.time() if now is None else now)
     if expires_at < current_time:
-        raise MiniAppAuthError("Ссылка на mini-app устарела. Откройте кабинет из меню бота")
+        raise MiniAppAuthError("Ссылка устарела. Откройте личный кабинет из меню бота")
 
     return MiniAppIdentity(
         max_user_id=max_user_id,

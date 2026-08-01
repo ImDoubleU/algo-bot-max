@@ -675,6 +675,458 @@ select:focus-visible {
   cursor: progress;
 }
 
+/* Group schedule and paper-style attendance journal. */
+.journal-workspace {
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin: 16px 0;
+}
+
+.journal-groups-panel .panel-head > div,
+.attendance-journal .panel-head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.journal-groups-panel .panel-head span,
+.attendance-journal .panel-head span,
+.journal-save-bar span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.journal-groups-panel .schedule-card {
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.journal-groups-panel .schedule-card.is-selected {
+  box-shadow: inset 4px 0 0 var(--brand-purple);
+  background: var(--brand-purple-soft);
+}
+
+.journal-groups-panel .schedule-time strong {
+  font-size: 21px;
+}
+
+.journal-groups-panel .schedule-card-title {
+  display: grid;
+  justify-content: stretch;
+}
+
+.journal-groups-panel .schedule-actions {
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.attendance-journal {
+  min-width: 0;
+  margin: 0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.attendance-journal > .panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.attendance-journal #closeAttendanceJournalButton {
+  display: none;
+}
+
+.attendance-list {
+  min-height: 330px;
+  border: 0;
+}
+
+.journal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #faf8fc;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.journal-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.journal-legend b {
+  width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  font-size: 11px;
+}
+
+.journal-scroll-controls {
+  display: grid;
+  grid-template-columns: 38px minmax(120px, 1fr) 38px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+}
+
+.journal-scroll-controls button {
+  width: 38px;
+  height: 34px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #d8d1e1;
+  border-radius: 4px;
+  background: #fff;
+  color: var(--brand-purple);
+  cursor: pointer;
+}
+
+.journal-scroll-controls button:hover:not(:disabled) {
+  border-color: var(--brand-purple);
+  background: rgba(112, 52, 214, 0.08);
+}
+
+.journal-scroll-controls button:disabled {
+  color: #b7b0bf;
+  background: #f3f0f5;
+  cursor: default;
+}
+
+.journal-scroll-controls button svg {
+  width: 19px;
+  height: 19px;
+}
+
+.journal-scroll-controls input[type="range"] {
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--brand-purple);
+  cursor: ew-resize;
+}
+
+.journal-scroll-controls input[type="range"]:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.legend-present {
+  background: #1f9d72;
+  border-color: #17825e !important;
+}
+
+.legend-absent {
+  background: #e44762;
+  border-color: #c9324d !important;
+}
+
+.legend-makeup {
+  color: #fff;
+  background: #e44762;
+  border-color: #c9324d !important;
+}
+
+.school-journal-scroll {
+  width: 100%;
+  max-height: min(68vh, 720px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--brand-purple) #ebe6ef;
+  scrollbar-width: auto;
+  background: #fff;
+}
+
+.school-journal-scroll::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.school-journal-scroll::-webkit-scrollbar-track {
+  background: #ebe6ef;
+}
+
+.school-journal-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid #ebe6ef;
+  border-radius: 4px;
+  background: var(--brand-purple);
+}
+
+.school-journal-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: 13px;
+}
+
+.school-journal-table th,
+.school-journal-table td {
+  height: 78px;
+  padding: 7px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.school-journal-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 58px;
+  background: #f8f5fa;
+}
+
+.school-journal-table .journal-student {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 210px;
+  min-width: 210px;
+  max-width: 210px;
+  padding: 10px 13px;
+  background: #fff;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.school-journal-table thead .journal-student {
+  z-index: 3;
+  background: #f8f5fa;
+}
+
+.journal-date {
+  width: 84px;
+  min-width: 84px;
+  max-width: 84px;
+}
+
+.school-journal-table th.journal-date {
+  padding: 0;
+}
+
+.journal-lesson-edit {
+  position: relative;
+  width: 100%;
+  min-height: 57px;
+  padding: 7px 18px 6px 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.journal-lesson-edit:hover,
+.journal-lesson-edit:focus-visible {
+  background: rgba(112, 52, 214, 0.08);
+}
+
+.journal-lesson-edit:focus-visible {
+  outline: 2px solid rgba(112, 52, 214, 0.38);
+  outline-offset: -2px;
+}
+
+.journal-lesson-edit svg {
+  position: absolute;
+  top: 6px;
+  right: 5px;
+  width: 12px;
+  height: 12px;
+  color: var(--brand-purple);
+}
+
+.journal-date span,
+.journal-date small {
+  display: block;
+}
+
+.journal-date small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.journal-date.is-current {
+  box-shadow: inset 0 4px 0 var(--brand-yellow);
+  background: var(--brand-yellow-soft);
+}
+
+.journal-date.is-future,
+.journal-mark:has(button:disabled) {
+  background: #fbfafc;
+}
+
+.journal-attendance-box {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #cfc8d8;
+  border-radius: 4px;
+  background: #fff;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.journal-attendance-box:hover:not(:disabled) {
+  box-shadow: 0 0 0 3px rgba(112, 52, 214, 0.14);
+  transform: translateY(-1px);
+}
+
+.journal-attendance-box:focus-visible {
+  outline: 3px solid rgba(112, 52, 214, 0.28);
+  outline-offset: 2px;
+}
+
+.journal-attendance-box.is-present {
+  border-color: #17825e;
+  background: #1f9d72;
+}
+
+.journal-attendance-box.is-absent,
+.journal-attendance-box.is-makeup {
+  border-color: #c9324d;
+  background: #e44762;
+}
+
+.journal-attendance-box.is-makeup span {
+  transform: translateY(-1px);
+}
+
+.journal-attendance-box:disabled {
+  border-color: #ddd8e3;
+  background: #f1eef4;
+  opacity: 0.55;
+  cursor: default;
+}
+
+.journal-save-bar {
+  min-height: 66px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: 11px 14px;
+  border-top: 1px solid var(--line);
+  background: #fff;
+}
+
+.attendance-lesson-dialog {
+  width: min(460px, calc(100vw - 28px));
+}
+
+.attendance-lesson-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  padding: 18px 20px;
+}
+
+.attendance-lesson-fields label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.attendance-lesson-fields input {
+  width: 100%;
+  min-width: 0;
+}
+
+.feedback-history-column {
+  margin-top: 16px;
+}
+
+@media (max-width: 960px) {
+  .journal-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .attendance-journal #closeAttendanceJournalButton:not([hidden]) {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 640px) {
+  .journal-workspace {
+    gap: 12px;
+  }
+
+  .journal-groups-panel .schedule-card {
+    grid-template-columns: 68px minmax(0, 1fr);
+  }
+
+  .attendance-journal > .panel-head {
+    align-items: flex-start;
+    padding: 12px;
+  }
+
+  .attendance-journal #closeAttendanceJournalButton:not([hidden]) {
+    flex: 0 0 auto;
+    padding-inline: 10px;
+  }
+
+  .school-journal-scroll {
+    max-height: 66vh;
+  }
+
+  .school-journal-table .journal-student {
+    width: 146px;
+    min-width: 146px;
+    max-width: 146px;
+    padding: 8px 9px;
+    font-size: 12px;
+  }
+
+  .journal-date {
+    width: 76px;
+    min-width: 76px;
+    max-width: 76px;
+  }
+
+  .journal-save-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 4;
+    justify-content: space-between;
+  }
+
+  .attendance-lesson-fields {
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+}
+
 .refresh-button.is-loading svg {
   animation: refresh-spin 800ms linear infinite;
 }
@@ -7074,4 +7526,410 @@ body[data-active-role="student"] #studentContext {
   .report-row {
     gap: 9px;
   }
+}
+
+/* School news and targeted MAX broadcasts. */
+body[data-active-view="broadcasts"] .status-strip {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body[data-active-view="broadcasts"] .status-strip > :not(.status-profile) {
+  display: none;
+}
+
+.broadcasts-heading {
+  align-items: center;
+}
+
+.broadcast-tenant-label {
+  max-width: 320px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.broadcast-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.72fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.broadcast-composer,
+.broadcast-history-panel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.broadcast-composer {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+}
+
+.broadcast-form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.broadcast-composer label,
+.broadcast-message-field {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.broadcast-composer label > span,
+.broadcast-groups legend {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.broadcast-composer input:not([type="checkbox"]):not([type="file"]),
+.broadcast-composer select,
+.broadcast-composer textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+}
+
+.broadcast-composer input:not([type="checkbox"]):not([type="file"]),
+.broadcast-composer select {
+  min-height: 44px;
+  padding: 9px 11px;
+}
+
+.broadcast-composer textarea {
+  min-height: 160px;
+  padding: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.broadcast-composer input:focus,
+.broadcast-composer select:focus,
+.broadcast-composer textarea:focus {
+  border-color: var(--brand-purple);
+  outline: 3px solid rgba(90, 32, 120, 0.12);
+}
+
+.broadcast-message-field small {
+  justify-self: end;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.broadcast-photo-row {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.broadcast-photo-picker {
+  min-height: 86px;
+  flex: 1 1 220px;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border-style: dashed;
+}
+
+.broadcast-photo-picker i {
+  width: 21px;
+  height: 21px;
+  color: var(--brand-purple);
+}
+
+.broadcast-photo-preview {
+  position: relative;
+  width: 150px;
+  min-width: 150px;
+  height: 86px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--brand-purple-soft);
+}
+
+.broadcast-photo-preview img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.broadcast-photo-preview button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(40, 21, 54, 0.82);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.broadcast-photo-preview button i {
+  width: 16px;
+  height: 16px;
+}
+
+.broadcast-filter-row:has(#broadcastBalanceThresholdField[hidden]) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.broadcast-groups {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.broadcast-groups-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.broadcast-groups-head > div {
+  display: flex;
+  gap: 12px;
+}
+
+.text-action {
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--brand-purple);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.broadcast-groups > p {
+  margin: 5px 0 11px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.broadcast-group-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.broadcast-group-option {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.broadcast-group-option:has(input:checked) {
+  border-color: var(--brand-purple);
+  background: var(--brand-purple-soft);
+}
+
+.broadcast-group-option input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--brand-purple);
+}
+
+.broadcast-group-option span {
+  min-width: 0;
+  color: var(--ink) !important;
+  font-size: 13px !important;
+  overflow-wrap: anywhere;
+}
+
+.broadcast-send-bar {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.broadcast-audience-preview {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--brand-cyan-soft);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.broadcast-audience-preview.is-empty {
+  background: var(--brand-coral-soft);
+  color: var(--danger);
+}
+
+.broadcast-audience-preview i {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+  color: var(--brand-purple);
+}
+
+.broadcast-actions {
+  display: grid;
+  grid-template-columns: auto minmax(210px, 1fr);
+  justify-content: end;
+  gap: 10px;
+}
+
+.broadcast-actions button {
+  min-height: 46px;
+}
+
+.broadcast-history-panel .panel-head {
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.broadcast-history {
+  display: grid;
+}
+
+.broadcast-history-item {
+  display: grid;
+  gap: 9px;
+  padding: 15px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.broadcast-history-item:last-child {
+  border-bottom: 0;
+}
+
+.broadcast-history-head,
+.broadcast-history-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.broadcast-history-head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.broadcast-history-item p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.broadcast-history-meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.broadcast-status {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border-radius: 4px;
+  background: var(--brand-cyan-soft);
+  color: var(--ok);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.broadcast-status.is-partial,
+.broadcast-status.is-failed {
+  background: var(--brand-coral-soft);
+  color: var(--danger);
+}
+
+@media (max-width: 900px) {
+  .broadcast-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .broadcasts-heading {
+    align-items: flex-start;
+  }
+
+  .broadcast-tenant-label {
+    text-align: left;
+  }
+
+  .broadcast-composer {
+    gap: 16px;
+    padding: 14px;
+  }
+
+  .broadcast-form-row,
+  .broadcast-filter-row,
+  .broadcast-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .broadcast-photo-row {
+    display: grid;
+  }
+
+  .broadcast-photo-preview {
+    width: 100%;
+    height: 150px;
+  }
+
+  .broadcast-group-list {
+    grid-template-columns: 1fr;
+  }
+
+  .broadcast-groups-head {
+    align-items: flex-start;
+  }
+
+  .broadcast-groups-head > div {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}
+
+.journal-workspace .attendance-journal {
+  margin: 0;
+}
+
+.journal-workspace .attendance-journal > .panel-head {
+  margin: 0;
+}
+
+.journal-workspace .attendance-list {
+  border: 0;
 }

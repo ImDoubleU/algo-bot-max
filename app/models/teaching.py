@@ -98,6 +98,37 @@ class TeachingSchedule(TimestampMixin, Base):
         back_populates="schedule",
         cascade="all, delete-orphan",
     )
+    lesson_overrides = relationship(
+        "TeachingLessonOverride",
+        back_populates="schedule",
+        cascade="all, delete-orphan",
+        order_by="TeachingLessonOverride.position",
+        lazy="selectin",
+    )
+
+
+class TeachingLessonOverride(TimestampMixin, Base):
+    __tablename__ = "teaching_lesson_overrides"
+    __table_args__ = (
+        UniqueConstraint(
+            "schedule_id",
+            "position",
+            name="uq_teaching_lesson_overrides_schedule_position",
+        ),
+    )
+
+    id: Mapped[UUID] = uuid_pk()
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), index=True, nullable=False)
+    schedule_id: Mapped[UUID] = mapped_column(
+        ForeignKey("teaching_schedules.id"),
+        index=True,
+        nullable=False,
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    lesson_date: Mapped[date] = mapped_column(Date, nullable=False)
+    lesson_number: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    schedule = relationship("TeachingSchedule", back_populates="lesson_overrides")
 
 
 class FeedbackOutput(TimestampMixin, Base):
@@ -177,6 +208,7 @@ class AttendanceRecord(TimestampMixin, Base):
     )
     lesson_date: Mapped[date] = mapped_column(Date, nullable=False)
     present: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    makeup_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     marked_by_account_id: Mapped[UUID] = mapped_column(
         ForeignKey("max_accounts.id"),
         index=True,

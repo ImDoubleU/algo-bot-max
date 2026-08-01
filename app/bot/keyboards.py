@@ -675,29 +675,14 @@ def feedback_setup_keyboard(
     return inline_keyboard(rows)
 
 
-def feedback_preview_keyboard(
-    *,
-    output_id: str,
-    can_send: bool,
-) -> list[dict[str, Any]]:
-    rows: list[list[dict[str, str]]] = []
-    if can_send:
-        rows.append(
-            [
-                callback_button(
-                    "Отправить родителям",
-                    feedback_payload("manual_send", output_id),
-                )
-            ]
-        )
-    rows.extend(
+def feedback_preview_keyboard() -> list[dict[str, Any]]:
+    return inline_keyboard(
         [
             [callback_button("Создать ещё", feedback_payload("manual"))],
             [callback_button("Черновики", feedback_payload("drafts"))],
             [callback_button("Главное меню", CALLBACK_MENU)],
         ]
     )
-    return inline_keyboard(rows)
 
 
 def order_actions_keyboard(
@@ -731,7 +716,7 @@ def order_actions_keyboard(
     )
     miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
     if miniapp_url:
-        rows.insert(0, [miniapp_button("Открыть mini app", miniapp_url)])
+        rows.insert(0, [miniapp_button("Открыть приложение", miniapp_url)])
     return inline_keyboard(rows)
 
 

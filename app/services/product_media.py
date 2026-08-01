@@ -39,12 +39,13 @@ async def save_product_image(
     upload: UploadFile,
     *,
     media_root: str,
+    subject: str = "Фото товара",
 ) -> SavedProductImage:
     content = await upload.read(MAX_PRODUCT_IMAGE_BYTES + 1)
     if not content:
         raise ProductMediaError("Выбранный файл пуст")
     if len(content) > MAX_PRODUCT_IMAGE_BYTES:
-        raise ProductMediaError("Фото товара должно быть не больше 10 МБ")
+        raise ProductMediaError(f"{subject} должно быть не больше 10 МБ")
 
     extension = _image_extension(content)
     if extension is None:

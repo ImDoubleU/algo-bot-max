@@ -35,6 +35,7 @@ class TeachingScheduleRead(BaseModel):
     lesson_mode: str
     lesson_place: str
     current_lesson_number: int
+    next_lesson_number: int
     lesson_offset: int
     auto_feedback_enabled: bool
     parent_delivery_enabled: bool
@@ -93,18 +94,6 @@ class FeedbackGenerateRequest(BaseModel):
     advance_lesson: bool = False
 
 
-class FeedbackDeliveryRequest(BaseModel):
-    max_user_id: int = Field(gt=0)
-    tenant_slug: str | None = None
-
-
-class FeedbackDeliveryRead(BaseModel):
-    output_id: UUID
-    parent_recipients: int
-    sent_recipients: int
-    status: str
-
-
 class ManualFeedbackCreate(BaseModel):
     max_user_id: int = Field(gt=0)
     tenant_slug: str | None = None
@@ -139,6 +128,7 @@ class AttendanceStudentRead(BaseModel):
     student_name: str
     group_name: str
     present: bool | None = None
+    makeup_completed: bool = False
     comment: str | None = None
 
 
@@ -153,6 +143,7 @@ class AttendanceJournalRead(BaseModel):
 class AttendanceMarkItem(BaseModel):
     student_id: UUID
     present: bool
+    makeup_completed: bool = False
     comment: str | None = Field(default=None, max_length=300)
 
 
@@ -161,3 +152,57 @@ class AttendanceMarkRequest(BaseModel):
     tenant_slug: str | None = None
     lesson_date: date
     items: list[AttendanceMarkItem] = Field(min_length=1, max_length=100)
+
+
+class AttendanceLessonRead(BaseModel):
+    position: int
+    lesson_date: date
+    lesson_number: int
+    lesson_title: str | None = None
+    is_current: bool = False
+    is_future: bool = False
+
+
+class AttendanceMarkRead(BaseModel):
+    lesson_date: date
+    present: bool
+    makeup_completed: bool = False
+    comment: str | None = None
+
+
+class GroupAttendanceStudentRead(BaseModel):
+    student_id: UUID
+    student_name: str
+    group_name: str
+    marks: list[AttendanceMarkRead] = Field(default_factory=list)
+
+
+class GroupAttendanceJournalRead(BaseModel):
+    schedule_id: UUID
+    group_name: str
+    course_name: str
+    lesson_time: time
+    current_lesson_number: int
+    lessons: list[AttendanceLessonRead]
+    students: list[GroupAttendanceStudentRead]
+
+
+class AttendanceJournalUpdateItem(BaseModel):
+    student_id: UUID
+    lesson_date: date
+    present: bool | None = None
+    makeup_completed: bool = False
+    comment: str | None = Field(default=None, max_length=300)
+
+
+class AttendanceLessonUpdateItem(BaseModel):
+    position: int = Field(ge=1, le=1000)
+    lesson_date: date
+    lesson_number: int = Field(ge=1, le=1000)
+
+
+class AttendanceJournalUpdateRequest(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    items: list[AttendanceJournalUpdateItem] = Field(default_factory=list, max_length=500)
+    lessons: list[AttendanceLessonUpdateItem] = Field(default_factory=list, max_length=1000)

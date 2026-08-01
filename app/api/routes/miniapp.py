@@ -24,6 +24,11 @@ from app.core.config import get_settings
 from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
 from app.models.enums import ProductStatus, StudentStatus
+from app.schemas.broadcasts import (
+    BroadcastAudiencePreviewRead,
+    BroadcastAudienceRequest,
+    SchoolBroadcastRead,
+)
 from app.schemas.miniapp import (
     MiniAppAccessStatusRead,
     MiniAppAccessStatusUpdate,
@@ -59,6 +64,12 @@ from app.schemas.miniapp import (
     MiniAppWarehousePreferenceUpdate,
     MiniAppWarehouseRead,
     MiniAppWarehouseUpsert,
+)
+from app.services.broadcasts import (
+    BroadcastServiceError,
+    list_school_broadcasts,
+    preview_school_broadcast,
+    send_school_broadcast,
 )
 from app.services.miniapp import (
     MiniAppStoreError,
@@ -132,6 +143,127 @@ async def miniapp_session(
         max_user_id=max_user_id,
         tenant_slug=resolved_tenant,
     )
+
+
+@router.post(
+    "/broadcasts/preview",
+    response_model=BroadcastAudiencePreviewRead,
+)
+async def miniapp_broadcast_preview(
+    payload: BroadcastAudienceRequest,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> BroadcastAudiencePreviewRead:
+    settings = get_settings()
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await preview_school_broadcast(
+            db,
+            payload=payload.model_copy(update={"tenant_slug": resolved_tenant}),
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except BroadcastServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get(
+    "/broadcasts",
+    response_model=list[SchoolBroadcastRead],
+)
+async def miniapp_broadcast_history(
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: str | None = None,
+) -> list[SchoolBroadcastRead]:
+    settings = get_settings()
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        return await list_school_broadcasts(
+            db,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant or settings.default_tenant_slug,
+        )
+    except BroadcastServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post(
+    "/broadcasts",
+    response_model=SchoolBroadcastRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def miniapp_broadcast_send(
+    request: Request,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Form(gt=0)],
+    message: Annotated[str, Form(min_length=1, max_length=3500)],
+    tenant_slug: Annotated[str | None, Form()] = None,
+    title: Annotated[str | None, Form(max_length=160)] = None,
+    recipient_category: Annotated[str, Form()] = "all",
+    audience_filter: Annotated[str, Form()] = "all",
+    group_names: Annotated[list[str] | None, Form()] = None,
+    balance_threshold: Annotated[int | None, Form(ge=0, le=1_000_000)] = None,
+    photo: Annotated[UploadFile | None, File()] = None,
+) -> SchoolBroadcastRead:
+    settings = get_settings()
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        payload = BroadcastAudienceRequest(
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+            recipient_category=recipient_category,
+            audience_filter=audience_filter,
+            group_names=group_names or [],
+            balance_threshold=balance_threshold,
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Проверьте параметры аудитории",
+        ) from exc
+
+    saved_image = None
+    image_url = None
+    if photo is not None:
+        try:
+            saved_image = await save_product_image(
+                photo,
+                media_root=settings.product_media_root,
+                subject="Изображение",
+            )
+        except ProductMediaError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        image_url = f"{str(request.base_url).rstrip('/')}{saved_image.url_path}"
+
+    try:
+        return await send_school_broadcast(
+            db,
+            payload=payload,
+            title=title,
+            message=message,
+            image_url=image_url,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except BroadcastServiceError as exc:
+        await remove_product_image(saved_image)
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except Exception:
+        await remove_product_image(saved_image)
+        raise
 
 
 @router.get(
