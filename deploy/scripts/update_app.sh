@@ -14,7 +14,14 @@ set -a
 # shellcheck disable=SC1090
 source "$env_file"
 set +a
-sudo -u algomax git -C "$project_dir" pull --ff-only
+if [[ "${SKIP_GIT_PULL:-0}" == "1" ]]; then
+    echo "Skipping git pull: application files were uploaded as an archive."
+elif [[ -d "$project_dir/.git" ]]; then
+    sudo -u algomax git -C "$project_dir" pull --ff-only
+else
+    echo "No Git checkout found in $project_dir. Upload the release archive and rerun with SKIP_GIT_PULL=1." >&2
+    exit 1
+fi
 sudo -u algomax "$project_dir/.venv/bin/pip" install -r "$project_dir/requirements-prod.txt"
 install -m 0644 deploy/systemd/algo-max-api.service /etc/systemd/system/algo-max-api.service
 install -m 0644 deploy/systemd/algo-max-feedback.service /etc/systemd/system/algo-max-feedback.service

@@ -7,9 +7,9 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.58.1" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.61.4" />
   </head>
-  <body>
+  <body class="is-booting">
     <main id="accessGate" class="access-gate" hidden>
       <section class="access-gate-card">
         <span class="brand-mark" aria-hidden="true">A</span>
@@ -44,6 +44,9 @@
 
       <main class="workspace">
         <aside class="rail" aria-label="Разделы">
+          <button id="railCollapseButton" class="rail-collapse-button" type="button" title="Свернуть меню" aria-label="Свернуть меню" aria-expanded="true">
+            <i data-lucide="panel-left-close"></i><span>Свернуть</span>
+          </button>
           <nav class="section-nav" aria-label="Разделы">
             <button class="nav-button is-active" data-view="dashboard">
               <i data-lucide="layout-dashboard"></i><span>Главная</span>
@@ -85,7 +88,7 @@
               <div class="status-profile-copy">
                 <p class="status-profile-label">Личный профиль</p>
                 <strong id="profileTitle">Алиса, ученик</strong>
-                <span id="lastSyncTime" class="sync-time">Загрузка данных</span>
+                <span id="statusTenantTitle" class="status-tenant" hidden></span>
               </div>
             </div>
             <div id="studentContext" class="status-context">
@@ -95,12 +98,14 @@
             <div class="status-balance">
               <span class="status-balance-label">Баланс</span>
               <div class="status-balance-value">
-                <strong><span id="balanceValue">1240</span> <small>AC</small></strong>
+                <button id="openWalletButton" class="balance-link" type="button" title="Открыть историю астрокоинов">
+                  <strong><span id="balanceValue">1240</span> <small>AC</small></strong>
+                </button>
                 <button id="refreshDataButton" class="icon-button refresh-button" type="button" title="Обновить данные" aria-label="Обновить данные">
                   <i data-lucide="refresh-cw"></i>
                 </button>
               </div>
-              <span class="status-balance-caption">Доступно для наград</span>
+              <span id="lastSyncTime" class="status-balance-caption sync-time">Загрузка данных</span>
             </div>
             <button id="openCartButton" class="primary-action" type="button">
               <i data-lucide="shopping-bag"></i>
@@ -109,7 +114,15 @@
             </button>
           </div>
 
-          <div id="noticeBar" class="notice-bar" hidden></div>
+          <div id="childSwitcherBar" class="child-switcher-bar" hidden></div>
+
+          <div id="noticeBar" class="notice-bar" role="status" aria-live="polite" hidden>
+            <span id="noticeMessage"></span>
+            <button id="noticeAction" class="notice-action" type="button" hidden></button>
+            <button id="noticeClose" class="notice-close" type="button" title="Закрыть" aria-label="Закрыть">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
 
           <section id="dashboardView" class="view is-active" data-view-panel="dashboard">
             <div class="section-heading">
@@ -117,7 +130,6 @@
                 <p class="eyebrow">Сегодня</p>
                 <h2 id="dashboardTitle">Рабочий обзор</h2>
               </div>
-              <button id="dashboardPrimaryAction" class="secondary-action" type="button" data-view-jump="store">Открыть магазин</button>
             </div>
 
             <div class="dashboard-spotlight">
@@ -125,6 +137,7 @@
                 <p id="dashboardRoleKicker" class="eyebrow">Личный кабинет</p>
                 <h3 id="dashboardSpotlightTitle">Личный кабинет</h3>
                 <p id="dashboardSpotlightText">Баланс, заказы и история AC.</p>
+                <div id="dashboardTaskActions" class="dashboard-task-actions" hidden></div>
               </div>
               <img
                 src="/miniapp/static/assets/dashboard-learning.png"
@@ -153,7 +166,9 @@
                     <option value="all">Все группы</option>
                   </select>
                 </div>
-                <div id="studentList" class="student-list"></div>
+                <div id="studentList" class="student-list">
+                  <div class="initial-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
+                </div>
               </section>
 
               <section class="panel">
@@ -178,22 +193,37 @@
                   <i data-lucide="search"></i>
                   <span class="visually-hidden">Поиск товаров</span>
                   <input id="productSearch" type="search" placeholder="Найти товар" />
+                  <button id="clearProductSearch" class="search-clear" type="button" title="Очистить поиск" aria-label="Очистить поиск" hidden>
+                    <i data-lucide="x"></i>
+                  </button>
                 </label>
-                <select id="productSort" aria-label="Сортировка">
-                  <option value="recommended">По популярности</option>
-                  <option value="price-asc">Сначала дешевле</option>
-                  <option value="price-desc">Сначала дороже</option>
-                  <option value="name">По названию</option>
-                </select>
               </div>
             </div>
 
             <div class="store-filter-row">
-              <div id="categoryChips" class="category-chips" aria-label="Категории товаров"></div>
+              <div class="category-scroll-shell">
+                <div id="categoryChips" class="category-chips" aria-label="Категории товаров"></div>
+              </div>
+              <button id="mobileStoreFiltersButton" class="secondary-action mobile-filter-button" type="button" aria-expanded="false">
+                <i data-lucide="sliders-horizontal"></i><span>Фильтры</span><b id="storeFilterCount" hidden>0</b>
+              </button>
               <div class="store-filter-actions">
+                <div class="store-mobile-filter-head">
+                  <strong>Фильтры магазина</strong>
+                  <button id="closeStoreFiltersButton" class="icon-button" type="button" title="Закрыть" aria-label="Закрыть фильтры"><i data-lucide="x"></i></button>
+                </div>
                 <select id="categoryFilter" class="visually-hidden" aria-label="Категория">
                   <option value="all">Все категории</option>
                 </select>
+                <label class="store-sort-filter">
+                  <span>Сортировка</span>
+                  <select id="productSort" aria-label="Сортировка">
+                    <option value="recommended">Сначала популярные</option>
+                    <option value="price-asc">Дешевле</option>
+                    <option value="price-desc">Дороже</option>
+                    <option value="newest">Новинки</option>
+                  </select>
+                </label>
                 <label class="stock-filter">
                   <input id="inStockOnly" type="checkbox" />
                   <span>В наличии</span>
@@ -210,10 +240,13 @@
                 </button>
               </div>
             </div>
+            <div id="recentProductSearches" class="recent-searches" hidden></div>
             <div class="catalog-meta">
               <span id="catalogResultCount">0 товаров</span>
             </div>
-            <div id="productGrid" class="product-grid"></div>
+            <div id="productGrid" class="product-grid">
+              <div class="initial-skeleton initial-skeleton-cards" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+            </div>
             <button id="storeCartBar" class="store-cart-bar" type="button" hidden>
               <span>
                 <strong id="storeCartCount">0 товаров</strong>
@@ -260,20 +293,24 @@
                 <h2>Статусы и выдача</h2>
               </div>
               <div class="toolbar">
-                <input id="orderSearch" type="search" placeholder="Поиск заказа" />
+                <label class="search-field">
+                  <i data-lucide="search"></i>
+                  <input id="orderSearch" type="search" placeholder="Номер, ученик или товар" />
+                  <button id="clearOrderSearch" class="search-clear" type="button" title="Очистить поиск" aria-label="Очистить поиск" hidden><i data-lucide="x"></i></button>
+                </label>
                 <select id="orderStatusFilter" aria-label="Статус заказа">
-                  <option value="open">Открытые</option>
+                  <option value="action">К действию</option>
+                  <option value="work">В работе</option>
+                  <option value="issued">Выданы</option>
+                  <option value="cancelled">Отменены</option>
                   <option value="all">Все</option>
-                  <option value="reserved">Зарезервировано</option>
-                  <option value="transferred_to_teacher">Передан педагогу</option>
-                  <option value="issued_to_student">Выдан</option>
-                  <option value="cancelled">Отменен</option>
-                  <option value="returned">Возвращен</option>
-                  <option value="problem">Проблема</option>
                 </select>
               </div>
             </div>
-            <div id="ordersTable" class="orders-list"></div>
+            <div id="orderStatusTabs" class="order-status-tabs" role="tablist" aria-label="Статусы заказов"></div>
+            <div id="ordersTable" class="orders-list">
+              <div class="initial-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
+            </div>
           </section>
 
           <section id="walletView" class="view" data-view-panel="wallet">
@@ -292,13 +329,39 @@
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Контроль начислений</p>
-                <h2>Отчет по преподавателям</h2>
+                <h2>Отчет по начислениям</h2>
               </div>
             </div>
+            <button id="storeFilterBackdrop" class="store-filter-backdrop" type="button" aria-label="Закрыть фильтры" hidden></button>
             <div class="report-toolbar">
+              <div class="report-periods" role="group" aria-label="Быстрый выбор периода">
+                <button type="button" data-report-period="today">Сегодня</button>
+                <button type="button" data-report-period="week">7 дней</button>
+                <button type="button" data-report-period="month" class="is-active">Месяц</button>
+              </div>
               <label><span>С даты</span><input id="acReportDateFrom" type="date" /></label>
               <label><span>По дату</span><input id="acReportDateTo" type="date" /></label>
               <button id="loadAcReportButton" class="primary-action" type="button">Показать</button>
+              <button id="exportAcReportButton" class="secondary-action" type="button" disabled>
+                <i data-lucide="download"></i><span>CSV</span>
+              </button>
+            </div>
+            <div class="report-dimension-filters">
+              <label>
+                <span>Преподаватель</span>
+                <select id="acReportTeacherFilter">
+                  <option value="all">Все преподаватели</option>
+                </select>
+              </label>
+              <label>
+                <span>Группа</span>
+                <select id="acReportGroupFilter">
+                  <option value="all">Все группы</option>
+                </select>
+              </label>
+              <button id="resetAcReportFiltersButton" class="secondary-action" type="button">
+                <i data-lucide="rotate-ccw"></i><span>Сбросить</span>
+              </button>
             </div>
             <div id="acReportSummary" class="report-summary"></div>
             <div id="acReportList" class="report-list"></div>
@@ -315,14 +378,13 @@
               </div>
 
               <div class="accrual-filters">
-                <label>
+                <label class="search-field-label">
                   <span>Поиск ученика</span>
-                  <input
-                    id="accrualNameFilter"
-                    type="search"
-                    placeholder="Имя или фамилия"
-                    autocomplete="off"
-                  />
+                  <span class="search-field">
+                    <i data-lucide="search"></i>
+                    <input id="accrualNameFilter" type="search" placeholder="Имя или фамилия" autocomplete="off" />
+                    <button id="clearAccrualSearch" class="search-clear" type="button" title="Очистить поиск" aria-label="Очистить поиск" hidden><i data-lucide="x"></i></button>
+                  </span>
                 </label>
                 <label>
                   <span>Группа</span>
@@ -353,7 +415,21 @@
               </div>
 
               <div class="accrual-list-wrap">
+                <div class="accrual-list-toolbar">
+                  <span id="accrualSelectedCount">Никто не выбран</span>
+                  <div>
+                    <button class="text-action" type="button" data-accrual-select="visible">Выбрать всех</button>
+                    <button class="text-action" type="button" data-accrual-select="none">Снять выбор</button>
+                  </div>
+                </div>
                 <div id="accrualStudentList" class="accrual-card-list"></div>
+              </div>
+              <div id="accrualStickyAction" class="accrual-sticky-action" hidden>
+                <div>
+                  <strong id="accrualStickyCount">Выбран 1 ученик</strong>
+                  <span id="accrualStickyDetails">Выберите причину и сумму</span>
+                </div>
+                <button class="primary-action" type="button" data-selected-accrual>Начислить</button>
               </div>
             </div>
           </section>
@@ -383,7 +459,7 @@
                 <div id="scheduleList" class="schedule-list"></div>
               </section>
 
-              <section id="attendanceJournalPanel" class="attendance-journal">
+              <section id="attendanceJournalPanel" class="attendance-journal" hidden>
                 <div class="panel-head">
                   <div>
                     <p class="eyebrow">Журнал группы</p>
@@ -425,12 +501,18 @@
 
             <div class="broadcast-layout">
               <form id="broadcastForm" class="broadcast-composer">
+                <div class="broadcast-stepper" role="tablist" aria-label="Этапы создания новости">
+                  <button type="button" data-broadcast-step="1" class="is-active"><span>1</span> Получатели</button>
+                  <button type="button" data-broadcast-step="2"><span>2</span> Новость</button>
+                  <button type="button" data-broadcast-step="3"><span>3</span> Проверка</button>
+                </div>
+                <div class="broadcast-draft-state"><i data-lucide="cloud-check"></i><span id="broadcastDraftState">Черновик сохранен</span></div>
                 <div class="broadcast-form-row">
-                  <label>
+                  <label class="broadcast-stage broadcast-stage-2">
                     <span>Заголовок</span>
                     <input id="broadcastTitle" type="text" maxlength="160" placeholder="Например, летний интенсив" />
                   </label>
-                  <label>
+                  <label class="broadcast-stage broadcast-stage-1">
                     <span>Получатели</span>
                     <select id="broadcastRecipientCategory">
                       <option value="all">Родители и ученики</option>
@@ -440,13 +522,30 @@
                   </label>
                 </div>
 
-                <label class="broadcast-message-field">
+                <div class="broadcast-form-row broadcast-target-row broadcast-stage broadcast-stage-1">
+                  <label>
+                    <span>Площадка</span>
+                    <select id="broadcastVenueFilter">
+                      <option value="all">Все площадки</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Формат занятий</span>
+                    <select id="broadcastLessonModeFilter">
+                      <option value="all">Все форматы</option>
+                      <option value="group">Групповые занятия</option>
+                      <option value="individual">Индивидуальные занятия</option>
+                    </select>
+                  </label>
+                </div>
+
+                <label class="broadcast-message-field broadcast-stage broadcast-stage-2">
                   <span>Текст новости</span>
                   <textarea id="broadcastMessage" maxlength="3500" rows="7" placeholder="Напишите сообщение" required></textarea>
                   <small><span id="broadcastMessageCount">0</span> / 3500</small>
                 </label>
 
-                <div class="broadcast-photo-row">
+                <div class="broadcast-photo-row broadcast-stage broadcast-stage-2">
                   <label class="file-picker broadcast-photo-picker">
                     <input id="broadcastPhotoFile" type="file" accept="image/jpeg,image/png,image/webp" />
                     <i data-lucide="image-plus"></i>
@@ -455,11 +554,11 @@
                   <div id="broadcastPhotoPreview" class="broadcast-photo-preview" hidden></div>
                 </div>
 
-                <div class="broadcast-form-row broadcast-filter-row">
+                <div class="broadcast-form-row broadcast-filter-row broadcast-stage broadcast-stage-1">
                   <label>
                     <span>Фильтр аудитории</span>
                     <select id="broadcastAudienceFilter">
-                      <option value="all">Все по выбранным группам</option>
+                      <option value="all">Все по выбранным условиям</option>
                       <option value="low_balance">Низкий баланс AC</option>
                       <option value="active_orders">Есть активный заказ</option>
                       <option value="no_orders">Ещё не делали заказов</option>
@@ -471,9 +570,9 @@
                   </label>
                 </div>
 
-                <fieldset class="broadcast-groups">
+                <fieldset class="broadcast-groups broadcast-stage broadcast-stage-1">
                   <div class="broadcast-groups-head">
-                    <legend>Группы</legend>
+                    <legend>Конкретные группы</legend>
                     <div>
                       <button class="text-action" type="button" data-broadcast-groups="all">Выбрать все</button>
                       <button class="text-action" type="button" data-broadcast-groups="none">Сбросить</button>
@@ -483,12 +582,24 @@
                   <div id="broadcastGroupList" class="broadcast-group-list"></div>
                 </fieldset>
 
-                <div class="broadcast-send-bar">
+                <div class="broadcast-step-navigation">
+                  <button id="broadcastBackButton" class="secondary-action" type="button" data-broadcast-step-nav="back" hidden>
+                    <i data-lucide="arrow-left"></i><span>Назад</span>
+                  </button>
+                  <button id="broadcastNextButton" class="primary-action" type="button" data-broadcast-step-nav="next">
+                    <span>Далее</span><i data-lucide="arrow-right"></i>
+                  </button>
+                </div>
+
+                <div class="broadcast-send-bar broadcast-stage broadcast-stage-3">
                   <div id="broadcastAudiencePreview" class="broadcast-audience-preview" aria-live="polite">
                     <i data-lucide="users"></i>
                     <span>Сначала проверьте количество получателей</span>
                   </div>
                   <div class="broadcast-actions">
+                    <button id="saveBroadcastDraftButton" class="secondary-action" type="button">
+                      <i data-lucide="save"></i><span>Сохранить</span>
+                    </button>
                     <button id="previewBroadcastButton" class="secondary-action" type="button">
                       <i data-lucide="scan-search"></i>
                       <span>Проверить аудиторию</span>
@@ -501,6 +612,13 @@
                 </div>
               </form>
 
+              <div class="broadcast-side-column">
+                <section class="broadcast-phone-preview" aria-label="Предпросмотр новости">
+                  <div class="broadcast-phone-head"><span class="brand-mark">A</span><strong>Алгобот</strong></div>
+                  <div id="broadcastLivePreview" class="broadcast-live-preview">
+                    <span>Предпросмотр новости появится здесь</span>
+                  </div>
+                </section>
               <section class="broadcast-history-panel">
                 <div class="panel-head">
                   <div>
@@ -510,6 +628,7 @@
                 </div>
                 <div id="broadcastHistory" class="broadcast-history"></div>
               </section>
+              </div>
             </div>
           </section>
 
@@ -524,6 +643,9 @@
             <div class="admin-tabs" role="tablist" aria-label="Админские разделы">
               <button class="admin-tab is-active" type="button" data-admin-tab="summary">
                 <i data-lucide="chart-no-axes-combined"></i><span>Сводка</span>
+              </button>
+              <button class="admin-tab" type="button" data-admin-tab="students">
+                <i data-lucide="graduation-cap"></i><span>Ученики</span>
               </button>
               <button class="admin-tab" type="button" data-admin-tab="staff">
                 <i data-lucide="users"></i><span>Сотрудники</span>
@@ -701,6 +823,45 @@
         </section>
       </div>
 
+      <div id="studentQrDialog" class="dialog-backdrop qr-preview-backdrop" hidden>
+        <section
+          class="qr-preview-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="studentQrDialogTitle"
+        >
+          <button
+            id="closeStudentQrDialogButton"
+            class="icon-button qr-preview-close"
+            type="button"
+            title="Закрыть"
+            aria-label="Закрыть"
+          ><i data-lucide="x"></i></button>
+          <div class="qr-preview-copy">
+            <p class="eyebrow">QR-код ребенка</p>
+            <h2 id="studentQrDialogTitle">Ученик</h2>
+            <span id="studentQrDialogGroup"></span>
+          </div>
+          <div class="qr-preview-image-shell">
+            <img id="studentQrPreviewImage" alt="QR-код для входа" />
+          </div>
+          <div class="qr-preview-actions">
+            <button
+              id="openStudentQrFileButton"
+              class="secondary-action qr-preview-open"
+              type="button"
+              data-open-student-qr-file=""
+            ><i data-lucide="external-link"></i> Открыть файл</button>
+            <button
+              id="saveStudentQrPreviewButton"
+              class="primary-action qr-preview-save"
+              type="button"
+              data-save-student-qr=""
+            ><i data-lucide="download"></i> Сохранить картинку</button>
+          </div>
+        </section>
+      </div>
+
       <div id="tenantDialog" class="dialog-backdrop" hidden>
         <section class="checkout-dialog tenant-dialog" role="dialog" aria-modal="true" aria-labelledby="tenantDialogTitle">
           <div class="dialog-head">
@@ -712,6 +873,10 @@
           </div>
           <div class="tenant-dialog-content">
             <p id="tenantDialogHint" class="tenant-dialog-hint">Выберите город и партнера.</p>
+            <label id="tenantSearchField" class="search-field tenant-search-field">
+              <i data-lucide="search"></i>
+              <input id="tenantSearch" type="search" placeholder="Город или партнер" autocomplete="off" />
+            </label>
             <div id="tenantList" class="tenant-list"></div>
             <form id="tenantCreateForm" class="tenant-create-form" hidden>
               <label>Город<input id="tenantCityName" name="city_name" type="text" minlength="2" maxlength="160" autocomplete="address-level2" required /></label>
@@ -728,25 +893,27 @@
         </section>
       </div>
 
-      <div id="mobileMorePanel" class="mobile-more-panel" hidden>
-        <button class="mobile-more-action nav-button" type="button" data-view="wallet">
-          <i data-lucide="wallet-cards"></i><span>История AC</span>
-        </button>
-        <button class="mobile-more-action nav-button" type="button" data-view="accrual">
-          <i data-lucide="circle-plus"></i><span>Начисления</span>
-        </button>
-        <button class="mobile-more-action nav-button" type="button" data-view="teaching">
-          <i data-lucide="calendar-days"></i><span>Расписание</span>
-        </button>
-        <button class="mobile-more-action nav-button" type="button" data-view="broadcasts">
-          <i data-lucide="megaphone"></i><span>Рассылки</span>
-        </button>
-        <button class="mobile-more-action nav-button" type="button" data-view="admin">
-          <i data-lucide="settings-2"></i><span>Управление</span>
-        </button>
-      </div>
+      <button
+        id="mobileMoreBackdrop"
+        class="mobile-more-backdrop"
+        type="button"
+        aria-label="Закрыть меню"
+        hidden
+      ></button>
+      <section id="mobileMorePanel" class="mobile-more-panel" aria-label="Остальные разделы" hidden>
+        <div class="mobile-more-head">
+          <div>
+            <strong>Разделы</strong>
+            <span id="mobileMoreTenant"></span>
+          </div>
+          <button id="closeMobileMoreButton" class="icon-button" type="button" title="Закрыть" aria-label="Закрыть">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div id="mobileMoreActions" class="mobile-more-actions"></div>
+      </section>
 
-      <nav class="mobile-bottom-nav" aria-label="Основные разделы">
+      <nav id="mobileBottomNav" class="mobile-bottom-nav" aria-label="Основные разделы">
         <button class="nav-button is-active" type="button" data-view="dashboard">
           <span class="mobile-nav-icon" aria-hidden="true"><i data-lucide="layout-dashboard"></i></span>
           <span>Главная</span>
@@ -773,6 +940,6 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app.js?v=0.58.1"></script>
+    <script src="/miniapp/static/app.js?v=0.61.4"></script>
   </body>
 </html>

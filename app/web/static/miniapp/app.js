@@ -25,11 +25,24 @@ const ROLE_VIEWS = Object.freeze({
   admin: ["dashboard", "store", "orders", "wallet", "report", "accrual", "teaching", "broadcasts", "admin"],
 });
 
-const ROLE_DASHBOARD_ACTION = Object.freeze({
-  student: { view: "store", label: "Открыть магазин" },
-  parent: { view: "store", label: "Открыть магазин" },
-  teacher: { view: "teaching", label: "Открыть расписание" },
-  admin: { view: "admin", label: "Открыть операции" },
+const VIEW_META = Object.freeze({
+  dashboard: { label: "Главная", icon: "layout-dashboard" },
+  store: { label: "Магазин", icon: "store" },
+  cart: { label: "Корзина", icon: "shopping-bag" },
+  orders: { label: "Заказы", icon: "package-check" },
+  wallet: { label: "История AC", icon: "wallet-cards" },
+  report: { label: "Отчет AC", icon: "file-chart-column" },
+  accrual: { label: "Начисления", icon: "circle-plus" },
+  teaching: { label: "Журнал", icon: "calendar-days" },
+  broadcasts: { label: "Рассылки", icon: "megaphone" },
+  admin: { label: "Управление", icon: "settings-2" },
+});
+
+const ROLE_MOBILE_PRIMARY = Object.freeze({
+  student: ["dashboard", "store", "cart", "orders"],
+  parent: ["dashboard", "store", "cart", "orders"],
+  teacher: ["dashboard", "accrual", "teaching", "orders"],
+  admin: ["dashboard", "orders", "admin", "store"],
 });
 
 const state = {
@@ -42,6 +55,7 @@ const state = {
   availableTenants: [],
   canManageTenants: false,
   tenantSaving: false,
+  tenantSearch: "",
   availableRoles: ["student", "parent", "teacher", "admin"],
   view: ["dashboard", "store", "cart", "orders", "wallet", "report", "accrual", "teaching", "broadcasts", "admin"].includes(
     queryParam("view"),
@@ -50,9 +64,9 @@ const state = {
     : "dashboard",
   adminTab: "summary",
   studentGroupFilter: "all",
-  orderStatusFilter: "open",
+  orderStatusFilter: "action",
   orderSearch: "",
-  accrualGroup: "all",
+  accrualGroup: "",
   accrualNameFilter: "",
   selectedAccrualStudents: new Set(),
   balance: 1240,
@@ -74,6 +88,9 @@ const state = {
   inStockOnly: false,
   productSort: "recommended",
   productCategory: "all",
+  recentProductSearches: [],
+  storeFiltersOpen: false,
+  railCollapsed: false,
   refreshing: false,
   lastSyncAt: null,
   catalogLoaded: false,
@@ -81,24 +98,35 @@ const state = {
   studentInvitations: new Map(),
   studentInvitationsLoading: false,
   studentInvitationsLoaded: false,
+  qrPreviewStudentId: "",
+  qrBrightnessRequested: false,
   productImporting: false,
   productImportFile: null,
   productImportFileName: "",
   productPhotoFile: null,
   productPhotoFileName: "",
   productPhotoPreviewUrl: "",
+  productPhotoRemoved: false,
   crmImporting: false,
   crmImportFile: null,
   crmImportFileName: "",
   crmImportPreview: null,
   crmStudentStatus: "active",
   accrualSaving: false,
+  accrualRequestKey: "",
+  accrualRequestSignature: "",
+  orderSaving: false,
+  orderRequestKey: "",
+  orderRequestSignature: "",
   productSaving: false,
   productEditorOpen: false,
   editingProductId: "",
   staffSaving: false,
   staffEditorOpen: false,
   staffStatusFilter: "active",
+  staffRoleFilter: "all",
+  accessStatusFilter: "all",
+  accessRoleFilter: "all",
   inventorySavingKey: "",
   warehouseSaving: false,
   warehousePreferenceSaving: false,
@@ -123,6 +151,20 @@ const state = {
   attendanceAutoScroll: false,
   accrualReport: null,
   accrualReportLoading: false,
+  accrualReportPeriod: "month",
+  accrualReportTeacherFilter: "all",
+  accrualReportGroupFilter: "all",
+  inventoryWarehouseFilter: "all",
+  inventoryStockFilter: "all",
+  adminEntitySearch: "",
+  adminStudents: [],
+  adminStudentsLoaded: false,
+  adminStudentsLoading: false,
+  adminStudentsError: "",
+  studentRegistryStatusFilter: "all",
+  studentRegistryGroupFilter: "all",
+  productStatusFilter: "all",
+  productCategoryFilter: "all",
   broadcastHistory: [],
   broadcastHistoryLoaded: false,
   broadcastHistoryLoading: false,
@@ -134,9 +176,15 @@ const state = {
   broadcastAllGroups: true,
   broadcastPhotoFile: null,
   broadcastPhotoPreviewUrl: "",
+  broadcastStep: 1,
+  broadcastDraftSavedAt: null,
 };
 
 let accrualSearchTimer = null;
+let adminSearchTimer = null;
+let noticeTimer = null;
+let noticeActionHandler = null;
+let broadcastDraftTimer = null;
 const cartSyncChains = new Map();
 
 const demoTeachingWorkspace = {
@@ -181,6 +229,7 @@ let students = [
     lmsId: "1841",
     name: "Васильева Алиса",
     group: "Союзный 45, вс 10:00",
+    venue: "Союзный 45",
     teacher: "Олейник Д",
     balance: 1240,
     contact: "681",
@@ -190,6 +239,7 @@ let students = [
     lmsId: "2417",
     name: "Петров Иван",
     group: "Гагарина 64, сб 18:00",
+    venue: "Гагарина 64",
     teacher: "Олейник Д",
     balance: 860,
     contact: "681",
@@ -199,6 +249,7 @@ let students = [
     lmsId: "1930",
     name: "Соколов Марк",
     group: "Октября 13, пн 16:00",
+    venue: "Октября 13",
     teacher: "Сучкина Е",
     balance: 1510,
     contact: "681",
@@ -604,8 +655,26 @@ function formatDate(value) {
   return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
 }
 
+function formatRegistryDate(value) {
+  if (!value) return "Не указана";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Не указана";
+  return date.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function todayShort() {
   return new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+}
+
+function createRequestKey() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `request-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`;
 }
 
 function studentWelcome(firstName) {
@@ -628,7 +697,7 @@ function studentsForCurrentRole() {
   if (state.role === "admin") return students;
   if (state.role === "teacher") {
     if (apiContext.demoMode && primaryStaffRole() === "curator") return students;
-    if (!apiContext.demoMode) return students;
+    if (!apiContext.demoMode) return students.filter((student) => student.staffVisible);
     const teacherName = students[0]?.teacher;
     return students.filter((student) => student.teacher === teacherName);
   }
@@ -999,6 +1068,8 @@ function savePreferences() {
         inStockOnly: state.inStockOnly,
         favoritesOnly: state.favoritesOnly,
         orderStatusFilter: state.orderStatusFilter,
+        recentProductSearches: state.recentProductSearches.slice(0, 5),
+        railCollapsed: state.railCollapsed,
       }),
     );
   } catch (error) {
@@ -1011,25 +1082,38 @@ function restorePreferences() {
     const preferences = JSON.parse(localStorage.getItem(preferencesStorageKey()) || "null");
     if (!preferences || typeof preferences !== "object") return;
     if (preferences.activeStudentId) state.activeStudentId = String(preferences.activeStudentId);
-    if (["recommended", "price-asc", "price-desc", "name"].includes(preferences.productSort)) {
-      state.productSort = preferences.productSort;
+    const storedProductSort = preferences.productSort === "name"
+      ? "recommended"
+      : preferences.productSort;
+    if (["recommended", "price-asc", "price-desc", "newest"].includes(storedProductSort)) {
+      state.productSort = storedProductSort;
     }
     state.productCategory = String(preferences.productCategory || "all");
     state.inStockOnly = Boolean(preferences.inStockOnly);
     state.favoritesOnly = Boolean(preferences.favoritesOnly);
+    state.recentProductSearches = Array.isArray(preferences.recentProductSearches)
+      ? preferences.recentProductSearches.map(String).filter(Boolean).slice(0, 5)
+      : [];
+    state.railCollapsed = Boolean(preferences.railCollapsed);
+    const storedOrderFilter = preferences.orderStatusFilter === "open"
+      ? "action"
+      : preferences.orderStatusFilter;
     if (
       [
-        "open",
+        "action",
+        "work",
+        "issued",
+        "cancelled",
         "all",
+        "created",
         "reserved",
         "transferred_to_teacher",
         "issued_to_student",
-        "cancelled",
         "returned",
         "problem",
-      ].includes(preferences.orderStatusFilter)
+      ].includes(storedOrderFilter)
     ) {
-      state.orderStatusFilter = preferences.orderStatusFilter;
+      state.orderStatusFilter = storedOrderFilter;
     }
   } catch (error) {
     console.warn("Не удалось восстановить настройки приложения", error);
@@ -1185,17 +1269,36 @@ async function parseApiError(response) {
   }
 }
 
-function showNotice(message, tone = "ok") {
+function showNotice(message, tone = "ok", options = {}) {
   const notice = qs("#noticeBar");
-  notice.textContent = apiErrorMessage(message);
+  const messageNode = qs("#noticeMessage");
+  const actionButton = qs("#noticeAction");
+  if (!notice || !messageNode || !actionButton) return;
+  window.clearTimeout(noticeTimer);
+  noticeActionHandler = typeof options.onAction === "function" ? options.onAction : null;
+  messageNode.textContent = apiErrorMessage(message);
+  actionButton.hidden = !noticeActionHandler;
+  actionButton.textContent = noticeActionHandler ? String(options.actionLabel || "Открыть") : "";
   notice.hidden = false;
   notice.className = `notice-bar ${tone}`;
+  refreshIcons();
+  const duration = Number(options.duration ?? (tone === "danger" ? 8000 : 4500));
+  if (duration > 0) noticeTimer = window.setTimeout(hideNotice, duration);
 }
 
 function hideNotice() {
   const notice = qs("#noticeBar");
+  const messageNode = qs("#noticeMessage");
+  const actionButton = qs("#noticeAction");
+  window.clearTimeout(noticeTimer);
+  noticeActionHandler = null;
+  if (!notice) return;
   notice.hidden = true;
-  notice.textContent = "";
+  if (messageNode) messageNode.textContent = "";
+  if (actionButton) {
+    actionButton.hidden = true;
+    actionButton.textContent = "";
+  }
   notice.className = "notice-bar";
 }
 
@@ -1488,6 +1591,10 @@ function normalizeOrderItems(order) {
     totalPrice: Number(item.total_price_astrocoins || item.total_price || 0),
     warehouseId: item.warehouse_id ? String(item.warehouse_id) : "",
     warehouseName: item.warehouse_name || "",
+    suggestedWarehouseId: item.suggested_warehouse_id
+      ? String(item.suggested_warehouse_id)
+      : "",
+    suggestedWarehouseName: item.suggested_warehouse_name || "",
   }));
 }
 
@@ -1560,6 +1667,9 @@ function applySession(session) {
     state.availableRoles = [];
     state.activeStudentId = "";
     state.catalogLoaded = false;
+    state.adminStudents = [];
+    state.adminStudentsLoaded = false;
+    state.adminStudentsError = "";
     state.sessionLoaded = true;
     return;
   }
@@ -1568,9 +1678,12 @@ function applySession(session) {
     id: String(student.student_id),
     lmsId: student.lms_student_id || "",
     role: student.role,
+    staffVisible: Boolean(student.staff_visible),
     accessStatus: student.access_status || "active",
     name: student.display_name,
     group: student.group_name || student.course_name || "Группа не указана",
+    course: student.course_name || "",
+    venue: student.venue_name || "",
     teacher: student.teacher_name || "Педагог не указан",
     balance: student.balance,
     contact: session.account?.max_user_id || "",
@@ -1680,6 +1793,7 @@ async function loadParentInvitations() {
         {
           data: {
             qr_data_url: `/miniapp/static/assets/${student.id}-qr.svg`,
+            qr_download_url: `/miniapp/static/assets/${student.id}-qr.svg`,
             bot_url: "",
           },
           demo: true,
@@ -1773,7 +1887,7 @@ function applyCatalog(catalog) {
     return;
   }
 
-  products = catalog.products.map((product) => {
+  products = catalog.products.map((product, catalogIndex) => {
     const primaryWarehouse = product.warehouses?.[0];
     const name = product.name || "Товар";
     return {
@@ -1790,6 +1904,7 @@ function applyCatalog(catalog) {
       warehouse: primaryWarehouse?.warehouse_name || "Склад будет выбран",
       mark: name.trim().slice(0, 1).toUpperCase() || "A",
       warehouses: product.warehouses || [],
+      catalogIndex,
     };
   });
   pruneInactiveCartItems();
@@ -1808,6 +1923,7 @@ async function loadSession() {
   );
   if (!response.ok) throw new Error(await parseApiError(response));
   applySession(await response.json());
+  syncTenantToUrl();
 }
 
 async function loadCatalog() {
@@ -1848,6 +1964,73 @@ async function loadOpsSummary() {
   applyOpsSummary(await response.json());
 }
 
+function normalizeRegistryStudent(item) {
+  return {
+    id: String(item.student_id || ""),
+    lmsId: item.lms_student_id || "",
+    name: item.display_name || "Без имени",
+    group: item.group_name || "",
+    course: item.course_name || "",
+    venue: item.venue_name || "",
+    teacher: item.teacher_name || "",
+    status: item.status || "active",
+    balance: Number(item.balance || 0),
+    importedAt: item.imported_at || "",
+    updatedAt: item.updated_at || "",
+    statusUpdatedAt: item.status_updated_at || "",
+    departedAt: item.departed_at || "",
+    history: Array.isArray(item.history)
+      ? item.history.map((event) => ({
+          id: event.id ? String(event.id) : "",
+          eventType: event.event_type || "updated",
+          fromStatus: event.from_status || "",
+          toStatus: event.to_status || "active",
+          changedFields: Array.isArray(event.changed_fields) ? event.changed_fields : [],
+          source: event.source || "",
+          actorName: event.actor_name || "",
+          occurredAt: event.occurred_at || "",
+        }))
+      : [],
+  };
+}
+
+async function loadAdminStudents(force = false) {
+  if (
+    state.role !== "admin" ||
+    !state.hasAccess ||
+    !apiContext.maxUserId ||
+    apiContext.demoMode
+  ) return;
+  if (
+    state.adminStudentsLoading ||
+    (state.adminStudentsLoaded && !force)
+  ) return;
+
+  state.adminStudentsLoading = true;
+  state.adminStudentsError = "";
+  if (state.adminTab === "students") renderAdminPanel();
+  try {
+    const response = await apiFetch(
+      apiUrl("/api/v1/miniapp/students/registry", {
+        max_user_id: apiContext.maxUserId,
+        tenant_slug: apiContext.tenantSlug,
+      }),
+    );
+    if (!response.ok) throw new Error(await parseApiError(response));
+    const result = await response.json();
+    state.adminStudents = Array.isArray(result.students)
+      ? result.students.map(normalizeRegistryStudent)
+      : [];
+    state.adminStudentsLoaded = true;
+  } catch (error) {
+    state.adminStudentsError = error.message || "Не удалось загрузить учеников";
+    showNotice(state.adminStudentsError, "danger");
+  } finally {
+    state.adminStudentsLoading = false;
+    if (state.adminTab === "students") renderAdminPanel();
+  }
+}
+
 async function refreshOrderAndInventoryState() {
   await loadSession();
   if (applyAccessGate()) return;
@@ -1881,7 +2064,11 @@ function renderTenantDialog() {
   const list = qs("#tenantList");
   if (!list) return;
   const currentSlug = apiContext.tenantSlug;
-  list.innerHTML = state.availableTenants
+  const query = state.tenantSearch.trim().toLowerCase();
+  const visibleTenants = state.availableTenants.filter((tenant) =>
+    !query || `${tenant.city_name} ${tenant.partner_name} ${tenant.tenant_name} ${tenant.tenant_slug}`.toLowerCase().includes(query),
+  );
+  list.innerHTML = visibleTenants
     .map((tenant) => {
       const isCurrent = tenant.tenant_slug === currentSlug;
       return `
@@ -1892,7 +2079,7 @@ function renderTenantDialog() {
         </button>
       `;
     })
-    .join("");
+    .join("") || '<div class="empty-state compact-empty"><strong>Партнеры не найдены</strong></div>';
   Array.from(list.querySelectorAll("[data-tenant-switch]")).forEach((button) => {
     button.addEventListener("click", () => switchTenant(button.dataset.tenantSwitch || ""));
   });
@@ -1907,6 +2094,8 @@ function setTenantCreateMode(enabled) {
   const saveButton = qs("#saveTenantButton");
   if (form) form.hidden = !enabled;
   if (list) list.hidden = enabled;
+  const searchField = qs("#tenantSearchField");
+  if (searchField) searchField.hidden = enabled;
   if (hint) hint.textContent = enabled
     ? "Добавьте нового партнера. Его данные будут храниться отдельно."
     : "Выберите город и партнера.";
@@ -1917,6 +2106,9 @@ function setTenantCreateMode(enabled) {
 
 function openTenantDialog() {
   if (!state.canManageTenants) return;
+  state.tenantSearch = "";
+  const search = qs("#tenantSearch");
+  if (search) search.value = "";
   renderTenantDialog();
   setTenantCreateMode(false);
   const dialog = qs("#tenantDialog");
@@ -1939,6 +2131,11 @@ async function switchTenant(tenantSlug) {
   state.carts = new Map();
   state.loadedCartStudentIds = new Set();
   state.cartVersions = new Map();
+  state.adminStudents = [];
+  state.adminStudentsLoaded = false;
+  state.adminStudentsError = "";
+  state.studentRegistryStatusFilter = "all";
+  state.studentRegistryGroupFilter = "all";
   syncTenantToUrl();
   closeTenantDialog();
   try {
@@ -1946,6 +2143,7 @@ async function switchTenant(tenantSlug) {
     if (applyAccessGate()) return;
     await loadCatalog();
     await loadOpsSummary();
+    if (state.adminTab === "students") await loadAdminStudents();
     state.studentInvitations = new Map();
     state.studentInvitationsLoaded = false;
     state.favorites = new Set();
@@ -1955,13 +2153,18 @@ async function switchTenant(tenantSlug) {
     state.attendanceJournal = null;
     state.attendanceDirty = new Map();
     state.attendanceLessonDirty = new Map();
+    state.accrualReport = null;
+    state.accrualReportTeacherFilter = "all";
+    state.accrualReportGroupFilter = "all";
     state.broadcastHistory = [];
     state.broadcastHistoryLoaded = false;
     state.broadcastPreview = null;
     state.broadcastPreviewSignature = "";
     state.broadcastSelectedGroups = new Set();
     state.broadcastAllGroups = true;
+    qs("#broadcastForm")?.reset();
     clearBroadcastPhoto();
+    restoreBroadcastDraft();
     restoreCart();
     await loadServerCart(state.activeStudentId);
     restoreFavorites();
@@ -2053,7 +2256,11 @@ async function refreshAllData() {
     state.refreshing = false;
     return;
   }
-  const results = await Promise.allSettled([loadCatalog(), loadOpsSummary()]);
+  const refreshTasks = [loadCatalog(), loadOpsSummary()];
+  if (state.adminStudentsLoaded || state.adminTab === "students") {
+    refreshTasks.push(loadAdminStudents(true));
+  }
+  const results = await Promise.allSettled(refreshTasks);
   results.forEach((result) => {
     if (result.status === "rejected") errors.push(result.reason);
   });
@@ -2094,7 +2301,16 @@ function setView(view) {
   const allowedViews = roleViews(state.role);
   const nextView = allowedViews.includes(view) ? view : "dashboard";
   const previousView = state.view;
+  if (
+    previousView === "teaching" &&
+    nextView !== "teaching" &&
+    hasAttendanceChanges() &&
+    !window.confirm("В журнале есть несохраненные изменения. Выйти без сохранения?")
+  ) {
+    return;
+  }
   if (previousView !== nextView) hideNotice();
+  if (nextView !== "store") state.storeFiltersOpen = false;
   state.view = nextView;
   const url = new URL(window.location.href);
   url.searchParams.set("view", nextView);
@@ -2112,6 +2328,7 @@ function setView(view) {
     ["wallet", "report", "accrual", "teaching", "broadcasts", "admin"].includes(nextView),
   );
   closeMobileMorePanel();
+  renderMobileNavigation();
   if (previousView !== nextView && window.matchMedia("(max-width: 640px)").matches) {
     window.scrollTo({ top: 0, behavior: "auto" });
   }
@@ -2124,6 +2341,18 @@ function setView(view) {
       .finally(() => {
         state.teachingLoading = false;
         renderTeaching();
+      });
+  }
+  if (nextView === "broadcasts" && !state.teachingLoaded && !state.teachingLoading) {
+    state.teachingLoading = true;
+    loadTeachingWorkspace()
+      .then(renderBroadcasts)
+      .catch((error) =>
+        showNotice(error.message || "Не удалось загрузить форматы занятий", "danger"),
+      )
+      .finally(() => {
+        state.teachingLoading = false;
+        renderBroadcasts();
       });
   }
   if (
@@ -2148,6 +2377,111 @@ function roleViews(role) {
   return views;
 }
 
+function cartCountForStudent(studentId) {
+  const cart = state.carts.get(studentId || "unassigned");
+  if (!cart) return 0;
+  return [...cart.values()].reduce((total, item) => total + Number(item.quantity || 0), 0);
+}
+
+function renderChildSwitcher() {
+  const bar = qs("#childSwitcherBar");
+  if (!bar) return;
+  const roleStudents = sortedStudents();
+  const visible = state.role === "parent" && roleStudents.length > 1;
+  bar.hidden = !visible;
+  if (!visible) {
+    bar.innerHTML = "";
+    return;
+  }
+  bar.innerHTML = `
+    <span class="child-switcher-label">Ребенок</span>
+    <div class="child-switcher-scroll">
+      ${roleStudents
+        .map((student) => {
+          const count = cartCountForStudent(student.id);
+          return `
+            <button
+              class="child-switcher-button ${student.id === state.activeStudentId ? "is-active" : ""}"
+              type="button"
+              data-active-student="${escapeHtml(student.id)}"
+              aria-pressed="${student.id === state.activeStudentId}"
+            >
+              <span>${escapeHtml(student.name)}</span>
+              ${count ? `<b title="Товаров в корзине">${count}</b>` : ""}
+            </button>`;
+        })
+        .join("")}
+    </div>`;
+  const scroller = bar.querySelector(".child-switcher-scroll");
+  const activeButton = scroller?.querySelector(".child-switcher-button.is-active");
+  if (scroller && activeButton) {
+    const left = activeButton.offsetLeft - (scroller.clientWidth - activeButton.offsetWidth) / 2;
+    scroller.scrollLeft = Math.max(left, 0);
+  }
+}
+
+function mobilePrimaryViews() {
+  const allowed = roleViews(state.role);
+  return (ROLE_MOBILE_PRIMARY[state.role] || ROLE_MOBILE_PRIMARY.student).filter((view) =>
+    allowed.includes(view),
+  );
+}
+
+function navButtonMarkup(view, className = "") {
+  const meta = VIEW_META[view];
+  if (!meta) return "";
+  const count = view === "cart" ? cartCount() : 0;
+  return `
+    <button class="nav-button ${className} ${state.view === view ? "is-active" : ""}" type="button" data-view="${view}">
+      <span class="mobile-nav-icon" aria-hidden="true"><i data-lucide="${meta.icon}"></i></span>
+      <span>${meta.label}</span>
+      ${view === "cart" ? `<span class="mobile-nav-count" data-cart-count ${count ? "" : "hidden"}>${count}</span>` : ""}
+    </button>`;
+}
+
+function renderMobileNavigation() {
+  const nav = qs("#mobileBottomNav");
+  const actions = qs("#mobileMoreActions");
+  const tenant = qs("#mobileMoreTenant");
+  if (!nav || !actions) return;
+  const primary = mobilePrimaryViews();
+  const allowed = roleViews(state.role);
+  const secondary = [...new Set(allowed.filter((view) => !primary.includes(view)))];
+  nav.innerHTML = `${primary.map((view) => navButtonMarkup(view)).join("")}
+    <button id="mobileMoreButton" class="nav-button ${secondary.includes(state.view) ? "is-active" : ""}" type="button" data-mobile-more>
+      <span class="mobile-nav-icon" aria-hidden="true"><i data-lucide="menu"></i></span>
+      <span>Ещё</span>
+    </button>`;
+  actions.innerHTML = secondary
+    .map((view) => {
+      const meta = VIEW_META[view];
+      if (!meta) return "";
+      return `
+        <button class="mobile-more-action ${state.view === view ? "is-active" : ""}" type="button" data-view="${view}">
+          <span class="mobile-more-action-icon" aria-hidden="true"><i data-lucide="${meta.icon}"></i></span>
+          <span class="mobile-more-action-label">${meta.label}</span>
+          <i class="mobile-more-action-chevron" data-lucide="chevron-right" aria-hidden="true"></i>
+        </button>`;
+    })
+    .join("");
+  if (tenant) tenant.textContent = ["teacher", "admin"].includes(state.role) ? tenantTitle() : "";
+  refreshIcons();
+}
+
+function applyRailState() {
+  document.body.classList.toggle("rail-collapsed", state.railCollapsed);
+  const button = qs("#railCollapseButton");
+  if (!button) return;
+  button.setAttribute("aria-expanded", String(!state.railCollapsed));
+  button.setAttribute("aria-label", state.railCollapsed ? "Развернуть меню" : "Свернуть меню");
+  button.title = state.railCollapsed ? "Развернуть меню" : "Свернуть меню";
+  const icon = button.querySelector("i");
+  if (icon) icon.setAttribute("data-lucide", state.railCollapsed ? "panel-left-open" : "panel-left-close");
+  const label = button.querySelector("span");
+  if (label) label.textContent = state.railCollapsed ? "Развернуть" : "Свернуть";
+  refreshIcons();
+}
+
 function canUseStoreCart() {
   return ["student", "parent"].includes(state.role);
 }
@@ -2158,7 +2492,7 @@ function setRole(role) {
   state.role = role;
   if (roleChanged) {
     state.studentGroupFilter = "all";
-    state.accrualGroup = "all";
+    state.accrualGroup = "";
     state.accrualNameFilter = "";
   }
   const roleStudents = studentsForCurrentRole();
@@ -2191,22 +2525,9 @@ function setRole(role) {
     button.hidden = !allowed;
   });
 
-  const dashboardAction = qs("#dashboardPrimaryAction");
-  const dashboardActionConfig = ROLE_DASHBOARD_ACTION[role] || ROLE_DASHBOARD_ACTION.student;
-  if (dashboardAction) {
-    dashboardAction.dataset.viewJump = dashboardActionConfig.view;
-    dashboardAction.textContent = dashboardActionConfig.label;
-    dashboardAction.hidden = false;
-    dashboardAction.disabled = false;
-  }
-
   const cartButton = qs("#openCartButton");
   if (cartButton) cartButton.hidden = !allowedViews.includes("cart");
-  const moreViews = ["wallet", "report", "accrual", "teaching", "broadcasts", "admin"];
-  const mobileMoreButton = qs("#mobileMoreButton");
-  if (mobileMoreButton) {
-    mobileMoreButton.hidden = !moreViews.some((view) => allowedViews.includes(view));
-  }
+  renderMobileNavigation();
 
   if (!allowedViews.includes(state.view)) {
     setView("dashboard");
@@ -2232,13 +2553,21 @@ function setRole(role) {
 
 function closeMobileMorePanel() {
   const panel = qs("#mobileMorePanel");
+  const backdrop = qs("#mobileMoreBackdrop");
   if (panel) panel.hidden = true;
+  if (backdrop) backdrop.hidden = true;
+  document.body.classList.remove("mobile-more-open");
 }
 
 function toggleMobileMorePanel() {
   const panel = qs("#mobileMorePanel");
+  const backdrop = qs("#mobileMoreBackdrop");
   if (!panel) return;
-  panel.hidden = !panel.hidden;
+  const willOpen = panel.hidden;
+  panel.hidden = !willOpen;
+  if (backdrop) backdrop.hidden = !willOpen;
+  document.body.classList.toggle("mobile-more-open", willOpen);
+  if (willOpen) qs("#closeMobileMoreButton")?.focus();
 }
 
 function setActiveStudent(studentId) {
@@ -2275,6 +2604,11 @@ function renderStatus() {
   if (balancePanel) balancePanel.hidden = isStaff;
   const profileLabel = qs(".status-profile-label");
   if (profileLabel) profileLabel.textContent = isStaff ? "Рабочий профиль" : "Личный профиль";
+  const statusTenant = qs("#statusTenantTitle");
+  if (statusTenant) {
+    statusTenant.hidden = !isStaff;
+    statusTenant.textContent = isStaff ? tenantTitle() : "";
+  }
   const labels = {
     student: student ? `${student.name}, ученик` : "Ученик",
     parent: accountName
@@ -2358,6 +2692,29 @@ function renderStatus() {
   qs("#dashboardRoleKicker").textContent = spotlight.kicker;
   qs("#dashboardSpotlightTitle").textContent = spotlight.title;
   qs("#dashboardSpotlightText").textContent = spotlight.text;
+  const taskActions = qs("#dashboardTaskActions");
+  if (taskActions) {
+    const actions = state.role === "teacher"
+      ? [
+          ["teaching", "calendar-check", "Открыть журнал"],
+          ["accrual", "circle-plus", "Начислить AC"],
+        ]
+      : state.role === "admin"
+        ? [
+            ["orders", "package-check", "Заказы к выдаче"],
+            ["inventory", "boxes", "Проверить остатки", "ops"],
+          ]
+        : [];
+    taskActions.hidden = actions.length === 0;
+    taskActions.innerHTML = actions
+      .map(
+        ([view, icon, label, actionType], index) => `
+          <button class="${index === 0 ? "primary-action" : "secondary-action"}" type="button" ${actionType === "ops" ? `data-ops-jump="${view}"` : `data-view-jump="${view}"`}>
+            <i data-lucide="${icon}"></i><span>${label}</span>
+          </button>`,
+      )
+      .join("");
+  }
   qs("#dashboardOrdersTitle").textContent = {
     student: "Мои заказы",
     parent: "Заказы детей",
@@ -2395,6 +2752,7 @@ function renderStatus() {
     ].join("");
     groupFilter.value = state.studentGroupFilter;
   }
+  renderChildSwitcher();
 }
 
 function renderStudents() {
@@ -2489,36 +2847,199 @@ function renderParentInvitations() {
         `;
       }
       return `
-        <article class="parent-invite-card">
-          <img
-            src="${escapeHtml(invitation.data.qr_data_url)}"
-            alt="QR-код для входа: ${escapeHtml(student.name)}"
-          />
-          <div class="parent-invite-copy">
-            <strong>${escapeHtml(student.name)}</strong>
-            <span>${escapeHtml(student.group)}</span>
-            ${
-              invitation.demo
-                ? ""
-                : `
-                  <div class="parent-invite-actions">
-                    <a
-                      class="secondary-action"
-                      href="${escapeHtml(invitation.data.bot_url)}"
-                    >Открыть</a>
-                    <button
-                      class="secondary-action"
-                      type="button"
-                      data-copy-student-invite="${escapeHtml(student.id)}"
-                    >Копировать</button>
-                  </div>
-                `
-            }
+        <details class="parent-invite-card" ${student.id === state.activeStudentId ? "open" : ""}>
+          <summary>
+            <span class="parent-invite-initial">${escapeHtml(student.name.slice(0, 1))}</span>
+            <span class="parent-invite-copy">
+              <strong>${escapeHtml(student.name)}</strong>
+              <span>${escapeHtml(student.group)}</span>
+            </span>
+            <span class="link-status is-active"><i data-lucide="link"></i> Доступ активен</span>
+            <i class="parent-invite-chevron" data-lucide="chevron-down"></i>
+          </summary>
+          <div class="parent-invite-details">
+            <button
+              class="parent-invite-qr-button"
+              type="button"
+              data-open-student-qr="${escapeHtml(student.id)}"
+              aria-label="Увеличить QR-код для ${escapeHtml(student.name)}"
+            >
+              <img
+                src="${escapeHtml(invitation.data.qr_data_url)}"
+                alt="QR-код для входа: ${escapeHtml(student.name)}"
+              />
+              <span><i data-lucide="maximize-2"></i> Увеличить</span>
+            </button>
+            <div class="parent-invite-help">
+              <strong>Вход ребенка</strong>
+              <span>Покажите QR-код ребенку или сохраните его как изображение.</span>
+              <div class="parent-invite-actions">
+                <button class="secondary-action parent-invite-save" type="button" data-save-student-qr="${escapeHtml(student.id)}"><i data-lucide="download"></i> Сохранить картинку</button>
+                <button class="icon-button" type="button" data-share-student-invite="${escapeHtml(student.id)}" title="Поделиться" aria-label="Поделиться"><i data-lucide="share-2"></i></button>
+                <button class="icon-button" type="button" data-print-student-invite="${escapeHtml(student.id)}" title="Печать" aria-label="Печать"><i data-lucide="printer"></i></button>
+              </div>
+            </div>
           </div>
-        </article>
+        </details>
       `;
     })
     .join("");
+  refreshIcons();
+}
+
+function openStudentQrPreview(studentId) {
+  const student = students.find((item) => item.id === studentId);
+  const invitation = state.studentInvitations.get(studentId)?.data;
+  const dialog = qs("#studentQrDialog");
+  if (!student || !invitation || !dialog) return;
+  state.qrPreviewStudentId = studentId;
+  qs("#studentQrDialogTitle").textContent = student.name;
+  qs("#studentQrDialogGroup").textContent = student.group || "";
+  const image = qs("#studentQrPreviewImage");
+  image.src = invitation.qr_data_url;
+  image.alt = `QR-код для входа: ${student.name}`;
+  qs("#saveStudentQrPreviewButton").dataset.saveStudentQr = studentId;
+  qs("#openStudentQrFileButton").dataset.openStudentQrFile = studentId;
+  dialog.hidden = false;
+  document.body.classList.add("dialog-open");
+  if (window.WebApp?.requestScreenMaxBrightness) {
+    state.qrBrightnessRequested = true;
+    Promise.resolve(window.WebApp.requestScreenMaxBrightness()).catch((error) => {
+      console.warn("MAX brightness request failed", error);
+    });
+  }
+  qs("#closeStudentQrDialogButton")?.focus();
+}
+
+function closeStudentQrPreview() {
+  const dialog = qs("#studentQrDialog");
+  if (!dialog || dialog.hidden) return;
+  dialog.hidden = true;
+  state.qrPreviewStudentId = "";
+  qs("#saveStudentQrPreviewButton").dataset.saveStudentQr = "";
+  qs("#openStudentQrFileButton").dataset.openStudentQrFile = "";
+  if (state.qrBrightnessRequested && window.WebApp?.restoreScreenBrightness) {
+    Promise.resolve(window.WebApp.restoreScreenBrightness()).catch((error) => {
+      console.warn("MAX brightness restore failed", error);
+    });
+  }
+  state.qrBrightnessRequested = false;
+  syncDialogBodyClass();
+}
+
+function studentQrDownload(studentId) {
+  const student = students.find((item) => item.id === studentId);
+  const invitation = state.studentInvitations.get(studentId)?.data;
+  if (!student || !invitation) return null;
+  const safeId = String(student.id || "student").replace(/[^a-z0-9_-]/gi, "").slice(0, 24);
+  const filename = `algo-max-qr-${safeId || "student"}.png`;
+  const source = invitation.qr_download_url || invitation.qr_data_url;
+  const downloadUrl = new URL(source, window.location.origin).href;
+  return { downloadUrl, filename };
+}
+
+function openStudentQrFile(studentId) {
+  const download = studentQrDownload(studentId);
+  if (!download) return;
+  if (window.WebApp?.openLink && download.downloadUrl.startsWith("https://")) {
+    window.WebApp.openLink(download.downloadUrl);
+    return;
+  }
+  window.open(download.downloadUrl, "_blank", "noopener");
+}
+
+async function saveStudentQrImage(studentId, button = null) {
+  const download = studentQrDownload(studentId);
+  if (!download) return;
+  const originalHtml = button?.innerHTML || "";
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '<span class="button-spinner" aria-hidden="true"></span> Сохраняем...';
+  }
+
+  if (window.WebApp?.downloadFile && download.downloadUrl.startsWith("https://")) {
+    try {
+      const result = await window.WebApp.downloadFile(download.downloadUrl, download.filename);
+      if (result?.error) {
+        throw result.error;
+      }
+      showNotice("QR-код сохранен в загрузки");
+      return;
+    } catch (error) {
+      console.warn("MAX download failed", error);
+      if (qs("#studentQrDialog")?.hidden) openStudentQrPreview(studentId);
+      showNotice("MAX не смог сохранить файл. Нажмите «Открыть файл»", "danger");
+      qs("#openStudentQrFileButton")?.focus();
+      return;
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.innerHTML = originalHtml;
+        refreshIcons();
+      }
+    }
+  }
+
+  try {
+    const link = document.createElement("a");
+    link.href = download.downloadUrl;
+    link.download = download.filename;
+    link.rel = "noopener";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    showNotice("QR-код сохранен");
+  } catch (error) {
+    console.warn(error);
+    showNotice("Не удалось сохранить QR-код", "danger");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      refreshIcons();
+    }
+  }
+}
+
+async function shareStudentInvitation(studentId) {
+  const student = students.find((item) => item.id === studentId);
+  const invitation = state.studentInvitations.get(studentId)?.data;
+  if (!student || !invitation) return;
+  const shareData = {
+    title: `Вход в Algo MAX: ${student.name}`,
+    text: `Персональная ссылка для входа ребенка ${student.name}`,
+    url: invitation.bot_url || window.location.href,
+  };
+  try {
+    if (navigator.share && invitation.bot_url) await navigator.share(shareData);
+    else {
+      await navigator.clipboard.writeText(invitation.bot_url || invitation.qr_data_url);
+      showNotice("Ссылка скопирована");
+    }
+  } catch (error) {
+    if (error?.name !== "AbortError") showNotice("Не удалось поделиться ссылкой", "danger");
+  }
+}
+
+function printStudentInvitation(studentId) {
+  const student = students.find((item) => item.id === studentId);
+  const invitation = state.studentInvitations.get(studentId)?.data;
+  if (!student || !invitation) return;
+  const printWindow = window.open("", "_blank", "width=520,height=680");
+  if (!printWindow) return showNotice("Разрешите всплывающие окна для печати", "danger");
+  const heading = printWindow.document.createElement("h1");
+  const group = printWindow.document.createElement("p");
+  const image = printWindow.document.createElement("img");
+  heading.textContent = student.name;
+  group.textContent = student.group;
+  image.src = invitation.qr_data_url;
+  image.alt = `QR-код: ${student.name}`;
+  image.style.width = "360px";
+  image.style.maxWidth = "100%";
+  printWindow.document.title = `QR-код ${student.name}`;
+  printWindow.document.body.style.cssText = "font-family:Arial,sans-serif;text-align:center;padding:32px;color:#171326";
+  printWindow.document.body.append(heading, group, image);
+  image.addEventListener("load", () => printWindow.print(), { once: true });
 }
 
 function renderDashboardOrders() {
@@ -2600,9 +3121,11 @@ function renderProducts() {
       return matchesSearch && matchesCategory && matchesFavorite && matchesStock;
     })
     .sort((left, right) => {
+      const stockDifference = Number(productAvailable(right) > 0) - Number(productAvailable(left) > 0);
+      if (stockDifference) return stockDifference;
       if (sort === "price-asc") return left.price - right.price;
       if (sort === "price-desc") return right.price - left.price;
-      if (sort === "name") return left.name.localeCompare(right.name, "ru");
+      if (sort === "newest") return Number(left.catalogIndex || 0) - Number(right.catalogIndex || 0);
       return 0;
     });
 
@@ -2611,8 +3134,26 @@ function renderProducts() {
   ).length;
   const favoritesFilter = qs("#favoritesFilter");
   favoritesFilter.setAttribute("aria-pressed", String(state.favoritesOnly));
+  const clearSearchButton = qs("#clearProductSearch");
+  if (clearSearchButton) clearSearchButton.hidden = !search;
+  const filterButton = qs("#mobileStoreFiltersButton");
+  const activeFilterCount = Number(state.inStockOnly) + Number(state.favoritesOnly) + Number(category !== "all") + Number(sort !== "recommended");
+  if (filterButton) {
+    filterButton.setAttribute("aria-expanded", String(state.storeFiltersOpen));
+    filterButton.classList.toggle("is-active", state.storeFiltersOpen);
+  }
+  const filterCount = qs("#storeFilterCount");
+  if (filterCount) {
+    filterCount.textContent = String(activeFilterCount);
+    filterCount.hidden = activeFilterCount === 0;
+  }
+  qs(".store-filter-actions")?.classList.toggle("is-open", state.storeFiltersOpen);
+  const filterBackdrop = qs("#storeFilterBackdrop");
+  if (filterBackdrop) filterBackdrop.hidden = !state.storeFiltersOpen;
+  document.body.classList.toggle("store-filters-open", state.storeFiltersOpen);
   qs("#favoritesCount").textContent = favoritesCount;
   qs("#catalogResultCount").textContent = productCountLabel(visible.length);
+  renderRecentProductSearches();
 
   grid.classList.toggle("is-empty", visible.length === 0);
   if (visible.length === 0) {
@@ -2637,7 +3178,7 @@ function renderProducts() {
             ? `Осталось ${availableLeft}`
             : "В наличии";
       return `
-        <article class="product-card" data-product-card="${escapeHtml(product.id)}">
+        <article class="product-card" data-product-card="${escapeHtml(product.id)}" tabindex="0" role="button" aria-label="Открыть ${escapeHtml(product.name)}">
           <div class="product-visual ${product.photoUrl ? "has-photo" : ""}">
             ${
               product.photoUrl
@@ -2702,6 +3243,37 @@ function renderProducts() {
   refreshIcons();
 }
 
+function renderRecentProductSearches() {
+  const container = qs("#recentProductSearches");
+  const searchInput = qs("#productSearch");
+  if (!container || !searchInput) return;
+  const query = searchInput.value.trim().toLowerCase();
+  const values = query
+    ? Array.from(new Set(activeProducts().flatMap((product) => [product.name, product.category])))
+        .filter((value) => value.toLowerCase().includes(query) && value.toLowerCase() !== query)
+        .slice(0, 5)
+    : state.recentProductSearches;
+  const visible = document.activeElement === searchInput && values.length > 0;
+  container.hidden = !visible;
+  container.innerHTML = visible
+    ? `<span>${query ? "Подсказки:" : "Недавние:"}</span>${values
+        .map(
+          (value) => `<button type="button" data-recent-product-search="${escapeHtml(value)}">${escapeHtml(value)}</button>`,
+        )
+        .join("")}`
+    : "";
+}
+
+function rememberProductSearch() {
+  const query = qs("#productSearch")?.value.trim() || "";
+  if (query.length < 2) return;
+  state.recentProductSearches = [
+    query,
+    ...state.recentProductSearches.filter((item) => item.toLowerCase() !== query.toLowerCase()),
+  ].slice(0, 5);
+  savePreferences();
+}
+
 function productCountLabel(count) {
   const lastTwo = count % 100;
   const last = count % 10;
@@ -2725,11 +3297,29 @@ function cartTotal() {
 function renderCart() {
   const list = qs("#cartList");
   if (state.cart.size === 0) {
+    const budget = Number(selectedStudent()?.balance || 0);
+    const suggestions = activeProducts()
+      .filter((product) => productAvailable(product) > 0 && product.price <= budget)
+      .sort((left, right) => left.price - right.price)
+      .slice(0, 3);
     list.innerHTML = `
       <div class="empty-state cart-empty-state">
+        <i data-lucide="shopping-bag"></i>
         <strong>Корзина пока пустая</strong>
+        <span>Добавьте награду из магазина.</span>
         <button class="primary-action" type="button" data-view-jump="store">Перейти в магазин</button>
       </div>
+      ${
+        suggestions.length
+          ? `<section class="cart-suggestions"><h3>Хватит баланса</h3><div>${suggestions
+              .map(
+                (product) => `<button type="button" data-product-details="${escapeHtml(product.id)}">
+                    <span>${escapeHtml(product.name)}</span><strong>${product.price} AC</strong>
+                  </button>`,
+              )
+              .join("")}</div></section>`
+          : ""
+      }
     `;
   } else {
     list.innerHTML = Array.from(state.cart.entries())
@@ -2758,13 +3348,11 @@ function renderCart() {
             </div>
             <div class="quantity-control">
               <span>Количество</span>
-              <input
-                type="number"
-                min="1"
-                max="${maxQuantity}"
-                value="${item.quantity}"
-                data-cart-quantity="${escapeHtml(key)}"
-              />
+              <div class="quantity-stepper">
+                <button type="button" data-cart-step="-1" data-cart-key="${escapeHtml(key)}" aria-label="Уменьшить количество"><i data-lucide="minus"></i></button>
+                <input type="number" min="1" max="${maxQuantity}" value="${item.quantity}" data-cart-quantity="${escapeHtml(key)}" aria-label="Количество ${escapeHtml(product.name)}" />
+                <button type="button" data-cart-step="1" data-cart-key="${escapeHtml(key)}" aria-label="Увеличить количество" ${item.quantity >= maxQuantity ? "disabled" : ""}><i data-lucide="plus"></i></button>
+              </div>
             </div>
             <div class="cart-line-total">
               <span>Сумма</span>
@@ -2818,6 +3406,8 @@ function renderCart() {
   qs("#storeCartCount").textContent = productCountLabel(count);
   qs("#storeCartTotal").textContent = total;
   qs("#storeView").classList.toggle("has-cart-dock", count > 0);
+  renderChildSwitcher();
+  renderMobileNavigation();
   refreshIcons();
 }
 
@@ -3028,9 +3618,17 @@ function canReturnOrder(order) {
 }
 
 function orderMatchesStatusFilter(order) {
-  if (state.orderStatusFilter === "all") return true;
-  if (state.orderStatusFilter === "open") return isOpenOrderStatus(order.rawStatus);
-  return order.rawStatus === state.orderStatusFilter;
+  return orderMatchesNamedFilter(order, state.orderStatusFilter);
+}
+
+function orderMatchesNamedFilter(order, filter) {
+  if (filter === "all") return true;
+  if (filter === "action") return ["created", "problem"].includes(order.rawStatus);
+  if (filter === "work") return ["reserved", "transferred_to_teacher"].includes(order.rawStatus);
+  if (filter === "issued") return order.rawStatus === "issued_to_student";
+  if (filter === "cancelled") return ["cancelled", "returned"].includes(order.rawStatus);
+  if (filter === "open") return isOpenOrderStatus(order.rawStatus);
+  return order.rawStatus === filter;
 }
 
 function orderSearchText(order) {
@@ -3067,47 +3665,51 @@ function ordersForCurrentRole() {
   return orders.filter((order) => roleStudentIds.has(order.studentId));
 }
 
-function orderActionButtons(order, includeOpen = true) {
-  const buttons = [];
-
-  if (includeOpen) {
-    const label = canAssignOrderWarehouses(order) ? "Назначить склад" : "Подробнее";
-    buttons.push(
-      `<button class="secondary-action" type="button" data-open-order="${escapeHtml(
-        order.backendId || order.id,
-      )}">${label}</button>`,
-    );
+function orderActionDescriptors(order) {
+  const descriptors = [];
+  if (canAssignOrderWarehouses(order)) {
+    descriptors.push({ action: "open", label: "Назначить склад", icon: "warehouse" });
+  } else if (canIssueOrder(order)) {
+    descriptors.push({ action: "issue", label: "Выдать заказ", icon: "package-check" });
+  } else if (canTransferOrder(order)) {
+    descriptors.push({ action: "transfer", label: "Передать педагогу", icon: "send" });
+  } else {
+    descriptors.push({ action: "open", label: "Подробнее", icon: "eye" });
   }
-
-  if (canIssueOrder(order)) {
-    buttons.push(
-      `<button class="secondary-action" type="button" data-order-action="issue" data-order-action-id="${escapeHtml(
-        order.backendId || order.id,
-      )}">Выдать</button>`,
-    );
-  }
-  if (canTransferOrder(order)) {
-    buttons.push(
-      `<button class="secondary-action" type="button" data-order-action="transfer" data-order-action-id="${escapeHtml(
-        order.backendId || order.id,
-      )}">Передать учителю</button>`,
-    );
-  }
-  if (canCancelOrder(order)) {
-    buttons.push(
-      `<button class="secondary-action danger-action" type="button" data-order-action="cancel" data-order-action-id="${escapeHtml(
-        order.backendId || order.id,
-      )}">Отменить</button>`,
-    );
+  if (descriptors[0].action !== "open") {
+    descriptors.push({ action: "open", label: "Открыть заказ", icon: "eye" });
   }
   if (canReturnOrder(order)) {
-    buttons.push(
-      `<button class="secondary-action" type="button" data-order-action="return" data-order-action-id="${escapeHtml(
-        order.backendId || order.id,
-      )}">Возврат</button>`,
-    );
+    descriptors.push({ action: "return", label: "Оформить возврат", icon: "undo-2" });
   }
-  return buttons.length ? `<div class="order-actions">${buttons.join("")}</div>` : "";
+  if (canCancelOrder(order)) {
+    descriptors.push({ action: "cancel", label: "Отменить заказ", icon: "circle-x", danger: true });
+  }
+  return descriptors;
+}
+
+function orderActionMarkup(order, descriptor, primary = false) {
+  const orderId = escapeHtml(order.backendId || order.id);
+  const attributes = descriptor.action === "open"
+    ? `data-open-order="${orderId}"`
+    : `data-order-action="${descriptor.action}" data-order-action-id="${orderId}"`;
+  return `<button class="${primary ? "primary-action" : "order-menu-action"} ${descriptor.danger ? "danger-action" : ""}" type="button" ${attributes}>
+      <i data-lucide="${descriptor.icon}"></i><span>${descriptor.label}</span>
+    </button>`;
+}
+
+function orderActionButtons(order, includeOpen = true) {
+  let descriptors = orderActionDescriptors(order);
+  if (!includeOpen) descriptors = descriptors.filter((item) => item.action !== "open");
+  if (!descriptors.length) return "";
+  const [primary, ...secondary] = descriptors;
+  return `<div class="order-actions">
+      ${orderActionMarkup(order, primary, true)}
+      ${secondary.length ? `<details class="order-more-menu">
+        <summary title="Другие действия" aria-label="Другие действия"><i data-lucide="ellipsis"></i></summary>
+        <div>${secondary.map((item) => orderActionMarkup(order, item)).join("")}</div>
+      </details>` : ""}
+    </div>`;
 }
 
 function formatOrderDate(value) {
@@ -3127,11 +3729,48 @@ function orderTotalValue(order) {
   return (order.items || []).reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
 }
 
+function orderAgeLabel(value) {
+  const created = new Date(value);
+  if (Number.isNaN(created.getTime())) return "";
+  const minutes = Math.max(Math.floor((Date.now() - created.getTime()) / 60000), 0);
+  if (minutes < 60) return `${minutes || 1} мин. назад`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ч. назад`;
+  const days = Math.floor(hours / 24);
+  return `${days} дн. назад`;
+}
+
+function renderOrderStatusTabs() {
+  const container = qs("#orderStatusTabs");
+  if (!container) return;
+  const roleOrders = ordersForCurrentRole();
+  const tabs = [
+    ["action", "К действию"],
+    ["work", "В работе"],
+    ["issued", "Выданы"],
+    ["cancelled", "Отменены"],
+    ["all", "Все"],
+  ];
+  container.innerHTML = tabs
+    .map(([value, label]) => {
+      const count = value === "all"
+        ? roleOrders.length
+        : roleOrders.filter((order) => orderMatchesNamedFilter(order, value)).length;
+      return `<button class="${state.orderStatusFilter === value ? "is-active" : ""}" type="button" data-order-status="${value}" role="tab" aria-selected="${state.orderStatusFilter === value}">
+          <span>${label}</span><b>${count}</b>
+        </button>`;
+    })
+    .join("");
+}
+
 function renderOrders() {
   const searchInput = qs("#orderSearch");
   const statusFilter = qs("#orderStatusFilter");
   if (searchInput) searchInput.value = state.orderSearch;
   if (statusFilter) statusFilter.value = state.orderStatusFilter;
+  const clearSearchButton = qs("#clearOrderSearch");
+  if (clearSearchButton) clearSearchButton.hidden = !state.orderSearch;
+  renderOrderStatusTabs();
 
   if (ordersForCurrentRole().length === 0) {
     qs("#ordersTable").innerHTML = '<div class="empty-state">Заказов пока нет</div>';
@@ -3148,9 +3787,14 @@ function renderOrders() {
   qs("#ordersTable").innerHTML = visibleOrders
     .map((order) => {
       const date = formatOrderDate(order.createdAt);
+      const age = orderAgeLabel(order.createdAt);
       const total = orderTotalValue(order);
+      const product = productById(order.items?.[0]?.productId || "");
       return `
         <article class="order-card" data-tone="${escapeHtml(order.tone)}">
+          <button class="order-card-visual" type="button" data-open-order="${escapeHtml(order.backendId || order.id)}" aria-label="Открыть заказ №${escapeHtml(order.id)}">
+            ${product?.photoUrl ? `<img src="${escapeHtml(product.photoUrl)}" alt="" loading="lazy" />` : `<i data-lucide="${product ? productFallbackIcon(product) : "package"}"></i>`}
+          </button>
           <div class="order-card-main">
             <div class="order-card-head">
               <strong class="order-number">Заказ №${escapeHtml(order.id)}</strong>
@@ -3169,7 +3813,7 @@ function renderOrders() {
                   : ""
               }
               ${total ? `<span>Сумма: ${total} AC</span>` : ""}
-              ${date ? `<span>${escapeHtml(date)}</span>` : ""}
+              ${age ? `<span>${escapeHtml(age)}</span>` : date ? `<span>${escapeHtml(date)}</span>` : ""}
             </div>
           </div>
           ${orderActionButtons(order)}
@@ -3244,6 +3888,77 @@ function reportDateValue(date) {
   return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 10);
 }
 
+function accrualReportTeacherKey(entry) {
+  return String(entry.teacher_id || entry.teacher_name || "");
+}
+
+function accrualReportGroupKey(entry) {
+  return String(entry.group_name || "__without_group__");
+}
+
+function filteredAccrualReportEntries() {
+  const entries = state.accrualReport?.entries || [];
+  return entries.filter((entry) => {
+    const teacherMatches =
+      state.accrualReportTeacherFilter === "all" ||
+      accrualReportTeacherKey(entry) === state.accrualReportTeacherFilter;
+    const groupMatches =
+      state.accrualReportGroupFilter === "all" ||
+      accrualReportGroupKey(entry) === state.accrualReportGroupFilter;
+    return teacherMatches && groupMatches;
+  });
+}
+
+function renderAccrualReportFilters(entries) {
+  const teacherSelect = qs("#acReportTeacherFilter");
+  const groupSelect = qs("#acReportGroupFilter");
+  if (!teacherSelect || !groupSelect) return;
+
+  const teachers = new Map();
+  entries.forEach((entry) => {
+    const key = accrualReportTeacherKey(entry);
+    if (key) teachers.set(key, entry.teacher_name || "Преподаватель не указан");
+  });
+  const teacherOptions = [...teachers.entries()].sort((left, right) =>
+    left[1].localeCompare(right[1], "ru"),
+  );
+  if (
+    state.accrualReportTeacherFilter !== "all" &&
+    !teachers.has(state.accrualReportTeacherFilter)
+  ) {
+    state.accrualReportTeacherFilter = "all";
+  }
+  teacherSelect.innerHTML = [
+    '<option value="all">Все преподаватели</option>',
+    ...teacherOptions.map(
+      ([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`,
+    ),
+  ].join("");
+  teacherSelect.value = state.accrualReportTeacherFilter;
+
+  const groupLabels = new Map();
+  entries.forEach((entry) => {
+    const key = accrualReportGroupKey(entry);
+    groupLabels.set(key, entry.group_name || "Без группы");
+  });
+  const groupOptions = [...groupLabels.entries()].sort((left, right) =>
+    left[1].localeCompare(right[1], "ru"),
+  );
+  if (
+    state.accrualReportGroupFilter !== "all" &&
+    !groupLabels.has(state.accrualReportGroupFilter)
+  ) {
+    state.accrualReportGroupFilter = "all";
+  }
+  groupSelect.innerHTML = [
+    '<option value="all">Все группы</option>',
+    ...groupOptions.map(
+      ([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`,
+    ),
+  ].join("");
+  groupSelect.value = state.accrualReportGroupFilter;
+}
+
 function renderAccrualReport() {
   const fromInput = qs("#acReportDateFrom");
   const toInput = qs("#acReportDateTo");
@@ -3256,22 +3971,39 @@ function renderAccrualReport() {
     fromInput.value = reportDateValue(new Date(today.getFullYear(), today.getMonth(), 1));
   }
   if (state.accrualReportLoading) {
-    summary.textContent = "Загрузка отчета...";
-    list.innerHTML = "";
+    summary.innerHTML = '<div class="skeleton-row"></div><div class="skeleton-row"></div>';
+    list.innerHTML = '<div class="report-skeleton"><div></div><div></div><div></div></div>';
+    qs("#exportAcReportButton").disabled = true;
     return;
   }
   const report = state.accrualReport;
   if (!report) {
     summary.textContent = "Выберите период и нажмите «Показать».";
     list.innerHTML = "";
+    qs("#exportAcReportButton").disabled = true;
     return;
   }
-  summary.textContent = `${report.entries.length} начислений · ${report.total_astrocoins} AC`;
-  list.innerHTML = report.entries.length
-    ? report.entries
+  renderAccrualReportFilters(report.entries);
+  const entries = filteredAccrualReportEntries();
+  const totalAstrocoins = entries.reduce((total, entry) => total + Number(entry.amount || 0), 0);
+  const teacherCount = new Set(entries.map(accrualReportTeacherKey)).size;
+  const studentCount = new Set(entries.map((entry) => String(entry.student_id))).size;
+  const average = entries.length
+    ? Math.round(totalAstrocoins / entries.length)
+    : 0;
+  summary.innerHTML = `
+    <article><span>Начислено</span><strong>${totalAstrocoins} AC</strong></article>
+    <article><span>Операций</span><strong>${entries.length}</strong></article>
+    <article><span>Преподавателей</span><strong>${teacherCount}</strong></article>
+    <article><span>Учеников</span><strong>${studentCount}</strong></article>
+    <article><span>Среднее начисление</span><strong>${average} AC</strong></article>`;
+  qs("#exportAcReportButton").disabled = entries.length === 0;
+  list.innerHTML = entries.length
+    ? entries
         .map(
           (entry) => `
-            <article class="report-row">
+            <details class="report-row">
+              <summary>
               <div>
                 <strong>${escapeHtml(entry.teacher_name)}</strong>
                 <span>${escapeHtml(new Date(entry.created_at).toLocaleString("ru-RU"))}</span>
@@ -3284,11 +4016,57 @@ function renderAccrualReport() {
                 <strong>+${Number(entry.amount)} AC</strong>
                 <span>${escapeHtml(entry.reason)}</span>
               </div>
-            </article>
+              <i data-lucide="chevron-down"></i>
+              </summary>
+              <div class="report-row-details">
+                <span>Группа: ${escapeHtml(entry.group_name || "Без группы")}</span>
+                <span>Дата: ${escapeHtml(new Date(entry.created_at).toLocaleString("ru-RU"))}</span>
+              </div>
+            </details>
           `,
         )
         .join("")
-    : '<div class="empty-state">За выбранный период начислений нет</div>';
+    : `<div class="empty-state compact-empty"><i data-lucide="calendar-x"></i><strong>Начислений нет</strong><span>${report.entries.length ? "Измените преподавателя или группу." : "Попробуйте выбрать другой период."}</span></div>`;
+  refreshIcons();
+}
+
+function setAccrualReportPeriod(period) {
+  const today = new Date();
+  const from = new Date(today);
+  if (period === "week") from.setDate(today.getDate() - 6);
+  if (period === "month") from.setDate(1);
+  qs("#acReportDateFrom").value = reportDateValue(from);
+  qs("#acReportDateTo").value = reportDateValue(today);
+  state.accrualReportPeriod = period;
+  qsa("[data-report-period]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.reportPeriod === period);
+  });
+  loadAccrualReport();
+}
+
+function exportAccrualReport() {
+  const entries = filteredAccrualReportEntries();
+  if (!entries.length) return;
+  const csvRows = [
+    ["Дата", "Преподаватель", "Ученик", "Группа", "Сумма AC", "Причина"],
+    ...entries.map((entry) => [
+      new Date(entry.created_at).toLocaleString("ru-RU"),
+      entry.teacher_name,
+      entry.student_name,
+      entry.group_name || "",
+      Number(entry.amount),
+      entry.reason,
+    ]),
+  ];
+  const csv = csvRows
+    .map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(";"))
+    .join("\r\n");
+  const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `ac-report-${qs("#acReportDateFrom").value}-${qs("#acReportDateTo").value}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 async function loadAccrualReport() {
@@ -3325,10 +4103,11 @@ function renderAccrual() {
   if (!groupSelect || !studentList || !nameFilter) return;
 
   const groups = studentGroups();
-  if (state.accrualGroup !== "all" && !groups.includes(state.accrualGroup)) {
-    state.accrualGroup = "all";
+  if (state.accrualGroup && state.accrualGroup !== "all" && !groups.includes(state.accrualGroup)) {
+    state.accrualGroup = "";
   }
   groupSelect.innerHTML = [
+    '<option value="">Сначала выберите группу</option>',
     '<option value="all">Все группы</option>',
     ...groups.map((group) => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`),
   ].join("");
@@ -3353,19 +4132,37 @@ function renderAccrual() {
   groupReason.value = selectedGroupReason;
   groupAmount.value = selectedGroupAmount;
   const normalizedName = state.accrualNameFilter.trim().toLowerCase();
-  const groupStudents = studentsForGroup(state.accrualGroup);
+  const groupStudents = state.accrualGroup ? studentsForGroup(state.accrualGroup) : [];
   const visibleStudents = groupStudents.filter((student) =>
     student.name.toLowerCase().includes(normalizedName),
   );
   const resultCount = qs("#accrualResultCount");
-  if (resultCount) resultCount.textContent = `Найдено: ${visibleStudents.length}`;
+  if (resultCount) resultCount.textContent = state.accrualGroup ? `Найдено: ${visibleStudents.length}` : "";
+  const clearSearchButton = qs("#clearAccrualSearch");
+  if (clearSearchButton) clearSearchButton.hidden = !state.accrualNameFilter;
   const selectedCount = state.selectedAccrualStudents.size;
-  const selectedButton = qs("[data-selected-accrual]");
-  if (selectedButton) {
-    selectedButton.disabled = state.accrualSaving || selectedCount === 0;
+  const selectedCountLabel = qs("#accrualSelectedCount");
+  if (selectedCountLabel) {
+    selectedCountLabel.textContent = selectedCount ? `Выбрано: ${selectedCount}` : "Никто не выбран";
+  }
+  const canSubmitAccrual = selectedCount > 0 && Boolean(selectedGroupReason) && Boolean(selectedGroupAmount);
+  qsa("[data-selected-accrual]").forEach((selectedButton) => {
+    selectedButton.disabled = state.accrualSaving || !canSubmitAccrual;
     selectedButton.textContent = state.accrualSaving
       ? "Начисление..."
-      : `Начислить выбранным (${selectedCount})`;
+      : selectedButton.closest("#accrualStickyAction")
+        ? `Начислить ${selectedCount}`
+        : `Начислить выбранным (${selectedCount})`;
+  });
+  const stickyAction = qs("#accrualStickyAction");
+  if (stickyAction) stickyAction.hidden = selectedCount === 0;
+  const stickyCount = qs("#accrualStickyCount");
+  if (stickyCount) stickyCount.textContent = `Выбрано: ${selectedCount}`;
+  const stickyDetails = qs("#accrualStickyDetails");
+  if (stickyDetails) {
+    stickyDetails.textContent = selectedGroupReason && selectedGroupAmount
+      ? `${selectedGroupReason} · +${selectedGroupAmount} AC каждому`
+      : "Выберите причину и сумму";
   }
   const bulkHint = qs(".accrual-bulk p");
   if (bulkHint) {
@@ -3374,8 +4171,13 @@ function renderAccrual() {
       : "Отметьте учеников в списке ниже.";
   }
 
+  if (!state.accrualGroup) {
+    studentList.innerHTML = '<div class="empty-state compact-empty"><i data-lucide="users"></i><strong>Выберите группу</strong><span>После выбора появится список учеников.</span></div>';
+    refreshIcons();
+    return;
+  }
   if (visibleStudents.length === 0) {
-    studentList.innerHTML = '<div class="empty-state">Ученики не найдены</div>';
+    studentList.innerHTML = '<div class="empty-state compact-empty"><strong>Ученики не найдены</strong><button type="button" class="secondary-action" data-clear-accrual-search>Сбросить поиск</button></div>';
     return;
   }
 
@@ -3391,10 +4193,10 @@ function renderAccrual() {
           />
           <span class="accrual-student-head">
             <span class="accrual-student-mark">${escapeHtml(student.name.slice(0, 1))}</span>
-            <span class="accrual-student-copy">
+              <span class="accrual-student-copy">
               <strong>${escapeHtml(student.name)}</strong>
               <span class="accrual-student-meta">
-                <span>${escapeHtml(studentGroupName(student))}</span>
+                ${state.accrualGroup === "all" ? `<span>${escapeHtml(studentGroupName(student))}</span>` : ""}
                 ${state.role === "teacher" ? "" : `<span>${escapeHtml(student.teacher)}</span>`}
               </span>
             </span>
@@ -3409,6 +4211,232 @@ function renderAccrual() {
   refreshIcons();
 }
 
+function studentRegistryStatus(status) {
+  const statuses = {
+    active: { label: "Обучается", tone: "active" },
+    departed: { label: "Выбыл", tone: "departed" },
+    archived: { label: "Архив", tone: "archived" },
+  };
+  return statuses[status] || statuses.active;
+}
+
+function studentHistoryChangedFields(fields) {
+  const labels = {
+    crm_deal_id: "данные CRM",
+    crm_uuid: "данные CRM",
+    lms_student_id: "ID ученика",
+    first_name: "имя",
+    last_name: "фамилия",
+    group_name: "группа",
+    course_name: "курс",
+    venue_name: "площадка",
+    teacher_name: "преподаватель",
+  };
+  return [...new Set((fields || []).map((field) => labels[field] || field))];
+}
+
+function studentHistoryCopy(event) {
+  if (event.eventType === "imported") {
+    return {
+      title: "Добавлен в систему",
+      detail: "Данные ученика загружены из файла.",
+    };
+  }
+  if (event.eventType === "status_changed") {
+    const from = studentRegistryStatus(event.fromStatus || "active").label;
+    const to = studentRegistryStatus(event.toStatus).label;
+    return {
+      title: `Статус изменен: ${to}`,
+      detail: `${from} → ${to}`,
+    };
+  }
+  const changedFields = studentHistoryChangedFields(event.changedFields);
+  return {
+    title: "Данные обновлены",
+    detail: changedFields.length
+      ? `Изменено: ${changedFields.join(", ")}.`
+      : "Файл загружен повторно, данные не изменились.",
+  };
+}
+
+function renderStudentRegistry() {
+  const panel = qs("#adminPanel");
+  if (!panel) return;
+
+  if (state.adminStudentsLoading || (!state.adminStudentsLoaded && !state.adminStudentsError)) {
+    panel.innerHTML = `
+      <div class="student-registry-loading" role="status">
+        <span class="button-spinner" aria-hidden="true"></span>
+        <strong>Загружаем учеников</strong>
+      </div>
+    `;
+    return;
+  }
+
+  if (state.adminStudentsError) {
+    panel.innerHTML = `
+      <div class="empty-state student-registry-error">
+        <i data-lucide="circle-alert"></i>
+        <strong>Не удалось загрузить учеников</strong>
+        <span>${escapeHtml(state.adminStudentsError)}</span>
+        <button class="secondary-action" type="button" data-retry-student-registry>
+          <i data-lucide="refresh-cw"></i><span>Повторить</span>
+        </button>
+      </div>
+    `;
+    refreshIcons();
+    return;
+  }
+
+  const allStudents = state.adminStudents;
+  const statusCounts = allStudents.reduce(
+    (counts, student) => {
+      counts.all += 1;
+      counts[student.status] = (counts[student.status] || 0) + 1;
+      return counts;
+    },
+    { all: 0, active: 0, departed: 0, archived: 0 },
+  );
+  const groups = [...new Set(allStudents.map((student) => student.group).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, "ru"));
+  const query = state.adminEntitySearch.trim().toLowerCase();
+  const visibleStudents = allStudents
+    .filter((student) => {
+      const matchesStatus =
+        state.studentRegistryStatusFilter === "all" ||
+        student.status === state.studentRegistryStatusFilter;
+      const matchesGroup =
+        state.studentRegistryGroupFilter === "all" ||
+        student.group === state.studentRegistryGroupFilter;
+      const searchText = [
+        student.name,
+        student.lmsId,
+        student.group,
+        student.course,
+        student.venue,
+        student.teacher,
+      ].join(" ").toLowerCase();
+      return matchesStatus && matchesGroup && (!query || searchText.includes(query));
+    })
+    .sort((left, right) => {
+      const statusOrder = { active: 0, departed: 1, archived: 2 };
+      const statusCompare = (statusOrder[left.status] ?? 3) - (statusOrder[right.status] ?? 3);
+      if (statusCompare !== 0) return statusCompare;
+      const groupCompare = (left.group || "").localeCompare(right.group || "", "ru");
+      return groupCompare || left.name.localeCompare(right.name, "ru");
+    });
+  const statusFilters = [
+    ["all", "Все ученики", "users"],
+    ["active", "Обучаются", "user-check"],
+    ["departed", "Выбыли", "user-minus"],
+    ["archived", "В архиве", "archive"],
+  ];
+
+  panel.innerHTML = `
+    <div class="admin-section-toolbar student-registry-heading">
+      <div>
+        <h3>Все ученики</h3>
+        <span>Состояние и история изменений с момента первого импорта</span>
+      </div>
+      <button class="secondary-action" type="button" data-retry-student-registry>
+        <i data-lucide="refresh-cw"></i><span>Обновить</span>
+      </button>
+    </div>
+    <div class="student-registry-metrics" aria-label="Фильтр по состоянию">
+      ${statusFilters.map(([status, label, icon]) => `
+        <button
+          class="student-registry-metric ${state.studentRegistryStatusFilter === status ? "is-active" : ""}"
+          type="button"
+          data-student-registry-status="${status}"
+        >
+          <i data-lucide="${icon}"></i>
+          <span><strong>${statusCounts[status] || 0}</strong><small>${label}</small></span>
+        </button>
+      `).join("")}
+    </div>
+    <div class="admin-filter-toolbar student-registry-filters">
+      <label class="search-field">
+        <i data-lucide="search"></i>
+        <input id="adminEntitySearch" type="search" value="${escapeHtml(state.adminEntitySearch)}" placeholder="ФИО, группа, ID или преподаватель" />
+        <button class="search-clear" type="button" data-clear-admin-search ${state.adminEntitySearch ? "" : "hidden"}><i data-lucide="x"></i></button>
+      </label>
+      <select id="studentRegistryGroupFilter" aria-label="Группа">
+        <option value="all">Все группы</option>
+        ${groups.map((group) => `<option value="${escapeHtml(group)}" ${state.studentRegistryGroupFilter === group ? "selected" : ""}>${escapeHtml(group)}</option>`).join("")}
+      </select>
+      <span>Показано: ${visibleStudents.length} из ${allStudents.length}</span>
+    </div>
+    <div class="student-registry-list">
+      ${visibleStudents.length ? visibleStudents.map((student) => {
+        const status = studentRegistryStatus(student.status);
+        const history = [...student.history].sort(
+          (left, right) => new Date(right.occurredAt) - new Date(left.occurredAt),
+        );
+        const meta = [student.group, student.course, student.venue, student.teacher]
+          .filter(Boolean);
+        return `
+          <details class="student-registry-card">
+            <summary>
+              <span class="student-registry-mark">${escapeHtml(student.name.trim().slice(0, 1).toUpperCase() || "У")}</span>
+              <span class="student-registry-main">
+                <span class="student-registry-name-row">
+                  <strong>${escapeHtml(student.name)}</strong>
+                  <span class="student-registry-status is-${status.tone}">${status.label}</span>
+                </span>
+                <span class="student-registry-meta">${meta.map((item) => `<span>${escapeHtml(item)}</span>`).join("") || "Данные группы не указаны"}</span>
+              </span>
+              <span class="student-registry-balance">${student.balance} AC</span>
+              <span class="student-registry-chevron"><i data-lucide="chevron-down"></i></span>
+            </summary>
+            <div class="student-registry-details">
+              <div class="student-registry-dates">
+                <span><small>Импортирован</small><strong>${formatRegistryDate(student.importedAt)}</strong></span>
+                <span><small>Данные обновлены</small><strong>${formatRegistryDate(student.updatedAt)}</strong></span>
+                <span><small>Статус обновлен</small><strong>${formatRegistryDate(student.statusUpdatedAt)}</strong></span>
+                <span class="${student.departedAt ? "is-departed" : ""}"><small>Дата выбытия</small><strong>${student.departedAt ? formatRegistryDate(student.departedAt) : "Нет"}</strong></span>
+              </div>
+              <div class="student-registry-identifiers">
+                <span><small>ID ученика</small><strong>${escapeHtml(student.lmsId || "Не указан")}</strong></span>
+                <span><small>Группа</small><strong>${escapeHtml(student.group || "Не указана")}</strong></span>
+              </div>
+              <section class="student-history">
+                <div class="student-history-head">
+                  <h4>История ученика</h4>
+                  <span>${history.length} ${history.length === 1 ? "событие" : "событий"}</span>
+                </div>
+                <div class="student-history-list">
+                  ${history.length ? history.map((event) => {
+                    const copy = studentHistoryCopy(event);
+                    return `
+                      <article class="student-history-item is-${escapeHtml(event.eventType)}">
+                        <span class="student-history-dot" aria-hidden="true"></span>
+                        <span class="student-history-copy">
+                          <strong>${escapeHtml(copy.title)}</strong>
+                          <span>${escapeHtml(copy.detail)}</span>
+                          ${event.actorName ? `<small>Ответственный: ${escapeHtml(event.actorName)}</small>` : ""}
+                        </span>
+                        <time datetime="${escapeHtml(event.occurredAt)}">${formatRegistryDate(event.occurredAt)}</time>
+                      </article>
+                    `;
+                  }).join("") : '<div class="empty-state compact-empty">История пока пуста</div>'}
+                </div>
+              </section>
+            </div>
+          </details>
+        `;
+      }).join("") : `
+        <div class="empty-state student-registry-empty">
+          <i data-lucide="users"></i>
+          <strong>Ученики не найдены</strong>
+          <span>Измените поиск или фильтр.</span>
+          <button class="secondary-action" type="button" data-reset-student-registry>Сбросить фильтры</button>
+        </div>
+      `}
+    </div>
+  `;
+  refreshIcons();
+}
+
 function renderAdminPanel() {
   const adminTitles = {
     summary: "Операционная сводка",
@@ -3418,6 +4446,7 @@ function renderAdminPanel() {
     crm: "Импорт учеников и групп",
     contacts: "Связи доступа",
     staff: "Сотрудники",
+    students: "Ученики",
   };
   qs("#adminViewTitle").textContent = adminTitles[state.adminTab] || "Операции";
   const adminRoleEyebrow = qs("#adminRoleEyebrow");
@@ -3428,6 +4457,11 @@ function renderAdminPanel() {
   qsa(".admin-tab").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.adminTab === state.adminTab);
   });
+
+  if (state.adminTab === "students") {
+    renderStudentRegistry();
+    return;
+  }
 
   if (state.adminTab === "summary") {
     const summary = state.opsSummary || buildLocalOpsSummary();
@@ -3464,34 +4498,34 @@ function renderAdminPanel() {
         </div>
       </div>
       <div class="ops-summary-grid">
-        <article class="ops-metric ops-metric-orders">
+        <button class="ops-metric ops-metric-orders" type="button" data-ops-jump="orders">
           <span class="ops-metric-icon"><i data-lucide="shopping-bag"></i></span>
           <span class="ops-metric-copy">
             <strong class="ops-metric-value">${Number(summary.open_orders || 0)}</strong>
             <small>Заказы в работе</small>
           </span>
-        </article>
-        <article class="ops-metric ops-metric-issue">
+        </button>
+        <button class="ops-metric ops-metric-issue" type="button" data-ops-jump="orders" data-order-filter="open">
           <span class="ops-metric-icon"><i data-lucide="hand-platter"></i></span>
           <span class="ops-metric-copy">
             <strong class="ops-metric-value">${Number(summary.pending_issue_orders || 0)}</strong>
             <small>Ожидают выдачи</small>
           </span>
-        </article>
-        <article class="ops-metric ops-metric-products">
+        </button>
+        <button class="ops-metric ops-metric-products" type="button" data-ops-jump="products">
           <span class="ops-metric-icon"><i data-lucide="package-open"></i></span>
           <span class="ops-metric-copy">
             <strong class="ops-metric-value">${activeProductCount}</strong>
             <small>Активные товары</small>
           </span>
-        </article>
-        <article class="ops-metric ops-metric-reserved">
+        </button>
+        <button class="ops-metric ops-metric-reserved" type="button" data-ops-jump="inventory">
           <span class="ops-metric-icon"><i data-lucide="archive"></i></span>
           <span class="ops-metric-copy">
             <strong class="ops-metric-value">${Number(summary.total_reserved_quantity || 0)}</strong>
             <small>Товаров в резерве</small>
           </span>
-        </article>
+        </button>
       </div>
       <div class="ops-summary-meta">
         <span><i data-lucide="warehouse"></i>${warehouseCountLabel(warehouseCount)}</span>
@@ -3511,10 +4545,10 @@ function renderAdminPanel() {
                     ? statuses
                         .map(
                           (item) => `
-                            <div class="ops-row">
+                            <button class="ops-row ops-row-action" type="button" data-order-status="${escapeHtml(item.status)}" data-view-jump="orders">
                               <span>${escapeHtml(orderStatusLabel(item.status))}</span>
                               <strong>${Number(item.count || 0)}</strong>
-                            </div>
+                            </button>
                           `,
                         )
                         .join("")
@@ -3559,7 +4593,7 @@ function renderAdminPanel() {
                         .slice(0, 8)
                         .map(
                           (item) => `
-                            <button class="ops-row ops-row-action" type="button" data-ops-jump="inventory">
+                            <button class="ops-row ops-row-action" type="button" data-ops-jump="inventory" data-inventory-low-stock>
                               <span>${escapeHtml(
                                 item.product_name || item.sku || "товар",
                               )} / ${escapeHtml(item.warehouse_name || "склад")}</span>
@@ -3607,7 +4641,15 @@ function renderAdminPanel() {
     const savingDisabled = state.productSaving ? "disabled" : "";
     const editing = products.find((product) => product.id === state.editingProductId);
     const editorOpen = state.productEditorOpen || Boolean(editing);
-    const photoPreviewUrl = state.productPhotoPreviewUrl || editing?.photoUrl || "";
+    const photoPreviewUrl = state.productPhotoPreviewUrl || (state.productPhotoRemoved ? "" : editing?.photoUrl || "");
+    const productQuery = state.adminEntitySearch.trim().toLowerCase();
+    const productCategories = Array.from(new Set(products.map((product) => product.category).filter(Boolean))).sort((left, right) => left.localeCompare(right, "ru"));
+    const visibleProducts = products.filter((product) => {
+      const matchesQuery = !productQuery || productSearchText(product).includes(productQuery);
+      const matchesStatus = state.productStatusFilter === "all" || (product.status || "active") === state.productStatusFilter;
+      const matchesCategory = state.productCategoryFilter === "all" || product.category === state.productCategoryFilter;
+      return matchesQuery && matchesStatus && matchesCategory;
+    });
     qs("#adminPanel").innerHTML = `
       <div class="admin-section-toolbar">
         <div>
@@ -3620,6 +4662,20 @@ function renderAdminPanel() {
             : '<button id="productCreateButton" class="primary-action" type="button">Добавить товар</button>'
         }
       </div>
+      ${editorOpen ? "" : `<div class="admin-filter-toolbar">
+        <label class="search-field"><i data-lucide="search"></i><input id="adminEntitySearch" type="search" value="${escapeHtml(state.adminEntitySearch)}" placeholder="Название, SKU или категория" /><button class="search-clear" type="button" data-clear-admin-search ${state.adminEntitySearch ? "" : "hidden"}><i data-lucide="x"></i></button></label>
+        <select id="productStatusFilter" aria-label="Статус товара">
+          <option value="all">Все статусы</option>
+          <option value="active" ${state.productStatusFilter === "active" ? "selected" : ""}>Активные</option>
+          <option value="hidden" ${state.productStatusFilter === "hidden" ? "selected" : ""}>Скрытые</option>
+          <option value="archived" ${state.productStatusFilter === "archived" ? "selected" : ""}>В архиве</option>
+        </select>
+        <select id="productCategoryFilter" aria-label="Категория товара">
+          <option value="all">Все категории</option>
+          ${productCategories.map((category) => `<option value="${escapeHtml(category)}" ${state.productCategoryFilter === category ? "selected" : ""}>${escapeHtml(category)}</option>`).join("")}
+        </select>
+        <span>${visibleProducts.length} из ${products.length}</span>
+      </div>`}
       ${editorOpen ? `
       <div class="product-editor admin-editor">
         <div class="product-editor-heading">
@@ -3668,6 +4724,10 @@ function renderAdminPanel() {
                   )}</small>`
                 : ""
             }
+            ${photoPreviewUrl ? `<div class="product-photo-tools">
+              <button type="button" class="secondary-action" data-crop-product-photo><i data-lucide="crop"></i><span>Кадрировать</span></button>
+              <button type="button" class="secondary-action danger-action" data-remove-product-photo><i data-lucide="trash-2"></i><span>Удалить</span></button>
+            </div>` : ""}
           </div>
 
           <div class="product-form-grid">
@@ -3741,8 +4801,10 @@ function renderAdminPanel() {
       <div class="admin-card-list">
       ${
         products.length === 0
-          ? '<div class="empty-state">Товаров пока нет</div>'
-          : products
+          ? '<div class="empty-state compact-empty"><i data-lucide="package-plus"></i><strong>Товаров пока нет</strong><span>Добавьте первый товар целиком: фото, название, цену и описание.</span></div>'
+          : visibleProducts.length === 0
+            ? '<div class="empty-state compact-empty"><strong>Товары не найдены</strong><button class="secondary-action" type="button" data-clear-admin-search>Сбросить фильтры</button></div>'
+          : visibleProducts
               .map(
                 (product) => `
             <article class="admin-entity-card">
@@ -3774,6 +4836,7 @@ function renderAdminPanel() {
               </div>
               <div class="admin-entity-actions">
                 <strong>${product.price} AC</strong>
+                <button class="icon-button product-status-toggle" type="button" data-toggle-product-status="${escapeHtml(product.id)}" title="${(product.status || "active") === "active" ? "Скрыть товар" : "Опубликовать товар"}" aria-label="${(product.status || "active") === "active" ? "Скрыть товар" : "Опубликовать товар"}"><i data-lucide="${(product.status || "active") === "active" ? "eye-off" : "eye"}"></i></button>
                 <button class="secondary-action" type="button" data-edit-product="${escapeHtml(
                   product.id,
                 )}">Редактировать</button>
@@ -3792,12 +4855,23 @@ function renderAdminPanel() {
   if (state.adminTab === "crm") {
     const preview = state.crmImportPreview;
     const busy = state.crmImporting ? "disabled" : "";
+    const importStep = preview ? 3 : state.crmImportFile ? 2 : 1;
     qs("#adminPanel").innerHTML = `
       <div class="admin-section-toolbar">
         <div>
           <h3>Данные CRM</h3>
           <span>${escapeHtml(apiContext.tenantSlug || "Текущий филиал")}</span>
         </div>
+        <a
+          class="secondary-action"
+          href="/miniapp/import-template.xlsx"
+          download="algo-max-students-import-template.xlsx"
+        ><i data-lucide="file-down"></i> Скачать шаблон</a>
+      </div>
+      <div class="import-stepper" aria-label="Этапы импорта">
+        <span class="${importStep >= 1 ? "is-complete" : ""}"><b>1</b> Файл</span>
+        <span class="${importStep >= 2 ? "is-complete" : ""}"><b>2</b> Проверка</span>
+        <span class="${importStep >= 3 ? "is-complete" : ""}"><b>3</b> Подтверждение</span>
       </div>
       <div class="import-panel crm-import-panel">
         <div>
@@ -3818,6 +4892,7 @@ function renderAdminPanel() {
           ${state.crmImporting ? "Обработка..." : "Проверить файл"}
         </button>
       </div>
+      ${state.crmImportFile ? `<div class="import-mapping-note"><i data-lucide="table-properties"></i><div><strong>Читаем только лист «Шаблон»</strong><span>Дополнительные листы и колонки не попадут в импорт.</span></div></div>` : ""}
       ${
         preview
           ? `
@@ -3840,7 +4915,7 @@ function renderAdminPanel() {
                   } · без имени: ${Number(preview.rows_without_student_name || 0)}</span>
                 </div>
                 <button id="crmImportButton" class="primary-action" type="button" ${busy}>
-                  ${state.crmImporting ? "Импорт..." : "Импортировать"}
+                  ${state.crmImporting ? "Импорт..." : `Импортировать ${Number(preview.parsed_rows || 0)} строк`}
                 </button>
               </div>
             </div>
@@ -3961,8 +5036,19 @@ function renderAdminPanel() {
 
   if (state.adminTab === "inventory") {
     const allWarehouses = allCatalogWarehouses();
-    const rows = products.flatMap((product) =>
-      productWarehouses(product).map((warehouse) => {
+    const inventoryQuery = state.adminEntitySearch.trim().toLowerCase();
+    const inventoryItems = products.flatMap((product) =>
+      productWarehouses(product).map((warehouse) => ({ product, warehouse })),
+    ).filter(({ product, warehouse }) => {
+      const matchesQuery = !inventoryQuery || `${product.name} ${product.sku || ""} ${warehouse.name}`.toLowerCase().includes(inventoryQuery);
+      const matchesWarehouse = state.inventoryWarehouseFilter === "all" || warehouse.id === state.inventoryWarehouseFilter;
+      const matchesStock = state.inventoryStockFilter === "all"
+        || (state.inventoryStockFilter === "low" && warehouse.available > 0 && warehouse.available <= 5)
+        || (state.inventoryStockFilter === "empty" && warehouse.available <= 0)
+        || (state.inventoryStockFilter === "available" && warehouse.available > 5);
+      return matchesQuery && matchesWarehouse && matchesStock;
+    }).sort((left, right) => left.warehouse.available - right.warehouse.available);
+    const rows = inventoryItems.map(({ product, warehouse }) => {
         const key = `${product.id}::${warehouse.id}`;
         const saving = state.inventorySavingKey === key;
         const targetOptions = allWarehouses
@@ -4025,20 +5111,40 @@ function renderAdminPanel() {
             </div>
           </div>
         `;
-      }),
-    );
+      });
 
     qs("#adminPanel").innerHTML = `
+      <div class="admin-section-toolbar">
+        <div><h3>Остатки по складам</h3><span>${inventoryItems.length} позиций</span></div>
+      </div>
+      <div class="admin-filter-toolbar inventory-filter-toolbar">
+        <label class="search-field"><i data-lucide="search"></i><input id="adminEntitySearch" type="search" value="${escapeHtml(state.adminEntitySearch)}" placeholder="Товар, SKU или склад" /><button class="search-clear" type="button" data-clear-admin-search ${state.adminEntitySearch ? "" : "hidden"}><i data-lucide="x"></i></button></label>
+        <select id="inventoryWarehouseFilter" aria-label="Склад"><option value="all">Все склады</option>${allWarehouses.map((warehouse) => `<option value="${escapeHtml(warehouse.id)}" ${state.inventoryWarehouseFilter === warehouse.id ? "selected" : ""}>${escapeHtml(warehouse.name)}</option>`).join("")}</select>
+        <select id="inventoryStockFilter" aria-label="Остаток">
+          <option value="all">Любой остаток</option>
+          <option value="low" ${state.inventoryStockFilter === "low" ? "selected" : ""}>Мало товара</option>
+          <option value="empty" ${state.inventoryStockFilter === "empty" ? "selected" : ""}>Нет в наличии</option>
+          <option value="available" ${state.inventoryStockFilter === "available" ? "selected" : ""}>В наличии</option>
+        </select>
+      </div>
       <div class="inventory-list">
-        ${rows.join("") || '<div class="empty-state">Остатков пока нет</div>'}
+        ${rows.join("") || '<div class="empty-state compact-empty"><strong>Позиции не найдены</strong><button class="secondary-action" type="button" data-clear-inventory-filters>Сбросить фильтры</button></div>'}
       </div>
     `;
+    refreshIcons();
     return;
   }
 
   if (state.adminTab === "contacts") {
     const activeLinks = accessLinks.filter((link) => link.status === "active").length;
-    const rows = accessLinks
+    const accessQuery = state.adminEntitySearch.trim().toLowerCase();
+    const visibleLinks = accessLinks.filter((link) => {
+      const matchesQuery = !accessQuery || `${link.studentName} ${link.group} ${link.maxUserId} ${link.displayName} ${link.username}`.toLowerCase().includes(accessQuery);
+      const matchesStatus = state.accessStatusFilter === "all" || link.status === state.accessStatusFilter;
+      const matchesRole = state.accessRoleFilter === "all" || link.role === state.accessRoleFilter;
+      return matchesQuery && matchesStatus && matchesRole;
+    });
+    const rows = visibleLinks
       .map(
         (link) => `
           <article class="admin-entity-card access-entity-card">
@@ -4069,11 +5175,16 @@ function renderAdminPanel() {
               </div>
             </div>
             <div class="admin-entity-actions">
-              <button
-                class="secondary-action ${link.status === "active" ? "danger-action" : ""}"
-                type="button"
-                data-toggle-contact="${escapeHtml(link.id)}"
-              >${link.status === "revoked" ? "Восстановить" : "Отозвать"}</button>
+              <details class="admin-row-menu">
+                <summary class="icon-button" title="Действия" aria-label="Действия со связью"><i data-lucide="ellipsis-vertical"></i></summary>
+                <div class="admin-row-menu-popover">
+                  <button
+                    class="${link.status === "active" ? "danger-action" : ""}"
+                    type="button"
+                    data-toggle-contact="${escapeHtml(link.id)}"
+                  >${link.status === "revoked" ? "Восстановить связь" : "Отозвать связь"}</button>
+                </div>
+              </details>
             </div>
           </article>
         `,
@@ -4087,20 +5198,29 @@ function renderAdminPanel() {
           <span>${activeLinks} активных из ${accessLinks.length}</span>
         </div>
       </div>
+      <div class="admin-filter-toolbar">
+        <label class="search-field"><i data-lucide="search"></i><input id="adminEntitySearch" type="search" value="${escapeHtml(state.adminEntitySearch)}" placeholder="Ученик, группа или MAX ID" /><button class="search-clear" type="button" data-clear-admin-search ${state.adminEntitySearch ? "" : "hidden"}><i data-lucide="x"></i></button></label>
+        <select id="accessStatusFilter" aria-label="Статус связи"><option value="all">Все статусы</option><option value="active" ${state.accessStatusFilter === "active" ? "selected" : ""}>Активные</option><option value="revoked" ${state.accessStatusFilter === "revoked" ? "selected" : ""}>Отозванные</option></select>
+        <select id="accessRoleFilter" aria-label="Роль связи"><option value="all">Все роли</option><option value="parent" ${state.accessRoleFilter === "parent" ? "selected" : ""}>Родители</option><option value="student" ${state.accessRoleFilter === "student" ? "selected" : ""}>Ученики</option></select>
+      </div>
       <div class="admin-card-list">
-        ${rows || '<div class="empty-state">Связей доступа пока нет</div>'}
+        ${rows || '<div class="empty-state compact-empty"><strong>Связи не найдены</strong><button class="secondary-action" type="button" data-clear-admin-search>Сбросить фильтры</button></div>'}
       </div>
     `;
+    refreshIcons();
     return;
   }
 
   const disabled = state.staffSaving ? "disabled" : "";
   const activeStaff = staffAssignments.filter((item) => item.status === "active").length;
   const revokedStaff = staffAssignments.length - activeStaff;
-  const visibleStaffAssignments = staffAssignments.filter(
-    (item) =>
-      state.staffStatusFilter === "all" || item.status === state.staffStatusFilter,
-  );
+  const staffQuery = state.adminEntitySearch.trim().toLowerCase();
+  const visibleStaffAssignments = staffAssignments.filter((item) => {
+    const matchesStatus = state.staffStatusFilter === "all" || item.status === state.staffStatusFilter;
+    const matchesRole = state.staffRoleFilter === "all" || item.role === state.staffRoleFilter;
+    const matchesQuery = !staffQuery || `${item.displayName} ${item.username} ${item.maxUserId} ${staffRoleLabel(item.role)}`.toLowerCase().includes(staffQuery);
+    return matchesStatus && matchesRole && matchesQuery;
+  });
   const rows =
     visibleStaffAssignments.length === 0
       ? `<div class="empty-state">${
@@ -4133,19 +5253,35 @@ function renderAdminPanel() {
                   </div>
                 </div>
                 <div class="admin-entity-actions">
-                  <button
-                    class="secondary-action ${
-                      assignment.status === "active" ? "danger-action" : ""
-                    }"
-                    type="button"
-                    data-toggle-staff="${escapeHtml(assignment.maxUserId)}"
-                    data-staff-role="${escapeHtml(assignment.role)}"
-                  >${assignment.status === "revoked" ? "Восстановить" : "Отозвать"}</button>
+                  ${
+                    assignment.role !== "superadmin" &&
+                    (primaryStaffRole() === "superadmin" ||
+                      ["teacher", "curator"].includes(assignment.role))
+                      ? `<details class="admin-row-menu">
+                          <summary class="icon-button" title="Действия" aria-label="Действия с сотрудником"><i data-lucide="ellipsis-vertical"></i></summary>
+                          <div class="admin-row-menu-popover">
+                            <button
+                              class="${assignment.status === "active" ? "danger-action" : ""}"
+                              type="button"
+                              data-toggle-staff="${escapeHtml(assignment.maxUserId)}"
+                              data-staff-role="${escapeHtml(assignment.role)}"
+                            >${assignment.status === "revoked" ? "Восстановить роль" : "Отозвать роль"}</button>
+                          </div>
+                        </details>`
+                      : ""
+                  }
                 </div>
               </article>
             `,
           )
           .join("");
+
+  const elevatedRoleOptions = primaryStaffRole() === "superadmin"
+    ? `
+          <option value="admin">Администратор</option>
+          <option value="partner_director">Директор партнера</option>
+        `
+    : "";
 
   qs("#adminPanel").innerHTML = `
     <div class="admin-section-toolbar">
@@ -4176,6 +5312,13 @@ function renderAdminPanel() {
         data-staff-status-filter="all"
       >Все <span>${staffAssignments.length}</span></button>
     </div>
+    <div class="admin-filter-toolbar">
+      <label class="search-field"><i data-lucide="search"></i><input id="adminEntitySearch" type="search" value="${escapeHtml(state.adminEntitySearch)}" placeholder="Имя, MAX ID или роль" /><button class="search-clear" type="button" data-clear-admin-search ${state.adminEntitySearch ? "" : "hidden"}><i data-lucide="x"></i></button></label>
+      <select id="staffRoleFilter" aria-label="Роль сотрудника">
+        <option value="all">Все роли</option>
+        ${["teacher", "curator", "admin", "partner_director", "superadmin"].map((role) => `<option value="${role}" ${state.staffRoleFilter === role ? "selected" : ""}>${escapeHtml(staffRoleLabel(role))}</option>`).join("")}
+      </select>
+    </div>
     ${state.staffEditorOpen ? `
     <div class="staff-form admin-editor">
       <label>
@@ -4189,11 +5332,9 @@ function renderAdminPanel() {
       <label>
         <span>Роль</span>
         <select id="staffRoleSelect">
-          <option value="teacher">Педагог</option>
+          <option value="teacher">Преподаватель</option>
           <option value="curator">Куратор</option>
-          <option value="admin">Админ</option>
-          <option value="partner_director">Директор партнера</option>
-          <option value="superadmin">Суперадмин</option>
+          ${elevatedRoleOptions}
         </select>
       </label>
       <button id="staffSaveButton" class="primary-action" type="button" ${disabled}>
@@ -4230,9 +5371,8 @@ function renderTeaching() {
     `${a.next_lesson_date}${a.lesson_time}`.localeCompare(`${b.next_lesson_date}${b.lesson_time}`),
   )[0];
   summary.innerHTML = `
-    <article><strong>${active.length}</strong><span>активных групп</span></article>
-    <article><strong>${active.filter((item) => item.auto_feedback_enabled).length}</strong><span>автоматических ОС</span></article>
-    <article><strong>${nearest ? escapeHtml(nearest.lesson_time.slice(0, 5)) : "--:--"}</strong><span>${nearest ? escapeHtml(nearest.group_name) : "занятий пока нет"}</span></article>`;
+    <div><i data-lucide="users"></i><strong>${active.length}</strong><span>групп</span></div>
+    <div class="teaching-next"><i data-lucide="calendar-clock"></i><span>Ближайшее занятие</span><strong>${nearest ? `${escapeHtml(formatTeachingDate(nearest.next_lesson_date))}, ${escapeHtml(nearest.lesson_time.slice(0, 5))}` : "Не запланировано"}</strong></div>`;
   renderScheduleEditor();
   renderScheduleList();
   renderFeedbackHistory();
@@ -4244,6 +5384,11 @@ function formatJournalDate(value) {
   return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit" }).format(
     new Date(`${value}T12:00:00`),
   );
+}
+
+function formatJournalMonth(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("ru-RU", { month: "long" }).format(new Date(`${value}T12:00:00`));
 }
 
 function dateAfterWeeks(value, weekOffset) {
@@ -4399,6 +5544,31 @@ function scrollAttendanceJournal(direction) {
   scroll.scrollBy({ left: direction * distance, behavior: "smooth" });
 }
 
+function attendanceJournalFocusLesson(journal) {
+  const lessons = Array.isArray(journal?.lessons) ? journal.lessons : [];
+  const configured = lessons.find((lesson) => lesson.is_current)
+    || lessons.find(
+      (lesson) => Number(lesson.position) === Number(journal?.current_lesson_number),
+    );
+  if (configured) return configured;
+  const ordered = [...lessons].sort((left, right) =>
+    `${left.lesson_date}:${left.position}`.localeCompare(`${right.lesson_date}:${right.position}`),
+  );
+  const today = reportDateValue(new Date());
+  return ordered.find((lesson) => lesson.lesson_date >= today)
+    || ordered[ordered.length - 1]
+    || null;
+}
+
+function attendanceJournalFocusLeft(scroll, lessonHeader) {
+  const studentHeader = scroll.querySelector("thead .journal-student");
+  const studentWidth = studentHeader?.offsetWidth || 0;
+  const scrollRect = scroll.getBoundingClientRect();
+  const lessonRect = lessonHeader.getBoundingClientRect();
+  const desiredLeft = scrollRect.left + studentWidth + 8;
+  return Math.max(scroll.scrollLeft + lessonRect.left - desiredLeft, 0);
+}
+
 function renderAttendanceJournal() {
   const list = qs("#attendanceJournalList");
   const title = qs("#attendanceJournalTitle");
@@ -4406,7 +5576,15 @@ function renderAttendanceJournal() {
   const saveButton = qs("#saveAttendanceButton");
   const saveHint = qs("#attendanceSaveHint");
   const closeButton = qs("#closeAttendanceJournalButton");
-  if (!list || !title || !meta || !saveButton || !saveHint || !closeButton) return;
+  const panel = qs("#attendanceJournalPanel");
+  if (!list || !title || !meta || !saveButton || !saveHint || !closeButton || !panel) return;
+  panel.hidden = !state.attendanceLoading && !state.attendanceJournal;
+  list.classList.toggle(
+    "is-empty",
+    state.attendanceLoading ||
+      !state.attendanceJournal ||
+      state.attendanceJournal.students.length === 0,
+  );
   const previousScroll = list.querySelector(".school-journal-scroll")?.scrollLeft || 0;
   if (state.attendanceLoading) {
     title.textContent = "Открываем журнал";
@@ -4435,10 +5613,17 @@ function renderAttendanceJournal() {
     saveHint.textContent = "";
     return;
   }
+  const targetLesson = attendanceJournalFocusLesson(journal);
+  const targetPosition = Number(targetLesson?.position || 0);
   const lessonHeaders = journal.lessons
     .map(
-      (lesson) => `
-        <th class="journal-date ${lesson.is_current ? "is-current" : ""} ${lesson.is_future ? "is-future" : ""}" data-current-lesson="${lesson.is_current ? "true" : "false"}">
+      (lesson, index) => {
+        const previousLesson = journal.lessons[index - 1];
+        const monthChanged = !previousLesson || formatJournalMonth(previousLesson.lesson_date) !== formatJournalMonth(lesson.lesson_date);
+        const isTargetLesson = Number(lesson.position) === targetPosition;
+        return `
+        <th class="journal-date ${isTargetLesson ? "is-current" : ""} ${lesson.is_future ? "is-future" : ""}" data-current-lesson="${isTargetLesson ? "true" : "false"}">
+          ${monthChanged ? `<span class="journal-month">${escapeHtml(formatJournalMonth(lesson.lesson_date))}</span>` : ""}
           <button
             class="journal-lesson-edit"
             type="button"
@@ -4450,7 +5635,8 @@ function renderAttendanceJournal() {
             <small>Урок ${lesson.lesson_number}</small>
             <i data-lucide="pencil"></i>
           </button>
-        </th>`,
+        </th>`;
+      },
     )
     .join("");
   const studentRows = journal.students
@@ -4492,11 +5678,18 @@ function renderAttendanceJournal() {
     })
     .join("");
   list.innerHTML = `
-    <div class="journal-legend">
-      <span><b class="legend-present"></b> был</span>
-      <span><b class="legend-absent"></b> не был</span>
-      <span><b class="legend-makeup">✓</b> отработано</span>
+    <div class="journal-toolbar">
+      <div class="journal-legend">
+        <span><b class="legend-present"></b> был</span>
+        <span><b class="legend-absent"></b> не был</span>
+        <span><b class="legend-makeup">✓</b> отработано</span>
+      </div>
+      <div class="journal-quick-actions">
+        <button type="button" class="secondary-action" data-journal-current><i data-lucide="locate-fixed"></i><span>Текущий урок</span></button>
+        ${targetLesson ? `<button type="button" class="secondary-action" data-mark-all-present="${targetLesson.lesson_date}"><i data-lucide="check-check"></i><span>Все были</span></button>` : ""}
+      </div>
     </div>
+    <div class="journal-swipe-hint"><i data-lucide="move-horizontal"></i><span>Листайте журнал пальцем</span></div>
     <div class="journal-scroll-controls" aria-label="Прокрутка уроков">
       <button type="button" data-journal-scroll="-1" title="Предыдущие уроки" aria-label="Предыдущие уроки">
         <i data-lucide="chevron-left"></i>
@@ -4533,7 +5726,9 @@ function renderAttendanceJournal() {
     if (!scroll) return;
     if (state.attendanceAutoScroll) {
       const current = scroll.querySelector('[data-current-lesson="true"]');
-      current?.scrollIntoView({ block: "nearest", inline: "center" });
+      if (current) {
+        scroll.scrollLeft = attendanceJournalFocusLeft(scroll, current);
+      }
       state.attendanceAutoScroll = false;
     } else {
       scroll.scrollLeft = previousScroll;
@@ -4541,6 +5736,34 @@ function renderAttendanceJournal() {
     syncJournalScrollControls(scroll);
     scroll.addEventListener("scroll", () => syncJournalScrollControls(scroll), { passive: true });
   });
+}
+
+function scrollJournalToCurrent() {
+  const scroll = qs("#attendanceJournalList .school-journal-scroll");
+  const current = scroll?.querySelector('[data-current-lesson="true"]');
+  if (!scroll || !current) return;
+  scroll.scrollTo({
+    left: attendanceJournalFocusLeft(scroll, current),
+    behavior: "smooth",
+  });
+}
+
+function markGroupPresent(lessonDate) {
+  const journal = state.attendanceJournal;
+  if (!journal || !lessonDate) return;
+  journal.students.forEach((student) => {
+    let mark = attendanceMark(student, lessonDate);
+    if (!mark) {
+      mark = { lesson_date: lessonDate, present: true, makeup_completed: false, comment: null };
+      student.marks.push(mark);
+    } else {
+      mark.present = true;
+      mark.makeup_completed = false;
+    }
+    rememberAttendanceChange(student, lessonDate);
+  });
+  renderAttendanceJournal();
+  showNotice(`Отмечено присутствие: ${journal.students.length} учен.`, "ok", { duration: 3200 });
 }
 
 function demoGroupAttendanceJournal(schedule) {
@@ -4858,12 +6081,55 @@ async function copyGeneratedFeedback() {
   showNotice("Текст ОС скопирован");
 }
 
-function availableBroadcastGroups() {
+function availableBroadcastVenues() {
   return [...new Set(
     students
+      .map((student) => String(student.venue || "").trim())
+      .filter(Boolean),
+  )].sort((left, right) => left.localeCompare(right, "ru"));
+}
+
+function broadcastVenueFilterValue() {
+  return qs("#broadcastVenueFilter")?.value || "all";
+}
+
+function broadcastLessonModeFilterValue() {
+  return qs("#broadcastLessonModeFilter")?.value || "all";
+}
+
+function broadcastScheduleForGroup(groupName) {
+  return teachingWorkspace().schedules.find(
+    (schedule) => schedule.is_active !== false && schedule.group_name === groupName,
+  );
+}
+
+function availableBroadcastGroups() {
+  const venueFilter = broadcastVenueFilterValue();
+  const lessonModeFilter = broadcastLessonModeFilterValue();
+  return [...new Set(
+    students
+      .filter((student) => {
+        if (venueFilter !== "all" && String(student.venue || "") !== venueFilter) return false;
+        if (lessonModeFilter === "all") return true;
+        return broadcastScheduleForGroup(student.group)?.lesson_mode === lessonModeFilter;
+      })
       .map((student) => String(student.group || "").trim())
       .filter(Boolean),
   )].sort((left, right) => left.localeCompare(right, "ru"));
+}
+
+function renderBroadcastTargetFilters() {
+  const venueSelect = qs("#broadcastVenueFilter");
+  if (!venueSelect) return;
+  const currentVenue = venueSelect.value || "all";
+  const venues = availableBroadcastVenues();
+  venueSelect.innerHTML = [
+    '<option value="all">Все площадки</option>',
+    ...venues.map(
+      (venueName) => `<option value="${escapeHtml(venueName)}">${escapeHtml(venueName)}</option>`,
+    ),
+  ].join("");
+  venueSelect.value = venues.includes(currentVenue) ? currentVenue : "all";
 }
 
 function selectedBroadcastGroups() {
@@ -4880,6 +6146,10 @@ function broadcastAudiencePayload() {
     recipient_category: qs("#broadcastRecipientCategory")?.value || "all",
     audience_filter: qs("#broadcastAudienceFilter")?.value || "all",
     group_names: state.broadcastAllGroups ? [] : selectedBroadcastGroups(),
+    venue_names:
+      broadcastVenueFilterValue() === "all" ? [] : [broadcastVenueFilterValue()],
+    lesson_modes:
+      broadcastLessonModeFilterValue() === "all" ? [] : [broadcastLessonModeFilterValue()],
     balance_threshold:
       qs("#broadcastAudienceFilter")?.value === "low_balance"
         ? Number(qs("#broadcastBalanceThreshold")?.value || 300)
@@ -4903,14 +6173,17 @@ function renderBroadcastGroups() {
   if (!list || !hint) return;
   const groups = availableBroadcastGroups();
   if (groups.length === 0) {
-    list.innerHTML = '<div class="empty-state">У выбранного партнера пока нет групп.</div>';
-    hint.textContent = "После импорта учеников группы появятся здесь.";
+    list.innerHTML = '<div class="empty-state">Подходящих групп нет.</div>';
+    hint.textContent =
+      broadcastVenueFilterValue() !== "all" || broadcastLessonModeFilterValue() !== "all"
+        ? "Измените площадку или формат занятий."
+        : "После импорта учеников группы появятся здесь.";
     return;
   }
   hint.textContent = state.broadcastAllGroups
     ? `Выбраны все группы: ${groups.length}`
-    : state.broadcastSelectedGroups.size
-      ? `Выбрано групп: ${state.broadcastSelectedGroups.size}`
+    : selectedBroadcastGroups().length
+      ? `Выбрано групп: ${selectedBroadcastGroups().length}`
       : "Выберите хотя бы одну группу.";
   list.innerHTML = groups
     .map(
@@ -4966,7 +6239,13 @@ function broadcastAudienceLabel(item) {
   const groups = item.group_names?.length
     ? `${item.group_names.length} гр.`
     : "все группы";
-  return `${recipients} · ${groups}`;
+  const venues = item.venue_names?.length ? item.venue_names.join(", ") : "все площадки";
+  const lessonModes = item.lesson_modes?.length
+    ? item.lesson_modes
+        .map((mode) => (mode === "individual" ? "индивидуально" : "в группах"))
+        .join(", ")
+    : "любой формат";
+  return `${recipients} · ${venues} · ${lessonModes} · ${groups}`;
 }
 
 function formatBroadcastDate(value) {
@@ -4996,6 +6275,7 @@ function renderBroadcastHistory() {
     .map(
       (item) => `
         <article class="broadcast-history-item">
+          ${item.image_url ? `<img class="broadcast-history-image" src="${escapeHtml(item.image_url)}" alt="" loading="lazy" />` : ""}
           <div class="broadcast-history-head">
             <strong>${escapeHtml(item.title || "Без заголовка")}</strong>
             <span class="broadcast-status is-${escapeHtml(item.status)}">${escapeHtml(broadcastStatusLabel(item.status))}</span>
@@ -5009,10 +6289,138 @@ function renderBroadcastHistory() {
             <span>${escapeHtml(item.creator_name || "Сотрудник")}</span>
             <time>${escapeHtml(formatBroadcastDate(item.sent_at || item.created_at))}</time>
           </div>
+          <div class="broadcast-history-actions">
+            <button type="button" class="text-action" data-duplicate-broadcast="${escapeHtml(item.id || "")}"><i data-lucide="copy"></i>Повторить</button>
+            ${item.status === "failed" || item.status === "partial" ? `<button type="button" class="text-action" data-retry-broadcast="${escapeHtml(item.id || "")}"><i data-lucide="refresh-cw"></i>Отправить снова</button>` : ""}
+          </div>
         </article>
       `,
     )
     .join("");
+}
+
+function broadcastDraftStorageKey() {
+  return `algo-max-broadcast-draft:${apiContext.tenantSlug || "default"}:${apiContext.maxUserId || "demo"}`;
+}
+
+function broadcastDraftPayload() {
+  return {
+    title: qs("#broadcastTitle")?.value || "",
+    message: qs("#broadcastMessage")?.value || "",
+    recipientCategory: qs("#broadcastRecipientCategory")?.value || "all",
+    audienceFilter: qs("#broadcastAudienceFilter")?.value || "all",
+    venueFilter: broadcastVenueFilterValue(),
+    lessonModeFilter: broadcastLessonModeFilterValue(),
+    balanceThreshold: qs("#broadcastBalanceThreshold")?.value || "300",
+    allGroups: state.broadcastAllGroups,
+    groups: selectedBroadcastGroups(),
+    savedAt: new Date().toISOString(),
+  };
+}
+
+function saveBroadcastDraft({ quiet = false } = {}) {
+  try {
+    const draft = broadcastDraftPayload();
+    localStorage.setItem(broadcastDraftStorageKey(), JSON.stringify(draft));
+    state.broadcastDraftSavedAt = new Date(draft.savedAt);
+    const label = qs("#broadcastDraftState");
+    if (label) label.textContent = `Черновик сохранен в ${state.broadcastDraftSavedAt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`;
+    if (!quiet) showNotice("Черновик новости сохранен");
+  } catch (error) {
+    console.warn("Не удалось сохранить черновик рассылки", error);
+  }
+}
+
+function scheduleBroadcastDraftSave() {
+  window.clearTimeout(broadcastDraftTimer);
+  const label = qs("#broadcastDraftState");
+  if (label) label.textContent = "Сохраняем черновик...";
+  broadcastDraftTimer = window.setTimeout(() => saveBroadcastDraft({ quiet: true }), 500);
+}
+
+function restoreBroadcastDraft() {
+  try {
+    const draft = JSON.parse(localStorage.getItem(broadcastDraftStorageKey()) || "null");
+    if (!draft || typeof draft !== "object") return;
+    qs("#broadcastTitle").value = draft.title || "";
+    qs("#broadcastMessage").value = draft.message || "";
+    qs("#broadcastRecipientCategory").value = draft.recipientCategory || "all";
+    qs("#broadcastAudienceFilter").value = draft.audienceFilter || "all";
+    renderBroadcastTargetFilters();
+    qs("#broadcastVenueFilter").value = draft.venueFilter || "all";
+    qs("#broadcastLessonModeFilter").value = draft.lessonModeFilter || "all";
+    qs("#broadcastBalanceThreshold").value = draft.balanceThreshold || "300";
+    state.broadcastAllGroups = draft.allGroups !== false;
+    state.broadcastSelectedGroups = new Set(Array.isArray(draft.groups) ? draft.groups : []);
+    state.broadcastDraftSavedAt = draft.savedAt ? new Date(draft.savedAt) : null;
+  } catch (error) {
+    console.warn("Не удалось восстановить черновик рассылки", error);
+  }
+}
+
+function clearBroadcastDraft() {
+  try {
+    localStorage.removeItem(broadcastDraftStorageKey());
+  } catch (error) {
+    console.warn("Не удалось удалить черновик рассылки", error);
+  }
+  state.broadcastDraftSavedAt = null;
+}
+
+function setBroadcastStep(step) {
+  state.broadcastStep = Math.min(Math.max(Number(step) || 1, 1), 3);
+  if (state.broadcastStep === 3) previewBroadcastAudience();
+  renderBroadcasts();
+}
+
+function moveBroadcastStep(direction) {
+  if (direction === "back") {
+    setBroadcastStep(state.broadcastStep - 1);
+    return;
+  }
+  if (state.broadcastStep === 1 && !state.broadcastAllGroups && selectedBroadcastGroups().length === 0) {
+    showNotice("Выберите хотя бы одну группу", "danger");
+    return;
+  }
+  if (state.broadcastStep === 2 && !qs("#broadcastMessage")?.value.trim()) {
+    showNotice("Введите текст новости", "danger");
+    qs("#broadcastMessage")?.focus();
+    return;
+  }
+  setBroadcastStep(state.broadcastStep + 1);
+}
+
+function renderBroadcastLivePreview() {
+  const preview = qs("#broadcastLivePreview");
+  if (!preview) return;
+  const title = qs("#broadcastTitle")?.value.trim() || "Новость школы";
+  const message = qs("#broadcastMessage")?.value.trim() || "Введите текст новости, чтобы увидеть сообщение.";
+  preview.innerHTML = `
+    ${state.broadcastPhotoPreviewUrl ? `<img src="${escapeHtml(state.broadcastPhotoPreviewUrl)}" alt="" />` : ""}
+    <div class="broadcast-preview-bubble">
+      <strong>${escapeHtml(title)}</strong>
+      <p>${escapeHtml(message)}</p>
+      <span>Открыть в Algo MAX</span>
+    </div>`;
+}
+
+function duplicateBroadcast(itemId) {
+  const item = state.broadcastHistory.find((entry) => String(entry.id || "") === String(itemId));
+  if (!item) return;
+  qs("#broadcastTitle").value = item.title || "";
+  qs("#broadcastMessage").value = item.message || "";
+  qs("#broadcastRecipientCategory").value = item.recipient_category || "all";
+  qs("#broadcastAudienceFilter").value = item.audience_filter || "all";
+  renderBroadcastTargetFilters();
+  qs("#broadcastVenueFilter").value = item.venue_names?.[0] || "all";
+  qs("#broadcastLessonModeFilter").value = item.lesson_modes?.[0] || "all";
+  state.broadcastAllGroups = !(item.group_names || []).length;
+  state.broadcastSelectedGroups = new Set(item.group_names || []);
+  invalidateBroadcastPreview();
+  state.broadcastStep = 1;
+  scheduleBroadcastDraftSave();
+  renderBroadcasts();
+  qs("#broadcastForm")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderBroadcastAudiencePreview() {
@@ -5023,7 +6431,7 @@ function renderBroadcastAudiencePreview() {
   preview.classList.remove("is-empty");
   if (state.broadcastPreviewLoading) {
     preview.innerHTML = '<i data-lucide="loader-circle"></i><span>Считаем получателей...</span>';
-  } else if (!state.broadcastAllGroups && state.broadcastSelectedGroups.size === 0) {
+  } else if (!state.broadcastAllGroups && selectedBroadcastGroups().length === 0) {
     preview.classList.add("is-empty");
     preview.innerHTML = '<i data-lucide="users"></i><span>Выберите хотя бы одну группу</span>';
   } else if (!state.broadcastPreview) {
@@ -5032,9 +6440,10 @@ function renderBroadcastAudiencePreview() {
     preview.classList.add("is-empty");
     preview.innerHTML = '<i data-lucide="user-round-x"></i><span>По выбранным условиям получателей нет</span>';
   } else {
+    const unavailable = Number(state.broadcastPreview.unavailable_students || 0);
     preview.innerHTML = `
       <i data-lucide="users-round"></i>
-      <span><strong>${Number(state.broadcastPreview.recipient_count)}</strong> получателей · ${Number(state.broadcastPreview.matched_students)} учеников</span>
+      <span><strong>${Number(state.broadcastPreview.recipient_count)}</strong> получателей · ${Number(state.broadcastPreview.matched_students)} учеников${unavailable ? `<small>${unavailable} учен. без доступного контакта</small>` : ""}</span>
     `;
   }
   const previewIsCurrent =
@@ -5055,6 +6464,17 @@ function renderBroadcastAudiencePreview() {
 }
 
 function renderBroadcasts() {
+  const form = qs("#broadcastForm");
+  if (form) form.dataset.currentStep = String(state.broadcastStep);
+  qsa("[data-broadcast-step]").forEach((button) => {
+    const active = Number(button.dataset.broadcastStep) === state.broadcastStep;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  const backButton = qs("#broadcastBackButton");
+  const nextButton = qs("#broadcastNextButton");
+  if (backButton) backButton.hidden = state.broadcastStep === 1;
+  if (nextButton) nextButton.hidden = state.broadcastStep === 3;
   const tenantLabel = qs("#broadcastTenantLabel");
   if (tenantLabel) tenantLabel.textContent = tenantTitle();
   const filter = qs("#broadcastAudienceFilter")?.value || "all";
@@ -5063,8 +6483,14 @@ function renderBroadcasts() {
   const message = qs("#broadcastMessage")?.value || "";
   const count = qs("#broadcastMessageCount");
   if (count) count.textContent = String(message.length);
+  const draftLabel = qs("#broadcastDraftState");
+  if (draftLabel && state.broadcastDraftSavedAt) {
+    draftLabel.textContent = `Черновик сохранен в ${state.broadcastDraftSavedAt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`;
+  }
+  renderBroadcastTargetFilters();
   renderBroadcastGroups();
   renderBroadcastPhoto();
+  renderBroadcastLivePreview();
   renderBroadcastAudiencePreview();
   renderBroadcastHistory();
 }
@@ -5074,6 +6500,16 @@ function demoBroadcastPreview(payload) {
   if (payload.group_names.length) {
     const groupNames = new Set(payload.group_names);
     matched = matched.filter((student) => groupNames.has(student.group));
+  }
+  if (payload.venue_names.length) {
+    const venueNames = new Set(payload.venue_names);
+    matched = matched.filter((student) => venueNames.has(student.venue));
+  }
+  if (payload.lesson_modes.length) {
+    const lessonModes = new Set(payload.lesson_modes);
+    matched = matched.filter((student) =>
+      lessonModes.has(broadcastScheduleForGroup(student.group)?.lesson_mode),
+    );
   }
   if (payload.audience_filter === "low_balance") {
     const threshold = Number(payload.balance_threshold ?? 300);
@@ -5093,7 +6529,10 @@ function demoBroadcastPreview(payload) {
   return {
     recipient_count: matched.length * multiplier,
     matched_students: matched.length,
+    unavailable_students: 0,
     selected_groups: payload.group_names,
+    selected_venues: payload.venue_names,
+    selected_lesson_modes: payload.lesson_modes,
   };
 }
 
@@ -5121,7 +6560,7 @@ async function loadBroadcastHistory() {
 }
 
 async function previewBroadcastAudience() {
-  if (!state.broadcastAllGroups && state.broadcastSelectedGroups.size === 0) {
+  if (!state.broadcastAllGroups && selectedBroadcastGroups().length === 0) {
     invalidateBroadcastPreview();
     return null;
   }
@@ -5222,6 +6661,8 @@ async function sendSchoolBroadcast(event) {
         recipient_category: payload.recipient_category,
         audience_filter: payload.audience_filter,
         group_names: payload.group_names,
+        venue_names: payload.venue_names,
+        lesson_modes: payload.lesson_modes,
         balance_threshold: payload.balance_threshold,
         status: "sent",
         recipient_count: preview.recipient_count,
@@ -5245,6 +6686,12 @@ async function sendSchoolBroadcast(event) {
       payload.group_names.forEach((groupName) => {
         formData.append("group_names", groupName);
       });
+      payload.venue_names.forEach((venueName) => {
+        formData.append("venue_names", venueName);
+      });
+      payload.lesson_modes.forEach((lessonMode) => {
+        formData.append("lesson_modes", lessonMode);
+      });
       if (state.broadcastPhotoFile) {
         formData.set("photo", state.broadcastPhotoFile);
       }
@@ -5263,6 +6710,8 @@ async function sendSchoolBroadcast(event) {
     state.broadcastAllGroups = true;
     state.broadcastPreview = null;
     state.broadcastPreviewSignature = "";
+    state.broadcastStep = 1;
+    clearBroadcastDraft();
     clearBroadcastPhoto();
     showNotice(
       result.failed_count
@@ -5280,6 +6729,8 @@ async function sendSchoolBroadcast(event) {
 
 function renderAll() {
   renderTenantControl();
+  applyRailState();
+  renderMobileNavigation();
   renderStatus();
   renderStudents();
   renderParentInvitations();
@@ -5356,7 +6807,7 @@ async function importCrmStudents(dryRun) {
   const formData = new FormData();
   formData.set("max_user_id", apiContext.maxUserId);
   if (apiContext.tenantSlug) formData.set("tenant_slug", apiContext.tenantSlug);
-  formData.set("sheet_name", "Сделки");
+  formData.set("sheet_name", "Шаблон");
   formData.set("dry_run", String(dryRun));
   formData.set("student_status", state.crmStudentStatus);
   formData.set("file", file);
@@ -5378,6 +6829,9 @@ async function importCrmStudents(dryRun) {
     } else {
       await loadSession();
       state.teachingLoaded = false;
+      state.adminStudents = [];
+      state.adminStudentsLoaded = false;
+      state.adminStudentsError = "";
       showNotice(
         `Импорт завершен: новых ${result.created_students}, обновлено ${result.updated_students}`,
       );
@@ -5432,6 +6886,7 @@ function resetProductPhotoSelection() {
   state.productPhotoFile = null;
   state.productPhotoFileName = "";
   state.productPhotoPreviewUrl = "";
+  state.productPhotoRemoved = false;
 }
 
 function selectProductPhoto(file) {
@@ -5471,7 +6926,7 @@ async function saveProductFromForm() {
   const description = qs("#productDescription")?.value.trim() || "";
   const photoFile = state.productPhotoFile;
   const editing = products.find((product) => product.id === state.editingProductId);
-  const existingPhotoUrl = editing?.photoUrl || "";
+  const existingPhotoUrl = state.productPhotoRemoved ? "" : editing?.photoUrl || "";
   if (sku.length < 2 || name.length < 2) {
     showNotice("Укажите SKU и название товара", "danger");
     return;
@@ -5564,6 +7019,86 @@ async function saveProductFromForm() {
     renderAll();
   } catch (error) {
     showNotice(error.message || "Не удалось сохранить товар", "danger");
+  } finally {
+    state.productSaving = false;
+    renderAdminPanel();
+  }
+}
+
+async function cropProductPhoto() {
+  const editing = products.find((product) => product.id === state.editingProductId);
+  const source = state.productPhotoPreviewUrl || editing?.photoUrl || "";
+  if (!source) return;
+  try {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    await new Promise((resolve, reject) => {
+      image.addEventListener("load", resolve, { once: true });
+      image.addEventListener("error", () => reject(new Error("Не удалось открыть фото")), { once: true });
+      image.src = source;
+    });
+    const side = Math.min(image.naturalWidth, image.naturalHeight);
+    const outputSize = Math.min(side, 1200);
+    const canvas = document.createElement("canvas");
+    canvas.width = outputSize;
+    canvas.height = outputSize;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Кадрирование недоступно");
+    context.drawImage(
+      image,
+      (image.naturalWidth - side) / 2,
+      (image.naturalHeight - side) / 2,
+      side,
+      side,
+      0,
+      0,
+      outputSize,
+      outputSize,
+    );
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", 0.9));
+    if (!blob) throw new Error("Не удалось подготовить фото");
+    resetProductPhotoSelection();
+    state.productPhotoFile = new File([blob], `product-${Date.now()}.webp`, { type: "image/webp" });
+    state.productPhotoFileName = state.productPhotoFile.name;
+    state.productPhotoPreviewUrl = URL.createObjectURL(blob);
+    renderAdminPanel();
+    showNotice("Фото обрезано по центру");
+  } catch (error) {
+    showNotice(error.message || "Не удалось кадрировать фото", "danger");
+  }
+}
+
+async function toggleProductStatus(productId) {
+  const product = productById(productId);
+  if (!product || state.productSaving) return;
+  const nextStatus = (product.status || "active") === "active" ? "hidden" : "active";
+  if (apiContext.demoMode || !apiContext.maxUserId || product.id.startsWith("demo-")) {
+    product.status = nextStatus;
+    renderAll();
+    showNotice(nextStatus === "active" ? "Товар опубликован" : "Товар скрыт");
+    return;
+  }
+  state.productSaving = true;
+  renderAdminPanel();
+  try {
+    const formData = new FormData();
+    formData.set("max_user_id", String(apiContext.maxUserId));
+    if (apiContext.tenantSlug) formData.set("tenant_slug", apiContext.tenantSlug);
+    formData.set("product_id", product.id);
+    formData.set("sku", product.sku || product.id);
+    formData.set("name", product.name);
+    formData.set("category_name", product.category || "Без категории");
+    formData.set("category_slug", product.categorySlug || slugify(product.category || "Без категории"));
+    formData.set("price_astrocoins", String(product.price || 0));
+    formData.set("status", nextStatus);
+    if (product.description) formData.set("description", product.description);
+    if (product.photoUrl) formData.set("existing_photo_url", product.photoUrl);
+    const response = await apiFetch("/api/v1/miniapp/products/save", { method: "POST", body: formData });
+    if (!response.ok) throw new Error(await parseApiError(response));
+    await refreshCatalogAndOpsSummary();
+    showNotice(nextStatus === "active" ? "Товар опубликован" : "Товар скрыт");
+  } catch (error) {
+    showNotice(error.message || "Не удалось изменить статус товара", "danger");
   } finally {
     state.productSaving = false;
     renderAdminPanel();
@@ -5671,7 +7206,10 @@ function orderWarehouseOptions(item) {
   const product = productById(item.productId || "");
   if (!product) return [];
   return productWarehouses(product).filter(
-    (warehouse) => warehouse.available >= Number(item.quantity || 0),
+    (warehouse) =>
+      warehouse.id === item.suggestedWarehouseId ||
+      warehouse.id === item.warehouseId ||
+      warehouse.available >= Number(item.quantity || 0),
   );
 }
 
@@ -5681,9 +7219,15 @@ function renderOrderDialog(order) {
     ? order.items
         .map(
           (item) => {
+            const product = productById(item.productId || "");
             const warehouseOptions = needsWarehouseAssignment
               ? orderWarehouseOptions(item)
               : [];
+            const preferredWarehouseId = warehouseOptions.some(
+              (warehouse) => warehouse.id === state.defaultWarehouseId,
+            )
+              ? state.defaultWarehouseId
+              : item.suggestedWarehouseId;
             const warehouseControl = needsWarehouseAssignment
               ? `
                   <label class="order-warehouse-field">
@@ -5695,7 +7239,7 @@ function renderOrderDialog(order) {
                           (warehouse) => `
                             <option
                               value="${escapeHtml(warehouse.id)}"
-                              ${warehouse.id === state.defaultWarehouseId ? "selected" : ""}
+                              ${warehouse.id === preferredWarehouseId ? "selected" : ""}
                             >
                               ${escapeHtml(warehouse.name)} · доступно ${warehouse.available}
                             </option>
@@ -5710,6 +7254,9 @@ function renderOrderDialog(order) {
                 : "";
             return `
               <div class="order-detail-item ${needsWarehouseAssignment ? "needs-warehouse" : ""}">
+                <span class="order-detail-thumb">
+                  ${product?.photoUrl ? `<img src="${escapeHtml(product.photoUrl)}" alt="" />` : `<i data-lucide="${product ? productFallbackIcon(product) : "package"}"></i>`}
+                </span>
                 <div>
                   <strong>${escapeHtml(item.productName || "Товар")}</strong>
                   <div class="student-meta">${Number(item.quantity || 0)} шт.</div>
@@ -5733,8 +7280,9 @@ function renderOrderDialog(order) {
         .slice()
         .reverse()
         .map(
-          (event) => `
-            <div class="order-history-row">
+          (event, index) => `
+            <div class="order-history-row ${index === 0 ? "is-current" : "is-complete"}">
+              <span class="order-history-marker"><i data-lucide="${index === 0 ? "circle-dot" : "check"}"></i></span>
               <div>
                 <strong>${escapeHtml(orderStatusLabel(event.toStatus))}</strong>
                 <span>${escapeHtml(formatOrderDate(event.createdAt))}</span>
@@ -5788,6 +7336,7 @@ function renderOrderDialog(order) {
         >Подтвердить склады</button>
       `
     : orderActionButtons(order, false);
+  refreshIcons();
 }
 
 function openOrderDetails(orderId) {
@@ -5813,18 +7362,33 @@ function closeOrderDialog() {
 function showCancelOrderForm(orderId) {
   const order = orders.find((item) => item.backendId === orderId || item.id === orderId);
   if (!order) return;
+  const canMarkOutOfStock = state.role === "admin";
+  const productOptions = (order.items || [])
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item.productId)}">${escapeHtml(item.productName)}</option>`,
+    )
+    .join("");
   qs("#orderDialogActions").innerHTML = `
     <div class="order-cancel-form">
       <label>
         <span>Причина отмены</span>
         <select id="orderCancelReason">
-          <option value="Товар закончился">Товар закончился</option>
+          ${canMarkOutOfStock ? '<option value="Товар закончился">Товар закончился</option>' : ""}
           <option value="Ошибка в заказе">Ошибка в заказе</option>
           <option value="По просьбе родителя">По просьбе родителя</option>
           <option value="Заказ не актуален">Заказ не актуален</option>
           <option value="Другое">Другое</option>
         </select>
       </label>
+      ${
+        canMarkOutOfStock
+          ? `<label>
+               <span>Товар</span>
+               <select id="orderCancelProduct">${productOptions}</select>
+             </label>`
+          : ""
+      }
       <label>
         <span>Своя причина</span>
         <input id="orderCancelCustomReason" type="text" maxlength="500" placeholder="Заполняется для варианта «Другое»" />
@@ -5976,6 +7540,7 @@ async function updateOrderAction(orderId, action, cancelData = null) {
                 tenant_slug: apiContext.tenantSlug || undefined,
                 reason: cancelData?.reason || "Другое",
                 custom_reason: cancelData?.customReason || undefined,
+                out_of_stock_product_id: cancelData?.productId || undefined,
               }
             : {
                 max_user_id: Number(apiContext.maxUserId),
@@ -6423,6 +7988,34 @@ function updateCartQuantity(key, value) {
   renderCart();
 }
 
+async function undoAccrualBatch({ requestKey = "", targets = [], amount = 0, reason = "" }) {
+  if (!targets.length || !amount) return;
+  try {
+    if (apiContext.demoMode || !apiContext.maxUserId || targets.some((student) => student.id.startsWith("demo-"))) {
+      targets.forEach((student) => {
+        student.balance = Math.max(Number(student.balance || 0) - amount, 0);
+        ledger.unshift([todayShort(), `Отмена: ${reason}`, `-${amount} AC`, student.id]);
+      });
+    } else {
+      const response = await apiFetch("/api/v1/miniapp/coins/accrue/undo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          max_user_id: Number(apiContext.maxUserId),
+          tenant_slug: apiContext.tenantSlug || undefined,
+          request_key: requestKey,
+        }),
+      });
+      if (!response.ok) throw new Error(await parseApiError(response));
+      await loadSession();
+    }
+    renderAll();
+    showNotice(`Начисление отменено: ${targets.length} учен.`);
+  } catch (error) {
+    showNotice(error.message || "Не удалось отменить начисление", "danger");
+  }
+}
+
 async function accrueStudents(targets, amount, reason, groupLabel = "") {
   if (targets.length === 0) {
     showNotice("Выберите учеников для начисления", "danger");
@@ -6440,13 +8033,11 @@ async function accrueStudents(targets, amount, reason, groupLabel = "") {
         student.id,
       ]);
     });
-    showNotice(
-      groupLabel
-        ? `Группе «${groupLabel}» начислено по ${amount} AC`
-        : targets.length === 1
-        ? `${targets[0].name}: начислено ${amount} AC`
-        : `Группе «${state.accrualGroup}» начислено по ${amount} AC`,
-    );
+    showNotice(`Начислено ${targets.length} учен.: по ${amount} AC · ${reason}`, "ok", {
+      actionLabel: "Отменить",
+      onAction: () => undoAccrualBatch({ targets, amount, reason }),
+      duration: 5000,
+    });
     state.selectedAccrualStudents.clear();
     renderAll();
     return;
@@ -6455,6 +8046,16 @@ async function accrueStudents(targets, amount, reason, groupLabel = "") {
   state.accrualSaving = true;
   renderAccrual();
   try {
+    const requestSignature = JSON.stringify({
+      studentIds: targets.map((student) => student.id).sort(),
+      amount,
+      reason,
+      groupLabel,
+    });
+    if (state.accrualRequestSignature !== requestSignature) {
+      state.accrualRequestSignature = requestSignature;
+      state.accrualRequestKey = createRequestKey();
+    }
     const response = await apiFetch("/api/v1/miniapp/coins/accrue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -6465,21 +8066,23 @@ async function accrueStudents(targets, amount, reason, groupLabel = "") {
         amount,
         reason,
         comment: "Algo MAX",
+        request_key: state.accrualRequestKey,
       }),
     });
     if (!response.ok) throw new Error(await parseApiError(response));
 
     const result = await response.json();
-    showNotice(
-      groupLabel
-        ? `Группе «${groupLabel}» начислено по ${amount} AC: ${result.credited_students} учен.`
-        : targets.length === 1
-        ? `${targets[0].name}: начислено ${amount} AC`
-        : `Группе «${state.accrualGroup}» начислено по ${amount} AC: ${result.credited_students} учен.`,
-    );
+    const completedRequestKey = state.accrualRequestKey;
     await loadSession();
     state.selectedAccrualStudents.clear();
+    state.accrualRequestKey = "";
+    state.accrualRequestSignature = "";
     renderAll();
+    showNotice(`Начислено ${result.credited_students} учен.: по ${amount} AC · ${reason}`, "ok", {
+      actionLabel: "Отменить",
+      onAction: () => undoAccrualBatch({ requestKey: completedRequestKey, targets, amount, reason }),
+      duration: 5000,
+    });
   } catch (error) {
     showNotice(error.message || "Не удалось начислить астрокоины", "danger");
   } finally {
@@ -6489,7 +8092,7 @@ async function accrueStudents(targets, amount, reason, groupLabel = "") {
 }
 
 async function placeOrder() {
-  if (state.cart.size === 0) return;
+  if (state.cart.size === 0 || state.orderSaving) return;
 
   const student = selectedStudent();
   const canUseBackend =
@@ -6500,19 +8103,33 @@ async function placeOrder() {
     return;
   }
 
+  const orderItems = Array.from(state.cart.values()).map((item) => ({
+    product_id: item.productId,
+    quantity: item.quantity,
+  }));
+  const requestSignature = JSON.stringify({
+    studentId: student.id,
+    items: [...orderItems].sort((left, right) =>
+      left.product_id.localeCompare(right.product_id),
+    ),
+  });
+  if (state.orderRequestSignature !== requestSignature) {
+    state.orderRequestSignature = requestSignature;
+    state.orderRequestKey = createRequestKey();
+  }
+
   const payload = {
     max_user_id: Number(apiContext.maxUserId),
     tenant_slug: apiContext.tenantSlug || undefined,
     student_id: student.id,
-    items: Array.from(state.cart.values()).map((item) => ({
-      product_id: item.productId,
-      quantity: item.quantity,
-    })),
+    items: orderItems,
     comment: "Algo MAX",
+    request_key: state.orderRequestKey,
   };
 
   const button = qs("#confirmOrderButton");
-  button.disabled = true;
+  state.orderSaving = true;
+  if (button) button.disabled = true;
   try {
     const response = await apiFetch("/api/v1/miniapp/orders", {
       method: "POST",
@@ -6523,6 +8140,8 @@ async function placeOrder() {
 
     const result = await response.json();
     state.cart.clear();
+    state.orderRequestKey = "";
+    state.orderRequestSignature = "";
     await saveCart();
     closeCheckoutDialog();
     await refreshOrderAndInventoryState();
@@ -6534,27 +8153,79 @@ async function placeOrder() {
     showNotice(error.message || "Не удалось оформить заказ", "danger");
     renderCart();
   } finally {
-    button.disabled = false;
+    state.orderSaving = false;
+    if (button) button.disabled = false;
   }
 }
 
 document.addEventListener("click", (event) => {
-  const target = event.target instanceof Element ? event.target.closest("button") : null;
-  if (!target) return;
+  const clickedElement = event.target instanceof Element ? event.target : null;
+  const target = clickedElement?.closest("button") || null;
+  if (!target) {
+    const productCard = clickedElement?.closest("[data-product-card]");
+    if (productCard) openProductDialog(productCard.dataset.productCard || "");
+    return;
+  }
 
-  const invitationStudentId = target.dataset.copyStudentInvite;
-  if (invitationStudentId) {
-    const invitation = state.studentInvitations.get(invitationStudentId)?.data;
-    if (invitation?.bot_url) {
-      navigator.clipboard
-        .writeText(invitation.bot_url)
-        .then(() => showNotice("Ссылка ребенка скопирована"))
-        .catch(() => showNotice("Не удалось скопировать ссылку", "danger"));
-    }
+  if (target.id === "noticeClose") {
+    hideNotice();
+    return;
+  }
+  if (target.id === "noticeAction" && noticeActionHandler) {
+    const handler = noticeActionHandler;
+    hideNotice();
+    handler();
+    return;
+  }
+
+  if (target.id === "railCollapseButton") {
+    state.railCollapsed = !state.railCollapsed;
+    savePreferences();
+    applyRailState();
+    return;
+  }
+
+  const activeStudentId = target.dataset.activeStudent;
+  if (activeStudentId) {
+    setActiveStudent(activeStudentId);
+    return;
+  }
+
+  const previewStudentId = target.dataset.openStudentQr;
+  if (previewStudentId) {
+    openStudentQrPreview(previewStudentId);
+    return;
+  }
+
+  const savedQrStudentId = target.dataset.saveStudentQr;
+  if (savedQrStudentId) {
+    void saveStudentQrImage(savedQrStudentId, target);
+    return;
+  }
+
+  const openedQrFileStudentId = target.dataset.openStudentQrFile;
+  if (openedQrFileStudentId) {
+    openStudentQrFile(openedQrFileStudentId);
+    return;
+  }
+
+  const sharedStudentId = target.dataset.shareStudentInvite;
+  if (sharedStudentId) shareStudentInvitation(sharedStudentId);
+
+  const printedStudentId = target.dataset.printStudentInvite;
+  if (printedStudentId) printStudentInvitation(printedStudentId);
+
+  if (target.id === "closeStudentQrDialogButton") {
+    closeStudentQrPreview();
+    return;
   }
 
   if ("mobileMore" in target.dataset) {
     toggleMobileMorePanel();
+    return;
+  }
+  if (target.id === "closeMobileMoreButton") {
+    closeMobileMorePanel();
     return;
   }
 
@@ -6589,6 +8260,9 @@ document.addEventListener("click", (event) => {
 
   const journalScrollDirection = Number(target.dataset.journalScroll || 0);
   if (journalScrollDirection) scrollAttendanceJournal(journalScrollDirection);
+  if ("journalCurrent" in target.dataset) scrollJournalToCurrent();
+  const markAllPresentDate = target.dataset.markAllPresent;
+  if (markAllPresentDate) markGroupPresent(markAllPresentDate);
 
   if (target.id === "closeAttendanceJournalButton") closeAttendanceJournal();
   if (
@@ -6608,6 +8282,13 @@ document.addEventListener("click", (event) => {
   if (target.id === "previewBroadcastButton") {
     previewBroadcastAudience();
   }
+  if (target.id === "saveBroadcastDraftButton") saveBroadcastDraft();
+  const broadcastStep = target.dataset.broadcastStep;
+  if (broadcastStep) setBroadcastStep(broadcastStep);
+  const broadcastStepDirection = target.dataset.broadcastStepNav;
+  if (broadcastStepDirection) moveBroadcastStep(broadcastStepDirection);
+  const duplicateBroadcastId = target.dataset.duplicateBroadcast || target.dataset.retryBroadcast;
+  if (duplicateBroadcastId) duplicateBroadcast(duplicateBroadcastId);
 
   const broadcastGroupAction = target.dataset.broadcastGroups;
   if (broadcastGroupAction === "all") {
@@ -6630,15 +8311,43 @@ document.addEventListener("click", (event) => {
   const addId = target.dataset.add;
   if (addId) addToCart(addId);
 
+  if (target.id === "clearProductSearch") {
+    qs("#productSearch").value = "";
+    renderProducts();
+    qs("#productSearch").focus();
+  }
+  if (target.id === "clearOrderSearch") {
+    state.orderSearch = "";
+    renderOrders();
+    qs("#orderSearch")?.focus();
+  }
+
+  if (target.id === "mobileStoreFiltersButton") {
+    state.storeFiltersOpen = !state.storeFiltersOpen;
+    renderProducts();
+  }
+  if (target.id === "closeStoreFiltersButton" || target.id === "storeFilterBackdrop") {
+    state.storeFiltersOpen = false;
+    renderProducts();
+  }
+
+  const recentProductSearch = target.dataset.recentProductSearch;
+  if (recentProductSearch) {
+    qs("#productSearch").value = recentProductSearch;
+    renderProducts();
+  }
+
   const productDetailsId = target.dataset.productDetails;
   if (productDetailsId) openProductDialog(productDetailsId);
 
   const favoriteId = target.dataset.favorite;
   if (favoriteId) {
-    if (state.favorites.has(favoriteId)) state.favorites.delete(favoriteId);
+    const wasFavorite = state.favorites.has(favoriteId);
+    if (wasFavorite) state.favorites.delete(favoriteId);
     else state.favorites.add(favoriteId);
     saveFavorites();
     renderProducts();
+    showNotice(wasFavorite ? "Убрано из избранного" : "Добавлено в избранное", "ok", { duration: 2200 });
   }
 
   const productCategory = target.dataset.productCategory;
@@ -6664,10 +8373,46 @@ document.addEventListener("click", (event) => {
     renderCart();
   }
 
+  const cartStep = Number(target.dataset.cartStep || 0);
+  const cartStepKey = target.dataset.cartKey;
+  if (cartStep && cartStepKey) {
+    const item = state.cart.get(cartStepKey);
+    if (item) updateCartQuantity(cartStepKey, Number(item.quantity || 1) + cartStep);
+  }
+
   const adminTab = target.dataset.adminTab;
   if (adminTab) {
     state.adminTab = adminTab;
+    state.adminEntitySearch = "";
     renderAdminPanel();
+    if (adminTab === "students") void loadAdminStudents();
+  }
+
+  const studentRegistryStatusFilter = target.dataset.studentRegistryStatus;
+  if (["all", "active", "departed", "archived"].includes(studentRegistryStatusFilter)) {
+    state.studentRegistryStatusFilter = studentRegistryStatusFilter;
+    renderAdminPanel();
+  }
+
+  if ("retryStudentRegistry" in target.dataset) {
+    void loadAdminStudents(true);
+  }
+
+  if ("resetStudentRegistry" in target.dataset) {
+    state.adminEntitySearch = "";
+    state.studentRegistryStatusFilter = "all";
+    state.studentRegistryGroupFilter = "all";
+    renderAdminPanel();
+  }
+
+  const orderStatus = target.dataset.orderStatus;
+  if (orderStatus) {
+    state.orderStatusFilter = orderStatus;
+    const select = qs("#orderStatusFilter");
+    if (select && [...select.options].some((option) => option.value === orderStatus)) select.value = orderStatus;
+    if (state.view !== "orders") setView("orders");
+    renderOrders();
+    savePreferences();
   }
 
   const staffStatusFilter = target.dataset.staffStatusFilter;
@@ -6678,11 +8423,12 @@ document.addEventListener("click", (event) => {
 
   const opsJump = target.dataset.opsJump;
   if (opsJump === "orders") {
-    state.orderStatusFilter = "open";
+    state.orderStatusFilter = "action";
     setView("orders");
     renderOrders();
   } else if (["inventory", "products", "warehouses"].includes(opsJump)) {
     state.adminTab = opsJump;
+    if ("inventoryLowStock" in target.dataset) state.inventoryStockFilter = "low";
     renderAdminPanel();
   }
 
@@ -6704,11 +8450,12 @@ document.addEventListener("click", (event) => {
   if (confirmCancelOrderId) {
     const reason = qs("#orderCancelReason")?.value || "";
     const customReason = qs("#orderCancelCustomReason")?.value.trim() || "";
+    const productId = qs("#orderCancelProduct")?.value || "";
     if (reason === "Другое" && !customReason) {
       showNotice("Укажите свою причину отмены", "danger");
       return;
     }
-    updateOrderAction(confirmCancelOrderId, "cancel", { reason, customReason });
+    updateOrderAction(confirmCancelOrderId, "cancel", { reason, customReason, productId });
   }
 
   const cancelOrderBackId = target.dataset.cancelOrderBack;
@@ -6727,6 +8474,15 @@ document.addEventListener("click", (event) => {
     loadAccrualReport();
   }
 
+  const reportPeriod = target.dataset.reportPeriod;
+  if (reportPeriod) setAccrualReportPeriod(reportPeriod);
+  if (target.id === "exportAcReportButton") exportAccrualReport();
+  if (target.id === "resetAcReportFiltersButton") {
+    state.accrualReportTeacherFilter = "all";
+    state.accrualReportGroupFilter = "all";
+    renderAccrualReport();
+  }
+
   if (target.id === "saveAttendanceButton") {
     saveAttendanceJournal();
   }
@@ -6735,7 +8491,20 @@ document.addEventListener("click", (event) => {
     accrueSelectedStudents();
   }
 
-
+  const accrualSelection = target.dataset.accrualSelect;
+  if (accrualSelection === "visible") {
+    const query = state.accrualNameFilter.trim().toLowerCase();
+    studentsForGroup(state.accrualGroup).filter((student) => student.name.toLowerCase().includes(query)).forEach((student) => state.selectedAccrualStudents.add(student.id));
+    renderAccrual();
+  } else if (accrualSelection === "none") {
+    state.selectedAccrualStudents.clear();
+    renderAccrual();
+  }
+  if ("clearAccrualSearch" in target.dataset || target.id === "clearAccrualSearch") {
+    state.accrualNameFilter = "";
+    renderAccrual();
+    qs("#accrualNameFilter")?.focus();
+  }
   const warehouseName = target.dataset.warehouseAction;
   if (warehouseName) showWarehouseAction(warehouseName);
 
@@ -6825,6 +8594,33 @@ document.addEventListener("click", (event) => {
     saveProductFromForm();
   }
 
+  if ("clearAdminSearch" in target.dataset) {
+    state.adminEntitySearch = "";
+    state.studentRegistryStatusFilter = "all";
+    state.studentRegistryGroupFilter = "all";
+    state.productStatusFilter = "all";
+    state.productCategoryFilter = "all";
+    state.accessStatusFilter = "all";
+    state.accessRoleFilter = "all";
+    state.staffRoleFilter = "all";
+    renderAdminPanel();
+  }
+  if ("clearInventoryFilters" in target.dataset) {
+    state.adminEntitySearch = "";
+    state.inventoryWarehouseFilter = "all";
+    state.inventoryStockFilter = "all";
+    renderAdminPanel();
+  }
+
+  const productStatusId = target.dataset.toggleProductStatus;
+  if (productStatusId) toggleProductStatus(productStatusId);
+  if ("removeProductPhoto" in target.dataset) {
+    resetProductPhotoSelection();
+    state.productPhotoRemoved = true;
+    renderAdminPanel();
+  }
+  if ("cropProductPhoto" in target.dataset) cropProductPhoto();
+
   if (target.id === "staffSaveButton") {
     saveStaffAssignmentFromForm();
   }
@@ -6872,6 +8668,10 @@ qs("#orderDialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) closeOrderDialog();
 });
 
+qs("#studentQrDialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) closeStudentQrPreview();
+});
+
 qs("#feedbackDialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) closeFeedbackDialog();
 });
@@ -6881,7 +8681,21 @@ qs("#attendanceLessonDialog").addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  const productCard = event.target instanceof Element ? event.target.closest("[data-product-card]") : null;
+  if (productCard && !event.target.closest("button, input, select, textarea, a") && ["Enter", " "].includes(event.key)) {
+    event.preventDefault();
+    openProductDialog(productCard.dataset.productCard || "");
+    return;
+  }
   if (event.key !== "Escape") return;
+  if (!qs("#studentQrDialog").hidden) {
+    closeStudentQrPreview();
+    return;
+  }
+  if (!qs("#mobileMorePanel").hidden) {
+    closeMobileMorePanel();
+    return;
+  }
   if (!qs("#attendanceLessonDialog").hidden) {
     closeAttendanceLessonEditor();
     return;
@@ -6950,7 +8764,12 @@ document.addEventListener("change", (event) => {
   }
 
   if (target.id === "accrualGroupSelect") {
-    state.accrualGroup = target.value || "all";
+    state.accrualGroup = target.value;
+    state.selectedAccrualStudents.clear();
+    renderAccrual();
+  }
+
+  if (target.id === "groupAccrualReason" || target.id === "groupAccrualAmount") {
     renderAccrual();
   }
 
@@ -6967,11 +8786,47 @@ document.addEventListener("change", (event) => {
     savePreferences();
   }
 
+  if (target.id === "productStatusFilter") {
+    state.productStatusFilter = target.value;
+    renderAdminPanel();
+  }
+  if (target.id === "studentRegistryGroupFilter") {
+    state.studentRegistryGroupFilter = target.value;
+    renderAdminPanel();
+  }
+  if (target.id === "productCategoryFilter") {
+    state.productCategoryFilter = target.value;
+    renderAdminPanel();
+  }
+  if (target.id === "inventoryWarehouseFilter") {
+    state.inventoryWarehouseFilter = target.value;
+    renderAdminPanel();
+  }
+  if (target.id === "inventoryStockFilter") {
+    state.inventoryStockFilter = target.value;
+    renderAdminPanel();
+  }
+  if (target.id === "accessStatusFilter") {
+    state.accessStatusFilter = target.value;
+    renderAdminPanel();
+  }
+  if (target.id === "accessRoleFilter") {
+    state.accessRoleFilter = target.value;
+    renderAdminPanel();
+  }
+  if (target.id === "staffRoleFilter") {
+    state.staffRoleFilter = target.value;
+    renderAdminPanel();
+  }
+
   if (
     target.id === "broadcastRecipientCategory" ||
-    target.id === "broadcastAudienceFilter"
+    target.id === "broadcastAudienceFilter" ||
+    target.id === "broadcastVenueFilter" ||
+    target.id === "broadcastLessonModeFilter"
   ) {
     invalidateBroadcastPreview();
+    scheduleBroadcastDraftSave();
     renderBroadcasts();
   }
 
@@ -6984,11 +8839,26 @@ document.addEventListener("change", (event) => {
     if (target.checked) state.broadcastSelectedGroups.add(broadcastGroupName);
     else state.broadcastSelectedGroups.delete(broadcastGroupName);
     invalidateBroadcastPreview();
+    scheduleBroadcastDraftSave();
     renderBroadcastGroups();
   }
 
   if (target.id === "productDialogQuantity") {
     syncProductDialogControls();
+  }
+
+  if (target.id === "acReportDateFrom" || target.id === "acReportDateTo") {
+    state.accrualReportPeriod = "custom";
+    qsa("[data-report-period]").forEach((button) => button.classList.remove("is-active"));
+  }
+
+  if (target.id === "acReportTeacherFilter") {
+    state.accrualReportTeacherFilter = target.value;
+    renderAccrualReport();
+  }
+  if (target.id === "acReportGroupFilter") {
+    state.accrualReportGroupFilter = target.value;
+    renderAccrualReport();
   }
 
   const cartQuantityKey = target.dataset.cartQuantity;
@@ -7012,9 +8882,21 @@ document.addEventListener("input", (event) => {
   if (target instanceof HTMLTextAreaElement && target.id === "broadcastMessage") {
     const count = qs("#broadcastMessageCount");
     if (count) count.textContent = String(target.value.length);
+    scheduleBroadcastDraftSave();
+    renderBroadcastLivePreview();
     return;
   }
   if (!(target instanceof HTMLInputElement)) return;
+
+  if (target.id === "broadcastTitle") {
+    scheduleBroadcastDraftSave();
+    renderBroadcastLivePreview();
+  }
+
+  if (target.id === "tenantSearch") {
+    state.tenantSearch = target.value;
+    renderTenantDialog();
+  }
 
   if (target.id === "productDialogQuantity") {
     syncProductDialogControls();
@@ -7025,6 +8907,18 @@ document.addEventListener("input", (event) => {
     renderOrders();
   }
 
+  if (target.id === "adminEntitySearch") {
+    state.adminEntitySearch = target.value;
+    const cursor = target.selectionStart ?? target.value.length;
+    window.clearTimeout(adminSearchTimer);
+    adminSearchTimer = window.setTimeout(() => {
+      renderAdminPanel();
+      const input = qs("#adminEntitySearch");
+      input?.focus();
+      input?.setSelectionRange(cursor, cursor);
+    }, 120);
+  }
+
   if (target.id === "accrualNameFilter") {
     state.accrualNameFilter = target.value;
     window.clearTimeout(accrualSearchTimer);
@@ -7033,6 +8927,7 @@ document.addEventListener("input", (event) => {
 
   if (target.id === "broadcastBalanceThreshold") {
     invalidateBroadcastPreview();
+    scheduleBroadcastDraftSave();
   }
 });
 
@@ -7055,6 +8950,7 @@ qs("#studentSelect").addEventListener("change", (event) => {
   setActiveStudent(event.target.value);
 });
 qs("#openCartButton").addEventListener("click", () => setView("cart"));
+qs("#openWalletButton")?.addEventListener("click", () => setView("wallet"));
 qs("#refreshDataButton").addEventListener("click", refreshAllData);
 qs("#tenantSwitcherButton")?.addEventListener("click", openTenantDialog);
 qs("#closeTenantDialogButton")?.addEventListener("click", closeTenantDialog);
@@ -7065,6 +8961,14 @@ qs("#tenantDialog")?.addEventListener("click", (event) => {
   if (event.target === event.currentTarget) closeTenantDialog();
 });
 qs("#productSearch").addEventListener("input", renderProducts);
+qs("#productSearch").addEventListener("focus", renderRecentProductSearches);
+qs("#productSearch").addEventListener("blur", () => {
+  rememberProductSearch();
+  window.setTimeout(renderRecentProductSearches, 120);
+});
+qs("#productSearch").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") rememberProductSearch();
+});
 qs("#categoryFilter").addEventListener("change", () => {
   renderProducts();
   savePreferences();
@@ -7085,6 +8989,12 @@ qs("#favoritesFilter").addEventListener("click", () => {
 qs("#placeOrderButton").addEventListener("click", openCheckoutDialog);
 qs("#storeCartBar").addEventListener("click", () => setView("cart"));
 qs("#broadcastForm")?.addEventListener("submit", sendSchoolBroadcast);
+qs("#mobileMoreBackdrop")?.addEventListener("click", closeMobileMorePanel);
+window.addEventListener("beforeunload", (event) => {
+  if (!hasAttendanceChanges()) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
 
 async function init() {
   qs("#tenantTitle").textContent = tenantTitle();
@@ -7119,6 +9029,7 @@ async function init() {
         : "",
     )
   ) {
+    document.body.classList.remove("is-booting");
     return;
   }
   results.push(
@@ -7138,6 +9049,7 @@ async function init() {
     .forEach((result) => console.warn(result.reason));
 
   restoreFavorites();
+  restoreBroadcastDraft();
 
   setRole(state.role);
   if (apiContext.demoMode || state.catalogLoaded) restoreCart();
@@ -7148,6 +9060,7 @@ async function init() {
   renderAll();
   renderSyncStatus();
   refreshIcons();
+  document.body.classList.remove("is-booting");
   if (queryParam("focus") === "qr" && state.role === "parent") {
     window.setTimeout(() => {
       qs("#parentInvitesPanel")?.scrollIntoView({

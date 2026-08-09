@@ -26,6 +26,7 @@ class AccessBackendClient:
         body: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
         timeout: int | None = None,
+        auth_tenant_slug: str | None = None,
     ) -> dict[str, Any]:
         url = f"{self.api_base}{path}"
         clean_params = {key: value for key, value in (params or {}).items() if value is not None}
@@ -37,7 +38,7 @@ class AccessBackendClient:
             headers["Content-Type"] = "application/json"
         identity_source = body or params or {}
         max_user_id = identity_source.get("max_user_id")
-        tenant_slug = identity_source.get("tenant_slug")
+        tenant_slug = identity_source.get("tenant_slug") or auth_tenant_slug
         if max_user_id and tenant_slug:
             headers["X-Miniapp-Token"] = issue_miniapp_token(
                 max_user_id=int(max_user_id),
@@ -226,6 +227,19 @@ class AccessBackendClient:
             },
         )
 
+    def discover_session(
+        self,
+        *,
+        default_tenant_slug: str,
+        max_user_id: int,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/miniapp/session",
+            params={"max_user_id": max_user_id},
+            auth_tenant_slug=default_tenant_slug,
+        )
+
     def get_readiness(self) -> dict[str, Any]:
         return self._request("GET", "/ready")
 
@@ -339,6 +353,22 @@ class AccessBackendClient:
                 "lesson_place": lesson_place,
                 "absent_students": absent_students,
                 "is_repetition": is_repetition,
+            },
+        )
+
+    def send_manual_feedback(
+        self,
+        *,
+        output_id: str,
+        tenant_slug: str,
+        max_user_id: int,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/teaching/manual-feedback/{parse.quote(str(output_id))}/send",
+            body={
+                "tenant_slug": tenant_slug,
+                "max_user_id": max_user_id,
             },
         )
 

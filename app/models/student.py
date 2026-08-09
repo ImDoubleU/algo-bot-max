@@ -1,8 +1,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
 
 from app.models.base import Base, TimestampMixin, uuid_pk
 from app.models.enums import (
@@ -35,11 +36,22 @@ class Student(TimestampMixin, Base):
     venue_name: Mapped[str | None] = mapped_column(String(160))
     teacher_name: Mapped[str | None] = mapped_column(String(160))
     status: Mapped[StudentStatus] = mapped_column(default=StudentStatus.ACTIVE, nullable=False)
+    status_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    departed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     tenant = relationship("Tenant", back_populates="students")
     venue = relationship("Venue", back_populates="students")
     contact_links = relationship("ContactStudentLink", back_populates="student")
     access_links = relationship("StudentAccessLink", back_populates="student")
+    history_events = relationship(
+        "StudentHistoryEvent",
+        back_populates="student",
+        cascade="all, delete-orphan",
+    )
     wallet = relationship("Wallet", back_populates="student", uselist=False)
 
     @property
@@ -47,6 +59,22 @@ class Student(TimestampMixin, Base):
         return " ".join(
             part.strip() for part in (self.last_name, self.first_name) if part and part.strip()
         )
+
+
+class StudentHistoryEvent(TimestampMixin, Base):
+    __tablename__ = "student_history_events"
+
+    id: Mapped[UUID] = uuid_pk()
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), index=True, nullable=False)
+    student_id: Mapped[UUID] = mapped_column(ForeignKey("students.id"), index=True, nullable=False)
+    actor_account_id: Mapped[UUID | None] = mapped_column(ForeignKey("max_accounts.id"), index=True)
+    event_type: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
+    from_status: Mapped[str | None] = mapped_column(String(20))
+    to_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    changed_fields: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    source: Mapped[str] = mapped_column(String(40), default="crm_import", nullable=False)
+
+    student = relationship("Student", back_populates="history_events")
 
 
 class Contact(TimestampMixin, Base):

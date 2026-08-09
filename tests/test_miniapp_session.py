@@ -180,6 +180,7 @@ async def test_staff_session_returns_tenant_students_sorted_by_group(db_session)
         group_name="Scratch, сб 12:00",
         course_name="Scratch",
         venue_name="Гагарина 64",
+        teacher_name="Другой Педагог",
         contact_ids="682",
     )
     await upsert_crm_student_rows(db_session, [second_row, crm_row()], defaults=defaults)
@@ -188,6 +189,15 @@ async def test_staff_session_returns_tenant_students_sorted_by_group(db_session)
         AccessLinkCreate(
             tenant_slug="nizhniy-novgorod-partner-a",
             contact_id="681",
+            max_user_id=53364725,
+            role=StudentAccessRole.PARENT,
+        ),
+    )
+    await create_contact_access_links(
+        db_session,
+        AccessLinkCreate(
+            tenant_slug="nizhniy-novgorod-partner-a",
+            contact_id="682",
             max_user_id=53364725,
             role=StudentAccessRole.PARENT,
         ),
@@ -223,7 +233,8 @@ async def test_staff_session_returns_tenant_students_sorted_by_group(db_session)
         "Python Start, вс 10:00",
         "Scratch, сб 12:00",
     ]
-    assert len(session.access_links) == 1
+    assert [student.staff_visible for student in session.students] == [True, False]
+    assert len(session.access_links) == 2
 
 
 async def test_admin_can_revoke_student_access_link(db_session) -> None:

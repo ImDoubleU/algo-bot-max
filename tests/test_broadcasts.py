@@ -1,3 +1,5 @@
+from datetime import date, time
+
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -12,6 +14,7 @@ from app.models.enums import (
     StudentStatus,
 )
 from app.models.student import Student, StudentAccessLink, Wallet
+from app.models.teaching import Course, TeachingSchedule
 from app.models.tenant import City, Partner, Tenant
 from app.schemas.broadcasts import BroadcastAudienceRequest
 from app.services.broadcasts import preview_school_broadcast
@@ -62,6 +65,7 @@ async def test_broadcast_preview_scopes_and_deduplicates_recipients(db_session) 
         first_name="Алиса",
         last_name="Иванова",
         group_name="Python",
+        venue_name="Центральная",
         status=StudentStatus.ACTIVE,
     )
     second_student = Student(
@@ -70,12 +74,38 @@ async def test_broadcast_preview_scopes_and_deduplicates_recipients(db_session) 
         first_name="Борис",
         last_name="Петров",
         group_name="Scratch",
+        venue_name="Сормово",
         status=StudentStatus.ACTIVE,
     )
     db_session.add_all([first_student, second_student])
     await db_session.flush()
+    course = Course(tenant_id=tenant.id, name="Основной курс")
+    db_session.add(course)
+    await db_session.flush()
     db_session.add_all(
         [
+            TeachingSchedule(
+                tenant_id=tenant.id,
+                teacher_account_id=admin.id,
+                course_id=course.id,
+                group_name="Python",
+                first_lesson_date=date(2026, 8, 3),
+                weekday=0,
+                lesson_time=time(16, 0),
+                lesson_mode="group",
+                lesson_place="Центральная",
+            ),
+            TeachingSchedule(
+                tenant_id=tenant.id,
+                teacher_account_id=admin.id,
+                course_id=course.id,
+                group_name="Scratch",
+                first_lesson_date=date(2026, 8, 4),
+                weekday=1,
+                lesson_time=time(17, 0),
+                lesson_mode="individual",
+                lesson_place="Сормово",
+            ),
             Wallet(tenant_id=tenant.id, student_id=first_student.id, balance=100),
             Wallet(tenant_id=tenant.id, student_id=second_student.id, balance=900),
             StudentAccessLink(
@@ -115,6 +145,20 @@ async def test_broadcast_preview_scopes_and_deduplicates_recipients(db_session) 
     )
     assert preview.recipient_count == 2
     assert preview.matched_students == 1
+
+    targeted_preview = await preview_school_broadcast(
+        db_session,
+        payload=BroadcastAudienceRequest(
+            max_user_id=admin.max_user_id,
+            tenant_slug=tenant.slug,
+            recipient_category="all",
+            venue_names=["Центральная"],
+            lesson_modes=["group"],
+        ),
+        default_tenant_slug=tenant.slug,
+    )
+    assert targeted_preview.recipient_count == 2
+    assert targeted_preview.matched_students == 1
 
     low_balance_parents = await preview_school_broadcast(
         db_session,

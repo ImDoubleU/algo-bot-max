@@ -182,7 +182,7 @@ def test_feedback_inline_flow_generates_and_sends() -> None:
     assert "Отсутствуют: Иван Петров" in selected["text"]
 
     preview = callback(bot, "feedback:generate")
-    assert "Готово к отправке" in preview["text"]
+    assert "Черновик ОС" in preview["text"]
     assert backend.generated[0]["absent_students"] == ["Иван Петров"]
     assert backend.generated[0]["course_id"] == COURSE_ID
     assert backend.generated[0]["lesson_number"] == 4

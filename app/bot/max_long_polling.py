@@ -90,6 +90,7 @@ from app.services.deep_links import (
     DeepLinkError,
     build_max_bot_shop_deeplink,
     parse_contact_payload,
+    parse_shop_payload,
 )
 from app.services.knowledge_base import (
     KnowledgeBaseError,
@@ -103,6 +104,7 @@ POLL_RETRY_MAX_SECONDS = 30.0
 FEEDBACK_PAGE_SIZE = 8
 STAFF_INVITE_TTL_SECONDS = 30 * 60
 STAFF_REQUEST_TTL_SECONDS = 24 * 60 * 60
+ONBOARDING_TTL_SECONDS = 30 * 60
 FEEDBACK_LESSON_MODES = (
     ("group", "offline", "группа офлайн"),
     ("group", "online", "группа онлайн"),
@@ -141,10 +143,10 @@ def format_backend_error(exc: BackendApiError) -> str:
         else:
             detail = text
         if "contact id" in detail.casefold():
-            return "Contact ID не найден для выбранного tenant."
+            return "ID из письма не найден для выбранного города."
         if detail and detail != text:
             return f"Не найдено: {detail}"
-        return "Запрошенный объект не найден в backend API."
+        return "Не удалось найти нужные данные."
     return str(exc)
 
 
@@ -163,7 +165,7 @@ class LongPollingBot:
         self.bot_info = self.client.get_me()
         self.bot_user_id = self.bot_info.get("user_id")
         self.pending_contact_ids: dict[int, PendingContact] = {}
-        self.pending_onboarding_roles: dict[int, str] = {}
+        self.pending_onboarding_roles: dict[int, tuple[str, float]] = {}
         self.pending_staff_invites: dict[int, PendingStaffInvite] = {}
         self.pending_staff_requests: dict[str, PendingStaffRequest] = {}
         self.user_tenant_slugs: dict[int, str] = {}
@@ -550,10 +552,25 @@ class LongPollingBot:
 
     def main_menu_response(self, user_id: int | None = None) -> BotResponse:
         tenant_slug = self.current_tenant_slug(user_id)
-        if user_id is not None and self.menu_role(user_id, tenant_slug) is None:
+        role = self.menu_role(user_id, tenant_slug) if user_id is not None else None
+        if user_id is not None and role is None:
             return self.first_entry_response(user_id)
+        title = {
+            "student": "Кабинет ученика",
+            "parent": "Семейный кабинет",
+            "teacher": "Кабинет преподавателя",
+            "curator": "Кабинет куратора",
+            "admin": "Кабинет администратора",
+            "partner_director": "Кабинет директора",
+            "superadmin": "Управление партнерами",
+        }.get(role, "Главное меню")
+        hint = (
+            "Откройте кабинет кнопкой ниже."
+            if role in {"student", "parent"}
+            else "Откройте рабочий кабинет или выберите раздел бота."
+        )
         return BotResponse(
-            "Главное меню\n\nВыберите нужный раздел.",
+            f"{title}\n\n{hint}",
             self.main_menu_attachments(user_id),
         )
 
@@ -599,9 +616,17 @@ class LongPollingBot:
         if user_id is not None and self.backend_client is not None:
             tenant_slug = self.current_tenant_slug(user_id)
             try:
-                session = self.backend_client.get_session(
-                    tenant_slug=tenant_slug,
-                    max_user_id=user_id,
+                discover_session = getattr(self.backend_client, "discover_session", None)
+                session = (
+                    discover_session(
+                        default_tenant_slug=self.default_tenant_slug,
+                        max_user_id=user_id,
+                    )
+                    if callable(discover_session)
+                    else self.backend_client.get_session(
+                        tenant_slug=tenant_slug,
+                        max_user_id=user_id,
+                    )
                 )
             except BackendApiError:
                 session = None
@@ -610,13 +635,15 @@ class LongPollingBot:
                 or session.get("student_roles")
                 or session.get("students")
             ):
-                self.remember_session_role(user_id, tenant_slug, session)
+                discovered_tenant = str(session.get("tenant_slug") or tenant_slug)
+                self.user_tenant_slugs[user_id] = discovered_tenant
+                self.remember_session_role(user_id, discovered_tenant, session)
                 return self.help_response(user_id=user_id)
         return BotResponse(
             (
-                "Первый вход\n\n"
-                "Выберите вашу роль. Затем бот попросит ввести родительский ID, "
-                "указанный в письме на почте."
+                "Вход · шаг 1 из 2\n\n"
+                "Выберите, чей профиль вы привязываете. "
+                "Родителю понадобится ID из письма школы, ребенку — QR-код из кабинета родителя."
             ),
             role_selection_keyboard(),
         )
@@ -626,7 +653,7 @@ class LongPollingBot:
             self.pending_contact_ids.pop(user_id, None)
             self.pending_onboarding_roles.pop(user_id, None)
         return BotResponse(
-            "Выберите роль для входа.",
+            "Вход · шаг 1 из 2\n\nВыберите роль для входа.",
             role_selection_keyboard(),
         )
 
@@ -650,6 +677,19 @@ class LongPollingBot:
             request_id: request
             for request_id, request in self.pending_staff_requests.items()
             if now - request.created_at <= STAFF_REQUEST_TTL_SECONDS
+        }
+
+    def cleanup_customer_onboarding(self) -> None:
+        now = time.monotonic()
+        self.pending_contact_ids = {
+            user_id: pending
+            for user_id, pending in self.pending_contact_ids.items()
+            if now - pending.created_at <= ONBOARDING_TTL_SECONDS
+        }
+        self.pending_onboarding_roles = {
+            user_id: pending
+            for user_id, pending in self.pending_onboarding_roles.items()
+            if now - pending[1] <= ONBOARDING_TTL_SECONDS
         }
 
     def is_staff_invite_command(self, command: str) -> bool:
@@ -1091,7 +1131,7 @@ class LongPollingBot:
             "",
             f"Version: {APP_VERSION}",
             f"Revision: {APP_REVISION}",
-            f"Tenant: {tenant_slug}",
+            f"Город / партнер: {tenant_slug}",
             f"Default tenant: {self.default_tenant_slug}",
             f"MAX API: {settings.max_api_base}",
             f"MAX API timeout: {settings.max_api_timeout_seconds}s",
@@ -1220,15 +1260,15 @@ class LongPollingBot:
             f"chat_id: {chat_id}",
             f"username: {sender.get('username') or '-'}",
             f"display_name: {display_name_from_user(sender) or '-'}",
-            f"tenant: {tenant_slug}",
+            f"Город / партнер: {tenant_slug}",
             f"backend_api: {'подключен' if self.backend_client else 'выключен'}",
             f"Адрес приложения: {miniapp_url or 'не настроен'}",
         ]
         lines.extend(
             [
                 "",
-                "Для выдачи staff-ролей используйте этот user_id.",
-                "Текущий tenant можно сменить командой /tenant <slug>.",
+                "Для назначения сотрудника используйте этот MAX ID.",
+                "Текущий город можно сменить в личном кабинете.",
             ]
         )
         return BotResponse("\n".join(lines), self.main_menu_attachments(user_id))
@@ -1870,8 +1910,38 @@ class LongPollingBot:
         )
         return BotResponse(
             text,
-            feedback_preview_keyboard(),
+            feedback_preview_keyboard(str(output.get("id") or "") or None),
         )
+
+    def feedback_send_response(
+        self,
+        *,
+        user_id: int | None,
+        output_id: str,
+    ) -> BotResponse:
+        tenant_slug = self.current_tenant_slug(user_id)
+        if user_id is None or self.backend_client is None:
+            return self.feedback_menu_response(user_id)
+        try:
+            result = self.backend_client.send_manual_feedback(
+                output_id=output_id,
+                tenant_slug=tenant_slug,
+                max_user_id=user_id,
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                f"Не получилось отправить обратную связь.\n\n{format_backend_error(exc)}",
+                self.main_menu_attachments(user_id),
+            )
+        recipients = int(result.get("parent_recipients") or 0)
+        sent = int(result.get("sent_recipients") or 0)
+        if recipients and sent == recipients:
+            text = f"Обратная связь отправлена всем родителям: {sent}."
+        elif sent:
+            text = f"Отправлено {sent} из {recipients}. Проверьте связи родителей."
+        else:
+            text = "Сообщения не отправлены. Проверьте связи родителей и доступ к боту."
+        return BotResponse(text, self.main_menu_attachments(user_id))
 
     def feedback_callback_response(
         self,
@@ -1934,6 +2004,8 @@ class LongPollingBot:
             return self.feedback_drafts_response(user_id)
         if action == "manual_output" and value:
             return self.feedback_output_response(user_id=user_id, output_id=value)
+        if action == "manual_send" and value:
+            return self.feedback_send_response(user_id=user_id, output_id=value)
         return self.feedback_menu_response(user_id)
 
     def balance_response(self, user_id: int | None = None, query: str = "") -> BotResponse:
@@ -6066,10 +6138,10 @@ class LongPollingBot:
         contact_display_name: str | None = None,
     ) -> str:
         lines = [
-            "Contact ID распознан.",
+            "Вход · шаг 2 из 2",
             "",
-            f"Tenant: {tenant_slug}",
-            f"Contact ID: {contact_id}",
+            "ID из письма распознан.",
+            f"Школа: {tenant_slug}",
         ]
         if contact_display_name:
             lines.append(f"Контакт: {contact_display_name}")
@@ -6086,7 +6158,7 @@ class LongPollingBot:
                 label = " / ".join(str(value) for value in details if value)
                 lines.append(f"{index}. {label or student.get('student_id')}")
             if not students:
-                lines.append("Backend не вернул связанных учеников.")
+                lines.append("По этому ID ученики не найдены.")
         lines.extend(
             [
                 "",
@@ -6107,14 +6179,19 @@ class LongPollingBot:
                 token=raw_payload[len("student_") :],
                 user_id=user_id,
             )
-        open_store_after_link = raw_payload.casefold().startswith("shop_")
-        contact_id = parse_contact_payload(
-            raw_payload[len("shop_") :] if open_store_after_link else raw_payload
-        )
+        is_shop_payload = raw_payload.casefold().startswith("shop_")
+        linked_tenant_slug, shop_contact_id = parse_shop_payload(raw_payload)
+        if is_shop_payload and not shop_contact_id:
+            return BotResponse(
+                "Ссылка из письма повреждена. Попросите школу отправить новую ссылку.",
+                self.main_menu_attachments(user_id),
+            )
+        open_store_after_link = is_shop_payload
+        contact_id = shop_contact_id if is_shop_payload else parse_contact_payload(raw_payload)
         if not contact_id:
             return None
 
-        tenant_slug = self.current_tenant_slug(user_id)
+        tenant_slug = linked_tenant_slug or self.current_tenant_slug(user_id)
         if self.backend_client:
             try:
                 resolved = self.backend_client.resolve_contact(
@@ -6133,9 +6210,9 @@ class LongPollingBot:
                     return fallback
                 return BotResponse(
                     (
-                        "Не получилось проверить Contact ID через backend API.\n\n"
-                        f"Tenant: {tenant_slug}\n"
-                        f"Contact ID: {contact_id}\n"
+                        "Не получилось проверить ID из письма.\n\n"
+                        f"Город / партнер: {tenant_slug}\n"
+                        f"ID из письма: {contact_id}\n"
                         f"Причина: {format_backend_error(exc)}"
                     ),
                     self.main_menu_attachments(user_id),
@@ -6143,6 +6220,8 @@ class LongPollingBot:
 
             resolved_contact_id = str(resolved.get("contact_id") or contact_id)
             students = list(resolved.get("students") or [])
+            if user_id is not None and linked_tenant_slug:
+                self.user_tenant_slugs[user_id] = tenant_slug
             fallback = self.catalog_search_fallback_response(
                 payload=payload,
                 user_id=user_id,
@@ -6154,6 +6233,7 @@ class LongPollingBot:
                 return fallback
             if user_id is not None:
                 self.pending_contact_ids[user_id] = PendingContact(
+                    created_at=time.monotonic(),
                     contact_id=resolved_contact_id,
                     tenant_slug=tenant_slug,
                     students=students,
@@ -6163,7 +6243,7 @@ class LongPollingBot:
                     user_id=user_id,
                     role="parent",
                 )
-                if not linked.text.startswith("Связи доступа созданы"):
+                if user_id is None or user_id in self.pending_contact_ids:
                     return linked
                 store_url = build_miniapp_url(
                     user_id=user_id,
@@ -6191,6 +6271,7 @@ class LongPollingBot:
 
         if user_id is not None:
             self.pending_contact_ids[user_id] = PendingContact(
+                created_at=time.monotonic(),
                 contact_id=contact_id,
                 tenant_slug=tenant_slug,
                 students=[],
@@ -6329,7 +6410,11 @@ class LongPollingBot:
             )
 
         try:
-            link = build_max_bot_shop_deeplink(username, contact_id)
+            link = build_max_bot_shop_deeplink(
+                username,
+                contact_id,
+                tenant_slug=tenant_slug,
+            )
         except DeepLinkError as exc:
             return f"Не получилось создать ссылку: {exc}"
 
@@ -6361,10 +6446,22 @@ class LongPollingBot:
                 role_selection_keyboard(),
             )
 
-        role_text = "родитель" if role == "parent" else "ученик"
+        if role == "student":
+            self.pending_contact_ids.pop(user_id, None)
+            self.pending_onboarding_roles.pop(user_id, None)
+            return BotResponse(
+                (
+                    "Для входа ученика нужен QR-код.\n\n"
+                    "Сначала родитель связывает свой профиль по ID из письма школы, "
+                    "затем открывает кабинет и показывает QR-код ребёнка."
+                ),
+                onboarding_cancelled_keyboard(),
+            )
+
+        role_text = "родитель"
         pending = self.pending_contact_ids.get(user_id)
         if not pending:
-            self.pending_onboarding_roles[user_id] = role
+            self.pending_onboarding_roles[user_id] = (role, time.monotonic())
             return BotResponse(
                 (
                     f"Выбрана роль: {role_text}.\n\n"
@@ -6387,9 +6484,9 @@ class LongPollingBot:
             except BackendApiError as exc:
                 return BotResponse(
                     (
-                        "Не получилось создать связи доступа через backend API.\n\n"
-                        f"Tenant: {pending.tenant_slug}\n"
-                        f"Contact ID: {pending.contact_id}\n"
+                        "Не получилось привязать профиль.\n\n"
+                        f"Город / партнер: {pending.tenant_slug}\n"
+                        f"ID из письма: {pending.contact_id}\n"
                         f"Роль: {role_text}\n"
                         f"Причина: {format_backend_error(exc)}"
                     ),
@@ -6403,7 +6500,7 @@ class LongPollingBot:
             return BotResponse(
                 (
                     "Профиль привязан.\n\n"
-                    f"ID: {pending.contact_id}\n"
+                    f"ID из письма: {pending.contact_id}\n"
                     f"Роль: {role_text}\n"
                     f"Связанных учеников: {len(links)}\n\n"
                     "Теперь можно открыть личный кабинет."
@@ -6414,7 +6511,7 @@ class LongPollingBot:
         return BotResponse(
             (
                 "Данные приняты.\n\n"
-                f"ID: {pending.contact_id}\n"
+                f"ID из письма: {pending.contact_id}\n"
                 f"Роль: {role_text}"
             ),
             self.cabinet_attachments(user_id, pending.tenant_slug),
@@ -6436,6 +6533,7 @@ class LongPollingBot:
         ).text
 
     def handle_bot_started(self, update: dict[str, Any]) -> None:
+        self.cleanup_customer_onboarding()
         user = update.get("user") or {}
         user_id = user.get("user_id")
         chat_id = update.get("chat_id")
@@ -6497,6 +6595,7 @@ class LongPollingBot:
         )
 
     def handle_message_created(self, update: dict[str, Any]) -> None:
+        self.cleanup_customer_onboarding()
         message = update.get("message") or {}
         sender = message.get("sender") or {}
 
@@ -6535,7 +6634,7 @@ class LongPollingBot:
                 username=sender.get("username"),
                 display_name=display_name_from_user(sender),
             )
-        elif command == "/start":
+        elif command in {"/start", "start"}:
             response = (
                 self.handle_contact_payload_response(payload=argument, user_id=user_id)
                 or self.first_entry_response(user_id)
@@ -6755,7 +6854,7 @@ class LongPollingBot:
             ):
                 response = self.handle_role_selection_response(
                     user_id=user_id,
-                    role=self.pending_onboarding_roles[user_id],
+                    role=self.pending_onboarding_roles[user_id][0],
                     username=sender.get("username"),
                     display_name=display_name_from_user(sender),
                 )
@@ -6783,6 +6882,7 @@ class LongPollingBot:
         self.send_response(response, chat_id=chat_id, user_id=user_id)
 
     def handle_message_callback(self, update: dict[str, Any]) -> None:
+        self.cleanup_customer_onboarding()
         callback = update.get("callback") or {}
         payload = callback.get("payload") or update.get("payload") or ""
         callback_id = callback.get("callback_id") or update.get("callback_id")
@@ -6876,6 +6976,7 @@ class LongPollingBot:
                     "generate": "ОС готова",
                     "drafts": "Черновики",
                     "manual_output": "Черновик",
+                    "manual_send": "ОС отправлена",
                 }.get(action, "Обратная связь")
             elif payload == CALLBACK_MENU:
                 response = self.main_menu_response(user_id=user_id)

@@ -64,3 +64,18 @@ async def deliver_feedback_to_teacher(
         view="teaching",
         text=f"ОС готова · {group_name}\n\n{feedback_text}",
     )
+
+
+async def deliver_feedback_to_parents(
+    *,
+    max_user_ids: set[int],
+    tenant_slug: str,
+    group_name: str,
+    feedback_text: str,
+) -> int:
+    return await _send_max_messages(
+        user_ids=max_user_ids,
+        tenant_slug=tenant_slug,
+        view="dashboard",
+        text=f"Обратная связь · {group_name}\n\n{feedback_text}",
+    )

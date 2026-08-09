@@ -28,6 +28,7 @@ from app.models.enums import (
 )
 from app.models.store import Order
 from app.models.student import Student, StudentAccessLink, Wallet
+from app.models.teaching import TeachingSchedule
 from app.models.tenant import Tenant
 from app.schemas.broadcasts import (
     BroadcastAudiencePreviewRead,
@@ -68,6 +69,7 @@ class BroadcastContext:
 class BroadcastRecipients:
     max_user_ids: set[int]
     student_ids: set[UUID]
+    unavailable_student_ids: set[UUID]
 
 
 async def _load_context(
@@ -108,7 +110,7 @@ async def _resolve_recipients(
     tenant_id: UUID,
     payload: BroadcastAudienceRequest,
 ) -> BroadcastRecipients:
-    query = (
+    recipient_query = (
         select(Student.id, MaxAccount.max_user_id)
         .select_from(StudentAccessLink)
         .join(Student, Student.id == StudentAccessLink.student_id)
@@ -122,48 +124,87 @@ async def _resolve_recipients(
     )
 
     if payload.recipient_category == "parents":
-        query = query.where(StudentAccessLink.role == StudentAccessRole.PARENT)
+        recipient_query = recipient_query.where(
+            StudentAccessLink.role == StudentAccessRole.PARENT
+        )
     elif payload.recipient_category == "students":
-        query = query.where(StudentAccessLink.role == StudentAccessRole.STUDENT)
+        recipient_query = recipient_query.where(
+            StudentAccessLink.role == StudentAccessRole.STUDENT
+        )
+
+    eligible_query = select(Student.id).where(
+        Student.tenant_id == tenant_id,
+        Student.status == StudentStatus.ACTIVE,
+    )
 
     if payload.group_names:
-        query = query.where(Student.group_name.in_(payload.group_names))
+        recipient_query = recipient_query.where(
+            Student.group_name.in_(payload.group_names)
+        )
+        eligible_query = eligible_query.where(
+            Student.group_name.in_(payload.group_names)
+        )
+
+    if payload.venue_names:
+        recipient_query = recipient_query.where(
+            Student.venue_name.in_(payload.venue_names)
+        )
+        eligible_query = eligible_query.where(
+            Student.venue_name.in_(payload.venue_names)
+        )
+
+    if payload.lesson_modes:
+        lesson_mode_condition = exists(
+            select(TeachingSchedule.id).where(
+                TeachingSchedule.tenant_id == tenant_id,
+                TeachingSchedule.group_name == Student.group_name,
+                TeachingSchedule.lesson_mode.in_(payload.lesson_modes),
+                TeachingSchedule.is_active.is_(True),
+            )
+        )
+        recipient_query = recipient_query.where(lesson_mode_condition)
+        eligible_query = eligible_query.where(lesson_mode_condition)
 
     if payload.audience_filter == "low_balance":
         threshold = payload.balance_threshold if payload.balance_threshold is not None else 300
-        query = query.where(
-            exists(
-                select(Wallet.id).where(
-                    Wallet.tenant_id == tenant_id,
-                    Wallet.student_id == Student.id,
-                    Wallet.balance <= threshold,
-                )
+        audience_condition = exists(
+            select(Wallet.id).where(
+                Wallet.tenant_id == tenant_id,
+                Wallet.student_id == Student.id,
+                Wallet.balance <= threshold,
             )
         )
+        recipient_query = recipient_query.where(audience_condition)
+        eligible_query = eligible_query.where(audience_condition)
     elif payload.audience_filter == "active_orders":
-        query = query.where(
-            exists(
-                select(Order.id).where(
-                    Order.tenant_id == tenant_id,
-                    Order.student_id == Student.id,
-                    Order.status.in_(ACTIVE_ORDER_STATUSES),
-                )
+        audience_condition = exists(
+            select(Order.id).where(
+                Order.tenant_id == tenant_id,
+                Order.student_id == Student.id,
+                Order.status.in_(ACTIVE_ORDER_STATUSES),
             )
         )
+        recipient_query = recipient_query.where(audience_condition)
+        eligible_query = eligible_query.where(audience_condition)
     elif payload.audience_filter == "no_orders":
-        query = query.where(
-            ~exists(
-                select(Order.id).where(
-                    Order.tenant_id == tenant_id,
-                    Order.student_id == Student.id,
-                )
+        audience_condition = ~exists(
+            select(Order.id).where(
+                Order.tenant_id == tenant_id,
+                Order.student_id == Student.id,
             )
         )
+        recipient_query = recipient_query.where(audience_condition)
+        eligible_query = eligible_query.where(audience_condition)
 
-    rows = (await db.execute(query)).all()
+    rows = (await db.execute(recipient_query)).all()
+    linked_student_ids = {UUID(str(row.id)) for row in rows}
+    eligible_student_ids = {
+        UUID(str(student_id)) for student_id in (await db.scalars(eligible_query)).all()
+    }
     return BroadcastRecipients(
         max_user_ids={int(row.max_user_id) for row in rows},
-        student_ids={UUID(str(row.id)) for row in rows},
+        student_ids=linked_student_ids,
+        unavailable_student_ids=eligible_student_ids - linked_student_ids,
     )
 
 
@@ -174,7 +215,10 @@ def _preview_read(
     return BroadcastAudiencePreviewRead(
         recipient_count=len(recipients.max_user_ids),
         matched_students=len(recipients.student_ids),
+        unavailable_students=len(recipients.unavailable_student_ids),
         selected_groups=payload.group_names,
+        selected_venues=payload.venue_names,
+        selected_lesson_modes=payload.lesson_modes,
     )
 
 
@@ -191,6 +235,8 @@ def _broadcast_read(
         recipient_category=broadcast.recipient_category,
         audience_filter=broadcast.audience_filter,
         group_names=list(broadcast.group_names or []),
+        venue_names=list(broadcast.venue_names or []),
+        lesson_modes=list(broadcast.lesson_modes or []),
         balance_threshold=broadcast.balance_threshold,
         status=broadcast.status,
         recipient_count=broadcast.recipient_count,
@@ -265,6 +311,8 @@ async def send_school_broadcast(
         recipient_category=payload.recipient_category,
         audience_filter=payload.audience_filter,
         group_names=payload.group_names,
+        venue_names=payload.venue_names,
+        lesson_modes=payload.lesson_modes,
         balance_threshold=payload.balance_threshold,
         status="sending",
         recipient_count=len(recipients.max_user_ids),
@@ -333,6 +381,8 @@ async def send_school_broadcast(
                 "recipient_category": payload.recipient_category,
                 "audience_filter": payload.audience_filter,
                 "group_names": payload.group_names,
+                "venue_names": payload.venue_names,
+                "lesson_modes": payload.lesson_modes,
                 "recipient_count": len(results),
                 "delivered_count": delivered,
                 "failed_count": failed,

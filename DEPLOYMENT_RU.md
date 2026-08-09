@@ -129,6 +129,7 @@ nano /etc/algo-max/algo-max.env
 - `CHANGE_DB_PASSWORD`: пароль PostgreSQL; спецсимволы должны быть URL-кодированы.
 - `DEFAULT_TENANT_SLUG`: slug импортированного филиала.
 - `INITIAL_SUPERADMIN_MAX_USER_ID`: ваш числовой MAX user ID.
+- `APP_TIMEZONE`: часовой пояс расписания и отчетов, обычно `Europe/Moscow`.
 - `PRODUCT_MEDIA_ROOT`: каталог фотографий товаров; штатно `/var/lib/algo-max/product-media`.
 
 Проверьте конфигурацию:

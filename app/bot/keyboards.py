@@ -226,17 +226,7 @@ def build_miniapp_url(
     base_url = configured_url or (
         "" if is_placeholder(settings_url) else str(settings_url).strip()
     )
-    if not base_url or not any((view, product_id)):
-        return base_url
-    parsed = parse.urlsplit(base_url)
-    query = dict(parse.parse_qsl(parsed.query, keep_blank_values=True))
-    if view:
-        query["view"] = view
-    if product_id:
-        query["product"] = product_id
-    return parse.urlunsplit(
-        (parsed.scheme, parsed.netloc, parsed.path, parse.urlencode(query), parsed.fragment)
-    )
+    return base_url
 
 
 def main_menu_keyboard(
@@ -675,13 +665,21 @@ def feedback_setup_keyboard(
     return inline_keyboard(rows)
 
 
-def feedback_preview_keyboard() -> list[dict[str, Any]]:
-    return inline_keyboard(
+def feedback_preview_keyboard(output_id: str | None = None) -> list[dict[str, Any]]:
+    rows: list[list[dict[str, str]]] = []
+    if output_id:
+        rows.append(
+            [callback_button("Отправить родителям", feedback_payload("manual_send", output_id))]
+        )
+    rows.extend(
         [
             [callback_button("Создать ещё", feedback_payload("manual"))],
             [callback_button("Черновики", feedback_payload("drafts"))],
             [callback_button("Главное меню", CALLBACK_MENU)],
         ]
+    )
+    return inline_keyboard(
+        rows
     )
 
 

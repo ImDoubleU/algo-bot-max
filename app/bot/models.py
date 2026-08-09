@@ -6,6 +6,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class PendingContact:
+    created_at: float
     contact_id: str
     tenant_slug: str
     students: list[dict[str, Any]]

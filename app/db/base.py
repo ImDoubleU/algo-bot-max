@@ -18,6 +18,7 @@ from app.models.student import (
     ContactStudentLink,
     Student,
     StudentAccessLink,
+    StudentHistoryEvent,
     Wallet,
 )
 from app.models.teaching import (
@@ -56,6 +57,7 @@ __all__ = [
     "StockMovement",
     "Student",
     "StudentAccessLink",
+    "StudentHistoryEvent",
     "Tenant",
     "TeachingSchedule",
     "TeachingLessonOverride",

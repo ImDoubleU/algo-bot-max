@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 
 BroadcastRecipientCategory = Literal["all", "parents", "students"]
 BroadcastAudienceFilter = Literal["all", "low_balance", "active_orders", "no_orders"]
+BroadcastLessonMode = Literal["group", "individual"]
 
 
 class BroadcastAudienceRequest(BaseModel):
@@ -14,11 +15,13 @@ class BroadcastAudienceRequest(BaseModel):
     recipient_category: BroadcastRecipientCategory = "all"
     audience_filter: BroadcastAudienceFilter = "all"
     group_names: list[str] = Field(default_factory=list, max_length=100)
+    venue_names: list[str] = Field(default_factory=list, max_length=50)
+    lesson_modes: list[BroadcastLessonMode] = Field(default_factory=list, max_length=2)
     balance_threshold: int | None = Field(default=None, ge=0, le=1_000_000)
 
-    @field_validator("group_names")
+    @field_validator("group_names", "venue_names", "lesson_modes")
     @classmethod
-    def normalize_group_names(cls, values: list[str]) -> list[str]:
+    def normalize_string_lists(cls, values: list[str]) -> list[str]:
         result: list[str] = []
         for value in values:
             normalized = value.strip()
@@ -30,7 +33,10 @@ class BroadcastAudienceRequest(BaseModel):
 class BroadcastAudiencePreviewRead(BaseModel):
     recipient_count: int
     matched_students: int
+    unavailable_students: int = 0
     selected_groups: list[str]
+    selected_venues: list[str]
+    selected_lesson_modes: list[BroadcastLessonMode]
 
 
 class SchoolBroadcastRead(BaseModel):
@@ -41,6 +47,8 @@ class SchoolBroadcastRead(BaseModel):
     recipient_category: BroadcastRecipientCategory
     audience_filter: BroadcastAudienceFilter
     group_names: list[str]
+    venue_names: list[str]
+    lesson_modes: list[BroadcastLessonMode]
     balance_threshold: int | None
     status: str
     recipient_count: int

@@ -49,6 +49,7 @@ class MiniAppStudentRead(BaseModel):
     lms_student_id: str | None = None
     role: StudentAccessRole
     access_status: StudentAccessStatus = StudentAccessStatus.ACTIVE
+    staff_visible: bool = False
     display_name: str
     group_name: str | None = None
     course_name: str | None = None
@@ -57,11 +58,45 @@ class MiniAppStudentRead(BaseModel):
     balance: int
 
 
+class MiniAppStudentHistoryEventRead(BaseModel):
+    id: UUID | None = None
+    event_type: str
+    from_status: StudentStatus | None = None
+    to_status: StudentStatus
+    changed_fields: list[str] = Field(default_factory=list)
+    source: str
+    actor_name: str | None = None
+    occurred_at: datetime
+
+
+class MiniAppAdminStudentRead(BaseModel):
+    student_id: UUID
+    lms_student_id: str | None = None
+    display_name: str
+    group_name: str | None = None
+    course_name: str | None = None
+    venue_name: str | None = None
+    teacher_name: str | None = None
+    status: StudentStatus
+    balance: int
+    imported_at: datetime
+    updated_at: datetime
+    status_updated_at: datetime
+    departed_at: datetime | None = None
+    history: list[MiniAppStudentHistoryEventRead] = Field(default_factory=list)
+
+
+class MiniAppStudentRegistryRead(BaseModel):
+    tenant_slug: str
+    students: list[MiniAppAdminStudentRead] = Field(default_factory=list)
+
+
 class MiniAppStudentInvitationRead(BaseModel):
     student_id: UUID
     student_name: str
     bot_url: str
     qr_data_url: str
+    qr_download_url: str
 
 
 class MiniAppLedgerRead(BaseModel):
@@ -192,6 +227,8 @@ class MiniAppOrderItemRead(BaseModel):
     total_price_astrocoins: int
     warehouse_id: UUID | None = None
     warehouse_name: str | None = None
+    suggested_warehouse_id: UUID | None = None
+    suggested_warehouse_name: str | None = None
 
 
 class MiniAppOrderStatusHistoryRead(BaseModel):
@@ -222,6 +259,12 @@ class MiniAppOrderCreate(BaseModel):
     student_id: UUID
     items: list[MiniAppOrderItemCreate] = Field(min_length=1, max_length=20)
     comment: str | None = Field(default=None, max_length=500)
+    request_key: str | None = Field(
+        default=None,
+        min_length=12,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
 
 
 class MiniAppOrderCreatedRead(BaseModel):
@@ -241,6 +284,7 @@ class MiniAppOrderCancelCreate(BaseModel):
     tenant_slug: str | None = None
     reason: str = Field(min_length=2, max_length=160)
     custom_reason: str | None = Field(default=None, max_length=500)
+    out_of_stock_product_id: UUID | None = None
 
 
 class MiniAppOrderWarehouseAssignmentItem(BaseModel):
@@ -300,6 +344,22 @@ class MiniAppAccrualCreate(BaseModel):
     amount: int = Field(gt=0, le=10000)
     reason: str = Field(min_length=2, max_length=240)
     comment: str | None = Field(default=None, max_length=500)
+    request_key: str | None = Field(
+        default=None,
+        min_length=12,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+
+
+class MiniAppAccrualUndoCreate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    request_key: str = Field(
+        min_length=12,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
 
 
 class MiniAppAccrualRead(BaseModel):
@@ -311,6 +371,7 @@ class MiniAppAccrualRead(BaseModel):
 
 class MiniAppAccrualReportEntryRead(BaseModel):
     created_at: datetime
+    teacher_id: UUID
     teacher_name: str
     teacher_role: StaffRole | None = None
     student_id: UUID

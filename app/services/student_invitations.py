@@ -98,6 +98,23 @@ def build_student_invitation_link(
 
 
 def invitation_qr_data_url(link: str) -> str:
+    qr = _invitation_qr(link)
+    image = qr.make_image(image_factory=SvgPathImage)
+    output = BytesIO()
+    image.save(output)
+    encoded = base64.b64encode(output.getvalue()).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"
+
+
+def invitation_qr_png(link: str) -> bytes:
+    qr = _invitation_qr(link)
+    image = qr.make_image(fill_color="black", back_color="white")
+    output = BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
+def _invitation_qr(link: str) -> qrcode.QRCode:
     qr = qrcode.QRCode(
         version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_M,
@@ -106,8 +123,4 @@ def invitation_qr_data_url(link: str) -> str:
     )
     qr.add_data(link)
     qr.make(fit=True)
-    image = qr.make_image(image_factory=SvgPathImage)
-    output = BytesIO()
-    image.save(output)
-    encoded = base64.b64encode(output.getvalue()).decode("ascii")
-    return f"data:image/svg+xml;base64,{encoded}"
+    return qr

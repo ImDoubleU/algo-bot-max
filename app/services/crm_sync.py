@@ -1,12 +1,20 @@
 import hashlib
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import StudentStatus
-from app.models.student import Contact, ContactStudentLink, Student, Wallet
+from app.models.student import (
+    Contact,
+    ContactStudentLink,
+    Student,
+    StudentHistoryEvent,
+    Wallet,
+)
 from app.models.tenant import City, Partner, Tenant, Venue
 from app.services.access import normalize_contact_id, normalize_student_code
 from app.services.crm_import import CrmStudentRow
@@ -348,6 +356,7 @@ async def upsert_crm_student_rows(
     commit: bool = True,
     target_tenant: Tenant | None = None,
     student_status: StudentStatus = StudentStatus.ACTIVE,
+    actor_account_id: UUID | None = None,
 ) -> CrmSyncResult:
     result = CrmSyncResult()
     partner: Partner | None = None
@@ -416,6 +425,10 @@ async def upsert_crm_student_rows(
             row=row,
             access_code=access_code,
         )
+        imported_at = datetime.now(UTC)
+        is_new_student = student is None
+        previous_status: StudentStatus | None = None
+        changed_fields: list[str] = []
         if student is None:
             student = Student(
                 tenant_id=tenant.id,
@@ -425,10 +438,41 @@ async def upsert_crm_student_rows(
                 else None,
                 student_access_code=access_code,
                 first_name=row.first_name,
+                status=student_status,
+                status_updated_at=imported_at,
+                departed_at=(
+                    imported_at if student_status == StudentStatus.DEPARTED else None
+                ),
             )
             db.add(student)
             result = result.add(created_students=result.created_students + 1)
         else:
+            previous_status = student.status
+            incoming_values = {
+                "crm_deal_id": row.deal_id,
+                "crm_uuid": row.uuid,
+                "first_name": row.first_name,
+                "last_name": row.last_name,
+                "group_name": row.group_name,
+                "course_name": row.course_name,
+                "venue_name": row.venue_name,
+                "teacher_name": row.teacher_name,
+            }
+            if row.lms_student_id:
+                incoming_values["lms_student_id"] = normalize_student_code(
+                    row.lms_student_id
+                )
+            changed_fields = [
+                field
+                for field, incoming_value in incoming_values.items()
+                if getattr(student, field) != incoming_value
+            ]
+            if student.status != student_status:
+                student.status_updated_at = imported_at
+                if student_status == StudentStatus.DEPARTED:
+                    student.departed_at = imported_at
+                elif student_status == StudentStatus.ACTIVE:
+                    student.departed_at = None
             result = result.add(updated_students=result.updated_students + 1)
 
         student.venue_id = venue.id if venue else None
@@ -445,6 +489,24 @@ async def upsert_crm_student_rows(
         student.status = student_status
 
         await db.flush()
+        db.add(
+            StudentHistoryEvent(
+                tenant_id=tenant.id,
+                student_id=student.id,
+                actor_account_id=actor_account_id,
+                event_type=(
+                    "imported"
+                    if is_new_student
+                    else "status_changed"
+                    if previous_status != student_status
+                    else "updated"
+                ),
+                from_status=previous_status.value if previous_status else None,
+                to_status=student_status.value,
+                changed_fields=changed_fields,
+                source="crm_import",
+            )
+        )
         if await ensure_wallet(db, tenant=tenant, student=student):
             result = result.add(created_wallets=result.created_wallets + 1)
 

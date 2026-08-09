@@ -68,6 +68,8 @@ storage/
 *.xlsx
 *.xls
 *.csv
+!docs/templates/
+!docs/templates/algo-max-students-import-template.xlsx
 
 # Private planning documents
 DIRECTOR_APPROVAL_PLAN_MAX_BOT.md
@@ -85,6 +87,8 @@ playwright-report/
 test-results/
 blob-report/
 .playwright/
+.playwright-cli/
+.deploy_tmp/
 
 # OS/editor noise
 .DS_Store

@@ -123,6 +123,19 @@ class ManualFeedbackOutputRead(BaseModel):
     created_at: datetime
 
 
+class ManualFeedbackSendRequest(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+
+
+class ManualFeedbackSendRead(BaseModel):
+    output_id: UUID
+    parent_recipients: int
+    sent_recipients: int
+    failed_recipients: int
+    status: str
+
+
 class AttendanceStudentRead(BaseModel):
     student_id: UUID
     student_name: str

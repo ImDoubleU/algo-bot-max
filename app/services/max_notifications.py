@@ -24,6 +24,7 @@ from app.models.enums import (
 from app.models.store import Order, Product, WarehouseInventory
 from app.models.student import Student, StudentAccessLink
 from app.models.tenant import Tenant
+from app.services.staff import configured_superadmin_max_user_id
 
 logger = logging.getLogger(__name__)
 _background_tasks: set[asyncio.Task[None]] = set()
@@ -39,31 +40,42 @@ def _order_status_text(status: OrderStatus) -> str:
     }.get(status, status.value)
 
 
+def _notification_text(
+    title: str,
+    *,
+    facts: list[tuple[str, str]],
+    message: str | None = None,
+) -> str:
+    lines = [title]
+    if message:
+        lines.extend(["", message])
+    if facts:
+        lines.append("")
+        lines.extend(f"{label}: {value}" for label, value in facts if value)
+    return "\n".join(lines)
+
+
 def _order_message(
     *,
     order: Order,
     student: Student,
     balance_after: int | None,
 ) -> str:
-    lines = [
-        f"Заказ №{order.order_number}",
-        f"Ученик: {student.display_name}",
-        f"Статус: {_order_status_text(order.status)}",
-        f"Сумма: {order.total_astrocoins} астрокоинов",
-    ]
-    if order.status in {OrderStatus.CANCELLED, OrderStatus.RETURNED}:
-        lines.append(f"Возвращено: {order.total_astrocoins} астрокоинов")
+    title = f"Заказ №{order.order_number}: {_order_status_text(order.status)}"
+    message = None
     if order.status == OrderStatus.CANCELLED:
-        lines.insert(0, "К сожалению, заказ пришлось отменить.")
-        if order.cancellation_reason:
-            lines.append(f"Причина: {order.cancellation_reason}")
+        message = "Заказ отменен, астрокоины возвращены на баланс."
     if order.status == OrderStatus.TRANSFERRED_TO_TEACHER:
-        lines.append(
-            "Преподаватель получил ваш заказ. Получить его можно уже на следующем занятии!"
-        )
+        message = "Заказ передан преподавателю. Его можно получить на занятии."
+    facts = [
+        ("Ученик", student.display_name),
+        ("Сумма", f"{order.total_astrocoins} AC"),
+    ]
+    if order.status == OrderStatus.CANCELLED and order.cancellation_reason:
+        facts.append(("Причина", order.cancellation_reason))
     if balance_after is not None:
-        lines.append(f"Баланс: {balance_after} AC")
-    return "\n".join(lines)
+        facts.append(("Баланс", f"{balance_after} AC"))
+    return _notification_text(title, facts=facts, message=message)
 
 
 async def _recipient_user_ids(
@@ -142,7 +154,7 @@ async def _staff_user_ids(
     tenant_id: UUID,
     roles: set[StaffRole],
 ) -> set[int]:
-    return set(
+    user_ids = set(
         (
             await db.scalars(
                 select(MaxAccount.max_user_id)
@@ -155,6 +167,21 @@ async def _staff_user_ids(
             )
         ).all()
     )
+    configured_superadmin_id = configured_superadmin_max_user_id()
+    if StaffRole.SUPERADMIN in roles and configured_superadmin_id is not None:
+        active_assignment = await db.scalar(
+            select(StaffRoleAssignment.id)
+            .join(MaxAccount, MaxAccount.id == StaffRoleAssignment.account_id)
+            .where(
+                MaxAccount.max_user_id == configured_superadmin_id,
+                StaffRoleAssignment.role == StaffRole.SUPERADMIN,
+                StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+            )
+            .limit(1)
+        )
+        if active_assignment is not None:
+            user_ids.add(configured_superadmin_id)
+    return user_ids
 
 
 async def _tenant_customer_user_ids(db: AsyncSession, *, tenant_id: UUID) -> set[int]:
@@ -240,10 +267,10 @@ async def schedule_new_product_notification(
     if not settings.max_order_notifications_enabled or is_placeholder(settings.max_bot_token):
         return
     user_ids = await _tenant_customer_user_ids(db, tenant_id=UUID(str(tenant.id)))
-    text = (
-        "В магазине появился новый товар!\n\n"
-        f"{product.name}\n"
-        f"Цена: {product.price_astrocoins} AC"
+    text = _notification_text(
+        "Новый товар в магазине",
+        message=product.name,
+        facts=[("Цена", f"{product.price_astrocoins} AC")],
     )
     _schedule_direct_notification(
         user_ids=user_ids,
@@ -276,11 +303,13 @@ async def schedule_low_stock_notification(
     _schedule_direct_notification(
         user_ids=user_ids,
         tenant_slug=tenant.slug,
-        text=(
-            "Низкий остаток товара.\n\n"
-            f"{product.name}\n"
-            f"Склад: {warehouse_name}\n"
-            f"Доступно: {free_quantity} шт."
+        text=_notification_text(
+            "Заканчивается товар",
+            message=product.name,
+            facts=[
+                ("Склад", warehouse_name),
+                ("Доступно", f"{free_quantity} шт."),
+            ],
         ),
         view="admin",
         button_label="Проверить остатки",

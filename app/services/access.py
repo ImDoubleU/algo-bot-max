@@ -153,6 +153,26 @@ async def get_or_create_max_account(
     return account
 
 
+async def _active_account_role_link_id(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    account_id: UUID,
+    role: StudentAccessRole,
+) -> UUID | None:
+    link_id = await db.scalar(
+        select(StudentAccessLink.id)
+        .where(
+            StudentAccessLink.tenant_id == tenant_id,
+            StudentAccessLink.account_id == account_id,
+            StudentAccessLink.role == role,
+            StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+        )
+        .limit(1)
+    )
+    return UUID(str(link_id)) if link_id is not None else None
+
+
 async def revoke_dependent_student_links(
     db: AsyncSession,
     *,
@@ -286,6 +306,12 @@ async def create_contact_access_links(
     db: AsyncSession,
     payload: AccessLinkCreate,
 ) -> list[StudentAccessLink]:
+    if payload.role != StudentAccessRole.PARENT:
+        raise AccessServiceError(
+            "Contact ID используется только для входа родителя. "
+            "Ученик входит по QR-коду из кабинета родителя"
+        )
+
     resolved = await resolve_students_by_contact_id(
         db,
         StudentResolveRequest(tenant_slug=payload.tenant_slug, contact_id=payload.contact_id),
@@ -301,7 +327,7 @@ async def create_contact_access_links(
             reason="contact_id_not_found",
         )
         await db.commit()
-        raise AccessServiceError("Contact ID was not found for this tenant")
+        raise AccessServiceError("ID из письма не найден для выбранного города")
 
     contact, students = resolved
     if not students:
@@ -314,9 +340,20 @@ async def create_contact_access_links(
             reason="contact_has_no_students",
         )
         await db.commit()
-        raise AccessServiceError("Contact ID has no linked students")
+        raise AccessServiceError("К этому ID не привязаны ученики")
 
     account = await get_or_create_max_account(db, payload)
+    active_student_link_id = await _active_account_role_link_id(
+        db,
+        tenant_id=UUID(str(contact.tenant_id)),
+        account_id=UUID(str(account.id)),
+        role=StudentAccessRole.STUDENT,
+    )
+    if active_student_link_id is not None:
+        raise AccessServiceError(
+            "Этот MAX-профиль уже используется учеником. "
+            "Для родительского кабинета откройте ссылку с профиля родителя"
+        )
     links: list[StudentAccessLink] = []
     created = 0
     reactivated = 0
@@ -340,6 +377,10 @@ async def create_contact_access_links(
                 existing.revoked_at = None
                 existing.revoked_reason = None
                 reactivated += 1
+            elif existing.status == StudentAccessStatus.REVOKED:
+                raise AccessServiceError(
+                    "Связь была отозвана администратором. Обратитесь в школу"
+                )
             links.append(existing)
             continue
 
@@ -424,6 +465,17 @@ async def create_invited_student_access_link(
         )
 
     account = await get_or_create_max_account(db, payload)
+    active_parent_link_id = await _active_account_role_link_id(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+        account_id=UUID(str(account.id)),
+        role=StudentAccessRole.PARENT,
+    )
+    if active_parent_link_id is not None:
+        raise AccessServiceError(
+            "Этот MAX-профиль уже используется родителем. "
+            "Откройте QR-код с профиля ребенка"
+        )
     link = await db.scalar(
         select(StudentAccessLink).where(
             StudentAccessLink.tenant_id == tenant.id,
