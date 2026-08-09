@@ -3,7 +3,83 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+
+CRM_TEMPLATE_SHEET_NAME = "Шаблон"
+CRM_LEGACY_SHEET_NAME = "Сделки"
+CRM_TEMPLATE_COLUMNS: tuple[tuple[str, str, bool, str, str], ...] = (
+    (
+        "lms_student_id",
+        "ID ученика",
+        True,
+        "Уникальный ID ученика из LMS или CRM",
+        "1841",
+    ),
+    (
+        "last_name",
+        "Фамилия ребенка",
+        True,
+        "Фамилия полностью",
+        "Писарева",
+    ),
+    (
+        "first_name",
+        "Имя ребенка",
+        True,
+        "Имя полностью",
+        "Есения",
+    ),
+    (
+        "group_name",
+        "Группа",
+        True,
+        "Единое точное название группы",
+        "1 3D общ вт 17:30 (год 25-26)",
+    ),
+    (
+        "course_name",
+        "Курс",
+        True,
+        "Название учебного курса",
+        "Minecraft",
+    ),
+    (
+        "venue_name",
+        "Площадка",
+        True,
+        "Адрес или название филиала",
+        "Гагарина 64",
+    ),
+    (
+        "teacher_name",
+        "Преподаватель",
+        True,
+        "ФИО преподавателя как в его профиле",
+        "Дворянинова Вероника",
+    ),
+    (
+        "contact_ids",
+        "ID контакта",
+        False,
+        "Contact ID родителя из amoCRM, не MAX ID",
+        "30420713",
+    ),
+    (
+        "contact_names",
+        "Имя контакта",
+        False,
+        "ФИО родителя",
+        "Никина Елена Александровна",
+    ),
+)
+CRM_TEMPLATE_FIELDS = frozenset(column[0] for column in CRM_TEMPLATE_COLUMNS)
+CRM_TEMPLATE_REQUIRED_FIELDS = frozenset(
+    column[0] for column in CRM_TEMPLATE_COLUMNS if column[2]
+)
+CRM_TEMPLATE_HEADER_BY_FIELD = {
+    column[0]: column[1] for column in CRM_TEMPLATE_COLUMNS
+}
 
 
 class CrmImportError(RuntimeError):
@@ -112,34 +188,118 @@ def normalize_header(value: Any) -> str:
     return text.lower().replace("\u0451", "\u0435")
 
 
-def get_cell(row: dict[str, Any], field: str) -> str | None:
-    for alias in HEADER_ALIASES[field]:
-        value = row.get(alias.replace("\u0451", "\u0435"))
-        if value is not None:
-            return normalize_text(value)
-    return None
-
-
-def find_header_mapping(values: tuple[Any, ...]) -> dict[int, str]:
+def find_header_mapping(
+    values: tuple[Any, ...],
+    *,
+    allowed_fields: frozenset[str] | None = None,
+) -> dict[int, str]:
     mapping: dict[int, str] = {}
     known_headers = {
-        alias.replace("\u0451", "\u0435")
-        for aliases in HEADER_ALIASES.values()
+        normalize_header(alias): field
+        for field, aliases in HEADER_ALIASES.items()
+        if allowed_fields is None or field in allowed_fields
         for alias in aliases
     }
 
     for index, value in enumerate(values):
         header = normalize_header(value)
         if header in known_headers:
-            mapping[index] = header
+            mapping[index] = known_headers[header]
 
     return mapping
+
+
+def build_crm_import_template() -> bytes:
+    workbook = Workbook()
+    instruction = workbook.active
+    instruction.title = "Инструкция"
+    instruction.sheet_view.showGridLines = False
+    instruction.merge_cells("A1:D1")
+    instruction["A1"] = "Шаблон импорта Algo MAX"
+    instruction["A1"].font = Font(size=18, bold=True, color="FFFFFF")
+    instruction["A1"].fill = PatternFill("solid", fgColor="6F30D0")
+    instruction["A1"].alignment = Alignment(vertical="center")
+    instruction.row_dimensions[1].height = 34
+
+    instruction.merge_cells("A3:D3")
+    instruction["A3"] = (
+        "Заполняйте только лист «Шаблон». Одна строка = один ученик. "
+        "Не меняйте названия колонок."
+    )
+    instruction["A3"].alignment = Alignment(wrap_text=True, vertical="top")
+    instruction.row_dimensions[3].height = 34
+
+    instruction.merge_cells("A4:D4")
+    instruction["A4"] = (
+        "Дополнительные листы и колонки игнорируются. Один ID контакта можно повторить "
+        "у нескольких детей одного родителя."
+    )
+    instruction["A4"].alignment = Alignment(wrap_text=True, vertical="top")
+    instruction.row_dimensions[4].height = 34
+
+    instruction_headers = (
+        "Колонка",
+        "Обязательно",
+        "Что указывать",
+        "Пример",
+    )
+    for column_index, value in enumerate(instruction_headers, start=1):
+        cell = instruction.cell(row=6, column=column_index, value=value)
+        cell.font = Font(bold=True, color="24152F")
+        cell.fill = PatternFill("solid", fgColor="FFD43B")
+        cell.alignment = Alignment(wrap_text=True, vertical="center")
+
+    for row_index, (_, header, required, description, example) in enumerate(
+        CRM_TEMPLATE_COLUMNS,
+        start=7,
+    ):
+        values = (
+            header,
+            "Да" if required else "Нет",
+            description,
+            example,
+        )
+        for column_index, value in enumerate(values, start=1):
+            cell = instruction.cell(row=row_index, column=column_index, value=value)
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+            if row_index % 2:
+                cell.fill = PatternFill("solid", fgColor="F5F0FF")
+
+    instruction.freeze_panes = "A7"
+    instruction.auto_filter.ref = f"A6:D{6 + len(CRM_TEMPLATE_COLUMNS)}"
+    for column_letter, width in {"A": 24, "B": 16, "C": 58, "D": 38}.items():
+        instruction.column_dimensions[column_letter].width = width
+
+    template = workbook.create_sheet(CRM_TEMPLATE_SHEET_NAME)
+    template.sheet_view.showGridLines = False
+    template.append([column[1] for column in CRM_TEMPLATE_COLUMNS])
+    for cell in template[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="6F30D0")
+        cell.alignment = Alignment(wrap_text=True, vertical="center")
+    template.row_dimensions[1].height = 34
+    template.freeze_panes = "A2"
+    last_column = template.cell(
+        row=1,
+        column=len(CRM_TEMPLATE_COLUMNS),
+    ).column_letter
+    template.auto_filter.ref = f"A1:{last_column}1"
+    template_widths = (18, 24, 22, 38, 22, 28, 34, 20, 34)
+    for column_index, width in enumerate(template_widths, start=1):
+        template.column_dimensions[
+            template.cell(row=1, column=column_index).column_letter
+        ].width = width
+
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return output.getvalue()
 
 
 def parse_crm_students(
     path: str | Path,
     *,
-    sheet_name: str = "\u0421\u0434\u0435\u043b\u043a\u0438",
+    sheet_name: str = CRM_TEMPLATE_SHEET_NAME,
 ) -> list[CrmStudentRow]:
     workbook_path = Path(path)
     if not workbook_path.exists():
@@ -155,7 +315,7 @@ def parse_crm_students(
 def parse_crm_students_content(
     content: bytes,
     *,
-    sheet_name: str = "\u0421\u0434\u0435\u043b\u043a\u0438",
+    sheet_name: str = CRM_TEMPLATE_SHEET_NAME,
 ) -> list[CrmStudentRow]:
     if not content:
         raise CrmImportError("CRM file is empty")
@@ -177,42 +337,69 @@ def parse_crm_workbook(
     if sheet_name in workbook.sheetnames:
         sheet = workbook[sheet_name]
     else:
-        sheet = None
-        best_score = 0
-        for candidate in workbook.worksheets:
-            score = max(
-                (
-                    len(find_header_mapping(tuple(values)))
-                    for _, values in zip(
-                        range(30),
-                        candidate.iter_rows(values_only=True),
-                        strict=False,
-                    )
-                ),
-                default=0,
-            )
-            if score > best_score:
-                best_score = score
-                sheet = candidate
-        if sheet is None or best_score < 2:
-            raise CrmImportError(f"Sheet not found: {sheet_name}")
+        sheet = next(
+            (
+                workbook[candidate_name]
+                for candidate_name in (CRM_TEMPLATE_SHEET_NAME, CRM_LEGACY_SHEET_NAME)
+                if candidate_name in workbook.sheetnames
+            ),
+            None,
+        )
+        if sheet is None:
+            best_score = 0
+            for candidate in workbook.worksheets:
+                score = max(
+                    (
+                        len(find_header_mapping(tuple(values)))
+                        for _, values in zip(
+                            range(30),
+                            candidate.iter_rows(values_only=True),
+                            strict=False,
+                        )
+                    ),
+                    default=0,
+                )
+                if score > best_score:
+                    best_score = score
+                    sheet = candidate
+            if sheet is None or best_score < 2:
+                raise CrmImportError(f"Sheet not found: {sheet_name}")
+
+    template_format = sheet.title == CRM_TEMPLATE_SHEET_NAME
+    allowed_fields = CRM_TEMPLATE_FIELDS if template_format else None
 
     header_mapping: dict[int, str] | None = None
     result: list[CrmStudentRow] = []
 
     for row_number, values in enumerate(sheet.iter_rows(values_only=True), start=1):
         if header_mapping is None:
-            candidate = find_header_mapping(values)
+            candidate = find_header_mapping(values, allowed_fields=allowed_fields)
             if len(candidate) >= 3:
                 header_mapping = candidate
+                if template_format:
+                    mapped_fields = frozenset(candidate.values())
+                    missing_fields = CRM_TEMPLATE_REQUIRED_FIELDS - mapped_fields
+                    if missing_fields:
+                        missing_headers = [
+                            CRM_TEMPLATE_HEADER_BY_FIELD[field]
+                            for field in CRM_TEMPLATE_HEADER_BY_FIELD
+                            if field in missing_fields
+                        ]
+                        raise CrmImportError(
+                            "В листе «Шаблон» нет обязательных колонок: "
+                            + ", ".join(missing_headers)
+                        )
             continue
 
-        row = {header: values[index] for index, header in header_mapping.items()}
-        first_name = get_cell(row, "first_name")
-        last_name = get_cell(row, "last_name")
-        group_name = get_cell(row, "group_name")
-        deal_id = get_cell(row, "deal_id")
-        contact_ids = get_cell(row, "contact_ids")
+        row = {
+            field: normalize_text(values[index])
+            for index, field in header_mapping.items()
+        }
+        first_name = row.get("first_name")
+        last_name = row.get("last_name")
+        group_name = row.get("group_name")
+        deal_id = row.get("deal_id")
+        contact_ids = row.get("contact_ids")
 
         if not any([first_name, last_name, group_name, deal_id, contact_ids]):
             continue
@@ -221,18 +408,18 @@ def parse_crm_workbook(
             CrmStudentRow(
                 row_number=row_number,
                 deal_id=deal_id,
-                uuid=get_cell(row, "uuid"),
-                lms_student_id=get_cell(row, "lms_student_id"),
+                uuid=row.get("uuid"),
+                lms_student_id=row.get("lms_student_id"),
                 first_name=first_name,
                 last_name=last_name,
                 group_name=group_name,
-                course_name=get_cell(row, "course_name"),
-                venue_name=get_cell(row, "venue_name"),
-                teacher_name=get_cell(row, "teacher_name"),
-                city=get_cell(row, "city"),
-                status_name=get_cell(row, "status_name"),
+                course_name=row.get("course_name"),
+                venue_name=row.get("venue_name"),
+                teacher_name=row.get("teacher_name"),
+                city=row.get("city"),
+                status_name=row.get("status_name"),
                 contact_ids=contact_ids,
-                contact_names=get_cell(row, "contact_names"),
+                contact_names=row.get("contact_names"),
             )
         )
 

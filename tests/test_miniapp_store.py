@@ -16,6 +16,7 @@ from app.models.enums import (
     WarehouseType,
 )
 from app.models.store import (
+    Order,
     OrderItem,
     Product,
     ProductCategory,
@@ -185,11 +186,12 @@ async def test_order_waits_for_admin_warehouse_and_debits_wallet(db_session) -> 
     assert created.balance_after == 760
     assert created.items[0].warehouse_name is None
     assert created.items[0].warehouse_id is None
+    assert created.items[0].suggested_warehouse_id == inventory.warehouse_id
 
     await db_session.refresh(inventory)
     wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
     assert wallet is not None
-    assert inventory.reserved_quantity == 0
+    assert inventory.reserved_quantity == 2
     assert wallet.balance == 760
 
     order_items = (await db_session.scalars(select(OrderItem))).all()
@@ -197,6 +199,40 @@ async def test_order_waits_for_admin_warehouse_and_debits_wallet(db_session) -> 
     assert len(order_items) == 1
     assert len(ledger_entries) == 1
     assert ledger_entries[0].direction == LedgerDirection.DEBIT
+
+
+async def test_repeated_order_request_does_not_debit_twice(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, inventory = await seed_product(db_session, student)
+    payload = MiniAppOrderCreate(
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        student_id=student.id,
+        items=[MiniAppOrderItemCreate(product_id=product.id, quantity=2)],
+        request_key="order-request-0001",
+    )
+
+    first = await create_miniapp_order(
+        db_session,
+        payload=payload,
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    repeated = await create_miniapp_order(
+        db_session,
+        payload=payload,
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    await db_session.refresh(inventory)
+    wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
+    orders = (await db_session.scalars(select(Order))).all()
+    entries = (await db_session.scalars(select(AstrocoinLedgerEntry))).all()
+    assert repeated.order.id == first.order.id
+    assert wallet is not None
+    assert wallet.balance == 760
+    assert inventory.reserved_quantity == 2
+    assert len(orders) == 1
+    assert len(entries) == 1
 
 
 async def test_admin_can_save_personal_default_warehouse(db_session) -> None:
@@ -300,9 +336,10 @@ async def test_ops_summary_reports_open_orders_and_low_stock(db_session) -> None
     assert summary.order_statuses[0].count == 1
     assert summary.recent_open_orders[0].id == created.order.id
     assert summary.recent_open_orders[0].items[0].product_name == product.name
-    assert summary.low_stock == []
+    assert len(summary.low_stock) == 1
+    assert summary.low_stock[0].available_quantity == 3
     assert summary.total_stock_quantity == 5
-    assert summary.total_reserved_quantity == 0
+    assert summary.total_reserved_quantity == 2
 
 
 async def test_admin_assigns_order_warehouse_after_checkout(db_session) -> None:
@@ -357,7 +394,7 @@ async def test_admin_assigns_order_warehouse_after_checkout(db_session) -> None:
     await db_session.refresh(common_inventory)
     await db_session.refresh(venue_inventory)
     assert common_inventory.reserved_quantity == 0
-    assert venue_inventory.reserved_quantity == 0
+    assert venue_inventory.reserved_quantity == 3
 
     assigned = await assign_miniapp_order_warehouses(
         db_session,
@@ -377,7 +414,9 @@ async def test_admin_assigns_order_warehouse_after_checkout(db_session) -> None:
 
     assert assigned.order.items[0].warehouse_name == "Общий склад"
     await db_session.refresh(common_inventory)
+    await db_session.refresh(venue_inventory)
     assert common_inventory.reserved_quantity == 3
+    assert venue_inventory.reserved_quantity == 0
 
 
 async def test_cancel_order_releases_stock_and_refunds_wallet(db_session) -> None:
@@ -617,6 +656,54 @@ async def test_staff_can_accrue_astrocoins_from_miniapp(db_session) -> None:
     ).all()
     assert result.credited_students == 1
     assert result.total_astrocoins == 75
+    assert wallet is not None
+    assert wallet.balance == 1075
+    assert len(entries) == 1
+
+
+async def test_repeated_accrual_request_does_not_credit_twice(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
+    assert account is not None
+    account.display_name = student.teacher_name
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.TEACHER,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+    payload = MiniAppAccrualCreate(
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        student_ids=[student.id],
+        amount=75,
+        reason="За проект на уроке",
+        request_key="accrual-request-0001",
+    )
+
+    await accrue_miniapp_astrocoins(
+        db_session,
+        payload=payload,
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    repeated = await accrue_miniapp_astrocoins(
+        db_session,
+        payload=payload,
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
+    entries = (
+        await db_session.scalars(
+            select(AstrocoinLedgerEntry).where(
+                AstrocoinLedgerEntry.direction == LedgerDirection.CREDIT
+            )
+        )
+    ).all()
+    assert repeated.credited_students == 1
     assert wallet is not None
     assert wallet.balance == 1075
     assert len(entries) == 1

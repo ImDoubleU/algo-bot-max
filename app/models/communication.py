@@ -27,6 +27,8 @@ class SchoolBroadcast(TimestampMixin, Base):
     recipient_category: Mapped[str] = mapped_column(String(24), nullable=False)
     audience_filter: Mapped[str] = mapped_column(String(32), nullable=False)
     group_names: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    venue_names: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    lesson_modes: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     balance_threshold: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(20), default="sending", nullable=False)
     recipient_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

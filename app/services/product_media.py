@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from fastapi import UploadFile
@@ -35,6 +36,11 @@ def _prepare_media_root(media_root: str) -> Path:
     return root
 
 
+def _resolve_media_target(media_root: str, filename: str) -> tuple[Path, Path]:
+    root = Path(media_root).expanduser().resolve()
+    return root, (root / filename).resolve()
+
+
 async def save_product_image(
     upload: UploadFile,
     *,
@@ -66,5 +72,24 @@ async def remove_product_image(image: SavedProductImage | None) -> None:
         return
     try:
         await asyncio.to_thread(image.path.unlink, missing_ok=True)
+    except OSError:
+        return
+
+
+async def remove_product_image_url(photo_url: str | None, *, media_root: str) -> None:
+    if not photo_url:
+        return
+    path = urlsplit(photo_url).path
+    prefix = f"{PRODUCT_MEDIA_URL_PREFIX}/"
+    if not path.startswith(prefix):
+        return
+    filename = path.removeprefix(prefix)
+    if not filename or Path(filename).name != filename:
+        return
+    root, target = await asyncio.to_thread(_resolve_media_target, media_root, filename)
+    if target.parent != root:
+        return
+    try:
+        await asyncio.to_thread(target.unlink, missing_ok=True)
     except OSError:
         return

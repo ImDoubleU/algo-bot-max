@@ -130,6 +130,12 @@ class Order(TimestampMixin, Base):
     __tablename__ = "orders"
     __table_args__ = (
         UniqueConstraint("tenant_id", "order_number", name="uq_orders_tenant_order_number"),
+        UniqueConstraint(
+            "tenant_id",
+            "created_by_account_id",
+            "client_request_id",
+            name="uq_orders_tenant_account_request",
+        ),
     )
 
     id: Mapped[UUID] = uuid_pk()
@@ -146,6 +152,7 @@ class Order(TimestampMixin, Base):
     venue_name: Mapped[str | None] = mapped_column(String(160))
     comment: Mapped[str | None] = mapped_column(String(500))
     cancellation_reason: Mapped[str | None] = mapped_column(String(500))
+    client_request_id: Mapped[str | None] = mapped_column(String(80), index=True)
 
     items = relationship("OrderItem", back_populates="order")
     status_history = relationship("OrderStatusHistory", back_populates="order")
@@ -160,12 +167,17 @@ class OrderItem(TimestampMixin, Base):
     product_id: Mapped[UUID] = mapped_column(ForeignKey("products.id"), index=True, nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     warehouse_id: Mapped[UUID | None] = mapped_column(ForeignKey("warehouses.id"), index=True)
+    reserved_warehouse_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("warehouses.id"),
+        index=True,
+    )
     unit_price_astrocoins: Mapped[int] = mapped_column(Integer, nullable=False)
     total_price_astrocoins: Mapped[int] = mapped_column(Integer, nullable=False)
 
     order = relationship("Order", back_populates="items")
     product = relationship("Product", back_populates="order_items")
-    warehouse = relationship("Warehouse")
+    warehouse = relationship("Warehouse", foreign_keys=[warehouse_id])
+    reserved_warehouse = relationship("Warehouse", foreign_keys=[reserved_warehouse_id])
 
 
 class OrderStatusHistory(TimestampMixin, Base):

@@ -4,7 +4,14 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.db.base  # noqa: F401
 from app.models.base import Base
-from app.models.student import Contact, ContactStudentLink, Student, Wallet
+from app.models.enums import StudentStatus
+from app.models.student import (
+    Contact,
+    ContactStudentLink,
+    Student,
+    StudentHistoryEvent,
+    Wallet,
+)
 from app.models.tenant import City, Partner, Tenant, Venue
 from app.services.crm_import import CrmStudentRow
 from app.services.crm_sync import (
@@ -139,8 +146,32 @@ async def test_upsert_crm_student_rows_updates_existing_student(db_session) -> N
     )
 
     students = (await db_session.scalars(select(Student))).all()
+    history = (await db_session.scalars(select(StudentHistoryEvent))).all()
     assert result.updated_students == 1
     assert len(students) == 1
+    assert {event.event_type for event in history} == {"imported", "updated"}
+    updated_event = next(event for event in history if event.event_type == "updated")
+    assert updated_event.changed_fields == ["group_name"]
+
+    await upsert_crm_student_rows(
+        db_session,
+        [row(group_name="\u0413\u0430\u0433\u0430\u0440\u0438\u043d\u0430 64, \u0441\u0431 18:00")],
+        defaults=defaults,
+        student_status=StudentStatus.DEPARTED,
+    )
+
+    departed_student = await db_session.scalar(select(Student))
+    status_event = await db_session.scalar(
+        select(StudentHistoryEvent).where(
+            StudentHistoryEvent.event_type == "status_changed"
+        )
+    )
+    assert departed_student is not None
+    assert departed_student.status == StudentStatus.DEPARTED
+    assert departed_student.departed_at is not None
+    assert status_event is not None
+    assert status_event.from_status == StudentStatus.ACTIVE.value
+    assert status_event.to_status == StudentStatus.DEPARTED.value
 
 
 async def test_explicit_tenant_slug_is_reused_on_repeated_import(db_session) -> None:

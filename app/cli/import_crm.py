@@ -9,7 +9,7 @@ import app.db.base  # noqa: F401
 from app.core.config import get_settings
 from app.db.session import AsyncSessionLocal
 from app.models.enums import StudentStatus
-from app.services.crm_import import parse_crm_students
+from app.services.crm_import import CRM_TEMPLATE_SHEET_NAME, parse_crm_students
 from app.services.crm_sync import CrmSyncDefaults, upsert_crm_student_rows
 
 
@@ -23,7 +23,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--sheet-name",
-        default="Сделки",
+        default=CRM_TEMPLATE_SHEET_NAME,
         help="Название листа CRM в XLSX.",
     )
     parser.add_argument(

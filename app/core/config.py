@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     app_env: str = Field(default="local", alias="APP_ENV")
     app_debug: bool = Field(default=True, alias="APP_DEBUG")
     app_secret_key: str = Field(default="replace_me", alias="APP_SECRET_KEY")
+    app_timezone: str = Field(default="Europe/Moscow", alias="APP_TIMEZONE")
     api_v1_prefix: str = "/api/v1"
 
     max_bot_token: str | None = Field(default=None, alias="MAX_BOT_TOKEN")
@@ -178,6 +179,10 @@ class Settings(BaseSettings):
         if production_like:
             if is_placeholder(self.max_backend_api_base):
                 errors.append("MAX_BACKEND_API_BASE is required outside local development")
+            if is_placeholder(self.max_bot_username):
+                errors.append(
+                    "MAX_BOT_USERNAME is required for the native app button in production"
+                )
             if is_placeholder(self.max_miniapp_url):
                 errors.append("MAX_MINIAPP_URL is required outside local development")
             elif not str(self.max_miniapp_url).startswith("https://"):
@@ -253,6 +258,7 @@ class Settings(BaseSettings):
         return {
             "status": "ok" if not errors else "degraded",
             "environment": self.app_env,
+            "timezone": self.app_timezone,
             "service": self.app_name,
             "bot_mode": self.bot_mode,
             "default_tenant_slug": self.default_tenant_slug,

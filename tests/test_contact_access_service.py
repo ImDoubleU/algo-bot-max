@@ -6,10 +6,16 @@ import app.db.base  # noqa: F401
 from app.models.base import Base
 from app.models.enums import StudentAccessRole
 from app.models.student import StudentAccessLink
-from app.schemas.access import AccessLinkCreate, StudentResolveRequest
-from app.services.access import create_contact_access_links, resolve_students_by_contact_id
+from app.schemas.access import AccessLinkCreate, StudentInvitationLinkCreate, StudentResolveRequest
+from app.services.access import (
+    AccessServiceError,
+    create_contact_access_links,
+    create_invited_student_access_link,
+    resolve_students_by_contact_id,
+)
 from app.services.crm_import import CrmStudentRow
 from app.services.crm_sync import CrmSyncDefaults, upsert_crm_student_rows
+from app.services.student_invitations import issue_student_invitation_token
 
 
 @pytest.fixture
@@ -87,3 +93,32 @@ async def test_create_contact_access_links_creates_link_per_student(db_session) 
     stored_links = (await db_session.scalars(select(StudentAccessLink))).all()
     assert len(links) == 2
     assert len(stored_links) == 2
+
+
+async def test_parent_max_account_cannot_accept_child_qr(db_session) -> None:
+    await seed_two_students_for_one_contact(db_session)
+    parent_links = await create_contact_access_links(
+        db_session,
+        AccessLinkCreate(
+            tenant_slug="nizhniy-novgorod-partner-a",
+            contact_id="681",
+            max_user_id=53364725,
+            role=StudentAccessRole.PARENT,
+        ),
+    )
+    parent_link = parent_links[0]
+    token = issue_student_invitation_token(
+        parent_link.tenant_id,
+        parent_link.student_id,
+        parent_link.id,
+    )
+
+    with pytest.raises(AccessServiceError, match="уже используется родителем"):
+        await create_invited_student_access_link(
+            db_session,
+            StudentInvitationLinkCreate(
+                tenant_slug="nizhniy-novgorod-partner-a",
+                token=token,
+                max_user_id=53364725,
+            ),
+        )

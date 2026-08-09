@@ -14,6 +14,7 @@ from fastapi import (
     status,
 )
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
@@ -24,6 +25,8 @@ from app.core.config import get_settings
 from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
 from app.models.enums import ProductStatus, StudentStatus
+from app.models.store import Product
+from app.models.tenant import Tenant
 from app.schemas.broadcasts import (
     BroadcastAudiencePreviewRead,
     BroadcastAudienceRequest,
@@ -35,6 +38,7 @@ from app.schemas.miniapp import (
     MiniAppAccrualCreate,
     MiniAppAccrualRead,
     MiniAppAccrualReportRead,
+    MiniAppAccrualUndoCreate,
     MiniAppCartRead,
     MiniAppCartWrite,
     MiniAppCatalogRead,
@@ -58,6 +62,7 @@ from app.schemas.miniapp import (
     MiniAppStaffAssignmentUpdate,
     MiniAppStaffOnboardingOptionsRead,
     MiniAppStudentInvitationRead,
+    MiniAppStudentRegistryRead,
     MiniAppTenantCreate,
     MiniAppTenantCreatedRead,
     MiniAppWarehousePreferenceRead,
@@ -71,6 +76,7 @@ from app.services.broadcasts import (
     preview_school_broadcast,
     send_school_broadcast,
 )
+from app.services.crm_import import CRM_TEMPLATE_SHEET_NAME
 from app.services.miniapp import (
     MiniAppStoreError,
     accrue_miniapp_astrocoins,
@@ -89,11 +95,13 @@ from app.services.miniapp import (
     issue_miniapp_order,
     list_miniapp_catalog,
     list_miniapp_staff_onboarding_options,
+    list_miniapp_student_registry,
     replace_miniapp_cart,
     return_miniapp_order,
     set_miniapp_warehouse_preference,
     transfer_miniapp_inventory,
     transfer_miniapp_order_to_teacher,
+    undo_miniapp_astrocoins,
     update_miniapp_access_link_status,
     update_miniapp_staff_assignment,
     upsert_miniapp_product,
@@ -102,12 +110,26 @@ from app.services.miniapp import (
 from app.services.product_media import (
     ProductMediaError,
     remove_product_image,
+    remove_product_image_url,
     save_product_image,
 )
 
 router = APIRouter()
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
 MiniAppIdentityDep = Annotated[MiniAppIdentity | None, Depends(get_miniapp_identity)]
+MAX_IMPORT_FILE_BYTES = 20 * 1024 * 1024
+
+
+async def _read_import_file(upload: UploadFile) -> bytes:
+    try:
+        content = await upload.read(MAX_IMPORT_FILE_BYTES + 1)
+    finally:
+        await upload.close()
+    if not content:
+        raise HTTPException(status_code=400, detail="Выбранный файл пуст")
+    if len(content) > MAX_IMPORT_FILE_BYTES:
+        raise HTTPException(status_code=413, detail="Файл импорта должен быть не больше 20 МБ")
+    return content
 
 
 def _authorized_tenant_slug(
@@ -142,6 +164,7 @@ async def miniapp_session(
         db,
         max_user_id=max_user_id,
         tenant_slug=resolved_tenant,
+        discover_tenant=tenant_slug is None,
     )
 
 
@@ -212,6 +235,8 @@ async def miniapp_broadcast_send(
     recipient_category: Annotated[str, Form()] = "all",
     audience_filter: Annotated[str, Form()] = "all",
     group_names: Annotated[list[str] | None, Form()] = None,
+    venue_names: Annotated[list[str] | None, Form()] = None,
+    lesson_modes: Annotated[list[str] | None, Form()] = None,
     balance_threshold: Annotated[int | None, Form(ge=0, le=1_000_000)] = None,
     photo: Annotated[UploadFile | None, File()] = None,
 ) -> SchoolBroadcastRead:
@@ -228,6 +253,8 @@ async def miniapp_broadcast_send(
             recipient_category=recipient_category,
             audience_filter=audience_filter,
             group_names=group_names or [],
+            venue_names=venue_names or [],
+            lesson_modes=lesson_modes or [],
             balance_threshold=balance_threshold,
         )
     except ValidationError as exc:
@@ -264,6 +291,33 @@ async def miniapp_broadcast_send(
     except Exception:
         await remove_product_image(saved_image)
         raise
+
+
+@router.get(
+    "/students/registry",
+    response_model=MiniAppStudentRegistryRead,
+)
+async def miniapp_student_registry(
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: str | None = None,
+) -> MiniAppStudentRegistryRead:
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    if not resolved_tenant:
+        raise HTTPException(status_code=400, detail="Не выбран город или партнер")
+    try:
+        return await list_miniapp_student_registry(
+            db,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @router.get(
@@ -372,13 +426,14 @@ async def miniapp_import_products(
         max_user_id=max_user_id,
         tenant_slug=tenant_slug,
     )
-    content = await file.read()
+    filename = file.filename or "products.csv"
+    content = await _read_import_file(file)
     try:
         return await import_miniapp_products(
             db,
             max_user_id=max_user_id,
             tenant_slug=resolved_tenant,
-            filename=file.filename or "products.csv",
+            filename=filename,
             content=content,
         )
     except MiniAppStoreError as exc:
@@ -392,7 +447,7 @@ async def miniapp_import_crm_students(
     max_user_id: Annotated[int, Form(gt=0)],
     file: Annotated[UploadFile, File()],
     tenant_slug: Annotated[str | None, Form()] = None,
-    sheet_name: Annotated[str, Form()] = "Сделки",
+    sheet_name: Annotated[str, Form()] = CRM_TEMPLATE_SHEET_NAME,
     dry_run: Annotated[bool, Form()] = True,
     student_status: Annotated[StudentStatus, Form()] = StudentStatus.ACTIVE,
 ) -> MiniAppCrmImportRead:
@@ -401,13 +456,14 @@ async def miniapp_import_crm_students(
         max_user_id=max_user_id,
         tenant_slug=tenant_slug,
     )
-    content = await file.read()
+    filename = file.filename or "students.xlsx"
+    content = await _read_import_file(file)
     try:
         return await import_miniapp_crm_students(
             db,
             max_user_id=max_user_id,
             tenant_slug=resolved_tenant,
-            filename=file.filename or "students.xlsx",
+            filename=filename,
             content=content,
             sheet_name=sheet_name,
             dry_run=dry_run,
@@ -480,6 +536,19 @@ async def miniapp_save_product(
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail="Проверьте поля товара") from exc
 
+    previous_photo_url = None
+    if photo is not None:
+        tenant = await db.scalar(select(Tenant).where(Tenant.slug == resolved_tenant))
+        if tenant is not None:
+            product_query = select(Product).where(Product.tenant_id == tenant.id)
+            if product_id is not None:
+                product_query = product_query.where(Product.id == product_id)
+            else:
+                product_query = product_query.where(Product.sku == sku.strip().upper())
+            existing_product = await db.scalar(product_query)
+            if existing_product is not None:
+                previous_photo_url = existing_product.photo_url
+
     saved_image = None
     if photo is not None:
         try:
@@ -495,11 +564,17 @@ async def miniapp_save_product(
         payload = payload.model_copy(update={"photo_url": absolute_photo_url})
 
     try:
-        return await upsert_miniapp_product(
+        result = await upsert_miniapp_product(
             db,
             payload=payload,
             default_tenant_slug=settings.default_tenant_slug,
         )
+        if saved_image is not None and previous_photo_url != result.photo_url:
+            await remove_product_image_url(
+                previous_photo_url,
+                media_root=settings.product_media_root,
+            )
+        return result
     except MiniAppStoreError as exc:
         await remove_product_image(saved_image)
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -854,6 +929,28 @@ async def miniapp_accrue_coins(
     )
     try:
         return await accrue_miniapp_astrocoins(
+            db,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/coins/accrue/undo", response_model=MiniAppAccrualRead)
+async def miniapp_undo_accrual(
+    payload: MiniAppAccrualUndoCreate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppAccrualRead:
+    settings = get_settings()
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await undo_miniapp_astrocoins(
             db,
             payload=payload,
             default_tenant_slug=settings.default_tenant_slug,

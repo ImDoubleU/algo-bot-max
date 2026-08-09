@@ -3,16 +3,20 @@ from __future__ import annotations
 import csv
 import io
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from typing import Any
+from uuid import UUID
 
 from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.models.enums import ProductStatus, WarehouseType
+from app.models.enums import ProductStatus, StockMovementType, WarehouseType
 from app.models.store import Product, ProductCategory, Warehouse, WarehouseInventory
 from app.models.tenant import Tenant
 from app.services.crm_sync import slugify
+from app.services.warehouse import build_stock_movement
 
 HEADER_ALIASES = {
     "sku": "sku",
@@ -62,6 +66,11 @@ class ProductImportResult:
     updated_inventory: int = 0
     skipped_rows: int = 0
     errors: list[str] = field(default_factory=list)
+    new_active_products: list[Product] = field(default_factory=list, repr=False)
+    low_stock_items: list[tuple[Product, WarehouseInventory]] = field(
+        default_factory=list,
+        repr=False,
+    )
 
 
 @dataclass(frozen=True)
@@ -94,16 +103,19 @@ def _read_csv(content: bytes) -> list[dict[str, Any]]:
 
 def _read_xlsx(content: bytes) -> list[dict[str, Any]]:
     workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
-    sheet = workbook.active
-    rows = list(sheet.iter_rows(values_only=True))
-    if not rows:
-        return []
+    try:
+        sheet = workbook.active
+        rows = list(sheet.iter_rows(values_only=True))
+        if not rows:
+            return []
 
-    headers = [str(value or "").strip() for value in rows[0]]
-    result: list[dict[str, Any]] = []
-    for values in rows[1:]:
-        result.append({headers[index]: values[index] for index in range(len(headers))})
-    return result
+        headers = [str(value or "").strip() for value in rows[0]]
+        result: list[dict[str, Any]] = []
+        for values in rows[1:]:
+            result.append({headers[index]: values[index] for index in range(len(headers))})
+        return result
+    finally:
+        workbook.close()
 
 
 def _normalize_header(value: str) -> str:
@@ -129,7 +141,13 @@ def _int(value: Any, *, default: int | None = None) -> int:
         if default is None:
             raise ValueError("empty number")
         return default
-    return int(float(text))
+    try:
+        number = Decimal(text)
+    except InvalidOperation as exc:
+        raise ValueError(f"неверное число: {value}") from exc
+    if not number.is_finite() or number != number.to_integral_value():
+        raise ValueError(f"ожидается целое число: {value}")
+    return int(number)
 
 
 def _status(value: Any) -> ProductStatus:
@@ -196,6 +214,7 @@ async def import_products_for_tenant(
     *,
     tenant: Tenant,
     rows: list[ProductImportRow],
+    actor_account_id: UUID | None = None,
 ) -> ProductImportResult:
     result = ProductImportResult(tenant_slug=tenant.slug)
     categories: dict[str, ProductCategory] = {}
@@ -228,7 +247,8 @@ async def import_products_for_tenant(
         product = await db.scalar(
             select(Product).where(Product.tenant_id == tenant.id, Product.sku == row.sku)
         )
-        if product is None:
+        product_created = product is None
+        if product_created:
             product = Product(
                 tenant_id=tenant.id,
                 category_id=category.id,
@@ -242,6 +262,8 @@ async def import_products_for_tenant(
             db.add(product)
             await db.flush()
             result.created_products += 1
+            if product.status == ProductStatus.ACTIVE:
+                result.new_active_products.append(product)
         else:
             product.category_id = category.id
             product.name = row.name
@@ -252,10 +274,16 @@ async def import_products_for_tenant(
             result.updated_products += 1
 
         inventory = await db.scalar(
-            select(WarehouseInventory).where(
+            select(WarehouseInventory)
+            .where(
                 WarehouseInventory.tenant_id == tenant.id,
                 WarehouseInventory.warehouse_id == warehouse.id,
                 WarehouseInventory.product_id == product.id,
+            )
+            .with_for_update()
+            .options(
+                selectinload(WarehouseInventory.product),
+                selectinload(WarehouseInventory.warehouse),
             )
         )
         if inventory is None:
@@ -264,9 +292,40 @@ async def import_products_for_tenant(
                 warehouse_id=warehouse.id,
                 product_id=product.id,
             )
+            inventory.product = product
+            inventory.warehouse = warehouse
             db.add(inventory)
 
+        reserved_quantity = int(inventory.reserved_quantity or 0)
+        if row.quantity < reserved_quantity:
+            raise ProductImportError(
+                f"Строка {row.row_number}: остаток {row.quantity} меньше уже "
+                f"зарезервированного количества {reserved_quantity}"
+            )
+        previous_quantity = int(inventory.available_quantity or 0)
         inventory.available_quantity = row.quantity
+        quantity_delta = row.quantity - previous_quantity
+        if quantity_delta:
+            db.add(
+                build_stock_movement(
+                    inventory=inventory,
+                    movement_type=StockMovementType.ADJUSTMENT,
+                    quantity=abs(quantity_delta),
+                    actor_account_id=actor_account_id,
+                    from_warehouse_id=warehouse.id if quantity_delta < 0 else None,
+                    to_warehouse_id=warehouse.id if quantity_delta > 0 else None,
+                    comment=(
+                        f"Импорт товаров: остаток изменен с {previous_quantity} "
+                        f"на {row.quantity}"
+                    ),
+                )
+            )
+        free_quantity = row.quantity - reserved_quantity
+        if free_quantity <= 5 and not inventory.low_stock_notified:
+            inventory.low_stock_notified = True
+            result.low_stock_items.append((product, inventory))
+        elif free_quantity > 5:
+            inventory.low_stock_notified = False
         result.updated_inventory += 1
 
     return result

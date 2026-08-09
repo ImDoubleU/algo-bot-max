@@ -27,7 +27,7 @@ class MiniAppIdentity:
 def _normalized_tenant_slug(value: str) -> str:
     normalized = value.strip().lower()
     if not normalized:
-        raise MiniAppAuthError("Tenant не указан")
+        raise MiniAppAuthError("Город или партнер не указан")
     return normalized
 
 

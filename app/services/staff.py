@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings, is_local_environment, is_placeholder
 from app.models.account import MaxAccount, StaffRoleAssignment
 from app.models.audit import AuditLog
 from app.models.enums import AssignmentStatus, StaffRole
@@ -15,6 +16,21 @@ from app.models.tenant import Tenant
 
 class StaffServiceError(RuntimeError):
     pass
+
+
+def configured_superadmin_max_user_id() -> int | None:
+    raw_user_id = get_settings().initial_superadmin_max_user_id
+    if is_placeholder(raw_user_id) or not str(raw_user_id).isdigit():
+        return None
+    user_id = int(str(raw_user_id))
+    return user_id if user_id > 0 else None
+
+
+def superadmin_identity_is_allowed(max_user_id: int) -> bool:
+    configured_user_id = configured_superadmin_max_user_id()
+    if configured_user_id is None:
+        return is_local_environment(get_settings().app_env)
+    return max_user_id == configured_user_id
 
 
 def normalize_staff_name(value: str | None) -> str:
@@ -66,12 +82,19 @@ async def is_global_superadmin(
     account_id: UUID,
 ) -> bool:
     """A superadmin assignment grants access to every active tenant."""
+    configured_user_id = configured_superadmin_max_user_id()
     assignment_id = await db.scalar(
         select(StaffRoleAssignment.id)
+        .join(MaxAccount, MaxAccount.id == StaffRoleAssignment.account_id)
         .where(
             StaffRoleAssignment.account_id == account_id,
             StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
             StaffRoleAssignment.role == StaffRole.SUPERADMIN,
+            *(
+                [MaxAccount.max_user_id == configured_user_id]
+                if configured_user_id is not None
+                else []
+            ),
         )
         .limit(1)
     )
@@ -95,9 +118,12 @@ async def active_staff_roles_for_tenant(
         query = query.where(StaffRoleAssignment.role.in_(allowed_roles))
 
     roles = set((await db.scalars(query)).all())
+    global_superadmin = await is_global_superadmin(db, account_id=account_id)
+    if StaffRole.SUPERADMIN in roles and not global_superadmin:
+        roles.discard(StaffRole.SUPERADMIN)
     if (
         allowed_roles is None or StaffRole.SUPERADMIN in allowed_roles
-    ) and await is_global_superadmin(db, account_id=account_id):
+    ) and global_superadmin:
         roles.add(StaffRole.SUPERADMIN)
     return roles
 
@@ -136,9 +162,14 @@ async def bootstrap_staff_role(
     username: str | None = None,
     display_name: str | None = None,
 ) -> StaffRoleBootstrapResult:
+    if role == StaffRole.SUPERADMIN and not superadmin_identity_is_allowed(max_user_id):
+        raise StaffServiceError(
+            "Роль суперадминистра можно выдать только MAX ID из "
+            "INITIAL_SUPERADMIN_MAX_USER_ID"
+        )
     tenant = await get_tenant_by_slug(db, tenant_slug)
     if tenant is None:
-        raise StaffServiceError(f"Tenant не найден: {tenant_slug}")
+        raise StaffServiceError(f"Партнер не найден: {tenant_slug}")
 
     account, account_created = await get_or_create_max_account(
         db,

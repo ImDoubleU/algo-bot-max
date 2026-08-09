@@ -43,7 +43,18 @@ MiniAppIdentityDep = Annotated[MiniAppIdentity | None, Depends(get_miniapp_ident
 async def resolve_contact(
     payload: StudentResolveRequest,
     db: DbSession,
+    identity: MiniAppIdentityDep,
 ) -> ContactResolveResponse:
+    if payload.max_user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="MAX user_id is required",
+        )
+    require_matching_miniapp_identity(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
     rate_limit = student_id_entry_limiter.check(build_rate_limit_key(payload))
     if not rate_limit.allowed:
         tenant = await get_tenant_by_slug(db, payload.tenant_slug)
@@ -76,7 +87,7 @@ async def resolve_contact(
         await db.commit()
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Contact ID was not found for this tenant",
+            detail="ID из письма не найден для выбранного города",
         )
 
     contact, students = resolved
@@ -109,15 +120,31 @@ async def resolve_contact(
 async def resolve_student_legacy(
     payload: StudentResolveRequest,
     db: DbSession,
+    identity: MiniAppIdentityDep,
 ) -> ContactResolveResponse:
-    return await resolve_contact(payload, db)
+    return await resolve_contact(payload, db, identity)
 
 
 @router.post("/links", response_model=AccessLinkBatchRead, status_code=status.HTTP_201_CREATED)
 async def create_link(
     payload: AccessLinkCreate,
     db: DbSession,
+    identity: MiniAppIdentityDep,
 ) -> AccessLinkBatchRead:
+    require_matching_miniapp_identity(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    rate_limit = student_id_entry_limiter.check(
+        f"{build_rate_limit_key(payload)}:create-link"
+    )
+    if not rate_limit.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many attempts. Try again later.",
+            headers={"Retry-After": str(rate_limit.retry_after_seconds or 60)},
+        )
     try:
         links = await create_contact_access_links(db, payload)
     except AccessServiceError as exc:
@@ -153,7 +180,13 @@ async def create_link(
 async def create_student_invite_link(
     payload: StudentInvitationLinkCreate,
     db: DbSession,
+    identity: MiniAppIdentityDep,
 ) -> StudentInvitationLinkRead:
+    require_matching_miniapp_identity(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
     try:
         tenant, student, link = await create_invited_student_access_link(db, payload)
     except AccessServiceError as exc:

@@ -22,6 +22,8 @@ from app.schemas.teaching import (
     GroupAttendanceJournalRead,
     ManualFeedbackCreate,
     ManualFeedbackOutputRead,
+    ManualFeedbackSendRead,
+    ManualFeedbackSendRequest,
     TeachingScheduleRead,
     TeachingScheduleUpsert,
     TeachingWorkspaceRead,
@@ -36,6 +38,7 @@ from app.services.teaching import (
     list_course_lessons,
     list_manual_feedback,
     mark_attendance,
+    send_manual_feedback_to_parents,
     update_group_attendance_journal,
     upsert_teaching_schedule,
 )
@@ -263,6 +266,33 @@ async def teaching_manual_feedback_generate(
     try:
         return await generate_manual_feedback(
             db,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except TeachingServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post(
+    "/manual-feedback/{output_id}/send",
+    response_model=ManualFeedbackSendRead,
+)
+async def teaching_manual_feedback_send(
+    output_id: UUID,
+    payload: ManualFeedbackSendRequest,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> ManualFeedbackSendRead:
+    settings = get_settings()
+    _authorize(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await send_manual_feedback_to_parents(
+            db,
+            output_id=output_id,
             payload=payload,
             default_tenant_slug=settings.default_tenant_slug,
         )
