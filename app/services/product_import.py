@@ -6,8 +6,10 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
+from zipfile import BadZipFile
 
 from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -91,13 +93,22 @@ class ProductImportRow:
 
 def parse_product_rows(filename: str, content: bytes) -> list[ProductImportRow]:
     suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
-    raw_rows = _read_xlsx(content) if suffix == "xlsx" else _read_csv(content)
+    if suffix not in {"csv", "xlsx"}:
+        raise ProductImportError("Поддерживаются только файлы CSV и XLSX")
+    try:
+        raw_rows = _read_xlsx(content) if suffix == "xlsx" else _read_csv(content)
+    except (BadZipFile, InvalidFileException, OSError, ValueError, csv.Error) as exc:
+        raise ProductImportError(f"Не удалось прочитать файл {suffix.upper()}") from exc
     return _normalize_rows(raw_rows)
 
 
 def _read_csv(content: bytes) -> list[dict[str, Any]]:
     text = content.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text))
+    try:
+        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
+    except csv.Error:
+        dialect = csv.excel
+    reader = csv.DictReader(io.StringIO(text), dialect=dialect)
     return [dict(row) for row in reader]
 
 
@@ -163,6 +174,7 @@ def _status(value: Any) -> ProductStatus:
 
 def _normalize_rows(raw_rows: list[dict[str, Any]]) -> list[ProductImportRow]:
     rows: list[ProductImportRow] = []
+    seen_inventory_rows: dict[tuple[str, str], int] = {}
     for index, raw_row in enumerate(raw_rows, start=2):
         sku = _text(_cell(raw_row, "sku")).upper()
         name = _text(_cell(raw_row, "name"))
@@ -177,6 +189,14 @@ def _normalize_rows(raw_rows: list[dict[str, Any]]) -> list[ProductImportRow]:
         category_slug = _text(_cell(raw_row, "category_slug")) or slugify(category_name)
         warehouse_name = _text(_cell(raw_row, "warehouse_name")) or "Общий склад"
         warehouse_slug = _text(_cell(raw_row, "warehouse_slug")) or slugify(warehouse_name)
+        inventory_key = (sku, warehouse_slug)
+        if inventory_key in seen_inventory_rows:
+            first_row = seen_inventory_rows[inventory_key]
+            raise ProductImportError(
+                f"Строки {first_row} и {index}: повторяется товар {sku} на складе "
+                f"«{warehouse_name}»"
+            )
+        seen_inventory_rows[inventory_key] = index
 
         try:
             price = _int(_cell(raw_row, "price_astrocoins"))
