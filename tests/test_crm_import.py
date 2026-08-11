@@ -1,11 +1,13 @@
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from openpyxl import Workbook, load_workbook
 
 from app.services.crm_import import (
     CRM_TEMPLATE_COLUMNS,
     CRM_TEMPLATE_SHEET_NAME,
+    CrmImportError,
     build_crm_import_template,
     parse_crm_students,
     parse_crm_students_content,
@@ -127,3 +129,31 @@ def test_standard_template_ignores_other_sheets_and_columns() -> None:
     assert rows[0].lms_student_id == "ST-001"
     assert rows[0].first_name == "\u0410\u043b\u0438\u0441\u0430"
     assert rows[0].deal_id is None
+
+
+def test_standard_template_rejects_duplicate_student_ids() -> None:
+    workbook = load_workbook(BytesIO(build_crm_import_template()))
+    sheet = workbook[CRM_TEMPLATE_SHEET_NAME]
+    values = [example for _field, _header, _required, _description, example in CRM_TEMPLATE_COLUMNS]
+    sheet.append(values)
+    sheet.append(values)
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+
+    with pytest.raises(CrmImportError, match="повторяется ID ученика"):
+        parse_crm_students_content(output.getvalue())
+
+
+def test_standard_template_rejects_missing_required_value() -> None:
+    workbook = load_workbook(BytesIO(build_crm_import_template()))
+    sheet = workbook[CRM_TEMPLATE_SHEET_NAME]
+    values = [example for _field, _header, _required, _description, example in CRM_TEMPLATE_COLUMNS]
+    values[1] = None
+    sheet.append(values)
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+
+    with pytest.raises(CrmImportError, match="Фамилия ребенка"):
+        parse_crm_students_content(output.getvalue())
