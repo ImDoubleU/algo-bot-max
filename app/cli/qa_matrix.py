@@ -200,12 +200,13 @@ async def _account(
         configured_superadmin_max_user_id() if key == "superadmin" else None
     )
     max_user_id = configured_superadmin_id or QA_MAX_ID_BASE + offset
+    expected_account_id = _id(run_id, f"account:{key}")
     existing = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
     if existing is not None and configured_superadmin_id is not None:
         return existing
-    if existing is not None and _marker(run_id) not in (existing.username or ""):
+    if existing is not None and UUID(str(existing.id)) != expected_account_id:
         raise RuntimeError(f"MAX ID {max_user_id} already belongs to a non-QA account")
-    account_id = existing.id if existing is not None else _id(run_id, f"account:{key}")
+    account_id = existing.id if existing is not None else expected_account_id
     return await _merge(
         db,
         MaxAccount(

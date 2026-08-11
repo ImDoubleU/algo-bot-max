@@ -139,8 +139,10 @@ async def get_or_create_max_account(
         select(MaxAccount).where(MaxAccount.max_user_id == payload.max_user_id),
     )
     if account is not None:
-        account.username = payload.username
-        account.display_name = payload.display_name
+        if payload.username is not None:
+            account.username = payload.username
+        if payload.display_name is not None:
+            account.display_name = payload.display_name
         return account
 
     account = MaxAccount(
