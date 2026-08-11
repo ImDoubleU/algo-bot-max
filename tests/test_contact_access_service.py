@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.db.base  # noqa: F401
+from app.models.account import MaxAccount
 from app.models.base import Base
 from app.models.enums import StudentAccessRole
 from app.models.student import StudentAccessLink
@@ -93,6 +94,30 @@ async def test_create_contact_access_links_creates_link_per_student(db_session) 
     stored_links = (await db_session.scalars(select(StudentAccessLink))).all()
     assert len(links) == 2
     assert len(stored_links) == 2
+
+
+async def test_relink_without_profile_data_keeps_existing_max_account_name(db_session) -> None:
+    await seed_two_students_for_one_contact(db_session)
+    payload = AccessLinkCreate(
+        tenant_slug="nizhniy-novgorod-partner-a",
+        contact_id="681",
+        max_user_id=53364725,
+        role=StudentAccessRole.PARENT,
+        username="ImDoubleU",
+        display_name="Дмитрий",
+    )
+    await create_contact_access_links(db_session, payload)
+    await create_contact_access_links(
+        db_session,
+        payload.model_copy(update={"username": None, "display_name": None}),
+    )
+
+    account = await db_session.scalar(
+        select(MaxAccount).where(MaxAccount.max_user_id == 53364725)
+    )
+    assert account is not None
+    assert account.username == "ImDoubleU"
+    assert account.display_name == "Дмитрий"
 
 
 async def test_parent_max_account_cannot_accept_child_qr(db_session) -> None:
