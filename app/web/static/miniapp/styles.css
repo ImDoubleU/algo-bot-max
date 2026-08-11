@@ -8352,9 +8352,14 @@ body.rail-collapsed .rail-collapse-button {
 }
 
 .status-tenant {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-balance {
