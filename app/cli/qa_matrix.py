@@ -1139,7 +1139,7 @@ async def _seed_teaching(
                 lesson_place=lesson_place,
                 current_lesson_number=9,
                 lesson_offset=0,
-                auto_feedback_enabled=True,
+                auto_feedback_enabled=False,
                 parent_delivery_enabled=index == 1,
                 is_active=True,
                 last_generated_lesson_date=first_date + timedelta(weeks=7),
@@ -1586,6 +1586,25 @@ async def audit_matrix(run_id: str, default_tenant_slug: str) -> dict[str, Any]:
             passed=not wallet_mismatches,
             actual=wallet_mismatches,
             expected=[],
+        )
+
+        qa_auto_feedback_count = int(
+            await db.scalar(
+                select(func.count())
+                .select_from(TeachingSchedule)
+                .where(
+                    TeachingSchedule.tenant_id.in_(tenant_ids),
+                    TeachingSchedule.auto_feedback_enabled.is_(True),
+                )
+            )
+            or 0
+        )
+        _check(
+            checks,
+            key="feedback.external_delivery_disabled",
+            passed=qa_auto_feedback_count == 0,
+            actual=qa_auto_feedback_count,
+            expected=0,
         )
 
         configured_superadmin_id = configured_superadmin_max_user_id()
