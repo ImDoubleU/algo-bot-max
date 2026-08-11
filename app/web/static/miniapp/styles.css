@@ -1890,7 +1890,7 @@ select:focus-visible {
 
 .dialog-backdrop {
   position: fixed;
-  z-index: 50;
+  z-index: 120;
   inset: 0;
   display: grid;
   place-items: center;
@@ -6530,6 +6530,159 @@ body[data-active-role="student"] #studentContext {
   background: rgba(255, 255, 255, 0.18);
 }
 
+.staff-notification-button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+}
+
+.staff-notification-button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.staff-notification-dialog {
+  width: min(760px, 100%);
+  max-height: min(820px, calc(100vh - 36px));
+}
+
+.staff-notification-meta {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.staff-notification-content {
+  min-height: 180px;
+  overflow-y: auto;
+  background: #ffffff;
+}
+
+.staff-notification-group {
+  border-bottom: 1px solid var(--line);
+}
+
+.staff-notification-group:last-child {
+  border-bottom: 0;
+}
+
+.staff-notification-group-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--line);
+  background: #f7f5fa;
+}
+
+.staff-notification-group-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.staff-notification-group-head span {
+  color: var(--brand-purple);
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.staff-notification-list {
+  display: grid;
+}
+
+.staff-notification-row {
+  position: relative;
+  min-height: 62px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 18px;
+  border-bottom: 1px solid #ece9f0;
+  cursor: pointer;
+}
+
+.staff-notification-row:last-child {
+  border-bottom: 0;
+}
+
+.staff-notification-row:hover {
+  background: #fbfaff;
+}
+
+.staff-notification-row input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.staff-notification-check {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 2px solid #b8afc1;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.staff-notification-row input:checked + .staff-notification-check {
+  border-color: var(--brand-purple);
+  background: var(--brand-purple);
+}
+
+.staff-notification-row input:checked + .staff-notification-check::after {
+  content: "";
+  width: 8px;
+  height: 4px;
+  border-left: 2px solid #ffffff;
+  border-bottom: 2px solid #ffffff;
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+.staff-notification-row input:focus-visible + .staff-notification-check {
+  outline: 3px solid rgba(110, 51, 212, 0.22);
+  outline-offset: 2px;
+}
+
+.staff-notification-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.staff-notification-copy strong {
+  font-size: 14px;
+}
+
+.staff-notification-copy small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.staff-notification-custom {
+  border-radius: 5px;
+  padding: 4px 7px;
+  color: var(--brand-purple);
+  background: var(--brand-purple-soft);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.staff-notification-actions {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
 @media (max-width: 1180px) {
   .admin-tabs {
     display: grid;
@@ -6636,6 +6789,27 @@ body[data-active-role="student"] #studentContext {
     gap: 4px;
     padding-inline: 5px;
     font-size: 11px;
+  }
+
+  .staff-notification-dialog {
+    width: 100%;
+    max-height: calc(100dvh - 20px);
+    border-radius: 8px 8px 0 0;
+  }
+
+  .staff-notification-row {
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 10px;
+    padding: 11px 13px;
+  }
+
+  .staff-notification-custom {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .staff-notification-group-head {
+    padding-inline: 13px;
   }
 }
 

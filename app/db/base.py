@@ -1,4 +1,9 @@
-from app.models.account import MaxAccount, StaffRoleAssignment, StaffWarehousePreference
+from app.models.account import (
+    MaxAccount,
+    StaffNotificationPreference,
+    StaffRoleAssignment,
+    StaffWarehousePreference,
+)
 from app.models.audit import AuditLog
 from app.models.communication import SchoolBroadcast
 from app.models.store import (
@@ -51,6 +56,7 @@ __all__ = [
     "Product",
     "ProductCategory",
     "SchoolBroadcast",
+    "StaffNotificationPreference",
     "StudentCartItem",
     "StaffRoleAssignment",
     "StaffWarehousePreference",

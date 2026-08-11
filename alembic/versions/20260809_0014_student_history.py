@@ -18,19 +18,20 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "students",
-        sa.Column(
-            "status_updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            nullable=False,
-        ),
+    status_updated_at = sa.Column(
+        "status_updated_at",
+        sa.DateTime(timezone=True),
+        server_default=sa.func.now(),
+        nullable=False,
     )
-    op.add_column(
-        "students",
-        sa.Column("departed_at", sa.DateTime(timezone=True), nullable=True),
-    )
+    departed_at = sa.Column("departed_at", sa.DateTime(timezone=True), nullable=True)
+    if op.get_bind().dialect.name == "sqlite":
+        with op.batch_alter_table("students", recreate="always") as batch_op:
+            batch_op.add_column(status_updated_at)
+            batch_op.add_column(departed_at)
+    else:
+        op.add_column("students", status_updated_at)
+        op.add_column("students", departed_at)
     op.execute(
         sa.text(
             """
@@ -93,5 +94,10 @@ def downgrade() -> None:
             table_name="student_history_events",
         )
     op.drop_table("student_history_events")
-    op.drop_column("students", "departed_at")
-    op.drop_column("students", "status_updated_at")
+    if op.get_bind().dialect.name == "sqlite":
+        with op.batch_alter_table("students", recreate="always") as batch_op:
+            batch_op.drop_column("departed_at")
+            batch_op.drop_column("status_updated_at")
+    else:
+        op.drop_column("students", "departed_at")
+        op.drop_column("students", "status_updated_at")

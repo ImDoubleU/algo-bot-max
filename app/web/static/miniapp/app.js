@@ -125,6 +125,10 @@ const state = {
   staffEditorOpen: false,
   staffStatusFilter: "active",
   staffRoleFilter: "all",
+  staffNotificationSettings: null,
+  staffNotificationTargetAccountId: "",
+  staffNotificationsLoading: false,
+  staffNotificationsSaving: false,
   accessStatusFilter: "all",
   accessRoleFilter: "all",
   inventorySavingKey: "",
@@ -284,6 +288,7 @@ let accessLinks = [
 let staffAssignments = [
   {
     id: "demo-staff-admin",
+    accountId: "demo-account-admin",
     maxUserId: "53364725",
     username: "admin_user",
     displayName: "Администратор",
@@ -292,6 +297,7 @@ let staffAssignments = [
   },
   {
     id: "demo-staff-teacher",
+    accountId: "demo-account-teacher",
     maxUserId: "53364726",
     username: "teacher_user",
     displayName: "Педагог",
@@ -1736,6 +1742,7 @@ function applySession(session) {
 
   staffAssignments = (session.staff_assignments || []).map((assignment) => ({
     id: String(assignment.id),
+    accountId: String(assignment.account_id),
     maxUserId: String(assignment.max_user_id),
     username: assignment.username || "",
     displayName: assignment.display_name || "",
@@ -5221,6 +5228,9 @@ function renderAdminPanel() {
     const matchesQuery = !staffQuery || `${item.displayName} ${item.username} ${item.maxUserId} ${staffRoleLabel(item.role)}`.toLowerCase().includes(staffQuery);
     return matchesStatus && matchesRole && matchesQuery;
   });
+  const canManageStaffNotifications = ["superadmin", "partner_director"].includes(
+    primaryStaffRole(),
+  );
   const rows =
     visibleStaffAssignments.length === 0
       ? `<div class="empty-state">${
@@ -5253,6 +5263,17 @@ function renderAdminPanel() {
                   </div>
                 </div>
                 <div class="admin-entity-actions">
+                  ${
+                    canManageStaffNotifications
+                    && assignment.status === "active"
+                    && ["admin", "curator"].includes(assignment.role)
+                      ? `<button
+                          class="secondary-action staff-notification-button"
+                          type="button"
+                          data-staff-notifications="${escapeHtml(assignment.accountId)}"
+                        ><i data-lucide="bell-ring"></i><span>Уведомления</span></button>`
+                      : ""
+                  }
                   ${
                     assignment.role !== "superadmin" &&
                     (primaryStaffRole() === "superadmin" ||
@@ -7877,6 +7898,166 @@ async function toggleContactLink(linkId) {
   }
 }
 
+function closeStaffNotificationSettings() {
+  const dialog = qs("#staffNotificationDialog");
+  if (!dialog || dialog.hidden) return;
+  dialog.hidden = true;
+  state.staffNotificationSettings = null;
+  state.staffNotificationTargetAccountId = "";
+  state.staffNotificationsLoading = false;
+  state.staffNotificationsSaving = false;
+  syncDialogBodyClass();
+}
+
+function renderStaffNotificationSettings() {
+  const content = qs("#staffNotificationDialogContent");
+  const saveButton = qs("#saveStaffNotificationsButton");
+  const resetButton = qs("#resetStaffNotificationsButton");
+  if (!content || !saveButton || !resetButton) return;
+
+  saveButton.disabled = state.staffNotificationsLoading || state.staffNotificationsSaving;
+  resetButton.disabled = state.staffNotificationsLoading || state.staffNotificationsSaving;
+  saveButton.textContent = state.staffNotificationsSaving ? "Сохранение..." : "Сохранить";
+  if (state.staffNotificationsLoading) {
+    content.innerHTML = '<div class="loading-state">Загружаем настройки...</div>';
+    return;
+  }
+
+  const settings = state.staffNotificationSettings;
+  if (!settings) {
+    content.innerHTML = '<div class="empty-state">Не удалось загрузить настройки</div>';
+    return;
+  }
+  qs("#staffNotificationDialogTitle").textContent = settings.display_name || "Уведомления";
+  qs("#staffNotificationDialogMeta").textContent = `${(settings.roles || []).map(staffRoleLabel).join(", ")} · MAX ID ${settings.max_user_id}`;
+
+  const groups = new Map();
+  (settings.items || []).forEach((item) => {
+    if (!groups.has(item.category)) {
+      groups.set(item.category, { label: item.category_label, items: [] });
+    }
+    groups.get(item.category).items.push(item);
+  });
+  content.innerHTML = [...groups.values()]
+    .map(
+      (group) => `
+        <section class="staff-notification-group">
+          <div class="staff-notification-group-head">
+            <h3>${escapeHtml(group.label)}</h3>
+            <span>${group.items.filter((item) => item.enabled).length} из ${group.items.length}</span>
+          </div>
+          <div class="staff-notification-list">
+            ${group.items.map((item) => `
+              <label class="staff-notification-row">
+                <input
+                  type="checkbox"
+                  data-staff-notification-key="${escapeHtml(item.event_key)}"
+                  data-default-enabled="${item.default_enabled ? "1" : "0"}"
+                  ${item.enabled ? "checked" : ""}
+                />
+                <span class="staff-notification-check" aria-hidden="true"></span>
+                <span class="staff-notification-copy">
+                  <strong>${escapeHtml(item.label)}</strong>
+                  <small>${escapeHtml(item.description)}</small>
+                </span>
+                ${item.customized ? '<span class="staff-notification-custom">Изменено</span>' : ""}
+              </label>
+            `).join("")}
+          </div>
+        </section>
+      `,
+    )
+    .join("");
+}
+
+async function openStaffNotificationSettings(accountId) {
+  if (!accountId) return;
+  if (apiContext.demoMode || !apiContext.maxUserId) {
+    showNotice("Настройки уведомлений доступны после входа в рабочий кабинет", "danger");
+    return;
+  }
+  const assignment = staffAssignments.find((item) => item.accountId === accountId);
+  state.staffNotificationTargetAccountId = accountId;
+  state.staffNotificationSettings = null;
+  state.staffNotificationsLoading = true;
+  qs("#staffNotificationDialogTitle").textContent = assignment?.displayName || "Уведомления";
+  qs("#staffNotificationDialogMeta").textContent = assignment
+    ? `${staffRoleLabel(assignment.role)} · MAX ID ${assignment.maxUserId}`
+    : "";
+  qs("#staffNotificationDialog").hidden = false;
+  document.body.classList.add("dialog-open");
+  renderStaffNotificationSettings();
+  refreshIcons();
+
+  const params = new URLSearchParams({ max_user_id: String(apiContext.maxUserId) });
+  if (apiContext.tenantSlug) params.set("tenant_slug", apiContext.tenantSlug);
+  try {
+    const response = await apiFetch(
+      `/api/v1/miniapp/staff/${encodeURIComponent(accountId)}/notifications?${params}`,
+    );
+    if (!response.ok) throw new Error(await parseApiError(response));
+    state.staffNotificationSettings = await response.json();
+  } catch (error) {
+    showNotice(error.message || "Не удалось загрузить настройки уведомлений", "danger");
+  } finally {
+    state.staffNotificationsLoading = false;
+    renderStaffNotificationSettings();
+    refreshIcons();
+  }
+}
+
+function syncStaffNotificationGroupCounts() {
+  qsa(".staff-notification-group").forEach((group) => {
+    const inputs = Array.from(group.querySelectorAll("[data-staff-notification-key]"));
+    const counter = group.querySelector(".staff-notification-group-head span");
+    if (counter) counter.textContent = `${inputs.filter((input) => input.checked).length} из ${inputs.length}`;
+  });
+}
+
+function resetStaffNotificationSettings() {
+  qsa("[data-staff-notification-key]").forEach((input) => {
+    input.checked = input.dataset.defaultEnabled === "1";
+  });
+  qsa(".staff-notification-custom").forEach((badge) => badge.remove());
+  syncStaffNotificationGroupCounts();
+}
+
+async function saveStaffNotificationSettings() {
+  const accountId = state.staffNotificationTargetAccountId;
+  if (!accountId || state.staffNotificationsSaving) return;
+  const preferences = qsa("[data-staff-notification-key]").map((input) => ({
+    event_key: input.dataset.staffNotificationKey,
+    enabled: input.checked,
+  }));
+  if (!preferences.length) return;
+
+  state.staffNotificationsSaving = true;
+  renderStaffNotificationSettings();
+  try {
+    const response = await apiFetch(
+      `/api/v1/miniapp/staff/${encodeURIComponent(accountId)}/notifications`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          max_user_id: Number(apiContext.maxUserId),
+          tenant_slug: apiContext.tenantSlug || undefined,
+          preferences,
+        }),
+      },
+    );
+    if (!response.ok) throw new Error(await parseApiError(response));
+    state.staffNotificationSettings = await response.json();
+    showNotice("Настройки уведомлений сохранены");
+    closeStaffNotificationSettings();
+  } catch (error) {
+    showNotice(error.message || "Не удалось сохранить настройки уведомлений", "danger");
+  } finally {
+    state.staffNotificationsSaving = false;
+    if (!qs("#staffNotificationDialog").hidden) renderStaffNotificationSettings();
+  }
+}
+
 async function updateStaffAssignment({ targetMaxUserId, role, status, displayName = "" }) {
   const maxUserId = String(targetMaxUserId || "").trim();
   if (!/^\d+$/.test(maxUserId)) {
@@ -7894,6 +8075,7 @@ async function updateStaffAssignment({ targetMaxUserId, role, status, displayNam
     } else {
       staffAssignments.push({
         id: `demo-staff-${maxUserId}-${role}`,
+        accountId: `demo-account-${maxUserId}`,
         maxUserId,
         username: "",
         displayName,
@@ -8547,6 +8729,25 @@ document.addEventListener("click", (event) => {
   const contactStudentId = target.dataset.toggleContact;
   if (contactStudentId) toggleContactLink(contactStudentId);
 
+  const staffNotificationAccountId = target.dataset.staffNotifications;
+  if (staffNotificationAccountId) {
+    void openStaffNotificationSettings(staffNotificationAccountId);
+    return;
+  }
+
+  if (target.id === "closeStaffNotificationDialogButton") {
+    closeStaffNotificationSettings();
+    return;
+  }
+  if (target.id === "resetStaffNotificationsButton") {
+    resetStaffNotificationSettings();
+    return;
+  }
+  if (target.id === "saveStaffNotificationsButton") {
+    void saveStaffNotificationSettings();
+    return;
+  }
+
   const staffMaxUserId = target.dataset.toggleStaff;
   const staffRole = target.dataset.staffRole;
   if (staffMaxUserId && staffRole) {
@@ -8680,6 +8881,10 @@ qs("#attendanceLessonDialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) closeAttendanceLessonEditor();
 });
 
+qs("#staffNotificationDialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) closeStaffNotificationSettings();
+});
+
 document.addEventListener("keydown", (event) => {
   const productCard = event.target instanceof Element ? event.target.closest("[data-product-card]") : null;
   if (productCard && !event.target.closest("button, input, select, textarea, a") && ["Enter", " "].includes(event.key)) {
@@ -8688,6 +8893,10 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   if (event.key !== "Escape") return;
+  if (!qs("#staffNotificationDialog").hidden) {
+    closeStaffNotificationSettings();
+    return;
+  }
   if (!qs("#studentQrDialog").hidden) {
     closeStudentQrPreview();
     return;
@@ -8718,6 +8927,11 @@ document.addEventListener("keydown", (event) => {
 document.addEventListener("change", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLSelectElement)) return;
+
+  if (target.dataset.staffNotificationKey) {
+    syncStaffNotificationGroupCounts();
+    return;
+  }
 
   if (target.id === "productImportFile") {
     const file = target.files?.[0] || null;

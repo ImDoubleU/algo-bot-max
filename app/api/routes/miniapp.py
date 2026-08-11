@@ -60,6 +60,8 @@ from app.schemas.miniapp import (
     MiniAppSessionRead,
     MiniAppStaffAssignmentRead,
     MiniAppStaffAssignmentUpdate,
+    MiniAppStaffNotificationSettingsRead,
+    MiniAppStaffNotificationSettingsUpdate,
     MiniAppStaffOnboardingOptionsRead,
     MiniAppStudentInvitationRead,
     MiniAppStudentRegistryRead,
@@ -89,6 +91,7 @@ from app.services.miniapp import (
     get_miniapp_cart,
     get_miniapp_ops_summary,
     get_miniapp_session,
+    get_miniapp_staff_notification_settings,
     get_miniapp_student_invitation,
     import_miniapp_crm_students,
     import_miniapp_products,
@@ -104,6 +107,7 @@ from app.services.miniapp import (
     undo_miniapp_astrocoins,
     update_miniapp_access_link_status,
     update_miniapp_staff_assignment,
+    update_miniapp_staff_notification_settings,
     upsert_miniapp_product,
     upsert_miniapp_warehouse,
 )
@@ -558,9 +562,7 @@ async def miniapp_save_product(
             )
         except ProductMediaError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        absolute_photo_url = (
-            f"{str(request.base_url).rstrip('/')}{saved_image.url_path}"
-        )
+        absolute_photo_url = f"{str(request.base_url).rstrip('/')}{saved_image.url_path}"
         payload = payload.model_copy(update={"photo_url": absolute_photo_url})
 
     try:
@@ -622,6 +624,61 @@ async def miniapp_update_staff_assignment(
     try:
         return await update_miniapp_staff_assignment(
             db,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get(
+    "/staff/{target_account_id}/notifications",
+    response_model=MiniAppStaffNotificationSettingsRead,
+)
+async def miniapp_staff_notification_settings(
+    target_account_id: UUID,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: str | None = None,
+) -> MiniAppStaffNotificationSettingsRead:
+    settings = get_settings()
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        return await get_miniapp_staff_notification_settings(
+            db,
+            actor_max_user_id=max_user_id,
+            tenant_slug=resolved_tenant or settings.default_tenant_slug,
+            target_account_id=target_account_id,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.put(
+    "/staff/{target_account_id}/notifications",
+    response_model=MiniAppStaffNotificationSettingsRead,
+)
+async def miniapp_update_staff_notification_settings(
+    target_account_id: UUID,
+    payload: MiniAppStaffNotificationSettingsUpdate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppStaffNotificationSettingsRead:
+    settings = get_settings()
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await update_miniapp_staff_notification_settings(
+            db,
+            target_account_id=target_account_id,
             payload=payload,
             default_tenant_slug=settings.default_tenant_slug,
         )

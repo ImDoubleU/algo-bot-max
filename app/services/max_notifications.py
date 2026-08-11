@@ -14,17 +14,15 @@ from app.bot.keyboards import (
 )
 from app.bot.max_client import MaxApiClient
 from app.core.config import get_settings, is_placeholder
-from app.models.account import MaxAccount, StaffRoleAssignment
+from app.models.account import MaxAccount
 from app.models.enums import (
-    AssignmentStatus,
     OrderStatus,
-    StaffRole,
     StudentAccessStatus,
 )
 from app.models.store import Order, Product, WarehouseInventory
 from app.models.student import Student, StudentAccessLink
 from app.models.tenant import Tenant
-from app.services.staff import configured_superadmin_max_user_id
+from app.services.staff_notifications import staff_notification_user_ids
 
 logger = logging.getLogger(__name__)
 _background_tasks: set[asyncio.Task[None]] = set()
@@ -102,9 +100,7 @@ async def _recipient_user_ids(
         return set()
     return set(
         (
-            await db.scalars(
-                select(MaxAccount.max_user_id).where(MaxAccount.id.in_(account_ids))
-            )
+            await db.scalars(select(MaxAccount.max_user_id).where(MaxAccount.id.in_(account_ids)))
         ).all()
     )
 
@@ -146,42 +142,6 @@ async def _deliver_order_notification(
                 user_id,
                 result,
             )
-
-
-async def _staff_user_ids(
-    db: AsyncSession,
-    *,
-    tenant_id: UUID,
-    roles: set[StaffRole],
-) -> set[int]:
-    user_ids = set(
-        (
-            await db.scalars(
-                select(MaxAccount.max_user_id)
-                .join(StaffRoleAssignment, StaffRoleAssignment.account_id == MaxAccount.id)
-                .where(
-                    StaffRoleAssignment.tenant_id == tenant_id,
-                    StaffRoleAssignment.role.in_(roles),
-                    StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-                )
-            )
-        ).all()
-    )
-    configured_superadmin_id = configured_superadmin_max_user_id()
-    if StaffRole.SUPERADMIN in roles and configured_superadmin_id is not None:
-        active_assignment = await db.scalar(
-            select(StaffRoleAssignment.id)
-            .join(MaxAccount, MaxAccount.id == StaffRoleAssignment.account_id)
-            .where(
-                MaxAccount.max_user_id == configured_superadmin_id,
-                StaffRoleAssignment.role == StaffRole.SUPERADMIN,
-                StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-            )
-            .limit(1)
-        )
-        if active_assignment is not None:
-            user_ids.add(configured_superadmin_id)
-    return user_ids
 
 
 async def _tenant_customer_user_ids(db: AsyncSession, *, tenant_id: UUID) -> set[int]:
@@ -257,6 +217,77 @@ def _schedule_direct_notification(
     task.add_done_callback(_log_notification_task_error)
 
 
+async def schedule_staff_notification(
+    db: AsyncSession,
+    *,
+    tenant: Tenant,
+    event_key: str,
+    title: str,
+    message: str | None = None,
+    facts: list[tuple[str, str]] | None = None,
+    view: str = "dashboard",
+    button_label: str = "Открыть Algo MAX",
+) -> None:
+    settings = get_settings()
+    if not settings.max_order_notifications_enabled or is_placeholder(settings.max_bot_token):
+        return
+
+    try:
+        user_ids = await staff_notification_user_ids(
+            db,
+            tenant_id=UUID(str(tenant.id)),
+            event_key=event_key,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Не удалось определить сотрудников для уведомления %s: %s",
+            event_key,
+            exc,
+        )
+        return
+
+    _schedule_direct_notification(
+        user_ids=user_ids,
+        tenant_slug=tenant.slug,
+        text=_notification_text(title, message=message, facts=facts or []),
+        view=view,
+        button_label=button_label,
+    )
+
+
+async def schedule_staff_order_notification(
+    db: AsyncSession,
+    *,
+    tenant: Tenant,
+    order: Order,
+    student: Student,
+    event_key: str,
+    title: str,
+    actor_name: str | None = None,
+    message: str | None = None,
+    extra_facts: list[tuple[str, str]] | None = None,
+) -> None:
+    facts = [
+        ("Заказ", f"№{order.order_number}"),
+        ("Ученик", student.display_name),
+        ("Сумма", f"{order.total_astrocoins} AC"),
+    ]
+    if actor_name:
+        facts.append(("Изменил", actor_name))
+    if extra_facts:
+        facts.extend(extra_facts)
+    await schedule_staff_notification(
+        db,
+        tenant=tenant,
+        event_key=event_key,
+        title=title,
+        message=message,
+        facts=facts,
+        view="orders",
+        button_label="Открыть заказы",
+    )
+
+
 async def schedule_new_product_notification(
     db: AsyncSession,
     *,
@@ -293,10 +324,10 @@ async def schedule_low_stock_notification(
     settings = get_settings()
     if not settings.max_order_notifications_enabled or is_placeholder(settings.max_bot_token):
         return
-    user_ids = await _staff_user_ids(
+    user_ids = await staff_notification_user_ids(
         db,
         tenant_id=UUID(str(tenant.id)),
-        roles={StaffRole.SUPERADMIN, StaffRole.PARTNER_DIRECTOR, StaffRole.ADMIN},
+        event_key="inventory.low_stock",
     )
     warehouse_name = inventory.warehouse.name if inventory.warehouse else "Склад"
     free_quantity = max(inventory.available_quantity - inventory.reserved_quantity, 0)

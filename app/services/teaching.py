@@ -51,6 +51,7 @@ from app.schemas.teaching import (
     TeachingWorkspaceRead,
 )
 from app.services.feedback_notifications import deliver_feedback_to_parents
+from app.services.max_notifications import schedule_staff_notification
 from app.services.staff import (
     active_staff_roles_for_tenant,
     normalize_staff_name,
@@ -83,6 +84,66 @@ class TeachingServiceError(RuntimeError):
     def __init__(self, message: str, *, status_code: int = 400) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+def _attendance_student_names(
+    student_ids: set[UUID],
+    students: list[Student],
+) -> str:
+    names_by_id = {UUID(str(student.id)): student.display_name for student in students}
+    names = sorted(
+        (names_by_id.get(UUID(str(student_id)), str(student_id)) for student_id in student_ids),
+        key=str.casefold,
+    )
+    visible = names[:10]
+    if len(names) > len(visible):
+        visible.append(f"еще {len(names) - len(visible)}")
+    return ", ".join(visible)
+
+
+async def _schedule_attendance_notifications(
+    db: AsyncSession,
+    *,
+    tenant: Tenant,
+    schedule: TeachingSchedule,
+    actor: MaxAccount,
+    students: list[Student],
+    lesson_dates: set[date],
+    required_student_ids: set[UUID],
+    completed_student_ids: set[UUID],
+) -> None:
+    date_text = ", ".join(item.strftime("%d.%m.%Y") for item in sorted(lesson_dates))
+    common_facts = [
+        ("Группа", schedule.group_name),
+        ("Дата", date_text),
+        ("Изменил", actor.display_name),
+    ]
+    if required_student_ids:
+        await schedule_staff_notification(
+            db,
+            tenant=tenant,
+            event_key="makeups.required",
+            title="Отмечены пропуски занятия",
+            facts=[
+                *common_facts,
+                ("Требуется отработка", _attendance_student_names(required_student_ids, students)),
+            ],
+            view="schedule",
+            button_label="Открыть журнал",
+        )
+    if completed_student_ids:
+        await schedule_staff_notification(
+            db,
+            tenant=tenant,
+            event_key="makeups.completed",
+            title="Отработки отмечены",
+            facts=[
+                *common_facts,
+                ("Ученики", _attendance_student_names(completed_student_ids, students)),
+            ],
+            view="schedule",
+            button_label="Открыть журнал",
+        )
 
 
 async def load_teaching_context(
@@ -565,6 +626,8 @@ async def mark_attendance(
         )
     ).all()
     records = {record.student_id: record for record in existing}
+    required_student_ids: set[UUID] = set()
+    completed_student_ids: set[UUID] = set()
     for item in payload.items:
         if item.makeup_completed and item.present:
             raise TeachingServiceError(
@@ -572,6 +635,16 @@ async def mark_attendance(
                 status_code=409,
             )
         record = records.get(item.student_id)
+        previous_state = (
+            (record.present, record.makeup_completed)
+            if record is not None
+            else (None, False)
+        )
+        current_state = (item.present, item.makeup_completed)
+        if current_state == (False, False) and previous_state != current_state:
+            required_student_ids.add(UUID(str(item.student_id)))
+        if current_state == (False, True) and previous_state != current_state:
+            completed_student_ids.add(UUID(str(item.student_id)))
         if record is None:
             record = AttendanceRecord(
                 tenant_id=tenant.id,
@@ -590,6 +663,16 @@ async def mark_attendance(
             record.comment = item.comment
             record.marked_by_account_id = account.id
     await db.commit()
+    await _schedule_attendance_notifications(
+        db,
+        tenant=tenant,
+        schedule=schedule,
+        actor=account,
+        students=students,
+        lesson_dates={payload.lesson_date},
+        required_student_ids=required_student_ids,
+        completed_student_ids=completed_student_ids,
+    )
     return await get_attendance_journal(
         db,
         max_user_id=payload.max_user_id,
@@ -827,6 +910,7 @@ async def update_group_attendance_journal(
         )
 
     all_schedule_records: list[AttendanceRecord] = []
+    changed_lessons: list[dict[str, object]] = []
     if payload.lessons:
         all_schedule_records = list(
             (
@@ -864,7 +948,6 @@ async def update_group_attendance_journal(
             for item in schedule.lesson_overrides
         }
         date_moves: dict[date, date] = {}
-        changed_lessons: list[dict[str, object]] = []
         for position, item in lesson_updates.items():
             previous = lessons_by_position[position]
             if previous.lesson_date != item.lesson_date:
@@ -974,16 +1057,19 @@ async def update_group_attendance_journal(
             status_code=409,
         )
     student_ids = list({student_id for student_id, _ in items_by_key})
+    students: list[Student] = []
     if student_ids:
-        students = await db.scalars(
-            select(Student).where(
-                Student.tenant_id == tenant.id,
-                Student.id.in_(student_ids),
-                Student.group_name == schedule.group_name,
-                Student.status == StudentStatus.ACTIVE,
+        students = list(
+            await db.scalars(
+                select(Student).where(
+                    Student.tenant_id == tenant.id,
+                    Student.id.in_(student_ids),
+                    Student.group_name == schedule.group_name,
+                    Student.status == StudentStatus.ACTIVE,
+                )
             )
         )
-        if len(students.all()) != len(student_ids):
+        if len(students) != len(student_ids):
             raise TeachingServiceError("В списке есть ученик из другой группы", status_code=409)
 
     lesson_dates = list({lesson_date for _, lesson_date in items_by_key})
@@ -1004,6 +1090,9 @@ async def update_group_attendance_journal(
         (record.student_id, record.lesson_date): record
         for record in existing
     }
+    required_student_ids: set[UUID] = set()
+    completed_student_ids: set[UUID] = set()
+    notification_dates: set[date] = set()
     for key, item in items_by_key.items():
         if item.makeup_completed and item.present is not False:
             raise TeachingServiceError(
@@ -1011,6 +1100,18 @@ async def update_group_attendance_journal(
                 status_code=409,
             )
         record = records.get(key)
+        previous_state = (
+            (record.present, record.makeup_completed)
+            if record is not None
+            else (None, False)
+        )
+        current_state = (item.present, item.makeup_completed)
+        if current_state == (False, False) and previous_state != current_state:
+            required_student_ids.add(UUID(str(item.student_id)))
+            notification_dates.add(item.lesson_date)
+        if current_state == (False, True) and previous_state != current_state:
+            completed_student_ids.add(UUID(str(item.student_id)))
+            notification_dates.add(item.lesson_date)
         if item.present is None:
             if record is not None:
                 await db.delete(record)
@@ -1035,6 +1136,37 @@ async def update_group_attendance_journal(
         record.comment = comment
         record.marked_by_account_id = account.id
     await db.commit()
+    if changed_lessons:
+        change_text = "; ".join(
+            (
+                f"{item['old_date']} -> {item['new_date']}, "
+                f"урок {item['old_number']} -> {item['new_number']}"
+            )
+            for item in changed_lessons
+        )
+        await schedule_staff_notification(
+            db,
+            tenant=tenant,
+            event_key="lessons.changed",
+            title="Расписание занятия изменено",
+            message=change_text,
+            facts=[
+                ("Группа", schedule.group_name),
+                ("Изменил", account.display_name),
+            ],
+            view="schedule",
+            button_label="Открыть журнал",
+        )
+    await _schedule_attendance_notifications(
+        db,
+        tenant=tenant,
+        schedule=schedule,
+        actor=account,
+        students=students,
+        lesson_dates=notification_dates,
+        required_student_ids=required_student_ids,
+        completed_student_ids=completed_student_ids,
+    )
     return await get_group_attendance_journal(
         db,
         max_user_id=payload.max_user_id,

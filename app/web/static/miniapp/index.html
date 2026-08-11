@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.61.4" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.62.0" />
   </head>
   <body class="is-booting">
     <main id="accessGate" class="access-gate" hidden>
@@ -862,6 +862,39 @@
         </section>
       </div>
 
+      <div id="staffNotificationDialog" class="dialog-backdrop" hidden>
+        <section
+          class="checkout-dialog staff-notification-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="staffNotificationDialogTitle"
+        >
+          <div class="dialog-head">
+            <div>
+              <p class="eyebrow">Настройки сотрудника</p>
+              <h2 id="staffNotificationDialogTitle">Уведомления</h2>
+              <span id="staffNotificationDialogMeta" class="staff-notification-meta"></span>
+            </div>
+            <button
+              id="closeStaffNotificationDialogButton"
+              class="icon-button dialog-close"
+              type="button"
+              title="Закрыть"
+              aria-label="Закрыть"
+            ><i data-lucide="x"></i></button>
+          </div>
+          <div id="staffNotificationDialogContent" class="staff-notification-content"></div>
+          <div class="dialog-actions staff-notification-actions">
+            <button id="resetStaffNotificationsButton" class="secondary-action" type="button">
+              Базовые настройки
+            </button>
+            <button id="saveStaffNotificationsButton" class="primary-action" type="button">
+              Сохранить
+            </button>
+          </div>
+        </section>
+      </div>
+
       <div id="tenantDialog" class="dialog-backdrop" hidden>
         <section class="checkout-dialog tenant-dialog" role="dialog" aria-modal="true" aria-labelledby="tenantDialogTitle">
           <div class="dialog-head">
@@ -940,6 +973,6 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app.js?v=0.61.4"></script>
+    <script src="/miniapp/static/app.js?v=0.62.0"></script>
   </body>
 </html>
