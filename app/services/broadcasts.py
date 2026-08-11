@@ -35,6 +35,7 @@ from app.schemas.broadcasts import (
     BroadcastAudienceRequest,
     SchoolBroadcastRead,
 )
+from app.services.max_notifications import schedule_staff_notification
 from app.services.staff import active_staff_roles_for_tenant
 
 logger = logging.getLogger(__name__)
@@ -390,6 +391,31 @@ async def send_school_broadcast(
         )
     )
     await db.commit()
+    event_key = {
+        "sent": "broadcasts.completed",
+        "partial": "broadcasts.partial",
+        "failed": "broadcasts.failed",
+    }[broadcast.status]
+    event_title = {
+        "sent": "Рассылка завершена",
+        "partial": "Рассылка выполнена частично",
+        "failed": "Рассылка не отправлена",
+    }[broadcast.status]
+    await schedule_staff_notification(
+        db,
+        tenant=context.tenant,
+        event_key=event_key,
+        title=event_title,
+        message=clean_title,
+        facts=[
+            ("Отправил", context.account.display_name),
+            ("Получателей", str(len(results))),
+            ("Доставлено", str(delivered)),
+            ("Не доставлено", str(failed)),
+        ],
+        view="broadcasts",
+        button_label="Открыть рассылки",
+    )
     return _broadcast_read(
         broadcast,
         creator_name=context.account.display_name,

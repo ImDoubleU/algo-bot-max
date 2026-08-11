@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import BigInteger, ForeignKey, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, uuid_pk
@@ -73,3 +73,27 @@ class StaffWarehousePreference(TimestampMixin, Base):
 
     account = relationship("MaxAccount")
     warehouse = relationship("Warehouse")
+
+
+class StaffNotificationPreference(TimestampMixin, Base):
+    __tablename__ = "staff_notification_preferences"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "account_id",
+            "event_key",
+            name="uq_staff_notification_preferences_tenant_account_event",
+        ),
+    )
+
+    id: Mapped[UUID] = uuid_pk()
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), index=True, nullable=False)
+    account_id: Mapped[UUID] = mapped_column(
+        ForeignKey("max_accounts.id"),
+        index=True,
+        nullable=False,
+    )
+    event_key: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+
+    account = relationship("MaxAccount")

@@ -433,6 +433,39 @@ class MiniAppStaffAssignmentUpdate(BaseModel):
     display_name: str | None = Field(default=None, max_length=160)
 
 
+class MiniAppStaffNotificationItemRead(BaseModel):
+    event_key: str
+    category: str
+    category_label: str
+    label: str
+    description: str
+    enabled: bool
+    default_enabled: bool
+    customized: bool
+
+
+class MiniAppStaffNotificationSettingsRead(BaseModel):
+    account_id: UUID
+    max_user_id: int
+    display_name: str | None = None
+    roles: list[StaffRole] = Field(default_factory=list)
+    items: list[MiniAppStaffNotificationItemRead] = Field(default_factory=list)
+
+
+class MiniAppStaffNotificationPreferenceWrite(BaseModel):
+    event_key: str = Field(min_length=3, max_length=80)
+    enabled: bool
+
+
+class MiniAppStaffNotificationSettingsUpdate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    preferences: list[MiniAppStaffNotificationPreferenceWrite] = Field(
+        min_length=1,
+        max_length=100,
+    )
+
+
 class MiniAppStaffOnboardingTenantRead(BaseModel):
     tenant_slug: str
     tenant_name: str
