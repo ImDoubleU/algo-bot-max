@@ -189,6 +189,8 @@ let adminSearchTimer = null;
 let noticeTimer = null;
 let noticeActionHandler = null;
 let broadcastDraftTimer = null;
+let confirmationResolver = null;
+let confirmationReturnFocus = null;
 const cartSyncChains = new Map();
 
 const demoTeachingWorkspace = {
@@ -2313,9 +2315,9 @@ function setView(view) {
   if (
     previousView === "teaching" &&
     nextView !== "teaching" &&
-    hasAttendanceChanges() &&
-    !window.confirm("В журнале есть несохраненные изменения. Выйти без сохранения?")
+    hasAttendanceChanges()
   ) {
+    confirmDiscardAttendanceChanges(() => setView(nextView));
     return;
   }
   if (previousView !== nextView) hideNotice();
@@ -2762,6 +2764,7 @@ function renderStatus() {
     groupFilter.value = state.studentGroupFilter;
   }
   renderChildSwitcher();
+  refreshIcons();
 }
 
 function renderStudents() {
@@ -3499,6 +3502,48 @@ function syncDialogBodyClass() {
   document.body.classList.toggle("dialog-open", hasOpenDialog);
 }
 
+function settleConfirmation(result) {
+  const dialog = qs("#confirmationDialog");
+  if (!dialog || dialog.hidden) return;
+  dialog.hidden = true;
+  syncDialogBodyClass();
+  const resolve = confirmationResolver;
+  const returnFocus = confirmationReturnFocus;
+  confirmationResolver = null;
+  confirmationReturnFocus = null;
+  resolve?.(result);
+  if (!result && returnFocus instanceof HTMLElement) returnFocus.focus();
+}
+
+function requestConfirmation({
+  eyebrow = "Подтверждение",
+  title,
+  message,
+  confirmLabel = "Продолжить",
+  cancelLabel = "Вернуться",
+  destructive = false,
+}) {
+  if (confirmationResolver) settleConfirmation(false);
+  const dialog = qs("#confirmationDialog");
+  const confirmButton = qs("#confirmConfirmationButton");
+  if (!dialog || !confirmButton) return Promise.resolve(false);
+  qs("#confirmationDialogEyebrow").textContent = eyebrow;
+  qs("#confirmationDialogTitle").textContent = title;
+  qs("#confirmationDialogMessage").textContent = message;
+  qs("#cancelConfirmationButton").textContent = cancelLabel;
+  confirmButton.textContent = confirmLabel;
+  confirmButton.classList.toggle("is-danger", destructive);
+  dialog.querySelector(".confirmation-dialog")?.classList.toggle("is-danger", destructive);
+  confirmationReturnFocus = document.activeElement;
+  dialog.hidden = false;
+  syncDialogBodyClass();
+  refreshIcons();
+  return new Promise((resolve) => {
+    confirmationResolver = resolve;
+    window.setTimeout(() => confirmButton.focus(), 0);
+  });
+}
+
 function syncProductDialogControls() {
   const dialog = qs("#productDialog");
   const product = productById(dialog.dataset.productId || "");
@@ -3985,14 +4030,12 @@ function renderAccrualReport() {
   if (state.accrualReportLoading) {
     summary.innerHTML = '<div class="skeleton-row"></div><div class="skeleton-row"></div>';
     list.innerHTML = '<div class="report-skeleton"><div></div><div></div><div></div></div>';
-    qs("#exportAcReportButton").disabled = true;
     return;
   }
   const report = state.accrualReport;
   if (!report) {
     summary.textContent = "Выберите период и нажмите «Показать».";
     list.innerHTML = "";
-    qs("#exportAcReportButton").disabled = true;
     return;
   }
   renderAccrualReportFilters(report.entries);
@@ -4009,7 +4052,6 @@ function renderAccrualReport() {
     <article><span>Преподавателей</span><strong>${teacherCount}</strong></article>
     <article><span>Учеников</span><strong>${studentCount}</strong></article>
     <article><span>Среднее начисление</span><strong>${average} AC</strong></article>`;
-  qs("#exportAcReportButton").disabled = entries.length === 0;
   list.innerHTML = entries.length
     ? entries
         .map(
@@ -4054,31 +4096,6 @@ function setAccrualReportPeriod(period) {
     button.classList.toggle("is-active", button.dataset.reportPeriod === period);
   });
   loadAccrualReport();
-}
-
-function exportAccrualReport() {
-  const entries = filteredAccrualReportEntries();
-  if (!entries.length) return;
-  const csvRows = [
-    ["Дата", "Преподаватель", "Ученик", "Группа", "Сумма AC", "Причина"],
-    ...entries.map((entry) => [
-      new Date(entry.created_at).toLocaleString("ru-RU"),
-      entry.teacher_name,
-      entry.student_name,
-      entry.group_name || "",
-      Number(entry.amount),
-      entry.reason,
-    ]),
-  ];
-  const csv = csvRows
-    .map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(";"))
-    .join("\r\n");
-  const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `ac-report-${qs("#acReportDateFrom").value}-${qs("#acReportDateTo").value}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
 }
 
 async function loadAccrualReport() {
@@ -5501,6 +5518,29 @@ function hasAttendanceChanges() {
   return attendanceChangesCount() > 0;
 }
 
+function discardAttendanceJournalChanges() {
+  state.attendanceScheduleId = "";
+  state.attendanceJournal = null;
+  state.attendanceDirty = new Map();
+  state.attendanceLessonDirty = new Map();
+  state.attendanceAutoScroll = false;
+}
+
+function confirmDiscardAttendanceChanges(onDiscard) {
+  requestConfirmation({
+    eyebrow: "Несохраненные изменения",
+    title: "Выйти из журнала?",
+    message: "Поставленные отметки и изменения занятий не сохранятся.",
+    confirmLabel: "Выйти без сохранения",
+    cancelLabel: "Остаться в журнале",
+    destructive: true,
+  }).then((confirmed) => {
+    if (!confirmed) return;
+    discardAttendanceJournalChanges();
+    onDiscard?.();
+  });
+}
+
 function openAttendanceLessonEditor(position) {
   const lesson = state.attendanceJournal?.lessons.find(
     (item) => Number(item.position) === Number(position),
@@ -5904,13 +5944,13 @@ async function loadAttendanceJournal(scheduleId) {
 
 function closeAttendanceJournal() {
   if (hasAttendanceChanges()) {
-    showNotice("Сначала сохраните изменения в журнале", "danger");
+    confirmDiscardAttendanceChanges(() => {
+      renderTeaching();
+      qs(".journal-groups-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
     return;
   }
-  state.attendanceScheduleId = "";
-  state.attendanceJournal = null;
-  state.attendanceDirty = new Map();
-  state.attendanceLessonDirty = new Map();
+  discardAttendanceJournalChanges();
   renderTeaching();
   qs(".journal-groups-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -6713,7 +6753,14 @@ async function sendSchoolBroadcast(event) {
     preview = await previewBroadcastAudience();
   }
   if (!preview?.recipient_count) return;
-  if (!window.confirm(`Отправить новость ${preview.recipient_count} получателям?`)) {
+  const confirmed = await requestConfirmation({
+    eyebrow: "Проверка рассылки",
+    title: "Отправить новость?",
+    message: `Получателей: ${preview.recipient_count}. После отправки изменить сообщение нельзя.`,
+    confirmLabel: "Отправить",
+    cancelLabel: "Вернуться к редактированию",
+  });
+  if (!confirmed) {
     return;
   }
 
@@ -7369,6 +7416,7 @@ function renderOrderDialog(order) {
         .join("")
     : `
         <div class="order-history-row">
+          <span class="order-history-marker"><i data-lucide="circle-dot"></i></span>
           <div><strong>${escapeHtml(order.status)}</strong><span>Текущий статус</span></div>
         </div>
       `;
@@ -7446,9 +7494,17 @@ function showCancelOrderForm(orderId) {
     .join("");
   qs("#orderDialogActions").innerHTML = `
     <div class="order-cancel-form">
+      <div class="order-cancel-head">
+        <span class="order-cancel-icon"><i data-lucide="circle-x"></i></span>
+        <div>
+          <strong>Отмена заказа</strong>
+          <p>Выберите причину. Ученик получит ее вместе с уведомлением.</p>
+        </div>
+      </div>
       <label>
         <span>Причина отмены</span>
         <select id="orderCancelReason">
+          <option value="" selected disabled>Выберите причину</option>
           ${canMarkOutOfStock ? '<option value="Товар закончился">Товар закончился</option>' : ""}
           <option value="Ошибка в заказе">Ошибка в заказе</option>
           <option value="По просьбе родителя">По просьбе родителя</option>
@@ -7458,22 +7514,45 @@ function showCancelOrderForm(orderId) {
       </label>
       ${
         canMarkOutOfStock
-          ? `<label>
+          ? `<label id="orderCancelProductField" hidden>
                <span>Товар</span>
                <select id="orderCancelProduct">${productOptions}</select>
              </label>`
           : ""
       }
-      <label>
+      <label id="orderCancelCustomReasonField" class="order-cancel-wide" hidden>
         <span>Своя причина</span>
-        <input id="orderCancelCustomReason" type="text" maxlength="500" placeholder="Заполняется для варианта «Другое»" />
+        <input id="orderCancelCustomReason" type="text" maxlength="500" placeholder="Коротко объясните причину отмены" />
       </label>
+      ${
+        canMarkOutOfStock
+          ? `<div id="orderCancelStockWarning" class="order-cancel-warning" hidden>
+               <i data-lucide="triangle-alert"></i>
+               <span>Остаток выбранного товара будет обнулен на всех складах.</span>
+             </div>`
+          : ""
+      }
       <div class="order-cancel-actions">
         <button class="secondary-action" type="button" data-cancel-order-back="${escapeHtml(orderId)}">Назад</button>
         <button class="secondary-action danger-action" type="button" data-confirm-order-cancel="${escapeHtml(orderId)}">Отменить заказ</button>
       </div>
     </div>
   `;
+  syncCancelOrderForm();
+  refreshIcons();
+  qs("#orderCancelReason")?.focus();
+}
+
+function syncCancelOrderForm() {
+  const reason = qs("#orderCancelReason")?.value || "";
+  const isCustom = reason === "Другое";
+  const isOutOfStock = reason === "Товар закончился";
+  const customField = qs("#orderCancelCustomReasonField");
+  const productField = qs("#orderCancelProductField");
+  const warning = qs("#orderCancelStockWarning");
+  if (customField) customField.hidden = !isCustom;
+  if (productField) productField.hidden = !isOutOfStock;
+  if (warning) warning.hidden = !isOutOfStock;
 }
 
 async function assignOrderWarehouses(orderId) {
@@ -8403,6 +8482,15 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  if (target.id === "cancelConfirmationButton") {
+    settleConfirmation(false);
+    return;
+  }
+  if (target.id === "confirmConfirmationButton") {
+    settleConfirmation(true);
+    return;
+  }
+
   if (target.id === "noticeClose") {
     hideNotice();
     return;
@@ -8665,6 +8753,7 @@ document.addEventListener("click", (event) => {
   } else if (["inventory", "products", "warehouses"].includes(opsJump)) {
     state.adminTab = opsJump;
     if ("inventoryLowStock" in target.dataset) state.inventoryStockFilter = "low";
+    setView("admin");
     renderAdminPanel();
   }
 
@@ -8687,11 +8776,26 @@ document.addEventListener("click", (event) => {
     const reason = qs("#orderCancelReason")?.value || "";
     const customReason = qs("#orderCancelCustomReason")?.value.trim() || "";
     const productId = qs("#orderCancelProduct")?.value || "";
-    if (reason === "Другое" && !customReason) {
-      showNotice("Укажите свою причину отмены", "danger");
+    if (!reason) {
+      showNotice("Выберите причину отмены", "danger");
+      qs("#orderCancelReason")?.focus();
       return;
     }
-    updateOrderAction(confirmCancelOrderId, "cancel", { reason, customReason, productId });
+    if (reason === "Другое" && !customReason) {
+      showNotice("Укажите свою причину отмены", "danger");
+      qs("#orderCancelCustomReason")?.focus();
+      return;
+    }
+    if (reason === "Товар закончился" && !productId) {
+      showNotice("Выберите закончившийся товар", "danger");
+      qs("#orderCancelProduct")?.focus();
+      return;
+    }
+    updateOrderAction(confirmCancelOrderId, "cancel", {
+      reason,
+      customReason,
+      productId: reason === "Товар закончился" ? productId : "",
+    });
   }
 
   const cancelOrderBackId = target.dataset.cancelOrderBack;
@@ -8712,7 +8816,6 @@ document.addEventListener("click", (event) => {
 
   const reportPeriod = target.dataset.reportPeriod;
   if (reportPeriod) setAccrualReportPeriod(reportPeriod);
-  if (target.id === "exportAcReportButton") exportAccrualReport();
   if (target.id === "resetAcReportFiltersButton") {
     state.accrualReportTeacherFilter = "all";
     state.accrualReportGroupFilter = "all";
@@ -8935,6 +9038,10 @@ qs("#attendanceLessonDialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) closeAttendanceLessonEditor();
 });
 
+qs("#confirmationDialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) settleConfirmation(false);
+});
+
 qs("#staffNotificationDialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) closeStaffNotificationSettings();
 });
@@ -8947,6 +9054,10 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   if (event.key !== "Escape") return;
+  if (!qs("#confirmationDialog").hidden) {
+    settleConfirmation(false);
+    return;
+  }
   if (!qs("#staffNotificationDialog").hidden) {
     closeStaffNotificationSettings();
     return;
@@ -8981,6 +9092,12 @@ document.addEventListener("keydown", (event) => {
 document.addEventListener("change", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLSelectElement)) return;
+
+  if (target.id === "orderCancelReason") {
+    syncCancelOrderForm();
+    if (target.value === "Другое") qs("#orderCancelCustomReason")?.focus();
+    return;
+  }
 
   if (target.dataset.staffNotificationKey) {
     syncStaffNotificationGroupCounts();
