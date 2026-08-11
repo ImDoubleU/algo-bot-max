@@ -801,6 +801,7 @@ function allCatalogWarehouses() {
     });
   });
   products.forEach((product) => {
+    if (!Array.isArray(product.warehouses) || product.warehouses.length === 0) return;
     productWarehouses(product).forEach((warehouse) => {
       if (!byId.has(warehouse.id)) {
         byId.set(warehouse.id, {
