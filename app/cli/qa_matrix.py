@@ -74,6 +74,7 @@ from app.models.teaching import (
 )
 from app.models.tenant import City, Partner, Tenant, Venue
 from app.services.miniapp import MiniAppStoreError, get_miniapp_session
+from app.services.staff import configured_superadmin_max_user_id
 from app.services.staff_notifications import STAFF_NOTIFICATION_CATALOG
 
 DEFAULT_RUN_ID = "QA-20260811"
@@ -180,8 +181,13 @@ async def _account(
     offset: int,
     display_name: str,
 ) -> MaxAccount:
-    max_user_id = QA_MAX_ID_BASE + offset
+    configured_superadmin_id = (
+        configured_superadmin_max_user_id() if key == "superadmin" else None
+    )
+    max_user_id = configured_superadmin_id or QA_MAX_ID_BASE + offset
     existing = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
+    if existing is not None and configured_superadmin_id is not None:
+        return existing
     if existing is not None and _marker(run_id) not in (existing.username or ""):
         raise RuntimeError(f"MAX ID {max_user_id} already belongs to a non-QA account")
     account_id = existing.id if existing is not None else _id(run_id, f"account:{key}")
@@ -190,7 +196,11 @@ async def _account(
         MaxAccount(
             id=account_id,
             max_user_id=max_user_id,
-            username=f"{_marker(run_id)}:{key}",
+            username=(
+                get_settings().initial_superadmin_username
+                if configured_superadmin_id is not None
+                else f"{_marker(run_id)}:{key}"
+            ),
             display_name=display_name,
         ),
     )
@@ -1534,7 +1544,15 @@ async def audit_matrix(run_id: str, default_tenant_slug: str) -> dict[str, Any]:
             expected=[],
         )
 
-        account_ids = {key: QA_MAX_ID_BASE + offset for key, offset, _name in ACCOUNT_SPECS}
+        configured_superadmin_id = configured_superadmin_max_user_id()
+        account_ids = {
+            key: (
+                configured_superadmin_id
+                if key == "superadmin" and configured_superadmin_id is not None
+                else QA_MAX_ID_BASE + offset
+            )
+            for key, offset, _name in ACCOUNT_SPECS
+        }
         session_expectations = (
             ("superadmin", "full", StaffRole.SUPERADMIN.value),
             ("director", "full", StaffRole.PARTNER_DIRECTOR.value),
@@ -1679,8 +1697,13 @@ def build_auth_manifest(run_id: str) -> dict[str, Any]:
         "limited_parent": "limited",
     }
     roles = {}
+    configured_superadmin_id = configured_superadmin_max_user_id()
     for key, offset, display_name in ACCOUNT_SPECS:
-        user_id = QA_MAX_ID_BASE + offset
+        user_id = (
+            configured_superadmin_id
+            if key == "superadmin" and configured_superadmin_id is not None
+            else QA_MAX_ID_BASE + offset
+        )
         roles[key] = {
             "max_user_id": user_id,
             "display_name": display_name,
