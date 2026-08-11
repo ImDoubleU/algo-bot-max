@@ -1334,6 +1334,7 @@ async def _reset_qa_runtime_state(
         ManualFeedbackOutput,
         TeachingLessonOverride,
         SchoolBroadcast,
+        StaffRoleAssignment,
         StaffNotificationPreference,
         StaffWarehousePreference,
     )
@@ -1351,6 +1352,7 @@ async def seed_matrix(run_id: str, default_tenant_slug: str) -> dict[str, Any]:
             raise RuntimeError(f"Default tenant not found: {default_tenant_slug}")
         accounts = await _seed_accounts(db, run_id)
         tenants = await _seed_qa_tenants(db, run_id)
+        await _reset_qa_runtime_state(db, tenants=tenants)
         await _seed_staff(
             db,
             run_id=run_id,
@@ -1371,7 +1373,6 @@ async def seed_matrix(run_id: str, default_tenant_slug: str) -> dict[str, Any]:
             accounts=accounts,
             students=students,
         )
-        await _reset_qa_runtime_state(db, tenants=tenants)
         full_products, full_warehouses, full_inventory = await _seed_store_for_tenant(
             db,
             run_id=run_id,
@@ -1650,6 +1651,28 @@ async def audit_matrix(run_id: str, default_tenant_slug: str) -> dict[str, Any]:
                 passed=session.has_access and expected_role in visible_roles,
                 actual={"access": session.has_access, "roles": visible_roles},
                 expected=expected_role,
+            )
+
+        for account_key in ("revoked_staff", "revoked_parent"):
+            revoked_session = await get_miniapp_session(
+                db,
+                max_user_id=account_ids[account_key],
+                tenant_slug=tenant_by_suffix["full"].slug,
+            )
+            _check(
+                checks,
+                key=f"session.{account_key}",
+                passed=(
+                    not revoked_session.has_access
+                    and not revoked_session.staff_roles
+                    and not revoked_session.student_roles
+                ),
+                actual={
+                    "access": revoked_session.has_access,
+                    "staff_roles": [role.value for role in revoked_session.staff_roles],
+                    "student_roles": [role.value for role in revoked_session.student_roles],
+                },
+                expected="access denied",
             )
 
         director_cross_tenant = "allowed"
