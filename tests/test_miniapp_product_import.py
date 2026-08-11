@@ -9,6 +9,7 @@ from app.models.enums import AssignmentStatus, StaffRole
 from app.models.store import Product, ProductCategory, Warehouse, WarehouseInventory
 from app.models.tenant import City, Partner, Tenant
 from app.services.miniapp import import_miniapp_products
+from app.services.product_import import ProductImportError, parse_product_rows
 
 
 @pytest.fixture
@@ -83,3 +84,37 @@ async def test_admin_imports_products_from_miniapp_csv(db_session) -> None:
     assert warehouse.name == "Союзный 45"
     assert inventory is not None
     assert inventory.available_quantity == 18
+
+
+def test_product_import_accepts_semicolon_csv_and_rejects_duplicate_inventory() -> None:
+    rows = parse_product_rows(
+        "products.csv",
+        (
+            "Артикул;Название;Цена;Остаток;Склад\n"
+            "PEN-1;Ручка;120;5;Главный склад\n"
+        ).encode(),
+    )
+    assert rows[0].sku == "PEN-1"
+    assert rows[0].quantity == 5
+
+    with pytest.raises(ProductImportError, match="повторяется товар PEN-1"):
+        parse_product_rows(
+            "products.csv",
+            (
+                "sku,name,price,quantity,warehouse\n"
+                "PEN-1,Ручка,120,5,Главный склад\n"
+                "PEN-1,Ручка,120,7,Главный склад\n"
+            ).encode(),
+        )
+
+
+@pytest.mark.parametrize(
+    "filename, content",
+    [("products.txt", b"sku,name"), ("products.xlsx", b"broken")],
+)
+def test_product_import_rejects_unsupported_or_broken_files(
+    filename: str,
+    content: bytes,
+) -> None:
+    with pytest.raises(ProductImportError):
+        parse_product_rows(filename, content)
