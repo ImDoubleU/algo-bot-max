@@ -370,6 +370,7 @@ def parse_crm_workbook(
 
     header_mapping: dict[int, str] | None = None
     result: list[CrmStudentRow] = []
+    template_student_rows: dict[str, int] = {}
 
     for row_number, values in enumerate(sheet.iter_rows(values_only=True), start=1):
         if header_mapping is None:
@@ -403,6 +404,32 @@ def parse_crm_workbook(
 
         if not any([first_name, last_name, group_name, deal_id, contact_ids]):
             continue
+
+        if template_format:
+            missing_fields = [
+                field
+                for field in CRM_TEMPLATE_HEADER_BY_FIELD
+                if field in CRM_TEMPLATE_REQUIRED_FIELDS and not row.get(field)
+            ]
+            if missing_fields:
+                missing_headers = [
+                    CRM_TEMPLATE_HEADER_BY_FIELD[field] for field in missing_fields
+                ]
+                raise CrmImportError(
+                    f"Строка {row_number}: заполните обязательные поля: "
+                    + ", ".join(missing_headers)
+                )
+
+            normalized_student_id = "".join(
+                (row["lms_student_id"] or "").upper().split()
+            )
+            previous_row = template_student_rows.get(normalized_student_id)
+            if previous_row is not None:
+                raise CrmImportError(
+                    f"Строки {previous_row} и {row_number}: повторяется ID ученика "
+                    f"«{row['lms_student_id']}»"
+                )
+            template_student_rows[normalized_student_id] = row_number
 
         result.append(
             CrmStudentRow(

@@ -6874,6 +6874,10 @@ async function importCrmStudents(dryRun) {
     showNotice("Импорт CRM доступен после входа администратора", "danger");
     return;
   }
+  if (!dryRun && !state.crmImportPreview) {
+    showNotice("Сначала проверьте выбранный файл", "danger");
+    return;
+  }
 
   const formData = new FormData();
   formData.set("max_user_id", apiContext.maxUserId);
@@ -9012,8 +9016,7 @@ document.addEventListener("change", (event) => {
     state.crmImportFile = file;
     state.crmImportFileName = file?.name || "";
     state.crmImportPreview = null;
-    const label = target.closest(".file-picker")?.querySelector("span");
-    if (label) label.textContent = state.crmImportFileName || "Выбрать XLSX";
+    renderAdminPanel();
   }
 
   if (target.id === "crmStudentStatus") {
