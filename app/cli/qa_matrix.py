@@ -173,6 +173,21 @@ async def _merge(db: AsyncSession, instance: Any) -> Any:
     return await db.merge(instance)
 
 
+async def _merge_cart_item(db: AsyncSession, item: StudentCartItem) -> StudentCartItem:
+    existing = await db.scalar(
+        select(StudentCartItem).where(
+            StudentCartItem.tenant_id == item.tenant_id,
+            StudentCartItem.student_id == item.student_id,
+            StudentCartItem.product_id == item.product_id,
+        )
+    )
+    if existing is not None:
+        existing.updated_by_account_id = item.updated_by_account_id
+        existing.quantity = item.quantity
+        return existing
+    return await db.merge(item)
+
+
 async def _account(
     db: AsyncSession,
     *,
@@ -989,7 +1004,7 @@ async def _seed_wallets_and_orders(
         wallet.balance = balances[student_id]
         await _merge(db, wallet)
 
-    await _merge(
+    await _merge_cart_item(
         db,
         StudentCartItem(
             id=_id(run_id, "cart:parent-child-one"),
@@ -1000,7 +1015,7 @@ async def _seed_wallets_and_orders(
             quantity=1,
         ),
     )
-    await _merge(
+    await _merge_cart_item(
         db,
         StudentCartItem(
             id=_id(run_id, "cart:parent-child-two"),
