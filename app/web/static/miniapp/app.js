@@ -5427,14 +5427,40 @@ function attendanceDirtyKey(studentId, lessonDate) {
   return `${studentId}:${lessonDate}`;
 }
 
-function rememberAttendanceChange(student, lessonDate) {
+function attendanceMarkSnapshot(mark) {
+  if (!mark) return null;
+  return {
+    present: mark.present ?? null,
+    makeup_completed: Boolean(mark.makeup_completed),
+    comment: mark.comment || null,
+  };
+}
+
+function sameAttendanceMark(left, right) {
+  return (
+    left?.present === right?.present &&
+    Boolean(left?.makeup_completed) === Boolean(right?.makeup_completed) &&
+    (left?.comment || null) === (right?.comment || null)
+  );
+}
+
+function rememberAttendanceChange(student, lessonDate, originalMark) {
+  const key = attendanceDirtyKey(student.student_id, lessonDate);
   const mark = attendanceMark(student, lessonDate);
-  state.attendanceDirty.set(attendanceDirtyKey(student.student_id, lessonDate), {
+  const pending = state.attendanceDirty.get(key);
+  const original = pending ? pending._original : originalMark;
+  const current = attendanceMarkSnapshot(mark);
+  if (sameAttendanceMark(current, original)) {
+    state.attendanceDirty.delete(key);
+    return;
+  }
+  state.attendanceDirty.set(key, {
     student_id: student.student_id,
     lesson_date: lessonDate,
     present: mark?.present ?? null,
     makeup_completed: Boolean(mark?.makeup_completed),
     comment: mark?.comment || null,
+    _original: original,
   });
 }
 
@@ -5442,6 +5468,7 @@ function cycleAttendanceStatus(studentId, lessonDate) {
   const student = state.attendanceJournal?.students.find((item) => item.student_id === studentId);
   if (!student) return;
   let mark = attendanceMark(student, lessonDate);
+  const originalMark = attendanceMarkSnapshot(mark);
   if (!mark) {
     mark = {
       lesson_date: lessonDate,
@@ -5458,7 +5485,7 @@ function cycleAttendanceStatus(studentId, lessonDate) {
   } else {
     student.marks = student.marks.filter((item) => item.lesson_date !== lessonDate);
   }
-  rememberAttendanceChange(student, lessonDate);
+  rememberAttendanceChange(student, lessonDate, originalMark);
   renderAttendanceJournal();
 }
 
@@ -5514,6 +5541,7 @@ function applyAttendanceLessonEditor() {
   }
 
   const previousDate = lesson.lesson_date;
+  const previousNumber = lesson.lesson_number;
   if (previousDate !== lessonDate) {
     journal.students.forEach((student) => {
       const mark = attendanceMark(student, previousDate);
@@ -5536,11 +5564,24 @@ function applyAttendanceLessonEditor() {
   journal.lessons.sort((left, right) =>
     `${left.lesson_date}:${left.position}`.localeCompare(`${right.lesson_date}:${right.position}`),
   );
-  state.attendanceLessonDirty.set(position, {
-    position,
-    lesson_date: lessonDate,
-    lesson_number: lessonNumber,
-  });
+  const pendingLesson = state.attendanceLessonDirty.get(position);
+  const originalLessonDate = pendingLesson?._original_lesson_date || previousDate;
+  const originalLessonNumber =
+    pendingLesson?._original_lesson_number ?? previousNumber;
+  if (
+    lessonDate === originalLessonDate &&
+    lessonNumber === originalLessonNumber
+  ) {
+    state.attendanceLessonDirty.delete(position);
+  } else {
+    state.attendanceLessonDirty.set(position, {
+      position,
+      lesson_date: lessonDate,
+      lesson_number: lessonNumber,
+      _original_lesson_date: originalLessonDate,
+      _original_lesson_number: originalLessonNumber,
+    });
+  }
   closeAttendanceLessonEditor();
   renderAttendanceJournal();
 }
@@ -5872,8 +5913,12 @@ function closeAttendanceJournal() {
 
 async function saveAttendanceJournal() {
   const journal = state.attendanceJournal;
-  const items = [...state.attendanceDirty.values()];
-  const lessons = [...state.attendanceLessonDirty.values()];
+  const items = [...state.attendanceDirty.values()].map(
+    ({ _original, ...item }) => item,
+  );
+  const lessons = [...state.attendanceLessonDirty.values()].map(
+    ({ _original_lesson_date, _original_lesson_number, ...lesson }) => lesson,
+  );
   if (!journal || (!items.length && !lessons.length) || state.attendanceSaving) return;
   state.attendanceSaving = true;
   renderAttendanceJournal();
