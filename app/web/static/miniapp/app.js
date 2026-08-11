@@ -865,6 +865,7 @@ function canUseServerCart(studentId = state.activeStudentId) {
     !apiContext.demoMode &&
       apiContext.maxUserId &&
       state.hasAccess &&
+      canUseStoreCart() &&
       studentId &&
       !String(studentId).startsWith("demo-"),
   );
