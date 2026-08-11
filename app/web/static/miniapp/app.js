@@ -3678,10 +3678,13 @@ function orderActionDescriptors(order) {
   const descriptors = [];
   if (canAssignOrderWarehouses(order)) {
     descriptors.push({ action: "open", label: "Назначить склад", icon: "warehouse" });
-  } else if (canIssueOrder(order)) {
-    descriptors.push({ action: "issue", label: "Выдать заказ", icon: "package-check" });
   } else if (canTransferOrder(order)) {
     descriptors.push({ action: "transfer", label: "Передать педагогу", icon: "send" });
+    if (canIssueOrder(order)) {
+      descriptors.push({ action: "issue", label: "Выдать заказ", icon: "package-check" });
+    }
+  } else if (canIssueOrder(order)) {
+    descriptors.push({ action: "issue", label: "Выдать заказ", icon: "package-check" });
   } else {
     descriptors.push({ action: "open", label: "Подробнее", icon: "eye" });
   }
