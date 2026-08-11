@@ -348,17 +348,45 @@ max_bot_venv\Scripts\python.exe -m app.cli.notification_smoke `
 преподавателю, а также состояния заявки сотрудника. Рабочие данные в БД
 не изменяются.
 
+Полная матрица приемки создается повторяемой CLI-командой. В production обязательно
+явно указывать `--allow-production`; все записи получают маркер запуска:
+
+```powershell
+max_bot_venv\Scripts\python.exe -m app.cli.qa_matrix seed `
+  --run-id QA-20260811 --allow-production
+max_bot_venv\Scripts\python.exe -m app.cli.qa_matrix audit `
+  --run-id QA-20260811 --allow-production `
+  --output output\qa-audit-QA-20260811\backend.json
+max_bot_venv\Scripts\python.exe -m app.cli.qa_matrix auth-manifest `
+  --run-id QA-20260811 --allow-production `
+  --output output\qa-audit-QA-20260811\auth-manifest.json
+```
+
+`seed` создает полный, ограниченный и пустой QA-филиалы, 18 учеников, все роли,
+связи доступа, товары, склады, заказы во всех статусах, операции AC, расписание,
+журнал и рассылки. Повторный запуск обновляет ту же матрицу без дубликатов.
+`auth-manifest` содержит короткоживущие подписанные данные запуска только для
+синтетических MAX ID и не создает публичный обход авторизации.
+
+Очистка подготовлена, но выполняется только с двойным подтверждением. Она удаляет
+только выбранный QA-run и его товары в основном филиале:
+
+```powershell
+max_bot_venv\Scripts\python.exe -m app.cli.qa_matrix cleanup `
+  --run-id QA-20260811 --confirm-cleanup QA-20260811 --allow-production
+```
+
 ## Проверки
 
 ```powershell
 max_bot_venv\Scripts\ruff.exe check app alembic
-max_bot_venv\Scripts\python.exe -m pytest tests --ignore=tests/test_main_bot.py -q
+max_bot_venv\Scripts\python.exe -m pytest tests -q
 max_bot_venv\Scripts\python.exe -m compileall -q app main_bot.py
 node --check app\web\static\miniapp\app.js
 ```
 
-`tests/test_main_bot.py` проверяет удаленные текстовые команды прежнего интерфейса и пока
-оставлен только как архив сценариев; актуальное меню проверяет `tests/test_bot_inline_feedback.py`.
+`tests/test_main_bot.py` проверяет действующий первый вход и inline-меню. Удаленные
+текстовые команды больше не входят в набор проверок.
 
 ## Форматы данных
 
