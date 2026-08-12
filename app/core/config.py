@@ -126,6 +126,7 @@ class Settings(BaseSettings):
 
     crm_active_export_path: str | None = Field(default=None, alias="CRM_ACTIVE_EXPORT_PATH")
     crm_departed_export_path: str | None = Field(default=None, alias="CRM_DEPARTED_EXPORT_PATH")
+    amocrm_webhook_secret: str | None = Field(default=None, alias="AMOCRM_WEBHOOK_SECRET")
     lms_api_base_url: str | None = Field(default=None, alias="LMS_API_BASE_URL")
     lms_api_token: str | None = Field(default=None, alias="LMS_API_TOKEN")
     courses_json_path: str = Field(default="data/courses.json", alias="COURSES_JSON_PATH")
@@ -291,6 +292,9 @@ class Settings(BaseSettings):
             "max_webhook_queue_size": self.max_webhook_queue_size,
             "max_drop_webhooks_on_start": self.max_drop_webhooks_on_start,
             "max_order_notifications_enabled": self.max_order_notifications_enabled,
+            "amocrm_webhook": (
+                "configured" if not is_placeholder(self.amocrm_webhook_secret) else "disabled"
+            ),
             "feedback_worker_enabled": self.feedback_worker_enabled,
             "feedback_worker_interval_seconds": self.feedback_worker_interval_seconds,
             "database_url": "configured" if not is_placeholder(self.database_url) else "missing",

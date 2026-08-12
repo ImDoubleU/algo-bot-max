@@ -58,6 +58,7 @@ def _order_message(
     order: Order,
     student: Student,
     balance_after: int | None,
+    issued_codes: list[str] | None = None,
 ) -> str:
     title = f"Заказ №{order.order_number}: {_order_status_text(order.status)}"
     message = None
@@ -65,6 +66,8 @@ def _order_message(
         message = "Заказ отменен, астрокоины возвращены на баланс."
     if order.status == OrderStatus.TRANSFERRED_TO_TEACHER:
         message = "Заказ передан преподавателю. Его можно получить на занятии."
+    if order.status == OrderStatus.ISSUED_TO_STUDENT and issued_codes:
+        message = "Цифровой товар оплачен. Сохраните код до его активации."
     facts = [
         ("Ученик", student.display_name),
         ("Сумма", f"{order.total_astrocoins} AC"),
@@ -73,6 +76,8 @@ def _order_message(
         facts.append(("Причина", order.cancellation_reason))
     if balance_after is not None:
         facts.append(("Баланс", f"{balance_after} AC"))
+    for index, code in enumerate(issued_codes or [], start=1):
+        facts.append(("Код" if len(issued_codes or []) == 1 else f"Код {index}", code))
     return _notification_text(title, facts=facts, message=message)
 
 
@@ -354,6 +359,7 @@ async def schedule_order_notification(
     order: Order,
     student: Student,
     balance_after: int | None = None,
+    issued_codes: list[str] | None = None,
 ) -> None:
     settings = get_settings()
     if not settings.max_order_notifications_enabled or is_placeholder(settings.max_bot_token):
@@ -378,7 +384,12 @@ async def schedule_order_notification(
         _deliver_order_notification(
             user_ids=user_ids,
             tenant_slug=tenant.slug,
-            text=_order_message(order=order, student=student, balance_after=balance_after),
+            text=_order_message(
+                order=order,
+                student=student,
+                balance_after=balance_after,
+                issued_codes=issued_codes,
+            ),
         )
     )
     _background_tasks.add(task)

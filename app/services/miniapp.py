@@ -20,6 +20,8 @@ from app.models.enums import (
     AssignmentStatus,
     LedgerDirection,
     OrderStatus,
+    ProductCodeStatus,
+    ProductFulfillmentType,
     ProductStatus,
     StaffRole,
     StockMovementType,
@@ -34,6 +36,7 @@ from app.models.store import (
     OrderStatusHistory,
     Product,
     ProductCategory,
+    ProductCode,
     StudentCartItem,
     Warehouse,
     WarehouseInventory,
@@ -79,6 +82,7 @@ from app.schemas.miniapp import (
     MiniAppOrderRead,
     MiniAppOrderStatusHistoryRead,
     MiniAppOrderWarehouseAssignmentCreate,
+    MiniAppProductCodeRead,
     MiniAppProductImportRead,
     MiniAppProductRead,
     MiniAppProductUpsert,
@@ -284,26 +288,32 @@ async def _active_tenants_for_superadmin(db: AsyncSession) -> list[MiniAppTenant
     return [_tenant_to_read(tenant) for tenant in tenants]
 
 
-def _product_to_read(product: Product) -> MiniAppProductRead:
+def _product_to_read(product: Product, *, include_codes: bool = False) -> MiniAppProductRead:
     warehouses: list[MiniAppProductWarehouseRead] = []
     available_total = 0
+    product_codes = list(product.__dict__.get("digital_codes", []))
 
-    for inventory in product.inventory_items:
-        available = max(available_for_reservation(inventory), 0)
-        if inventory.warehouse is None:
-            continue
-
-        available_total += available
-        warehouses.append(
-            MiniAppProductWarehouseRead(
-                warehouse_id=UUID(str(inventory.warehouse_id)),
-                warehouse_name=inventory.warehouse.name,
-                warehouse_type=inventory.warehouse.warehouse_type.value,
-                stock_quantity=inventory.available_quantity,
-                reserved_quantity=inventory.reserved_quantity,
-                available_quantity=available,
-            )
+    if product.fulfillment_type == ProductFulfillmentType.DIGITAL_CODE:
+        available_total = sum(
+            code.status == ProductCodeStatus.AVAILABLE for code in product_codes
         )
+    else:
+        for inventory in product.inventory_items:
+            available = max(available_for_reservation(inventory), 0)
+            if inventory.warehouse is None:
+                continue
+
+            available_total += available
+            warehouses.append(
+                MiniAppProductWarehouseRead(
+                    warehouse_id=UUID(str(inventory.warehouse_id)),
+                    warehouse_name=inventory.warehouse.name,
+                    warehouse_type=inventory.warehouse.warehouse_type.value,
+                    stock_quantity=inventory.available_quantity,
+                    reserved_quantity=inventory.reserved_quantity,
+                    available_quantity=available,
+                )
+            )
 
     category = product.category
     return MiniAppProductRead(
@@ -316,7 +326,41 @@ def _product_to_read(product: Product) -> MiniAppProductRead:
         category_name=category.name if category else None,
         price_astrocoins=product.price_astrocoins,
         status=product.status,
+        fulfillment_type=product.fulfillment_type,
         available_quantity=available_total,
+        total_code_count=len(product_codes),
+        issued_code_count=sum(
+            code.status == ProductCodeStatus.ISSUED for code in product_codes
+        ),
+        codes=(
+            [
+                MiniAppProductCodeRead(
+                    id=UUID(str(code.id)),
+                    code=code.code,
+                    status=code.status,
+                    student_name=(
+                        code.issued_to_student.display_name
+                        if code.__dict__.get("issued_to_student") is not None
+                        else None
+                    ),
+                    order_number=(
+                        code.order_item.order.order_number
+                        if code.__dict__.get("order_item") is not None
+                        and code.order_item.__dict__.get("order") is not None
+                        else None
+                    ),
+                    issued_at=code.issued_at,
+                    created_at=code.created_at,
+                )
+                for code in sorted(
+                    product_codes,
+                    key=lambda item: (item.created_at, str(item.id)),
+                    reverse=True,
+                )
+            ]
+            if include_codes
+            else []
+        ),
         warehouses=warehouses,
     )
 
@@ -344,6 +388,16 @@ def _order_to_read(
                 suggested_warehouse_name=(
                     item.reserved_warehouse.name if item.reserved_warehouse else None
                 ),
+                fulfillment_type=(
+                    item.product.fulfillment_type
+                    if item.product
+                    else ProductFulfillmentType.WAREHOUSE
+                ),
+                issued_codes=[
+                    code.code
+                    for code in item.__dict__.get("digital_codes", [])
+                    if code.status == ProductCodeStatus.ISSUED
+                ],
             )
             for item in order.__dict__.get("items", [])
         ]
@@ -509,6 +563,12 @@ async def list_miniapp_catalog(
                     selectinload(Product.inventory_items).selectinload(
                         WarehouseInventory.warehouse
                     ),
+                    selectinload(Product.digital_codes).selectinload(
+                        ProductCode.issued_to_student
+                    ),
+                    selectinload(Product.digital_codes)
+                    .selectinload(ProductCode.order_item)
+                    .selectinload(OrderItem.order),
                 )
                 .order_by(ProductCategory.sort_order, Product.name)
             )
@@ -524,7 +584,9 @@ async def list_miniapp_catalog(
 
     return MiniAppCatalogRead(
         tenant_slug=tenant.slug,
-        products=[_product_to_read(product) for product in products],
+        products=[
+            _product_to_read(product, include_codes=include_inactive) for product in products
+        ],
         warehouses=[
             MiniAppWarehouseRead(
                 id=UUID(str(warehouse.id)),
@@ -917,11 +979,40 @@ async def upsert_miniapp_product(
             photo_url=payload.photo_url,
             price_astrocoins=payload.price_astrocoins,
             status=payload.status,
+            fulfillment_type=payload.fulfillment_type,
         )
         db.add(product)
         await db.flush()
         product_created = True
     else:
+        if product.fulfillment_type != payload.fulfillment_type:
+            has_inventory = bool(
+                await db.scalar(
+                    select(WarehouseInventory.id)
+                    .where(
+                        WarehouseInventory.tenant_id == tenant.id,
+                        WarehouseInventory.product_id == product.id,
+                        (
+                            (WarehouseInventory.available_quantity != 0)
+                            | (WarehouseInventory.reserved_quantity != 0)
+                            | (WarehouseInventory.issued_quantity != 0)
+                        ),
+                    )
+                    .limit(1)
+                )
+            )
+            has_codes = bool(
+                await db.scalar(
+                    select(ProductCode.id)
+                    .where(ProductCode.product_id == product.id)
+                    .limit(1)
+                )
+            )
+            if has_inventory or has_codes:
+                raise MiniAppStoreError(
+                    "Нельзя менять способ выдачи у товара с остатками или кодами",
+                    status_code=409,
+                )
         product.category_id = category.id
         product.sku = sku
         product.name = payload.name.strip()
@@ -929,6 +1020,51 @@ async def upsert_miniapp_product(
         product.photo_url = payload.photo_url
         product.price_astrocoins = payload.price_astrocoins
         product.status = payload.status
+        product.fulfillment_type = payload.fulfillment_type
+
+    normalized_codes = list(
+        dict.fromkeys(code.strip() for code in payload.new_codes if code.strip())
+    )
+    if any(len(code) > 500 for code in normalized_codes):
+        raise MiniAppStoreError("Один из кодов длиннее 500 символов")
+    if normalized_codes and product.fulfillment_type != ProductFulfillmentType.DIGITAL_CODE:
+        raise MiniAppStoreError("Коды можно добавлять только товару с автовыдачей")
+    added_code_count = 0
+    if normalized_codes:
+        existing_codes = set(
+            (
+                await db.scalars(
+                    select(ProductCode.code).where(
+                        ProductCode.tenant_id == tenant.id,
+                        ProductCode.code.in_(normalized_codes),
+                    )
+                )
+            ).all()
+        )
+        for code in normalized_codes:
+            if code in existing_codes:
+                continue
+            db.add(
+                ProductCode(
+                    tenant_id=tenant.id,
+                    product_id=product.id,
+                    code=code,
+                    status=ProductCodeStatus.AVAILABLE,
+                )
+            )
+            added_code_count += 1
+    existing_product_code = None
+    if product.fulfillment_type == ProductFulfillmentType.DIGITAL_CODE:
+        existing_product_code = await db.scalar(
+            select(ProductCode.id).where(ProductCode.product_id == product.id).limit(1)
+        )
+    if (
+        product.fulfillment_type == ProductFulfillmentType.DIGITAL_CODE
+        and product.status == ProductStatus.ACTIVE
+        and existing_product_code is None
+        and added_code_count == 0
+    ):
+        raise MiniAppStoreError("Добавьте хотя бы один новый уникальный код")
 
     db.add(
         AuditLog(
@@ -944,6 +1080,8 @@ async def upsert_miniapp_product(
                 "category_created": category_created,
                 "price_astrocoins": product.price_astrocoins,
                 "status": product.status.value,
+                "fulfillment_type": product.fulfillment_type.value,
+                "added_code_count": added_code_count,
                 "staff_role": staff_role.value,
             },
         )
@@ -955,13 +1093,17 @@ async def upsert_miniapp_product(
         .options(
             selectinload(Product.category),
             selectinload(Product.inventory_items).selectinload(WarehouseInventory.warehouse),
+            selectinload(Product.digital_codes).selectinload(ProductCode.issued_to_student),
+            selectinload(Product.digital_codes)
+            .selectinload(ProductCode.order_item)
+            .selectinload(OrderItem.order),
         )
     )
     if product is None:
         raise MiniAppStoreError("Товар не найден после сохранения", status_code=500)
     if product_created and product.status == ProductStatus.ACTIVE:
         await schedule_new_product_notification(db, tenant=tenant, product=product)
-    return _product_to_read(product)
+    return _product_to_read(product, include_codes=True)
 
 
 async def get_miniapp_session(
@@ -1517,6 +1659,7 @@ async def get_miniapp_ops_summary(
             .join(Student, Student.id == Order.student_id)
             .options(
                 selectinload(Order.items).selectinload(OrderItem.product),
+                selectinload(Order.items).selectinload(OrderItem.digital_codes),
                 selectinload(Order.items).selectinload(OrderItem.warehouse),
                 selectinload(Order.items).selectinload(OrderItem.reserved_warehouse),
                 selectinload(Order.status_history),
@@ -1644,6 +1787,7 @@ async def _load_order_action_context(
             .with_for_update()
             .options(
                 selectinload(Order.items).selectinload(OrderItem.product),
+                selectinload(Order.items).selectinload(OrderItem.digital_codes),
                 selectinload(Order.items).selectinload(OrderItem.warehouse),
                 selectinload(Order.items).selectinload(OrderItem.reserved_warehouse),
                 selectinload(Order.status_history),
@@ -1768,6 +1912,7 @@ async def create_miniapp_order(
                 )
                 .options(
                     selectinload(Order.items).selectinload(OrderItem.product),
+                    selectinload(Order.items).selectinload(OrderItem.digital_codes),
                     selectinload(Order.items).selectinload(OrderItem.warehouse),
                     selectinload(Order.items).selectinload(OrderItem.reserved_warehouse),
                     selectinload(Order.status_history),
@@ -1824,7 +1969,10 @@ async def create_miniapp_order(
                     Product.status == ProductStatus.ACTIVE,
                 )
                 .options(
-                    selectinload(Product.inventory_items).selectinload(WarehouseInventory.warehouse)
+                    selectinload(Product.inventory_items).selectinload(
+                        WarehouseInventory.warehouse
+                    ),
+                    selectinload(Product.digital_codes),
                 )
             )
         )
@@ -1839,6 +1987,14 @@ async def create_miniapp_order(
     if missing_ids:
         raise MiniAppStoreError("Один или несколько товаров недоступны", status_code=404)
 
+    fulfillment_types = {product.fulfillment_type for product in products}
+    if len(fulfillment_types) != 1:
+        raise MiniAppStoreError(
+            "Товары с кодами и товары со склада нужно оформить отдельными заказами",
+            status_code=409,
+        )
+    is_digital_order = fulfillment_types == {ProductFulfillmentType.DIGITAL_CODE}
+
     total_astrocoins = sum(
         products_by_id[product_id].price_astrocoins * quantity
         for product_id, quantity in quantities.items()
@@ -1849,32 +2005,62 @@ async def create_miniapp_order(
             status_code=409,
         )
 
-    locked_inventories = list(
-        (
-            await db.scalars(
-                select(WarehouseInventory)
-                .where(
-                    WarehouseInventory.tenant_id == tenant.id,
-                    WarehouseInventory.product_id.in_(requested_product_ids),
-                )
-                .order_by(WarehouseInventory.product_id, WarehouseInventory.id)
-                .with_for_update()
-                .options(
-                    selectinload(WarehouseInventory.product),
-                    selectinload(WarehouseInventory.warehouse),
+    locked_inventories: list[WarehouseInventory] = []
+    if not is_digital_order:
+        locked_inventories = list(
+            (
+                await db.scalars(
+                    select(WarehouseInventory)
+                    .where(
+                        WarehouseInventory.tenant_id == tenant.id,
+                        WarehouseInventory.product_id.in_(requested_product_ids),
+                    )
+                    .order_by(WarehouseInventory.product_id, WarehouseInventory.id)
+                    .with_for_update()
+                    .options(
+                        selectinload(WarehouseInventory.product),
+                        selectinload(WarehouseInventory.warehouse),
+                    )
                 )
             )
+            .unique()
+            .all()
         )
-        .unique()
-        .all()
-    )
     inventories_by_product: dict[UUID, list[WarehouseInventory]] = {}
     for inventory in locked_inventories:
         inventories_by_product.setdefault(UUID(str(inventory.product_id)), []).append(inventory)
 
-    order_plan: list[tuple[Product, int, WarehouseInventory]] = []
+    available_codes_by_product: dict[UUID, list[ProductCode]] = {}
+    if is_digital_order:
+        locked_codes = (
+            await db.scalars(
+                select(ProductCode)
+                .where(
+                    ProductCode.tenant_id == tenant.id,
+                    ProductCode.product_id.in_(requested_product_ids),
+                    ProductCode.status == ProductCodeStatus.AVAILABLE,
+                )
+                .order_by(ProductCode.product_id, ProductCode.created_at, ProductCode.id)
+                .with_for_update()
+            )
+        ).all()
+        for code in locked_codes:
+            available_codes_by_product.setdefault(UUID(str(code.product_id)), []).append(code)
+
+    order_plan: list[
+        tuple[Product, int, WarehouseInventory | None, list[ProductCode]]
+    ] = []
     for product_id, quantity in quantities.items():
         product = products_by_id[product_id]
+        if is_digital_order:
+            codes = available_codes_by_product.get(product_id, [])[:quantity]
+            if len(codes) < quantity:
+                raise MiniAppStoreError(
+                    f"Для товара «{product.name}» осталось недостаточно кодов",
+                    status_code=409,
+                )
+            order_plan.append((product, quantity, None, codes))
+            continue
         reservation_inventory = choose_inventory_for_reservation(
             inventories_by_product.get(product_id, []),
             quantity=quantity,
@@ -1898,7 +2084,7 @@ async def create_miniapp_order(
                 f"Товара «{product.name}» недостаточно на одном из складов",
                 status_code=409,
             )
-        order_plan.append((product, quantity, reservation_inventory))
+        order_plan.append((product, quantity, reservation_inventory, []))
 
     last_order_number = await db.scalar(
         select(func.max(Order.order_number)).where(Order.tenant_id == tenant.id)
@@ -1909,7 +2095,7 @@ async def create_miniapp_order(
         student_id=student.id,
         created_by_account_id=account.id,
         order_number=order_number,
-        status=OrderStatus.RESERVED,
+        status=(OrderStatus.ISSUED_TO_STUDENT if is_digital_order else OrderStatus.RESERVED),
         total_astrocoins=total_astrocoins,
         teacher_name=student.teacher_name,
         venue_name=student.venue_name,
@@ -1922,56 +2108,67 @@ async def create_miniapp_order(
     response_items: list[MiniAppOrderItemRead] = []
     sheets_items: list[dict[str, object]] = []
     low_stock_events: list[tuple[Product, WarehouseInventory]] = []
-    for product, quantity, reservation_inventory in order_plan:
-        try:
-            reserve_inventory(reservation_inventory, quantity)
-        except WarehouseServiceError as exc:
-            await schedule_staff_notification(
-                db,
-                tenant=tenant,
-                event_key="orders.insufficient_stock",
-                title="Не удалось зарезервировать товар",
-                message=str(exc),
-                facts=[
-                    ("Ученик", student.display_name),
-                    ("Товар", product.name),
-                    ("Нужно", f"{quantity} шт."),
-                ],
-                view="admin",
-                button_label="Проверить остатки",
-            )
-            raise MiniAppStoreError(str(exc), status_code=409) from exc
-        free_quantity = max(available_for_reservation(reservation_inventory), 0)
-        if free_quantity <= 5 and not reservation_inventory.low_stock_notified:
-            reservation_inventory.low_stock_notified = True
-            low_stock_events.append((product, reservation_inventory))
-        elif free_quantity > 5:
-            reservation_inventory.low_stock_notified = False
+    issued_codes: list[str] = []
+    for product, quantity, reservation_inventory, selected_codes in order_plan:
+        if reservation_inventory is not None:
+            try:
+                reserve_inventory(reservation_inventory, quantity)
+            except WarehouseServiceError as exc:
+                await schedule_staff_notification(
+                    db,
+                    tenant=tenant,
+                    event_key="orders.insufficient_stock",
+                    title="Не удалось зарезервировать товар",
+                    message=str(exc),
+                    facts=[
+                        ("Ученик", student.display_name),
+                        ("Товар", product.name),
+                        ("Нужно", f"{quantity} шт."),
+                    ],
+                    view="admin",
+                    button_label="Проверить остатки",
+                )
+                raise MiniAppStoreError(str(exc), status_code=409) from exc
+            free_quantity = max(available_for_reservation(reservation_inventory), 0)
+            if free_quantity <= 5 and not reservation_inventory.low_stock_notified:
+                reservation_inventory.low_stock_notified = True
+                low_stock_events.append((product, reservation_inventory))
+            elif free_quantity > 5:
+                reservation_inventory.low_stock_notified = False
 
         total_price = product.price_astrocoins * quantity
-        db.add(
-            OrderItem(
-                tenant_id=tenant.id,
-                order_id=order.id,
-                product_id=product.id,
-                quantity=quantity,
-                warehouse_id=None,
-                reserved_warehouse_id=reservation_inventory.warehouse_id,
-                unit_price_astrocoins=product.price_astrocoins,
-                total_price_astrocoins=total_price,
-            )
+        order_item = OrderItem(
+            tenant_id=tenant.id,
+            order_id=order.id,
+            product_id=product.id,
+            quantity=quantity,
+            warehouse_id=None,
+            reserved_warehouse_id=(
+                reservation_inventory.warehouse_id if reservation_inventory else None
+            ),
+            unit_price_astrocoins=product.price_astrocoins,
+            total_price_astrocoins=total_price,
         )
-        db.add(
-            build_stock_movement(
-                inventory=reservation_inventory,
-                movement_type=StockMovementType.RESERVE,
-                quantity=quantity,
-                actor_account_id=account.id,
-                order_id=order.id,
-                from_warehouse_id=reservation_inventory.warehouse_id,
-                comment=f"Предварительный резерв заказа №{order_number}",
+        db.add(order_item)
+        await db.flush()
+        if reservation_inventory is not None:
+            db.add(
+                build_stock_movement(
+                    inventory=reservation_inventory,
+                    movement_type=StockMovementType.RESERVE,
+                    quantity=quantity,
+                    actor_account_id=account.id,
+                    order_id=order.id,
+                    from_warehouse_id=reservation_inventory.warehouse_id,
+                    comment=f"Предварительный резерв заказа №{order_number}",
+                )
             )
-        )
+        for code in selected_codes:
+            code.status = ProductCodeStatus.ISSUED
+            code.order_item_id = order_item.id
+            code.issued_to_student_id = student.id
+            code.issued_at = datetime.now(UTC)
+            issued_codes.append(code.code)
         response_items.append(
             MiniAppOrderItemRead(
                 product_id=UUID(str(product.id)),
@@ -1981,12 +2178,18 @@ async def create_miniapp_order(
                 total_price_astrocoins=total_price,
                 warehouse_id=None,
                 warehouse_name=None,
-                suggested_warehouse_id=UUID(str(reservation_inventory.warehouse_id)),
-                suggested_warehouse_name=(
-                    reservation_inventory.warehouse.name
-                    if reservation_inventory.warehouse
+                suggested_warehouse_id=(
+                    UUID(str(reservation_inventory.warehouse_id))
+                    if reservation_inventory
                     else None
                 ),
+                suggested_warehouse_name=(
+                    reservation_inventory.warehouse.name
+                    if reservation_inventory and reservation_inventory.warehouse
+                    else None
+                ),
+                fulfillment_type=product.fulfillment_type,
+                issued_codes=[code.code for code in selected_codes],
             )
         )
         sheets_items.append(
@@ -2021,8 +2224,12 @@ async def create_miniapp_order(
             order_id=order.id,
             actor_account_id=account.id,
             from_status=None,
-            to_status=OrderStatus.RESERVED,
-            comment="Заказ создан в приложении Algo MAX",
+            to_status=order.status,
+            comment=(
+                "Код выдан автоматически после оплаты"
+                if is_digital_order
+                else "Заказ создан в приложении Algo MAX"
+            ),
         )
     )
     db.add(
@@ -2041,9 +2248,13 @@ async def create_miniapp_order(
                         "product_id": str(product.id),
                         "quantity": quantity,
                         "warehouse_id": None,
-                        "reserved_warehouse_id": str(reservation_inventory.warehouse_id),
+                        "reserved_warehouse_id": (
+                            str(reservation_inventory.warehouse_id)
+                            if reservation_inventory
+                            else None
+                        ),
                     }
-                    for product, quantity, reservation_inventory in order_plan
+                    for product, quantity, reservation_inventory, _ in order_plan
                 ],
             },
         )
@@ -2078,16 +2289,21 @@ async def create_miniapp_order(
         order=order,
         student=student,
         balance_after=wallet.balance,
+        issued_codes=issued_codes,
     )
     await schedule_staff_order_notification(
         db,
         tenant=tenant,
         order=order,
         student=student,
-        event_key="orders.created",
-        title="Новый заказ",
+        event_key="orders.issued" if is_digital_order else "orders.created",
+        title="Код выдан автоматически" if is_digital_order else "Новый заказ",
         actor_name=account.display_name,
-        message="Заказ зарезервирован и ожидает подтверждения склада.",
+        message=(
+            "Цифровой товар оплачен и выдан ученику."
+            if is_digital_order
+            else "Заказ зарезервирован и ожидает подтверждения склада."
+        ),
     )
 
     return MiniAppOrderCreatedRead(
@@ -2775,6 +2991,15 @@ async def return_miniapp_order(
     )
     if order.status != OrderStatus.ISSUED_TO_STUDENT:
         raise MiniAppStoreError("Вернуть можно только выданный заказ", status_code=409)
+    if any(
+        item.product
+        and item.product.fulfillment_type == ProductFulfillmentType.DIGITAL_CODE
+        for item in order.items
+    ):
+        raise MiniAppStoreError(
+            "Выданный цифровой код нельзя вернуть в магазин",
+            status_code=409,
+        )
 
     for item in order.items:
         inventory = await _inventory_for_order_item(db, tenant_id=tenant.id, item=item)
@@ -4366,6 +4591,7 @@ async def _orders_for_students(
             .join(Student, Student.id == Order.student_id)
             .options(
                 selectinload(Order.items).selectinload(OrderItem.product),
+                selectinload(Order.items).selectinload(OrderItem.digital_codes),
                 selectinload(Order.items).selectinload(OrderItem.warehouse),
                 selectinload(Order.items).selectinload(OrderItem.reserved_warehouse),
                 selectinload(Order.status_history),

@@ -7,6 +7,8 @@ from app.models.enums import (
     AssignmentStatus,
     LedgerDirection,
     OrderStatus,
+    ProductCodeStatus,
+    ProductFulfillmentType,
     ProductStatus,
     StaffRole,
     StudentAccessRole,
@@ -126,6 +128,16 @@ class MiniAppWarehouseRead(BaseModel):
     address: str | None = None
 
 
+class MiniAppProductCodeRead(BaseModel):
+    id: UUID
+    code: str
+    status: ProductCodeStatus
+    order_number: int | None = None
+    student_name: str | None = None
+    issued_at: datetime | None = None
+    created_at: datetime
+
+
 class MiniAppProductRead(BaseModel):
     id: UUID
     sku: str
@@ -136,7 +148,11 @@ class MiniAppProductRead(BaseModel):
     category_name: str | None = None
     price_astrocoins: int
     status: ProductStatus = ProductStatus.ACTIVE
+    fulfillment_type: ProductFulfillmentType = ProductFulfillmentType.WAREHOUSE
     available_quantity: int
+    total_code_count: int = 0
+    issued_code_count: int = 0
+    codes: list[MiniAppProductCodeRead] = Field(default_factory=list)
     warehouses: list[MiniAppProductWarehouseRead] = Field(default_factory=list)
 
 
@@ -190,6 +206,8 @@ class MiniAppProductUpsert(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
     photo_url: str | None = Field(default=None, max_length=500)
     status: ProductStatus = ProductStatus.ACTIVE
+    fulfillment_type: ProductFulfillmentType = ProductFulfillmentType.WAREHOUSE
+    new_codes: list[str] = Field(default_factory=list, max_length=500)
 
 
 class MiniAppOrderItemCreate(BaseModel):
@@ -229,6 +247,8 @@ class MiniAppOrderItemRead(BaseModel):
     warehouse_name: str | None = None
     suggested_warehouse_id: UUID | None = None
     suggested_warehouse_name: str | None = None
+    fulfillment_type: ProductFulfillmentType = ProductFulfillmentType.WAREHOUSE
+    issued_codes: list[str] = Field(default_factory=list)
 
 
 class MiniAppOrderStatusHistoryRead(BaseModel):

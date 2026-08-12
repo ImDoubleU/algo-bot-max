@@ -9,6 +9,8 @@ from app.models.enums import (
     AssignmentStatus,
     LedgerDirection,
     OrderStatus,
+    ProductCodeStatus,
+    ProductFulfillmentType,
     ProductStatus,
     StaffRole,
     StockMovementType,
@@ -20,6 +22,7 @@ from app.models.store import (
     OrderItem,
     Product,
     ProductCategory,
+    ProductCode,
     StockMovement,
     Warehouse,
     WarehouseInventory,
@@ -199,6 +202,100 @@ async def test_order_waits_for_admin_warehouse_and_debits_wallet(db_session) -> 
     assert len(order_items) == 1
     assert len(ledger_entries) == 1
     assert ledger_entries[0].direction == LedgerDirection.DEBIT
+
+
+async def test_digital_product_issues_one_retained_code_and_is_idempotent(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    category = ProductCategory(
+        tenant_id=student.tenant_id,
+        slug="digital-gifts",
+        name="Цифровые подарки",
+        sort_order=10,
+    )
+    product = Product(
+        tenant_id=student.tenant_id,
+        category=category,
+        sku="ROBLOX-100",
+        name="Карта Roblox",
+        price_astrocoins=200,
+        fulfillment_type=ProductFulfillmentType.DIGITAL_CODE,
+    )
+    db_session.add_all([category, product])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            ProductCode(tenant_id=student.tenant_id, product_id=product.id, code="RBX-ONE"),
+            ProductCode(tenant_id=student.tenant_id, product_id=product.id, code="RBX-TWO"),
+        ]
+    )
+    await db_session.commit()
+
+    payload = MiniAppOrderCreate(
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        student_id=student.id,
+        items=[MiniAppOrderItemCreate(product_id=product.id, quantity=1)],
+        request_key="digital-order-001",
+    )
+    created = await create_miniapp_order(
+        db_session,
+        payload=payload,
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    repeated = await create_miniapp_order(
+        db_session,
+        payload=payload,
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    assert created.order.status == OrderStatus.ISSUED_TO_STUDENT
+    assert len(created.items[0].issued_codes) == 1
+    assert created.items[0].issued_codes[0] in {"RBX-ONE", "RBX-TWO"}
+    assert repeated.items[0].issued_codes == created.items[0].issued_codes
+    codes = (await db_session.scalars(select(ProductCode).order_by(ProductCode.code))).all()
+    assert len(codes) == 2
+    assert [code.status for code in codes].count(ProductCodeStatus.ISSUED) == 1
+    wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
+    assert wallet is not None
+    assert wallet.balance == 800
+
+
+async def test_digital_and_warehouse_products_require_separate_orders(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    physical_product, _ = await seed_product(db_session, student)
+    digital_product = Product(
+        tenant_id=student.tenant_id,
+        category_id=physical_product.category_id,
+        sku="DIGITAL-1",
+        name="Цифровой код",
+        price_astrocoins=100,
+        fulfillment_type=ProductFulfillmentType.DIGITAL_CODE,
+    )
+    db_session.add(digital_product)
+    await db_session.flush()
+    db_session.add(
+        ProductCode(
+            tenant_id=student.tenant_id,
+            product_id=digital_product.id,
+            code="DIGITAL-CODE-1",
+        )
+    )
+    await db_session.commit()
+
+    with pytest.raises(MiniAppStoreError, match="отдельными заказами"):
+        await create_miniapp_order(
+            db_session,
+            payload=MiniAppOrderCreate(
+                max_user_id=53364725,
+                tenant_slug="nizhniy-novgorod-partner-a",
+                student_id=student.id,
+                items=[
+                    MiniAppOrderItemCreate(product_id=physical_product.id, quantity=1),
+                    MiniAppOrderItemCreate(product_id=digital_product.id, quantity=1),
+                ],
+            ),
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
 
 
 async def test_repeated_order_request_does_not_debit_twice(db_session) -> None:
