@@ -39,6 +39,7 @@ from app.schemas.miniapp import (
     MiniAppAccrualRead,
     MiniAppAccrualReportRead,
     MiniAppAccrualUndoCreate,
+    MiniAppAdminHistoryRead,
     MiniAppCartRead,
     MiniAppCartWrite,
     MiniAppCatalogRead,
@@ -96,6 +97,7 @@ from app.services.miniapp import (
     import_miniapp_crm_students,
     import_miniapp_products,
     issue_miniapp_order,
+    list_miniapp_admin_history,
     list_miniapp_catalog,
     list_miniapp_staff_onboarding_options,
     list_miniapp_student_registry,
@@ -319,6 +321,37 @@ async def miniapp_student_registry(
             db,
             max_user_id=max_user_id,
             tenant_slug=resolved_tenant,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get(
+    "/admin/history",
+    response_model=MiniAppAdminHistoryRead,
+)
+async def miniapp_admin_history(
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: str | None = None,
+    kind: Annotated[str, Query(pattern="^(actions|amocrm)$")] = "actions",
+    period_days: Annotated[int, Query(ge=1, le=365)] = 30,
+    limit: Annotated[int, Query(ge=1, le=300)] = 100,
+) -> MiniAppAdminHistoryRead:
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        return await list_miniapp_admin_history(
+            db,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+            kind=kind,
+            period_days=period_days,
+            limit=limit,
         )
     except MiniAppStoreError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

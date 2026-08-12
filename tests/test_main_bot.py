@@ -4,7 +4,6 @@ from typing import Any
 
 import app.bot.max_long_polling as max_bot
 from app.bot.keyboards import (
-    CALLBACK_CATALOG,
     CALLBACK_FEEDBACK,
     CALLBACK_KNOWLEDGE,
     CALLBACK_MENU,
@@ -338,7 +337,7 @@ def test_staff_inline_sections_open_without_store_duplication() -> None:
     bot.handle_message_callback(_callback(CALLBACK_FEEDBACK))
     assert client.sent_messages[-1]["text"].startswith("Обратная связь")
 
-    bot.handle_message_callback(_callback(CALLBACK_CATALOG))
+    bot.handle_message_callback(_callback("catalog"))
     assert "раздел перенесен в личный кабинет" in client.sent_messages[-1]["text"]
 
 

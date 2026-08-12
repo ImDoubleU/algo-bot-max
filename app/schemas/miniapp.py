@@ -93,6 +93,27 @@ class MiniAppStudentRegistryRead(BaseModel):
     students: list[MiniAppAdminStudentRead] = Field(default_factory=list)
 
 
+class MiniAppAdminHistoryEntryRead(BaseModel):
+    id: UUID
+    action: str
+    title: str
+    category: str
+    status: str
+    actor_name: str | None = None
+    actor_max_user_id: int | None = None
+    entity_type: str
+    entity_id: str | None = None
+    payload: dict[str, object] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class MiniAppAdminHistoryRead(BaseModel):
+    tenant_slug: str
+    kind: str
+    period_days: int
+    entries: list[MiniAppAdminHistoryEntryRead] = Field(default_factory=list)
+
+
 class MiniAppStudentInvitationRead(BaseModel):
     student_id: UUID
     student_name: str

@@ -58,6 +58,11 @@ class Product(TimestampMixin, Base):
         default=ProductFulfillmentType.WAREHOUSE,
         nullable=False,
     )
+    digital_codes_low_notified: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
 
     category = relationship("ProductCategory", back_populates="products")
     inventory_items = relationship("WarehouseInventory", back_populates="product")

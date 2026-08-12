@@ -135,6 +135,13 @@ STAFF_NOTIFICATION_CATALOG = (
         admin=True,
     ),
     _item(
+        "inventory.digital_codes_low",
+        "inventory",
+        "Мало кодов для автовыдачи",
+        "Количество неиспользованных кодов достигло порога.",
+        admin=True,
+    ),
+    _item(
         "inventory.out_of_stock",
         "inventory",
         "Товар закончился",
@@ -479,6 +486,7 @@ CONFIGURABLE_STAFF_NOTIFICATION_KEYS = frozenset(
         "orders.issued",
         "orders.returned",
         "inventory.low_stock",
+        "inventory.digital_codes_low",
         "lessons.changed",
         "makeups.required",
         "makeups.completed",
