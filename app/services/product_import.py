@@ -323,6 +323,7 @@ async def import_products_for_tenant(
                 f"зарезервированного количества {reserved_quantity}"
             )
         previous_quantity = int(inventory.available_quantity or 0)
+        inventory.is_active = True
         inventory.available_quantity = row.quantity
         quantity_delta = row.quantity - previous_quantity
         if quantity_delta:

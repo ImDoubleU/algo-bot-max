@@ -839,7 +839,7 @@ function renderStatus() {
       : state.role === "admin"
         ? [
             ["orders", "package-check", "Заказы к выдаче"],
-            ["inventory", "boxes", "Проверить остатки", "ops"],
+            ["products", "boxes", "Товары и остатки", "ops"],
           ]
         : [];
     taskActions.hidden = actions.length === 0;

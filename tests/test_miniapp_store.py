@@ -41,6 +41,7 @@ from app.schemas.miniapp import (
     MiniAppOrderItemCreate,
     MiniAppOrderWarehouseAssignmentCreate,
     MiniAppOrderWarehouseAssignmentItem,
+    MiniAppProductInventoryWrite,
     MiniAppProductUpsert,
     MiniAppWarehousePreferenceUpdate,
     MiniAppWarehouseUpsert,
@@ -1070,6 +1071,19 @@ async def test_admin_can_create_and_update_product_from_miniapp(db_session) -> N
             status=AssignmentStatus.ACTIVE,
         )
     )
+    first_warehouse = Warehouse(
+        tenant_id=student.tenant_id,
+        slug="main-stock",
+        name="Основной склад",
+        warehouse_type=WarehouseType.COMMON,
+    )
+    second_warehouse = Warehouse(
+        tenant_id=student.tenant_id,
+        slug="reserve-stock",
+        name="Резервный склад",
+        warehouse_type=WarehouseType.COMMON,
+    )
+    db_session.add_all([first_warehouse, second_warehouse])
     await db_session.commit()
 
     created = await upsert_miniapp_product(
@@ -1082,6 +1096,16 @@ async def test_admin_can_create_and_update_product_from_miniapp(db_session) -> N
             category_name="Книги",
             price_astrocoins=500,
             description="Подарочная книга",
+            inventories=[
+                MiniAppProductInventoryWrite(
+                    warehouse_id=first_warehouse.id,
+                    stock_quantity=12,
+                ),
+                MiniAppProductInventoryWrite(
+                    warehouse_id=second_warehouse.id,
+                    stock_quantity=4,
+                ),
+            ],
         ),
         default_tenant_slug="nizhniy-novgorod-partner-a",
     )
@@ -1096,6 +1120,12 @@ async def test_admin_can_create_and_update_product_from_miniapp(db_session) -> N
             category_name="Книги",
             price_astrocoins=650,
             status=ProductStatus.HIDDEN,
+            inventories=[
+                MiniAppProductInventoryWrite(
+                    warehouse_id=second_warehouse.id,
+                    stock_quantity=14,
+                )
+            ],
         ),
         default_tenant_slug="nizhniy-novgorod-partner-a",
     )
@@ -1109,9 +1139,26 @@ async def test_admin_can_create_and_update_product_from_miniapp(db_session) -> N
     assert updated.name == "Книга Python 2"
     assert updated.price_astrocoins == 650
     assert updated.status == ProductStatus.HIDDEN
+    assert updated.available_quantity == 14
+    assert [warehouse.warehouse_name for warehouse in updated.warehouses] == [
+        "Резервный склад"
+    ]
     assert product is not None
     assert product.status == ProductStatus.HIDDEN
     assert category is not None
+
+    inventory_rows = (
+        await db_session.scalars(
+            select(WarehouseInventory)
+            .where(WarehouseInventory.product_id == created.id)
+            .order_by(WarehouseInventory.warehouse_id)
+        )
+    ).all()
+    inventory_by_warehouse = {row.warehouse_id: row for row in inventory_rows}
+    assert inventory_by_warehouse[first_warehouse.id].available_quantity == 0
+    assert inventory_by_warehouse[first_warehouse.id].is_active is False
+    assert inventory_by_warehouse[second_warehouse.id].available_quantity == 14
+    assert inventory_by_warehouse[second_warehouse.id].is_active is True
 
     public_catalog = await list_miniapp_catalog(
         db_session,
