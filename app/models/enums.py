@@ -55,6 +55,17 @@ class ProductStatus(StrEnum):
     ARCHIVED = "archived"
 
 
+class ProductFulfillmentType(StrEnum):
+    WAREHOUSE = "warehouse"
+    DIGITAL_CODE = "digital_code"
+
+
+class ProductCodeStatus(StrEnum):
+    AVAILABLE = "available"
+    ISSUED = "issued"
+    DISABLED = "disabled"
+
+
 class WarehouseType(StrEnum):
     COMMON = "common"
     VENUE = "venue"

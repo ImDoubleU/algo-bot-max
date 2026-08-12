@@ -17,6 +17,13 @@ CRM_TEMPLATE_COLUMNS: tuple[tuple[str, str, bool, str, str], ...] = (
         "1841",
     ),
     (
+        "deal_id",
+        "ID сделки amoCRM",
+        True,
+        "Числовой ID сделки ученика; используется для автоматической смены статуса",
+        "1357",
+    ),
+    (
         "last_name",
         "Фамилия ребенка",
         True,
@@ -111,6 +118,8 @@ class CrmStudentRow:
 HEADER_ALIASES: dict[str, tuple[str, ...]] = {
     "deal_id": (
         "id \u0441\u0434\u0435\u043b\u043a\u0438",
+        "id \u0441\u0434\u0435\u043b\u043a\u0438 amocrm",
+        "id \u0441\u0434\u0435\u043b\u043a\u0438 amo crm",
         "id",
         "\u043d\u043e\u043c\u0435\u0440 \u0441\u0434\u0435\u043b\u043a\u0438",
     ),
@@ -284,7 +293,7 @@ def build_crm_import_template() -> bytes:
         column=len(CRM_TEMPLATE_COLUMNS),
     ).column_letter
     template.auto_filter.ref = f"A1:{last_column}1"
-    template_widths = (18, 24, 22, 38, 22, 28, 34, 20, 34)
+    template_widths = (18, 22, 24, 22, 38, 22, 28, 34, 20, 34)
     for column_index, width in enumerate(template_widths, start=1):
         template.column_dimensions[
             template.cell(row=1, column=column_index).column_letter

@@ -24,7 +24,7 @@ from app.api.dependencies import (
 from app.core.config import get_settings
 from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
-from app.models.enums import ProductStatus, StudentStatus
+from app.models.enums import ProductFulfillmentType, ProductStatus, StudentStatus
 from app.models.store import Product
 from app.models.tenant import Tenant
 from app.schemas.broadcasts import (
@@ -515,6 +515,11 @@ async def miniapp_save_product(
     status_value: Annotated[ProductStatus, Form(alias="status")] = ProductStatus.ACTIVE,
     description: Annotated[str | None, Form(max_length=1000)] = None,
     existing_photo_url: Annotated[str | None, Form(max_length=500)] = None,
+    fulfillment_type: Annotated[
+        ProductFulfillmentType,
+        Form(),
+    ] = ProductFulfillmentType.WAREHOUSE,
+    new_codes: Annotated[str | None, Form(max_length=250000)] = None,
     photo: Annotated[UploadFile | None, File()] = None,
 ) -> MiniAppProductRead:
     settings = get_settings()
@@ -536,6 +541,8 @@ async def miniapp_save_product(
             description=description or None,
             photo_url=existing_photo_url or None,
             status=status_value,
+            fulfillment_type=fulfillment_type,
+            new_codes=(new_codes or "").splitlines(),
         )
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail="Проверьте поля товара") from exc

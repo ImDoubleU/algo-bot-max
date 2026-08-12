@@ -1,10 +1,27 @@
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, uuid_pk
-from app.models.enums import OrderStatus, ProductStatus, StockMovementType, WarehouseType
+from app.models.enums import (
+    OrderStatus,
+    ProductCodeStatus,
+    ProductFulfillmentType,
+    ProductStatus,
+    StockMovementType,
+    WarehouseType,
+)
 
 
 class ProductCategory(TimestampMixin, Base):
@@ -37,10 +54,19 @@ class Product(TimestampMixin, Base):
     photo_url: Mapped[str | None] = mapped_column(String(500))
     price_astrocoins: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[ProductStatus] = mapped_column(default=ProductStatus.ACTIVE, nullable=False)
+    fulfillment_type: Mapped[ProductFulfillmentType] = mapped_column(
+        default=ProductFulfillmentType.WAREHOUSE,
+        nullable=False,
+    )
 
     category = relationship("ProductCategory", back_populates="products")
     inventory_items = relationship("WarehouseInventory", back_populates="product")
     order_items = relationship("OrderItem", back_populates="product")
+    digital_codes = relationship(
+        "ProductCode",
+        back_populates="product",
+        cascade="all, delete-orphan",
+    )
 
 
 class StudentCartItem(TimestampMixin, Base):
@@ -178,6 +204,46 @@ class OrderItem(TimestampMixin, Base):
     product = relationship("Product", back_populates="order_items")
     warehouse = relationship("Warehouse", foreign_keys=[warehouse_id])
     reserved_warehouse = relationship("Warehouse", foreign_keys=[reserved_warehouse_id])
+    digital_codes = relationship("ProductCode", back_populates="order_item")
+
+
+class ProductCode(TimestampMixin, Base):
+    __tablename__ = "product_codes"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "code",
+            name="uq_product_codes_tenant_code",
+        ),
+    )
+
+    id: Mapped[UUID] = uuid_pk()
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), index=True, nullable=False)
+    product_id: Mapped[UUID] = mapped_column(
+        ForeignKey("products.id"),
+        index=True,
+        nullable=False,
+    )
+    code: Mapped[str] = mapped_column(String(500), nullable=False)
+    status: Mapped[ProductCodeStatus] = mapped_column(
+        default=ProductCodeStatus.AVAILABLE,
+        index=True,
+        nullable=False,
+    )
+    order_item_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("order_items.id"),
+        index=True,
+    )
+    issued_to_student_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("students.id"),
+        index=True,
+    )
+    issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    product = relationship("Product", back_populates="digital_codes")
+    order_item = relationship("OrderItem", back_populates="digital_codes")
+    issued_to_student = relationship("Student")
 
 
 class OrderStatusHistory(TimestampMixin, Base):

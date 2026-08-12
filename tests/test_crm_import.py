@@ -107,6 +107,7 @@ def test_standard_template_ignores_other_sheets_and_columns() -> None:
     sheet = workbook[CRM_TEMPLATE_SHEET_NAME]
     values_by_field = {
         "lms_student_id": "ST-001",
+        "deal_id": "1357",
         "last_name": "\u0412\u0430\u0441\u0438\u043b\u044c\u0435\u0432\u0430",
         "first_name": "\u0410\u043b\u0438\u0441\u0430",
         "group_name": "Python, \u0432\u0442 17:30",
@@ -117,8 +118,9 @@ def test_standard_template_ignores_other_sheets_and_columns() -> None:
         "contact_names": "Васильева Елена",
     }
     sheet.append([values_by_field[field] for field, *_ in CRM_TEMPLATE_COLUMNS])
-    sheet.cell(row=1, column=10, value="ID \u0441\u0434\u0435\u043b\u043a\u0438")
-    sheet.cell(row=2, column=10, value="must-be-ignored")
+    extra_column = len(CRM_TEMPLATE_COLUMNS) + 1
+    sheet.cell(row=1, column=extra_column, value="Лишняя колонка")
+    sheet.cell(row=2, column=extra_column, value="must-be-ignored")
     output = BytesIO()
     workbook.save(output)
     workbook.close()
@@ -128,7 +130,7 @@ def test_standard_template_ignores_other_sheets_and_columns() -> None:
     assert len(rows) == 1
     assert rows[0].lms_student_id == "ST-001"
     assert rows[0].first_name == "\u0410\u043b\u0438\u0441\u0430"
-    assert rows[0].deal_id is None
+    assert rows[0].deal_id == "1357"
 
 
 def test_standard_template_rejects_duplicate_student_ids() -> None:
@@ -149,7 +151,10 @@ def test_standard_template_rejects_missing_required_value() -> None:
     workbook = load_workbook(BytesIO(build_crm_import_template()))
     sheet = workbook[CRM_TEMPLATE_SHEET_NAME]
     values = [example for _field, _header, _required, _description, example in CRM_TEMPLATE_COLUMNS]
-    values[1] = None
+    last_name_index = next(
+        index for index, (field, *_) in enumerate(CRM_TEMPLATE_COLUMNS) if field == "last_name"
+    )
+    values[last_name_index] = None
     sheet.append(values)
     output = BytesIO()
     workbook.save(output)

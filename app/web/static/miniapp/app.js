@@ -647,6 +647,37 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+async function copyTextToClipboard(value) {
+  const text = String(value ?? "");
+  if (!text) return false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // MAX WebView can deny Clipboard API access; use the selection fallback below.
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.readOnly = true;
+  textarea.style.position = "fixed";
+  textarea.style.inset = "-9999px auto auto -9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, text.length);
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  } finally {
+    textarea.remove();
+  }
+  return copied;
+}
+
 function slugify(value) {
   return String(value || "")
     .trim()
@@ -1605,6 +1636,8 @@ function normalizeOrderItems(order) {
       ? String(item.suggested_warehouse_id)
       : "",
     suggestedWarehouseName: item.suggested_warehouse_name || "",
+    fulfillmentType: item.fulfillment_type || "warehouse",
+    issuedCodes: Array.isArray(item.issued_codes) ? item.issued_codes : [],
   }));
 }
 
@@ -1908,11 +1941,18 @@ function applyCatalog(catalog) {
       description: product.description || "",
       photoUrl: product.photo_url || "",
       status: product.status || "active",
+      fulfillmentType: product.fulfillment_type || "warehouse",
       category: product.category_name || "Без категории",
       categorySlug: product.category_slug || "",
       price: product.price_astrocoins,
       stock: product.available_quantity,
-      warehouse: primaryWarehouse?.warehouse_name || "Склад будет выбран",
+      totalCodeCount: Number(product.total_code_count || 0),
+      issuedCodeCount: Number(product.issued_code_count || 0),
+      codes: Array.isArray(product.codes) ? product.codes : [],
+      warehouse:
+        product.fulfillment_type === "digital_code"
+          ? "Автовыдача кода"
+          : primaryWarehouse?.warehouse_name || "Склад будет выбран",
       mark: name.trim().slice(0, 1).toUpperCase() || "A",
       warehouses: product.warehouses || [],
       catalogIndex,
@@ -3025,8 +3065,8 @@ async function shareStudentInvitation(studentId) {
   try {
     if (navigator.share && invitation.bot_url) await navigator.share(shareData);
     else {
-      await navigator.clipboard.writeText(invitation.bot_url || invitation.qr_data_url);
-      showNotice("Ссылка скопирована");
+      const copied = await copyTextToClipboard(invitation.bot_url || invitation.qr_data_url);
+      showNotice(copied ? "Ссылка скопирована" : "Не удалось скопировать ссылку", copied ? "ok" : "danger");
     }
   } catch (error) {
     if (error?.name !== "AbortError") showNotice("Не удалось поделиться ссылкой", "danger");
@@ -3087,7 +3127,9 @@ function renderDashboardOrders() {
 function renderCategories() {
   const filter = qs("#categoryFilter");
   const selected = state.productCategory || filter.value || "all";
-  const categories = [...new Set(activeProducts().map((product) => product.category))];
+  const categories = [...new Set(activeProducts().map((product) => product.category))]
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right, "ru"));
   filter.innerHTML = [
     '<option value="all">Все категории</option>',
     ...categories.map(
@@ -3109,7 +3151,8 @@ function renderCategories() {
             type="button"
             data-product-category="${escapeHtml(value)}"
             aria-pressed="${state.productCategory === value}"
-          >${escapeHtml(label)}</button>
+            title="${escapeHtml(label)}"
+          ><span>${escapeHtml(label)}</span></button>
         `,
       )
       .join("");
@@ -3189,6 +3232,10 @@ function renderProducts() {
           : availableLeft <= 5
             ? `Осталось ${availableLeft}`
             : "В наличии";
+      const fulfillmentLabel =
+        product.fulfillmentType === "digital_code"
+          ? '<span class="product-auto-issue"><i data-lucide="zap"></i> Код сразу после покупки</span>'
+          : "";
       return `
         <article class="product-card" data-product-card="${escapeHtml(product.id)}" tabindex="0" role="button" aria-label="Открыть ${escapeHtml(product.name)}">
           <div class="product-visual ${product.photoUrl ? "has-photo" : ""}">
@@ -3224,6 +3271,7 @@ function renderProducts() {
               <span aria-hidden="true"></span>
               ${stockText}
             </div>
+            ${fulfillmentLabel}
           </div>
           <div class="product-card-footer">
             <strong>${product.price} <span>AC</span></strong>
@@ -3636,10 +3684,19 @@ function isOpenOrderStatus(status) {
 }
 
 function orderHasAssignedWarehouses(order) {
+  if (orderIsDigital(order)) return true;
   return (
     Array.isArray(order.items) &&
     order.items.length > 0 &&
     order.items.every((item) => Boolean(item.warehouseId))
+  );
+}
+
+function orderIsDigital(order) {
+  return (
+    Array.isArray(order.items) &&
+    order.items.length > 0 &&
+    order.items.every((item) => item.fulfillmentType === "digital_code")
   );
 }
 
@@ -3672,7 +3729,11 @@ function canCancelOrder(order) {
 }
 
 function canReturnOrder(order) {
-  return ["teacher", "admin"].includes(state.role) && order.rawStatus === "issued_to_student";
+  return (
+    ["teacher", "admin"].includes(state.role) &&
+    order.rawStatus === "issued_to_student" &&
+    !(order.items || []).some((item) => item.fulfillmentType === "digital_code")
+  );
 }
 
 function orderMatchesStatusFilter(order) {
@@ -4781,6 +4842,13 @@ function renderAdminPanel() {
               </select>
             </label>
             <label class="product-field-wide">
+              <span>Способ выдачи</span>
+              <select id="productFulfillmentType">
+                <option value="warehouse" ${(editing?.fulfillmentType || "warehouse") === "warehouse" ? "selected" : ""}>Со склада</option>
+                <option value="digital_code" ${editing?.fulfillmentType === "digital_code" ? "selected" : ""}>Код сразу после покупки</option>
+              </select>
+            </label>
+            <label class="product-field-wide">
               <span>Название</span>
               <input id="productName" value="${escapeHtml(editing?.name || "")}" placeholder="Название товара" />
             </label>
@@ -4798,6 +4866,25 @@ function renderAdminPanel() {
                 editing?.description || "",
               )}</textarea>
             </label>
+            <div class="product-field-wide product-code-editor" ${editing?.fulfillmentType === "digital_code" ? "" : "hidden"}>
+              <div class="product-code-editor-head">
+                <div>
+                  <strong>Коды для автовыдачи</strong>
+                  <span>По одному коду в строке. Уже сохраненные коды не заменяются.</span>
+                </div>
+                <span>${Number(editing?.stock || 0)} доступно · ${Number(editing?.issuedCodeCount || 0)} выдано</span>
+              </div>
+              <textarea id="productNewCodes" rows="6" placeholder="ROBLOX-XXXX-XXXX&#10;ROBLOX-YYYY-YYYY"></textarea>
+              ${
+                Array.isArray(editing?.codes) && editing.codes.length
+                  ? `<details class="product-code-history"><summary>История кодов (${editing.codes.length})</summary><div>${editing.codes
+                      .map(
+                        (code) => `<div><code>${escapeHtml(code.code)}</code><span class="status-badge ${code.status === "available" ? "ok" : code.status === "issued" ? "info" : "danger"}">${code.status === "available" ? "Доступен" : code.status === "issued" ? "Выдан" : "Отключен"}</span>${code.student_name ? `<small>${escapeHtml(code.student_name)}</small>` : ""}${code.order_number ? `<small>Заказ №${Number(code.order_number)}</small>` : ""}${code.issued_at ? `<small>${escapeHtml(new Date(code.issued_at).toLocaleString("ru-RU"))}</small>` : ""}</div>`,
+                      )
+                      .join("")}</div></details>`
+                  : ""
+              }
+            </div>
           </div>
         </div>
 
@@ -4863,7 +4950,7 @@ function renderAdminPanel() {
                 <div class="admin-entity-meta">
                   ${product.sku ? `<span>${escapeHtml(product.sku)}</span>` : ""}
                   <span>${escapeHtml(product.category)}</span>
-                  <span>${product.stock} шт.</span>
+                  <span>${product.fulfillmentType === "digital_code" ? `${product.stock} кодов доступно` : `${product.stock} шт.`}</span>
                   <span>${escapeHtml(product.warehouse)}</span>
                 </div>
               </div>
@@ -6192,8 +6279,8 @@ function closeFeedbackDialog() {
 
 async function copyGeneratedFeedback() {
   if (!state.generatedFeedback) return;
-  await navigator.clipboard.writeText(state.generatedFeedback);
-  showNotice("Текст ОС скопирован");
+  const copied = await copyTextToClipboard(state.generatedFeedback);
+  showNotice(copied ? "Текст ОС скопирован" : "Не удалось скопировать текст", copied ? "ok" : "danger");
 }
 
 function availableBroadcastVenues() {
@@ -7049,6 +7136,8 @@ async function saveProductFromForm() {
   const category = qs("#productCategory")?.value.trim() || "Без категории";
   const price = Number.parseInt(qs("#productPrice")?.value || "0", 10);
   const status = qs("#productStatus")?.value || "active";
+  const fulfillmentType = qs("#productFulfillmentType")?.value || "warehouse";
+  const newCodes = qs("#productNewCodes")?.value.trim() || "";
   const description = qs("#productDescription")?.value.trim() || "";
   const photoFile = state.productPhotoFile;
   const editing = products.find((product) => product.id === state.editingProductId);
@@ -7065,6 +7154,10 @@ async function saveProductFromForm() {
     showNotice("Добавьте фото товара", "danger");
     return;
   }
+  if (fulfillmentType === "digital_code" && !editing && !newCodes) {
+    showNotice("Добавьте хотя бы один код для автовыдачи", "danger");
+    return;
+  }
   const payload = {
     sku,
     name,
@@ -7072,6 +7165,8 @@ async function saveProductFromForm() {
     category_slug: slugify(category),
     price_astrocoins: price,
     status,
+    fulfillment_type: fulfillmentType,
+    new_codes: newCodes,
     description: description || undefined,
   };
 
@@ -7095,6 +7190,11 @@ async function saveProductFromForm() {
       categorySlug: payload.category_slug,
       price,
       status,
+      fulfillmentType,
+      totalCodeCount:
+        Number(editing?.totalCodeCount || 0) +
+        (newCodes ? newCodes.split(/\r?\n/).filter((code) => code.trim()).length : 0),
+      issuedCodeCount: Number(editing?.issuedCodeCount || 0),
       photoUrl,
       description,
       stock: editing?.stock || 0,
@@ -7126,6 +7226,8 @@ async function saveProductFromForm() {
     formData.set("category_slug", payload.category_slug);
     formData.set("price_astrocoins", String(payload.price_astrocoins));
     formData.set("status", payload.status);
+    formData.set("fulfillment_type", payload.fulfillment_type);
+    if (payload.new_codes) formData.set("new_codes", payload.new_codes);
     if (payload.description) formData.set("description", payload.description);
     if (existingPhotoUrl) formData.set("existing_photo_url", existingPhotoUrl);
     if (photoFile) formData.set("photo", photoFile);
@@ -7217,6 +7319,7 @@ async function toggleProductStatus(productId) {
     formData.set("category_slug", product.categorySlug || slugify(product.category || "Без категории"));
     formData.set("price_astrocoins", String(product.price || 0));
     formData.set("status", nextStatus);
+    formData.set("fulfillment_type", product.fulfillmentType || "warehouse");
     if (product.description) formData.set("description", product.description);
     if (product.photoUrl) formData.set("existing_photo_url", product.photoUrl);
     const response = await apiFetch("/api/v1/miniapp/products/save", { method: "POST", body: formData });
@@ -7232,6 +7335,13 @@ async function toggleProductStatus(productId) {
 }
 
 function addCartItem(product, quantityValue) {
+  const existingType = Array.from(state.cart.values())
+    .map((item) => productById(item.productId)?.fulfillmentType || "warehouse")
+    .find(Boolean);
+  if (existingType && existingType !== (product.fulfillmentType || "warehouse")) {
+    showNotice("Коды и товары со склада оформляются отдельными заказами", "danger");
+    return false;
+  }
   const current = cartQuantityFor(product.id);
   const availableLeft = Math.max(productAvailable(product) - current, 0);
   const quantity = clampQuantity(quantityValue || "1", availableLeft);
@@ -7378,6 +7488,13 @@ function renderOrderDialog(order) {
               : ["teacher", "admin"].includes(state.role) && item.warehouseName
                 ? `<div class="student-meta">${escapeHtml(item.warehouseName)}</div>`
                 : "";
+            const issuedCodes = (item.issuedCodes || []).length
+              ? `<div class="issued-code-list">${item.issuedCodes
+                  .map(
+                    (code) => `<div><span>Код</span><code>${escapeHtml(code)}</code><button class="icon-button" type="button" data-copy-code="${escapeHtml(code)}" title="Копировать код" aria-label="Копировать код"><i data-lucide="copy"></i></button></div>`,
+                  )
+                  .join("")}</div>`
+              : "";
             return `
               <div class="order-detail-item ${needsWarehouseAssignment ? "needs-warehouse" : ""}">
                 <span class="order-detail-thumb">
@@ -7387,6 +7504,7 @@ function renderOrderDialog(order) {
                   <strong>${escapeHtml(item.productName || "Товар")}</strong>
                   <div class="student-meta">${Number(item.quantity || 0)} шт.</div>
                   ${warehouseControl}
+                  ${issuedCodes}
                 </div>
                 <strong>${Number(item.totalPrice || 0)} AC</strong>
               </div>
@@ -7433,7 +7551,9 @@ function renderOrderDialog(order) {
         <h3>${escapeHtml(order.student)}</h3>
         <div class="student-meta">
           ${
-            ["teacher", "admin"].includes(state.role)
+            orderIsDigital(order)
+              ? "Код выдан автоматически"
+              : ["teacher", "admin"].includes(state.role)
               ? orderHasAssignedWarehouses(order)
                 ? "Склад назначен"
                 : "Ожидает назначения склада"
@@ -8473,7 +8593,11 @@ async function placeOrder() {
     closeCheckoutDialog();
     await refreshOrderAndInventoryState();
     setView("orders");
-    showNotice(`Заказ №${result.order.order_number} оформлен и зарезервирован`);
+    showNotice(
+      result.order.status === "issued_to_student"
+        ? `Заказ №${result.order.order_number} оплачен, код уже доступен в заказе`
+        : `Заказ №${result.order.order_number} оформлен и зарезервирован`,
+    );
     renderAll();
   } catch (error) {
     closeCheckoutDialog();
@@ -8491,6 +8615,13 @@ document.addEventListener("click", (event) => {
   if (!target) {
     const productCard = clickedElement?.closest("[data-product-card]");
     if (productCard) openProductDialog(productCard.dataset.productCard || "");
+    return;
+  }
+
+  const codeToCopy = target.dataset.copyCode;
+  if (codeToCopy) {
+    copyTextToClipboard(codeToCopy)
+      .then((copied) => showNotice(copied ? "Код скопирован" : "Не удалось скопировать код", copied ? "ok" : "danger"));
     return;
   }
 
@@ -9131,6 +9262,11 @@ document.addEventListener("change", (event) => {
     } else {
       target.value = "";
     }
+  }
+
+  if (target.id === "productFulfillmentType") {
+    const codeEditor = qs(".product-code-editor");
+    if (codeEditor) codeEditor.hidden = target.value !== "digital_code";
   }
 
   if (target.id === "broadcastPhotoFile") {
