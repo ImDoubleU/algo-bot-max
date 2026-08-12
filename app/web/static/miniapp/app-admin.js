@@ -917,17 +917,15 @@ function renderAdminPanel() {
       .map(
         (warehouse) => `
           <article class="admin-entity-card warehouse-entity-card">
-            <div class="warehouse-type-mark">${escapeHtml(
-              String(warehouse.type || "common").slice(0, 1).toUpperCase(),
+            <div class="warehouse-name-mark">${escapeHtml(
+              String(warehouse.name || "С").slice(0, 1).toUpperCase(),
             )}</div>
             <div class="admin-entity-main">
               <div class="admin-entity-title">
                 <strong>${escapeHtml(warehouse.name)}</strong>
-                <span class="soft-badge">${escapeHtml(warehouse.type || "common")}</span>
               </div>
               <div class="admin-entity-meta">
-                <span>${escapeHtml(warehouse.address || "Адрес не указан")}</span>
-                <span>${escapeHtml(warehouse.slug || warehouse.id)}</span>
+                <span>${escapeHtml(warehouse.address || "Адрес или примечание не указаны")}</span>
               </div>
             </div>
             <div class="admin-entity-actions">
@@ -956,27 +954,11 @@ function renderAdminPanel() {
       <div class="warehouse-form admin-editor">
         <label>
           <span>Название</span>
-          <input id="warehouseName" value="${escapeHtml(editing?.name || "")}" placeholder="Склад на площадке" />
+          <input id="warehouseName" value="${escapeHtml(editing?.name || "")}" placeholder="Например, Центральный склад" />
         </label>
         <label>
-          <span>Slug</span>
-          <input id="warehouseSlug" value="${escapeHtml(editing?.slug || "")}" placeholder="auto" />
-        </label>
-        <label>
-          <span>Тип</span>
-          <select id="warehouseType">
-            ${["common", "venue", "partner", "external"]
-              .map(
-                (type) => `<option value="${type}" ${
-                  (editing?.type || editing?.warehouse_type || "common") === type ? "selected" : ""
-                }>${type}</option>`,
-              )
-              .join("")}
-          </select>
-        </label>
-        <label>
-          <span>Адрес</span>
-          <input id="warehouseAddress" value="${escapeHtml(editing?.address || "")}" placeholder="Адрес или примечание" />
+          <span>Адрес или примечание</span>
+          <input id="warehouseAddress" value="${escapeHtml(editing?.address || "")}" placeholder="Например, ул. Большая Покровская, 10" />
         </label>
         <button id="warehouseSaveButton" class="primary-action" type="button" ${disabled}>
           ${state.warehouseSaving ? "Сохранение..." : editing ? "Сохранить" : "Создать"}
