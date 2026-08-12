@@ -3632,7 +3632,7 @@ function closeProductDialog() {
 }
 
 function isOpenOrderStatus(status) {
-  return ["created", "reserved", "transferred_to_teacher"].includes(status);
+  return ["created", "reserved", "transferred_to_teacher", "problem"].includes(status);
 }
 
 function orderHasAssignedWarehouses(order) {
@@ -3644,7 +3644,11 @@ function orderHasAssignedWarehouses(order) {
 }
 
 function canAssignOrderWarehouses(order) {
-  return state.role === "admin" && order.rawStatus === "reserved" && !orderHasAssignedWarehouses(order);
+  return (
+    state.role === "admin" &&
+    ["reserved", "problem"].includes(order.rawStatus) &&
+    !orderHasAssignedWarehouses(order)
+  );
 }
 
 function canIssueOrder(order) {
@@ -7577,6 +7581,7 @@ async function assignOrderWarehouses(orderId) {
   if (button) button.disabled = true;
 
   if (orderId.startsWith("demo-") || apiContext.demoMode || !apiContext.maxUserId) {
+    const previousStatus = order.rawStatus;
     assignments.forEach(({ item, warehouseId }) => {
       const product = productById(item.productId);
       const warehouse = product ? warehouseById(product, warehouseId) : null;
@@ -7590,12 +7595,19 @@ async function assignOrderWarehouses(orderId) {
         0,
       );
     });
+    if (previousStatus === "problem") {
+      order.rawStatus = "reserved";
+      order.status = orderStatusLabel(order.rawStatus);
+      order.tone = orderStatusTone(order.rawStatus);
+    }
     order.warehouse = orderWarehouseSummary(order.items, "Склад назначен");
     order.statusHistory = order.statusHistory || [];
     order.statusHistory.push({
-      fromStatus: order.rawStatus,
+      fromStatus: previousStatus,
       toStatus: order.rawStatus,
-      comment: "Склад назначен администратором",
+      comment: previousStatus === "problem"
+        ? "Проблема устранена, склад назначен администратором"
+        : "Склад назначен администратором",
       createdAt: new Date().toISOString(),
     });
     showNotice(`Заказ №${order.id}: склады назначены`);

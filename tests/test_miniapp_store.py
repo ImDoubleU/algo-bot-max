@@ -342,7 +342,11 @@ async def test_ops_summary_reports_open_orders_and_low_stock(db_session) -> None
     assert summary.total_reserved_quantity == 2
 
 
-async def test_admin_assigns_order_warehouse_after_checkout(db_session) -> None:
+@pytest.mark.parametrize("initial_status", [OrderStatus.RESERVED, OrderStatus.PROBLEM])
+async def test_admin_assigns_order_warehouse_after_checkout(
+    db_session,
+    initial_status: OrderStatus,
+) -> None:
     student = await seed_linked_student(db_session)
     product, venue_inventory = await seed_product(db_session, student)
     common_warehouse = Warehouse(
@@ -396,6 +400,11 @@ async def test_admin_assigns_order_warehouse_after_checkout(db_session) -> None:
     assert common_inventory.reserved_quantity == 0
     assert venue_inventory.reserved_quantity == 3
 
+    order = await db_session.get(Order, created.order.id)
+    assert order is not None
+    order.status = initial_status
+    await db_session.commit()
+
     assigned = await assign_miniapp_order_warehouses(
         db_session,
         order_id=created.order.id,
@@ -413,6 +422,7 @@ async def test_admin_assigns_order_warehouse_after_checkout(db_session) -> None:
     )
 
     assert assigned.order.items[0].warehouse_name == "Общий склад"
+    assert assigned.order.status == OrderStatus.RESERVED
     await db_session.refresh(common_inventory)
     await db_session.refresh(venue_inventory)
     assert common_inventory.reserved_quantity == 3

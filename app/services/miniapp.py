@@ -2125,9 +2125,10 @@ async def assign_miniapp_order_warehouses(
             "Назначить склад может только администратор или директор",
             status_code=403,
         )
-    if order.status != OrderStatus.RESERVED:
+    previous_status = order.status
+    if previous_status not in {OrderStatus.RESERVED, OrderStatus.PROBLEM}:
         raise MiniAppStoreError(
-            "Склад можно назначить только зарезервированному заказу",
+            "Склад можно назначить зарезервированному или проблемному заказу",
             status_code=409,
         )
     assignments = {
@@ -2289,14 +2290,22 @@ async def assign_miniapp_order_warehouses(
             )
         )
 
+    if previous_status == OrderStatus.PROBLEM:
+        order.status = OrderStatus.RESERVED
+
     db.add(
         OrderStatusHistory(
             tenant_id=tenant.id,
             order_id=order.id,
             actor_account_id=account.id,
-            from_status=order.status,
+            from_status=previous_status,
             to_status=order.status,
-            comment=payload.comment or "Склад назначен администратором",
+            comment=payload.comment
+            or (
+                "Проблема устранена, склад назначен администратором"
+                if previous_status == OrderStatus.PROBLEM
+                else "Склад назначен администратором"
+            ),
         )
     )
     db.add(
