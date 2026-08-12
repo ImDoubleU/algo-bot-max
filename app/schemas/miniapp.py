@@ -565,7 +565,7 @@ class MiniAppWarehouseUpsert(BaseModel):
     warehouse_id: UUID | None = None
     slug: str | None = Field(default=None, min_length=2, max_length=120)
     name: str = Field(min_length=2, max_length=180)
-    warehouse_type: WarehouseType = WarehouseType.COMMON
+    warehouse_type: WarehouseType | None = None
     address: str | None = Field(default=None, max_length=260)
 
 

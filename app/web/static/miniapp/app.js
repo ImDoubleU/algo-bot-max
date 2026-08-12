@@ -963,8 +963,6 @@ function showWarehouseAction(warehouseName) {
 
 async function saveWarehouseFromForm() {
   const name = qs("#warehouseName")?.value.trim() || "";
-  const slug = qs("#warehouseSlug")?.value.trim() || "";
-  const type = qs("#warehouseType")?.value || "common";
   const address = qs("#warehouseAddress")?.value.trim() || "";
   if (name.length < 2) {
     showNotice("Укажите название склада", "danger");
@@ -973,19 +971,21 @@ async function saveWarehouseFromForm() {
 
   const payload = {
     name,
-    slug: slug || slugify(name),
-    warehouse_type: type,
     address: address || undefined,
   };
 
   if (apiContext.demoMode || !apiContext.maxUserId || state.editingWarehouseId.startsWith("demo-")) {
-    const id = state.editingWarehouseId || `demo-warehouse-${payload.slug}`;
+    const existing = catalogWarehouses.find(
+      (warehouse) => warehouse.id === state.editingWarehouseId,
+    );
+    const generatedSlug = existing?.slug || slugify(name);
+    const id = state.editingWarehouseId || `demo-warehouse-${generatedSlug}`;
     const existingIndex = catalogWarehouses.findIndex((warehouse) => warehouse.id === id);
     const nextWarehouse = {
       id,
-      slug: payload.slug,
+      slug: generatedSlug,
       name: payload.name,
-      type: payload.warehouse_type,
+      type: existing?.type || "common",
       address: payload.address || "",
     };
     if (existingIndex >= 0) catalogWarehouses[existingIndex] = nextWarehouse;

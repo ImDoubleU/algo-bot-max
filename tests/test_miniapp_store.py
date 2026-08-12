@@ -1032,9 +1032,7 @@ async def test_admin_can_create_and_update_warehouse_from_miniapp(db_session) ->
         payload=MiniAppWarehouseUpsert(
             max_user_id=53364725,
             tenant_slug="nizhniy-novgorod-partner-a",
-            slug="new-storage",
             name="Новый склад",
-            warehouse_type=WarehouseType.EXTERNAL,
             address="Поставщик",
         ),
         default_tenant_slug="nizhniy-novgorod-partner-a",
@@ -1045,18 +1043,17 @@ async def test_admin_can_create_and_update_warehouse_from_miniapp(db_session) ->
             max_user_id=53364725,
             tenant_slug="nizhniy-novgorod-partner-a",
             warehouse_id=created.id,
-            slug="new-storage",
             name="Новый склад 2",
-            warehouse_type=WarehouseType.PARTNER,
             address="Партнер",
         ),
         default_tenant_slug="nizhniy-novgorod-partner-a",
     )
 
     warehouse = await db_session.scalar(select(Warehouse).where(Warehouse.id == created.id))
-    assert created.slug == "new-storage"
+    assert created.slug == "новый-склад"
     assert updated.name == "Новый склад 2"
-    assert updated.warehouse_type == WarehouseType.PARTNER
+    assert updated.slug == "новый-склад"
+    assert updated.warehouse_type == WarehouseType.COMMON
     assert warehouse is not None
     assert warehouse.address == "Партнер"
 

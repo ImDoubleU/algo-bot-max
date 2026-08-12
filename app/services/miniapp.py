@@ -29,6 +29,7 @@ from app.models.enums import (
     StudentAccessStatus,
     StudentStatus,
     TenantStatus,
+    WarehouseType,
 )
 from app.models.store import (
     Order,
@@ -4286,7 +4287,6 @@ async def upsert_miniapp_warehouse(
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на управление складами", status_code=403)
 
-    slug = _slugify(payload.slug or payload.name)
     warehouse = None
     if payload.warehouse_id is not None:
         warehouse = await db.scalar(
@@ -4298,6 +4298,7 @@ async def upsert_miniapp_warehouse(
         if warehouse is None:
             raise MiniAppStoreError("Склад не найден", status_code=404)
     else:
+        slug = _slugify(payload.slug or payload.name)
         warehouse = await db.scalar(
             select(Warehouse).where(Warehouse.tenant_id == tenant.id, Warehouse.slug == slug)
         )
@@ -4307,13 +4308,14 @@ async def upsert_miniapp_warehouse(
             tenant_id=tenant.id,
             slug=slug,
             name=payload.name.strip(),
-            warehouse_type=payload.warehouse_type,
-            address=payload.address,
+            warehouse_type=payload.warehouse_type or WarehouseType.COMMON,
+            address=payload.address.strip() if payload.address else None,
         )
         db.add(warehouse)
         await db.flush()
         action = "warehouse.created"
     else:
+        slug = _slugify(payload.slug) if payload.slug else warehouse.slug
         duplicate = await db.scalar(
             select(Warehouse).where(
                 Warehouse.tenant_id == tenant.id,
@@ -4322,11 +4324,12 @@ async def upsert_miniapp_warehouse(
             )
         )
         if duplicate is not None:
-            raise MiniAppStoreError("Склад с таким slug уже существует", status_code=409)
+            raise MiniAppStoreError("Склад с таким названием уже существует", status_code=409)
         warehouse.slug = slug
         warehouse.name = payload.name.strip()
-        warehouse.warehouse_type = payload.warehouse_type
-        warehouse.address = payload.address
+        if payload.warehouse_type is not None:
+            warehouse.warehouse_type = payload.warehouse_type
+        warehouse.address = payload.address.strip() if payload.address else None
         action = "warehouse.updated"
 
     db.add(

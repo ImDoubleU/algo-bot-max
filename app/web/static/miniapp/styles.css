@@ -2403,7 +2403,7 @@ body.dialog-open {
 }
 
 .admin-product-thumb,
-.warehouse-type-mark,
+.warehouse-name-mark,
 .access-role-mark,
 .staff-role-mark {
   width: 56px;
@@ -2428,7 +2428,7 @@ body.dialog-open {
   background: #ffffff;
 }
 
-.warehouse-type-mark {
+.warehouse-name-mark {
   color: var(--brand-purple-dark);
   background: var(--brand-yellow);
 }
@@ -2654,7 +2654,7 @@ body.dialog-open {
 
 .warehouse-form {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(120px, 180px) 150px minmax(150px, 1fr) auto auto;
+  grid-template-columns: minmax(180px, 1fr) minmax(240px, 1.5fr) auto auto;
   gap: 12px;
   align-items: end;
   padding: 16px;
@@ -4512,7 +4512,7 @@ svg.lucide {
 }
 
 .admin-product-thumb,
-.warehouse-type-mark,
+.warehouse-name-mark,
 .access-role-mark,
 .staff-role-mark {
   border-radius: 8px;
@@ -4520,7 +4520,7 @@ svg.lucide {
   background-image: none;
 }
 
-.warehouse-type-mark {
+.warehouse-name-mark {
   color: var(--ink);
   background: var(--brand-yellow);
 }
