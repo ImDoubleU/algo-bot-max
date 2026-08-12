@@ -10,6 +10,8 @@ from app.models.enums import StudentStatus
 from app.services.amocrm_webhook import (
     AmoCrmWebhookError,
     extract_amocrm_lead_ids,
+    extract_amocrm_student_rows,
+    sync_students_from_amocrm,
     update_student_status_from_amocrm,
 )
 
@@ -62,6 +64,13 @@ async def receive_student_status_webhook(
     try:
         payload = await _webhook_payload(request)
         lead_ids = extract_amocrm_lead_ids(payload)
+        sync_result = await sync_students_from_amocrm(
+            db,
+            tenant_slug=tenant_slug,
+            student_status=student_status,
+            rows=extract_amocrm_student_rows(payload),
+            commit=False,
+        )
         result = await update_student_status_from_amocrm(
             db,
             tenant_slug=tenant_slug,
@@ -77,5 +86,9 @@ async def receive_student_status_webhook(
         "received_lead_ids": result.received_lead_ids,
         "matched_students": result.matched_students,
         "updated_students": result.updated_students,
+        "created_students": sync_result.created_students,
+        "updated_student_cards": sync_result.updated_students,
+        "existing_students": sync_result.existing_students,
+        "incomplete_leads": sync_result.incomplete_leads,
         "unmatched_lead_ids": result.unmatched_lead_ids,
     }
