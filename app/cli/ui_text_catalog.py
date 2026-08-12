@@ -59,20 +59,13 @@ VISIBLE_LONG_POLLING_CONTEXTS = {
     "staff_join_callback_response",
     "knowledge_menu_response",
     "knowledge_section_response",
-    "unknown_command_response",
     "miniapp_response",
-    "load_session_response",
     "contact_entry_text",
     "handle_contact_payload_response",
     "handle_student_invitation_response",
     "handle_role_selection_response",
     "handle_message_created",
     "handle_message_callback",
-    "order_status_label",
-    "format_order_details_text",
-    "order_action_confirmation_response",
-    "order_action_response",
-    "repeat_order_response",
 }
 EXCLUDED_JAVASCRIPT_CONTEXTS = {
     "canonicalImportField",
@@ -80,6 +73,11 @@ EXCLUDED_JAVASCRIPT_CONTEXTS = {
 
 SOURCE_SPECS = (
     ("app/web/static/miniapp/index.html", "Приложение", "html"),
+    ("app/web/static/miniapp/app-core.js", "Приложение", "javascript"),
+    ("app/web/static/miniapp/app-shell.js", "Приложение", "javascript"),
+    ("app/web/static/miniapp/app-store.js", "Приложение", "javascript"),
+    ("app/web/static/miniapp/app-admin.js", "Приложение", "javascript"),
+    ("app/web/static/miniapp/app-teaching.js", "Приложение", "javascript"),
     ("app/web/static/miniapp/app.js", "Приложение", "javascript"),
     ("app/bot/keyboards.py", "MAX-бот", "python"),
     ("app/bot/max_long_polling.py", "MAX-бот", "python"),

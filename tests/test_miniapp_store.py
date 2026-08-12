@@ -3,7 +3,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.db.base  # noqa: F401
+import app.services.miniapp as miniapp_service
 from app.models.account import MaxAccount, StaffRoleAssignment
+from app.models.audit import AuditLog
 from app.models.base import Base
 from app.models.enums import (
     AssignmentStatus,
@@ -55,6 +57,7 @@ from app.services.miniapp import (
     create_miniapp_order,
     get_miniapp_ops_summary,
     issue_miniapp_order,
+    list_miniapp_admin_history,
     list_miniapp_catalog,
     return_miniapp_order,
     set_miniapp_warehouse_preference,
@@ -204,7 +207,20 @@ async def test_order_waits_for_admin_warehouse_and_debits_wallet(db_session) -> 
     assert ledger_entries[0].direction == LedgerDirection.DEBIT
 
 
-async def test_digital_product_issues_one_retained_code_and_is_idempotent(db_session) -> None:
+async def test_digital_product_issues_one_retained_code_and_is_idempotent(
+    db_session,
+    monkeypatch,
+) -> None:
+    low_code_notifications: list[int] = []
+
+    async def capture_low_codes(*_args, available_codes: int, **_kwargs) -> None:
+        low_code_notifications.append(available_codes)
+
+    monkeypatch.setattr(
+        miniapp_service,
+        "schedule_low_digital_codes_notification",
+        capture_low_codes,
+    )
     student = await seed_linked_student(db_session)
     category = ProductCategory(
         tenant_id=student.tenant_id,
@@ -255,6 +271,9 @@ async def test_digital_product_issues_one_retained_code_and_is_idempotent(db_ses
     codes = (await db_session.scalars(select(ProductCode).order_by(ProductCode.code))).all()
     assert len(codes) == 2
     assert [code.status for code in codes].count(ProductCodeStatus.ISSUED) == 1
+    await db_session.refresh(product)
+    assert product.digital_codes_low_notified is True
+    assert low_code_notifications == [1]
     wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
     assert wallet is not None
     assert wallet.balance == 800
@@ -296,6 +315,58 @@ async def test_digital_and_warehouse_products_require_separate_orders(db_session
             ),
             default_tenant_slug="nizhniy-novgorod-partner-a",
         )
+
+
+async def test_admin_history_is_limited_to_selected_tenant(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    account = await db_session.scalar(
+        select(MaxAccount).where(MaxAccount.max_user_id == 53364725)
+    )
+    assert account is not None
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    db_session.add_all(
+        [
+            AuditLog(
+                tenant_id=student.tenant_id,
+                actor_account_id=account.id,
+                action="product.updated",
+                entity_type="product",
+                payload={"name": "Тестовый товар"},
+            ),
+            AuditLog(
+                tenant_id=student.tenant_id,
+                action="amocrm.students_synced",
+                entity_type="student",
+                payload={"lead_ids": ["1"], "incomplete_leads": {}},
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    actions = await list_miniapp_admin_history(
+        db_session,
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        kind="actions",
+    )
+    amocrm = await list_miniapp_admin_history(
+        db_session,
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        kind="amocrm",
+    )
+
+    action_names = [entry.action for entry in actions.entries]
+    assert "product.updated" in action_names
+    assert "amocrm.students_synced" not in action_names
+    assert [entry.action for entry in amocrm.entries] == ["amocrm.students_synced"]
 
 
 async def test_repeated_order_request_does_not_debit_twice(db_session) -> None:

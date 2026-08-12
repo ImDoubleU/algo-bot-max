@@ -2,11 +2,14 @@ import hmac
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings, is_placeholder
 from app.db.session import get_db_session
+from app.models.audit import AuditLog
 from app.models.enums import StudentStatus
+from app.models.tenant import Tenant
 from app.services.amocrm_webhook import (
     AmoCrmWebhookError,
     extract_amocrm_lead_ids,
@@ -78,6 +81,24 @@ async def receive_student_status_webhook(
             lead_ids=lead_ids,
         )
     except AmoCrmWebhookError as exc:
+        await db.rollback()
+        tenant = await db.scalar(
+            select(Tenant).where(Tenant.slug == tenant_slug.strip().lower())
+        )
+        if tenant is not None:
+            db.add(
+                AuditLog(
+                    tenant_id=tenant.id,
+                    action="amocrm.sync_failed",
+                    entity_type="student",
+                    payload={
+                        "requested_status": student_status.value,
+                        "lead_ids": locals().get("lead_ids", []),
+                        "error": str(exc)[:500],
+                    },
+                )
+            )
+            await db.commit()
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return {
         "ok": True,

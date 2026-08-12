@@ -59,6 +59,8 @@ from app.schemas.miniapp import (
     MiniAppAccrualReportEntryRead,
     MiniAppAccrualReportRead,
     MiniAppAccrualUndoCreate,
+    MiniAppAdminHistoryEntryRead,
+    MiniAppAdminHistoryRead,
     MiniAppAdminStudentRead,
     MiniAppCartItemRead,
     MiniAppCartRead,
@@ -118,6 +120,7 @@ from app.services.crm_sync import (
 )
 from app.services.google_sheets import GoogleSheetsClient, GoogleSheetsError
 from app.services.max_notifications import (
+    schedule_low_digital_codes_notification,
     schedule_low_stock_notification,
     schedule_new_product_notification,
     schedule_order_notification,
@@ -896,6 +899,134 @@ async def list_miniapp_student_registry(
     )
 
 
+AMOCRM_AUDIT_ACTIONS = {
+    "amocrm.sync_failed",
+    "amocrm.students_synced",
+    "amocrm.student_status_updated",
+}
+
+AUDIT_ACTION_COPY = {
+    "amocrm.sync_failed": ("Ошибка синхронизации amoCRM", "amoCRM"),
+    "amocrm.students_synced": ("Синхронизация учеников amoCRM", "amoCRM"),
+    "amocrm.student_status_updated": ("Обновление статусов из amoCRM", "amoCRM"),
+    "miniapp_products.imported": ("Загрузка товаров", "Товары"),
+    "miniapp_crm.imported": ("Импорт учеников и групп", "Ученики"),
+    "product.created": ("Товар создан", "Товары"),
+    "product.updated": ("Товар изменен", "Товары"),
+    "miniapp_order.created": ("Заказ создан", "Заказы"),
+    "miniapp_order.warehouses_assigned": ("Склад заказа назначен", "Заказы"),
+    "miniapp_order.cancelled": ("Заказ отменен", "Заказы"),
+    "miniapp_order.issued": ("Заказ выдан", "Заказы"),
+    "miniapp_order.transferred_to_teacher": ("Заказ передан преподавателю", "Заказы"),
+    "miniapp_order.returned": ("Заказ возвращен", "Заказы"),
+    "miniapp_astrocoins.accrued": ("Астрокоины начислены", "Астрокоины"),
+    "miniapp_astrocoins.undone": ("Начисление отменено", "Астрокоины"),
+    "student_access_link.status_changed": ("Доступ ученика изменен", "Доступ"),
+    "staff_role_assignment.updated": ("Роль сотрудника изменена", "Сотрудники"),
+    "staff_notifications.updated": ("Уведомления сотрудника настроены", "Сотрудники"),
+    "tenant.created": ("Партнер создан", "Партнеры"),
+    "tenant.reopened": ("Партнер восстановлен", "Партнеры"),
+    "warehouse.created": ("Склад создан", "Склады"),
+    "warehouse.updated": ("Склад изменен", "Склады"),
+    "warehouse_inventory.adjusted": ("Остаток скорректирован", "Склады"),
+    "warehouse_inventory.transferred": ("Товар перемещен", "Склады"),
+    "school_broadcast.sent": ("Рассылка отправлена", "Рассылки"),
+    "teaching_journal.lessons_updated": ("Журнал занятий изменен", "Журнал"),
+    "teaching_schedule.created": ("Расписание создано", "Расписание"),
+    "teaching_schedule.updated": ("Расписание изменено", "Расписание"),
+    "manual_feedback.sent_to_parents": ("Обратная связь отправлена", "Обратная связь"),
+}
+
+
+def _audit_entry_status(action: str, payload: dict[str, object]) -> str:
+    if action == "amocrm.sync_failed":
+        return "error"
+    if action == "amocrm.students_synced":
+        if payload.get("error"):
+            return "error"
+        if payload.get("incomplete_leads"):
+            return "partial"
+    if action == "amocrm.student_status_updated" and payload.get("unmatched_lead_ids"):
+        return "partial"
+    return "success"
+
+
+async def list_miniapp_admin_history(
+    db: AsyncSession,
+    *,
+    max_user_id: int,
+    tenant_slug: str,
+    kind: str = "actions",
+    period_days: int = 30,
+    limit: int = 100,
+) -> MiniAppAdminHistoryRead:
+    tenant, _, _ = await _store_admin_context(
+        db,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+        denied_message="Нет прав на просмотр истории действий",
+    )
+    normalized_kind = kind.strip().lower()
+    if normalized_kind not in {"actions", "amocrm"}:
+        raise MiniAppStoreError("Неизвестный вид истории")
+    days = max(1, min(period_days, 365))
+    row_limit = max(1, min(limit, 300))
+    conditions = [
+        AuditLog.tenant_id == tenant.id,
+        AuditLog.created_at >= datetime.now(UTC) - timedelta(days=days),
+    ]
+    if normalized_kind == "amocrm":
+        conditions.append(AuditLog.action.in_(AMOCRM_AUDIT_ACTIONS))
+    else:
+        conditions.extend(
+            [
+                AuditLog.actor_account_id.is_not(None),
+                AuditLog.action.not_in(AMOCRM_AUDIT_ACTIONS),
+            ]
+        )
+    rows = (
+        await db.execute(
+            select(AuditLog, MaxAccount)
+            .outerjoin(MaxAccount, MaxAccount.id == AuditLog.actor_account_id)
+            .where(*conditions)
+            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+            .limit(row_limit)
+        )
+    ).all()
+    entries = []
+    for audit, actor in rows:
+        title, category = AUDIT_ACTION_COPY.get(
+            audit.action,
+            (audit.action.replace("_", " ").replace(".", " · "), "Система"),
+        )
+        payload = dict(audit.payload or {})
+        entries.append(
+            MiniAppAdminHistoryEntryRead(
+                id=UUID(str(audit.id)),
+                action=audit.action,
+                title=title,
+                category=category,
+                status=_audit_entry_status(audit.action, payload),
+                actor_name=(
+                    actor.display_name or (f"@{actor.username}" if actor.username else None)
+                    if actor is not None
+                    else "amoCRM"
+                ),
+                actor_max_user_id=actor.max_user_id if actor is not None else None,
+                entity_type=audit.entity_type,
+                entity_id=audit.entity_id,
+                payload=payload,
+                created_at=audit.created_at,
+            )
+        )
+    return MiniAppAdminHistoryRead(
+        tenant_slug=tenant.slug,
+        kind=normalized_kind,
+        period_days=days,
+        entries=entries,
+    )
+
+
 async def upsert_miniapp_product(
     db: AsyncSession,
     *,
@@ -1053,6 +1184,8 @@ async def upsert_miniapp_product(
                 )
             )
             added_code_count += 1
+        if added_code_count:
+            product.digital_codes_low_notified = False
     existing_product_code = None
     if product.fulfillment_type == ProductFulfillmentType.DIGITAL_CODE:
         existing_product_code = await db.scalar(
@@ -2108,6 +2241,7 @@ async def create_miniapp_order(
     response_items: list[MiniAppOrderItemRead] = []
     sheets_items: list[dict[str, object]] = []
     low_stock_events: list[tuple[Product, WarehouseInventory]] = []
+    low_code_events: list[tuple[Product, int]] = []
     issued_codes: list[str] = []
     for product, quantity, reservation_inventory, selected_codes in order_plan:
         if reservation_inventory is not None:
@@ -2169,6 +2303,14 @@ async def create_miniapp_order(
             code.issued_to_student_id = student.id
             code.issued_at = datetime.now(UTC)
             issued_codes.append(code.code)
+        if selected_codes:
+            available_before = len(available_codes_by_product.get(UUID(str(product.id)), []))
+            available_after = available_before - len(selected_codes)
+            if available_after <= 5 and not product.digital_codes_low_notified:
+                product.digital_codes_low_notified = True
+                low_code_events.append((product, available_after))
+            elif available_after > 5:
+                product.digital_codes_low_notified = False
         response_items.append(
             MiniAppOrderItemRead(
                 product_id=UUID(str(product.id)),
@@ -2269,6 +2411,13 @@ async def create_miniapp_order(
             tenant=tenant,
             product=product,
             inventory=inventory,
+        )
+    for product, available_codes in low_code_events:
+        await schedule_low_digital_codes_notification(
+            db,
+            tenant=tenant,
+            product=product,
+            available_codes=available_codes,
         )
     status_history = await _order_status_history_for_order(
         db,

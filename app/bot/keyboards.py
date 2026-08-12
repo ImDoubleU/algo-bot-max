@@ -12,19 +12,6 @@ CALLBACK_MENU = "menu"
 CALLBACK_MINIAPP = "miniapp:open"
 CALLBACK_KNOWLEDGE = "knowledge"
 CALLBACK_KNOWLEDGE_PREFIX = "knowledge"
-CALLBACK_STATUS = "status"
-CALLBACK_BALANCE = "balance"
-CALLBACK_LEDGER = "ledger"
-CALLBACK_STUDENTS = "students"
-CALLBACK_GROUPS = "groups"
-CALLBACK_LEADERBOARD = "leaderboard"
-CALLBACK_CATALOG = "catalog"
-CALLBACK_CATEGORIES = "categories"
-CALLBACK_ORDERS = "orders"
-CALLBACK_OPEN_ORDERS = "orders:open"
-CALLBACK_OPS = "ops"
-CALLBACK_STOCK = "stock"
-CALLBACK_TODO = "todo"
 CALLBACK_FEEDBACK = "feedback"
 CALLBACK_FEEDBACK_PREFIX = "feedback"
 CALLBACK_STAFF_JOIN_PREFIX = "staff_join"
@@ -32,8 +19,6 @@ CALLBACK_ROLE_PARENT = "role:parent"
 CALLBACK_ROLE_STUDENT = "role:student"
 CALLBACK_ONBOARDING_RESTART = "onboarding:restart"
 CALLBACK_ONBOARDING_CANCEL = "onboarding:cancel"
-CALLBACK_ORDER_ACTION_PREFIX = "order:action"
-CALLBACK_ORDER_CONFIRM_PREFIX = "order:confirm"
 
 
 def callback_button(text: str, payload: str) -> dict[str, str]:
@@ -131,38 +116,6 @@ def inline_keyboard_with_main_menu(
     return inline_keyboard(navigation_rows)
 
 
-def order_action_payload(action: str, order_ref: str | int) -> str:
-    encoded_ref = parse.quote(str(order_ref), safe="")
-    return f"{CALLBACK_ORDER_ACTION_PREFIX}:{action}:{encoded_ref}"
-
-
-def order_confirm_payload(action: str, order_ref: str | int) -> str:
-    encoded_ref = parse.quote(str(order_ref), safe="")
-    return f"{CALLBACK_ORDER_CONFIRM_PREFIX}:{action}:{encoded_ref}"
-
-
-def parse_order_action_payload(payload: str) -> tuple[str, str] | None:
-    prefix = f"{CALLBACK_ORDER_ACTION_PREFIX}:"
-    if not payload.startswith(prefix):
-        return None
-    rest = payload[len(prefix) :]
-    action, separator, encoded_ref = rest.partition(":")
-    if not separator or not action or not encoded_ref:
-        return None
-    return action, parse.unquote(encoded_ref)
-
-
-def parse_order_confirm_payload(payload: str) -> tuple[str, str] | None:
-    prefix = f"{CALLBACK_ORDER_CONFIRM_PREFIX}:"
-    if not payload.startswith(prefix):
-        return None
-    rest = payload[len(prefix) :]
-    action, separator, encoded_ref = rest.partition(":")
-    if not separator or not action or not encoded_ref:
-        return None
-    return action, parse.unquote(encoded_ref)
-
-
 def feedback_payload(action: str, value: str | int | None = None) -> str:
     if value is None:
         return f"{CALLBACK_FEEDBACK_PREFIX}:{action}"
@@ -223,9 +176,7 @@ def build_miniapp_url(
     _ = user_id, tenant_slug
     configured_url = os.getenv("MAX_MINIAPP_URL", "").strip()
     settings_url = get_settings().max_miniapp_url
-    base_url = configured_url or (
-        "" if is_placeholder(settings_url) else str(settings_url).strip()
-    )
+    base_url = configured_url or ("" if is_placeholder(settings_url) else str(settings_url).strip())
     return base_url
 
 
@@ -309,11 +260,7 @@ def staff_tenant_keyboard(
             continue
         city_name = str(tenant.get("city_name") or tenant.get("tenant_name") or "Город")
         tenant_name = str(tenant.get("tenant_name") or city_name)
-        label = (
-            city_name
-            if city_counts.get(city_name, 0) == 1
-            else f"{city_name} · {tenant_name}"
-        )
+        label = city_name if city_counts.get(city_name, 0) == 1 else f"{city_name} · {tenant_name}"
         rows.append(
             [
                 callback_button(
@@ -432,9 +379,7 @@ def knowledge_section_keyboard(
     for item in section.get("buttons") or []:
         if not isinstance(item, dict):
             continue
-        label = _button_label(
-            clean_knowledge_label(str(item.get("text") or "Открыть"))
-        )
+        label = _button_label(clean_knowledge_label(str(item.get("text") or "Открыть")))
         url = str(item.get("url") or "").strip()
         callback = str(item.get("callback") or "").strip()
         if url:
@@ -493,13 +438,9 @@ def _feedback_page_rows(
     ]
     navigation: list[dict[str, str]] = []
     if safe_page > 0:
-        navigation.append(
-            callback_button("Назад", feedback_payload(page_action, safe_page - 1))
-        )
+        navigation.append(callback_button("Назад", feedback_payload(page_action, safe_page - 1)))
     if start + page_size < len(items):
-        navigation.append(
-            callback_button("Далее", feedback_payload(page_action, safe_page + 1))
-        )
+        navigation.append(callback_button("Далее", feedback_payload(page_action, safe_page + 1)))
     if navigation:
         rows.append(navigation)
     return rows
@@ -578,8 +519,7 @@ def feedback_drafts_keyboard(outputs: list[dict[str, Any]]) -> list[dict[str, An
     rows: list[list[dict[str, str]]] = []
     for output in outputs[:12]:
         label = (
-            f"{output.get('group_name') or 'Группа'} · "
-            f"{output.get('lesson_date') or 'без даты'}"
+            f"{output.get('group_name') or 'Группа'} · {output.get('lesson_date') or 'без даты'}"
         )
         rows.append(
             [
@@ -678,54 +618,4 @@ def feedback_preview_keyboard(output_id: str | None = None) -> list[dict[str, An
             [callback_button("Главное меню", CALLBACK_MENU)],
         ]
     )
-    return inline_keyboard(
-        rows
-    )
-
-
-def order_actions_keyboard(
-    order_ref: str | int,
-    *,
-    status: str,
-    user_id: int | None = None,
-    tenant_slug: str | None = None,
-) -> list[dict[str, Any]]:
-    rows: list[list[dict[str, str]]] = [
-        [callback_button("Повторить", order_action_payload("repeat", order_ref))]
-    ]
-    if status in {"created", "reserved", "transferred_to_teacher", "problem"}:
-        rows.append(
-            [
-                callback_button("Выдать", order_action_payload("issue", order_ref)),
-                callback_button("Отменить", order_action_payload("cancel", order_ref)),
-            ]
-        )
-    elif status == "issued_to_student":
-        rows.append([callback_button("Возврат", order_action_payload("return", order_ref))])
-
-    rows.extend(
-        [
-            [
-                callback_button("Открытые", CALLBACK_OPEN_ORDERS),
-                callback_button("Заказы", CALLBACK_ORDERS),
-            ],
-            [callback_button("В меню", CALLBACK_MENU)],
-        ]
-    )
-    miniapp_url = build_miniapp_url(user_id=user_id, tenant_slug=tenant_slug)
-    if miniapp_url:
-        rows.insert(0, [miniapp_button("Открыть приложение", miniapp_url)])
     return inline_keyboard(rows)
-
-
-def order_confirmation_keyboard(action: str, order_ref: str | int) -> list[dict[str, Any]]:
-    return inline_keyboard(
-        [
-            [callback_button("Подтвердить", order_confirm_payload(action, order_ref))],
-            [
-                callback_button("Открытые", CALLBACK_OPEN_ORDERS),
-                callback_button("Заказы", CALLBACK_ORDERS),
-            ],
-            [callback_button("В меню", CALLBACK_MENU)],
-        ]
-    )

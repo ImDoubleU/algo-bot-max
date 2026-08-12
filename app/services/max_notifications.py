@@ -352,6 +352,28 @@ async def schedule_low_stock_notification(
     )
 
 
+async def schedule_low_digital_codes_notification(
+    db: AsyncSession,
+    *,
+    tenant: Tenant,
+    product: Product,
+    available_codes: int,
+) -> None:
+    await schedule_staff_notification(
+        db,
+        tenant=tenant,
+        event_key="inventory.digital_codes_low",
+        title="Заканчиваются коды для автовыдачи",
+        message=product.name,
+        facts=[
+            ("SKU", product.sku),
+            ("Осталось кодов", str(max(available_codes, 0))),
+        ],
+        view="admin",
+        button_label="Добавить коды",
+    )
+
+
 async def schedule_order_notification(
     db: AsyncSession,
     *,
