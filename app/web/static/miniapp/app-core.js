@@ -131,7 +131,6 @@ const state = {
   staffNotificationsSaving: false,
   accessStatusFilter: "all",
   accessRoleFilter: "all",
-  inventorySavingKey: "",
   warehouseSaving: false,
   warehousePreferenceSaving: false,
   warehouseEditorOpen: false,
@@ -158,8 +157,6 @@ const state = {
   accrualReportPeriod: "month",
   accrualReportTeacherFilter: "all",
   accrualReportGroupFilter: "all",
-  inventoryWarehouseFilter: "all",
-  inventoryStockFilter: "all",
   adminEntitySearch: "",
   adminStudents: [],
   adminStudentsLoaded: false,
@@ -805,7 +802,7 @@ function studentsForGroup(groupName = state.studentGroupFilter) {
 }
 
 function productWarehouses(product) {
-  if (Array.isArray(product.warehouses) && product.warehouses.length > 0) {
+  if (Array.isArray(product.warehouses)) {
     return product.warehouses.map((warehouse) => ({
       id: String(warehouse.warehouse_id || warehouse.id || warehouse.warehouse_name),
       name: warehouse.warehouse_name || warehouse.name || "Склад",
@@ -815,6 +812,8 @@ function productWarehouses(product) {
       available: Number(warehouse.available_quantity || warehouse.available || 0),
     }));
   }
+
+  if (product.fulfillmentType === "digital_code") return [];
 
   return [
     {

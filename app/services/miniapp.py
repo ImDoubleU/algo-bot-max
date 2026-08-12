@@ -303,6 +303,8 @@ def _product_to_read(product: Product, *, include_codes: bool = False) -> MiniAp
         )
     else:
         for inventory in product.inventory_items:
+            if not getattr(inventory, "is_active", True):
+                continue
             available = max(available_for_reservation(inventory), 0)
             if inventory.warehouse is None:
                 continue
@@ -1200,6 +1202,161 @@ async def upsert_miniapp_product(
     ):
         raise MiniAppStoreError("Добавьте хотя бы один новый уникальный код")
 
+    changed_inventory_count = 0
+    low_stock_items: list[WarehouseInventory] = []
+    if payload.inventories is not None:
+        if product.fulfillment_type != ProductFulfillmentType.WAREHOUSE:
+            if payload.inventories:
+                raise MiniAppStoreError("Остатки по складам доступны только обычным товарам")
+        else:
+            if not payload.inventories:
+                raise MiniAppStoreError("Выберите хотя бы один склад для товара")
+            requested_inventory = {
+                UUID(str(item.warehouse_id)): item.stock_quantity
+                for item in payload.inventories
+            }
+            if len(requested_inventory) != len(payload.inventories):
+                raise MiniAppStoreError("Один склад указан несколько раз")
+
+            warehouse_ids = set(requested_inventory)
+            if warehouse_ids:
+                existing_warehouse_ids = set(
+                    (
+                        await db.scalars(
+                            select(Warehouse.id).where(
+                                Warehouse.tenant_id == tenant.id,
+                                Warehouse.id.in_(warehouse_ids),
+                            )
+                        )
+                    ).all()
+                )
+                if existing_warehouse_ids != warehouse_ids:
+                    raise MiniAppStoreError("Один из складов не найден", status_code=404)
+
+            inventory_rows = list(
+                (
+                    await db.scalars(
+                        select(WarehouseInventory)
+                        .where(
+                            WarehouseInventory.tenant_id == tenant.id,
+                            WarehouseInventory.product_id == product.id,
+                        )
+                        .with_for_update()
+                        .options(selectinload(WarehouseInventory.warehouse))
+                    )
+                )
+                .unique()
+                .all()
+            )
+            inventories_by_warehouse = {
+                UUID(str(inventory.warehouse_id)): inventory for inventory in inventory_rows
+            }
+            for warehouse_id, next_quantity in requested_inventory.items():
+                inventory = inventories_by_warehouse.get(warehouse_id)
+                if inventory is None:
+                    inventory = WarehouseInventory(
+                        tenant_id=tenant.id,
+                        product_id=product.id,
+                        warehouse_id=warehouse_id,
+                        available_quantity=0,
+                        reserved_quantity=0,
+                        is_active=False,
+                    )
+                    db.add(inventory)
+                    await db.flush()
+                    inventories_by_warehouse[warehouse_id] = inventory
+                if next_quantity < inventory.reserved_quantity:
+                    warehouse_name = (
+                        inventory.warehouse.name if inventory.warehouse is not None else "Склад"
+                    )
+                    raise MiniAppStoreError(
+                        f"Остаток на складе «{warehouse_name}» не может быть меньше резерва",
+                        status_code=409,
+                    )
+
+            inventory_changes: list[
+                tuple[UUID, WarehouseInventory, int, int]
+            ] = []
+            for warehouse_id, inventory in inventories_by_warehouse.items():
+                next_quantity = requested_inventory.get(warehouse_id, 0)
+                was_active = inventory.is_active
+                next_active = warehouse_id in requested_inventory
+                if next_quantity < inventory.reserved_quantity:
+                    warehouse_name = (
+                        inventory.warehouse.name if inventory.warehouse is not None else "Склад"
+                    )
+                    raise MiniAppStoreError(
+                        f"Склад «{warehouse_name}» нельзя убрать: на нем есть резерв",
+                        status_code=409,
+                    )
+                inventory.is_active = next_active
+                previous_quantity = inventory.available_quantity
+                if previous_quantity == next_quantity and was_active == next_active:
+                    continue
+                if previous_quantity != next_quantity:
+                    inventory.available_quantity = next_quantity
+                    inventory_changes.append(
+                        (warehouse_id, inventory, previous_quantity, next_quantity)
+                    )
+                if not next_active:
+                    inventory.low_stock_notified = False
+                    changed_inventory_count += 1
+                    continue
+                free_quantity = max(available_for_reservation(inventory), 0)
+                should_notify = free_quantity <= 5 and not inventory.low_stock_notified
+                inventory.low_stock_notified = free_quantity <= 5
+                changed_inventory_count += 1
+                if should_notify and inventory.is_active:
+                    low_stock_items.append(inventory)
+
+            decreases = [
+                [warehouse_id, inventory, previous_quantity - next_quantity]
+                for warehouse_id, inventory, previous_quantity, next_quantity in inventory_changes
+                if next_quantity < previous_quantity
+            ]
+            increases = [
+                [warehouse_id, inventory, next_quantity - previous_quantity]
+                for warehouse_id, inventory, previous_quantity, next_quantity in inventory_changes
+                if next_quantity > previous_quantity
+            ]
+            for decrease in decreases:
+                for increase in increases:
+                    moved_quantity = min(int(decrease[2]), int(increase[2]))
+                    if moved_quantity <= 0:
+                        continue
+                    db.add(
+                        build_stock_movement(
+                            inventory=increase[1],
+                            movement_type=StockMovementType.TRANSFER,
+                            quantity=moved_quantity,
+                            actor_account_id=account.id,
+                            from_warehouse_id=decrease[0],
+                            to_warehouse_id=increase[0],
+                            comment="Остатки распределены в карточке товара",
+                        )
+                    )
+                    decrease[2] = int(decrease[2]) - moved_quantity
+                    increase[2] = int(increase[2]) - moved_quantity
+
+            for warehouse_id, inventory, quantity in [*decreases, *increases]:
+                remaining_quantity = int(quantity)
+                if remaining_quantity <= 0:
+                    continue
+                is_decrease = any(
+                    item[0] == warehouse_id and item[1] is inventory for item in decreases
+                )
+                db.add(
+                    build_stock_movement(
+                        inventory=inventory,
+                        movement_type=StockMovementType.ADJUSTMENT,
+                        quantity=remaining_quantity,
+                        actor_account_id=account.id,
+                        from_warehouse_id=warehouse_id if is_decrease else None,
+                        to_warehouse_id=None if is_decrease else warehouse_id,
+                        comment="Остаток изменен в карточке товара",
+                    )
+                )
+
     db.add(
         AuditLog(
             tenant_id=tenant.id,
@@ -1216,6 +1373,7 @@ async def upsert_miniapp_product(
                 "status": product.status.value,
                 "fulfillment_type": product.fulfillment_type.value,
                 "added_code_count": added_code_count,
+                "changed_inventory_count": changed_inventory_count,
                 "staff_role": staff_role.value,
             },
         )
@@ -1237,6 +1395,18 @@ async def upsert_miniapp_product(
         raise MiniAppStoreError("Товар не найден после сохранения", status_code=500)
     if product_created and product.status == ProductStatus.ACTIVE:
         await schedule_new_product_notification(db, tenant=tenant, product=product)
+    active_low_stock_ids = {
+        UUID(str(inventory.warehouse_id)) for inventory in low_stock_items
+    }
+    for inventory in product.inventory_items:
+        if UUID(str(inventory.warehouse_id)) not in active_low_stock_ids:
+            continue
+        await schedule_low_stock_notification(
+            db,
+            tenant=tenant,
+            product=product,
+            inventory=inventory,
+        )
     return _product_to_read(product, include_codes=True)
 
 
@@ -1821,7 +1991,8 @@ async def get_miniapp_ops_summary(
     total_stock_quantity = int(
         await db.scalar(
             select(func.coalesce(func.sum(WarehouseInventory.available_quantity), 0)).where(
-                WarehouseInventory.tenant_id == tenant.id
+                WarehouseInventory.tenant_id == tenant.id,
+                WarehouseInventory.is_active.is_(True),
             )
         )
         or 0
@@ -1829,7 +2000,8 @@ async def get_miniapp_ops_summary(
     total_reserved_quantity = int(
         await db.scalar(
             select(func.coalesce(func.sum(WarehouseInventory.reserved_quantity), 0)).where(
-                WarehouseInventory.tenant_id == tenant.id
+                WarehouseInventory.tenant_id == tenant.id,
+                WarehouseInventory.is_active.is_(True),
             )
         )
         or 0
@@ -1843,7 +2015,9 @@ async def get_miniapp_ops_summary(
             .join(Warehouse, Warehouse.id == WarehouseInventory.warehouse_id)
             .where(
                 WarehouseInventory.tenant_id == tenant.id,
+                WarehouseInventory.is_active.is_(True),
                 Product.status != ProductStatus.ARCHIVED,
+                Product.fulfillment_type == ProductFulfillmentType.WAREHOUSE,
                 available_expr <= threshold,
             )
             .order_by(available_expr.asc(), Product.name, Warehouse.name)
@@ -2148,6 +2322,7 @@ async def create_miniapp_order(
                     .where(
                         WarehouseInventory.tenant_id == tenant.id,
                         WarehouseInventory.product_id.in_(requested_product_ids),
+                        WarehouseInventory.is_active.is_(True),
                     )
                     .order_by(WarehouseInventory.product_id, WarehouseInventory.id)
                     .with_for_update()
@@ -2553,6 +2728,7 @@ async def assign_miniapp_order_warehouses(
         )
         if (
             target_inventory is None
+            or not target_inventory.is_active
             or available_for_reservation(target_inventory) < additional_quantity
         ):
             await schedule_staff_order_notification(
@@ -2826,6 +3002,7 @@ async def cancel_miniapp_order(
                 .where(
                     WarehouseInventory.tenant_id == tenant.id,
                     WarehouseInventory.product_id.in_(out_of_stock_product_ids),
+                    WarehouseInventory.is_active.is_(True),
                 )
                 .with_for_update()
             )
@@ -2959,6 +3136,7 @@ async def issue_miniapp_order(
 
     for item in order.items:
         inventory = await _inventory_for_order_item(db, tenant_id=tenant.id, item=item)
+        inventory.is_active = True
         try:
             issue_reserved_inventory(inventory, item.quantity)
         except WarehouseServiceError as exc:
@@ -3153,6 +3331,7 @@ async def return_miniapp_order(
 
     for item in order.items:
         inventory = await _inventory_for_order_item(db, tenant_id=tenant.id, item=item)
+        inventory.is_active = True
         try:
             return_inventory(inventory, item.quantity)
         except WarehouseServiceError as exc:
@@ -4424,6 +4603,7 @@ async def adjust_miniapp_inventory(
         )
         db.add(inventory)
         await db.flush()
+    inventory.is_active = True
 
     if payload.available_quantity < inventory.reserved_quantity:
         raise MiniAppStoreError(
@@ -4551,7 +4731,7 @@ async def transfer_miniapp_inventory(
         )
         .with_for_update()
     )
-    if source is None:
+    if source is None or not source.is_active:
         raise MiniAppStoreError("На складе отправки нет выбранного товара", status_code=404)
 
     target = await db.scalar(
@@ -4573,6 +4753,7 @@ async def transfer_miniapp_inventory(
         )
         db.add(target)
         await db.flush()
+    target.is_active = True
 
     try:
         transfer_inventory(source=source, target=target, quantity=payload.quantity)

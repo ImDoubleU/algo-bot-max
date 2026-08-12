@@ -215,6 +215,11 @@ class MiniAppCrmImportRead(BaseModel):
     skipped_rows: int = 0
 
 
+class MiniAppProductInventoryWrite(BaseModel):
+    warehouse_id: UUID
+    stock_quantity: int = Field(ge=0, le=1_000_000)
+
+
 class MiniAppProductUpsert(BaseModel):
     max_user_id: int = Field(gt=0)
     tenant_slug: str | None = None
@@ -229,6 +234,10 @@ class MiniAppProductUpsert(BaseModel):
     status: ProductStatus = ProductStatus.ACTIVE
     fulfillment_type: ProductFulfillmentType = ProductFulfillmentType.WAREHOUSE
     new_codes: list[str] = Field(default_factory=list, max_length=500)
+    inventories: list[MiniAppProductInventoryWrite] | None = Field(
+        default=None,
+        max_length=500,
+    )
 
 
 class MiniAppOrderItemCreate(BaseModel):

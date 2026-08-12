@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from typing import Annotated
 from uuid import UUID
@@ -553,6 +554,7 @@ async def miniapp_save_product(
         Form(),
     ] = ProductFulfillmentType.WAREHOUSE,
     new_codes: Annotated[str | None, Form(max_length=250000)] = None,
+    inventories: Annotated[str | None, Form(max_length=250000)] = None,
     photo: Annotated[UploadFile | None, File()] = None,
 ) -> MiniAppProductRead:
     settings = get_settings()
@@ -576,8 +578,9 @@ async def miniapp_save_product(
             status=status_value,
             fulfillment_type=fulfillment_type,
             new_codes=(new_codes or "").splitlines(),
+            inventories=json.loads(inventories) if inventories is not None else None,
         )
-    except ValidationError as exc:
+    except (json.JSONDecodeError, TypeError, ValidationError) as exc:
         raise HTTPException(status_code=422, detail="Проверьте поля товара") from exc
 
     previous_photo_url = None

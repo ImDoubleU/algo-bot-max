@@ -389,10 +389,10 @@ if (apiContext.demoMode && !state.adminHistory.length) {
 }
 
 function renderAdminPanel() {
+  if (state.adminTab === "inventory") state.adminTab = "products";
   const adminTitles = {
     summary: "Операционная сводка",
-    products: "Товары",
-    inventory: "Остатки",
+    products: "Товары и остатки",
     warehouses: "Склады",
     crm: "Импорт учеников и групп",
     contacts: "Связи доступа",
@@ -444,13 +444,9 @@ function renderAdminPanel() {
             <i data-lucide="package-check"></i>
             <span>Заказы к выдаче</span>
           </button>
-          <button class="secondary-action" type="button" data-ops-jump="inventory">
-            <i data-lucide="boxes"></i>
-            <span>Остатки</span>
-          </button>
           <button class="secondary-action" type="button" data-ops-jump="products">
-            <i data-lucide="package-plus"></i>
-            <span>Товары</span>
+            <i data-lucide="boxes"></i>
+            <span>Товары и остатки</span>
           </button>
         </div>
       </div>
@@ -476,7 +472,7 @@ function renderAdminPanel() {
             <small>Активные товары</small>
           </span>
         </button>
-        <button class="ops-metric ops-metric-reserved" type="button" data-ops-jump="inventory">
+        <button class="ops-metric ops-metric-reserved" type="button" data-ops-jump="products">
           <span class="ops-metric-icon"><i data-lucide="archive"></i></span>
           <span class="ops-metric-copy">
             <strong class="ops-metric-value">${Number(summary.total_reserved_quantity || 0)}</strong>
@@ -550,7 +546,7 @@ function renderAdminPanel() {
                         .slice(0, 8)
                         .map(
                           (item) => `
-                            <button class="ops-row ops-row-action" type="button" data-ops-jump="inventory" data-inventory-low-stock>
+                            <button class="ops-row ops-row-action" type="button" data-ops-jump="products" data-edit-product="${escapeHtml(item.product_id || "")}">
                               <span>${escapeHtml(
                                 item.product_name || item.sku || "товар",
                               )} / ${escapeHtml(item.warehouse_name || "склад")}</span>
@@ -599,6 +595,65 @@ function renderAdminPanel() {
     const editing = products.find((product) => product.id === state.editingProductId);
     const editorOpen = state.productEditorOpen || Boolean(editing);
     const photoPreviewUrl = state.productPhotoPreviewUrl || (state.productPhotoRemoved ? "" : editing?.photoUrl || "");
+    const catalogWarehouseOptions = allCatalogWarehouses();
+    const editingInventories = new Map(
+      (editing ? productWarehouses(editing) : []).map((warehouse) => [warehouse.id, warehouse]),
+    );
+    const editingStockTotal = [...editingInventories.values()].reduce(
+      (total, warehouse) => total + Number(warehouse.stock || 0),
+      0,
+    );
+    const inventoryRows = catalogWarehouseOptions
+      .map((warehouse, index) => {
+        const current = editingInventories.get(warehouse.id);
+        const selected = Boolean(current) || (
+          !editing && (
+            state.defaultWarehouseId
+              ? warehouse.id === state.defaultWarehouseId
+              : index === 0
+          )
+        );
+        const reserved = Number(current?.reserved || 0);
+        const stock = Number(current?.stock || 0);
+        return `
+          <div class="product-inventory-row ${selected ? "is-selected" : ""}" data-product-inventory-row="${escapeHtml(warehouse.id)}">
+            <label class="product-warehouse-choice">
+              <input
+                type="checkbox"
+                data-product-warehouse-select="${escapeHtml(warehouse.id)}"
+                ${selected ? "checked" : ""}
+                ${reserved > 0 ? "disabled" : ""}
+              />
+              <span class="product-warehouse-check"><i data-lucide="check"></i></span>
+              <span class="product-warehouse-copy">
+                <strong>${escapeHtml(warehouse.name)}</strong>
+                <small>${escapeHtml(warehouse.address || "Без примечания")}</small>
+              </span>
+            </label>
+            <label class="product-stock-field">
+              <span>Количество</span>
+              <input
+                type="number"
+                inputmode="numeric"
+                min="${reserved}"
+                max="1000000"
+                value="${stock}"
+                data-product-warehouse-quantity="${escapeHtml(warehouse.id)}"
+                ${selected ? "" : "disabled"}
+              />
+            </label>
+            <div
+              class="product-stock-state"
+              data-product-warehouse-free="${escapeHtml(warehouse.id)}"
+              data-reserved-quantity="${reserved}"
+            >
+              ${reserved > 0 ? `<span class="status-badge warn">В резерве ${reserved}</span>` : ""}
+              <span>${selected ? `Свободно ${Math.max(stock - reserved, 0)} шт.` : "Не используется"}</span>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
     const productQuery = state.adminEntitySearch.trim().toLowerCase();
     const productCategories = Array.from(new Set(products.map((product) => product.category).filter(Boolean))).sort((left, right) => left.localeCompare(right, "ru"));
     const visibleProducts = products.filter((product) => {
@@ -729,6 +784,24 @@ function renderAdminPanel() {
                 editing?.description || "",
               )}</textarea>
             </label>
+            <section class="product-field-wide product-inventory-editor" ${(editing?.fulfillmentType || "warehouse") === "warehouse" ? "" : "hidden"}>
+              <div class="product-inventory-head">
+                <div>
+                  <strong>Склады и остатки</strong>
+                  <span>Выберите, где хранится товар, и укажите фактическое количество.</span>
+                </div>
+                <strong data-product-inventory-total>${editingStockTotal} шт.</strong>
+              </div>
+              ${
+                inventoryRows
+                  ? `<div class="product-inventory-list">${inventoryRows}</div>`
+                  : `<div class="product-inventory-empty">
+                      <i data-lucide="warehouse"></i>
+                      <div><strong>Сначала добавьте склад</strong><span>После этого здесь можно будет указать остаток товара.</span></div>
+                      <button class="secondary-action" type="button" data-open-product-warehouses>Перейти к складам</button>
+                    </div>`
+              }
+            </section>
             <div class="product-field-wide product-code-editor" ${editing?.fulfillmentType === "digital_code" ? "" : "hidden"}>
               <div class="product-code-editor-head">
                 <div>
@@ -813,8 +886,19 @@ function renderAdminPanel() {
                 <div class="admin-entity-meta">
                   ${product.sku ? `<span>${escapeHtml(product.sku)}</span>` : ""}
                   <span>${escapeHtml(product.category)}</span>
-                  <span>${product.fulfillmentType === "digital_code" ? `${product.stock} кодов доступно` : `${product.stock} шт.`}</span>
-                  <span>${escapeHtml(product.warehouse)}</span>
+                  <span>${
+                    product.fulfillmentType === "digital_code"
+                      ? `${product.stock} кодов доступно`
+                      : `${productWarehouses(product).reduce((total, warehouse) => total + warehouse.stock, 0)} шт.${
+                          productWarehouses(product).some((warehouse) => warehouse.reserved > 0)
+                            ? ` · ${productWarehouses(product).reduce((total, warehouse) => total + warehouse.reserved, 0)} в резерве`
+                            : ""
+                        } · ${
+                          productWarehouses(product).length
+                            ? productWarehouses(product).map((warehouse) => escapeHtml(warehouse.name)).join(", ")
+                            : "склад не выбран"
+                        }`
+                  }</span>
                 </div>
               </div>
               <div class="admin-entity-actions">
@@ -996,107 +1080,6 @@ function renderAdminPanel() {
         ${rows || '<div class="empty-state">Складов пока нет</div>'}
       </div>
     `;
-    return;
-  }
-
-  if (state.adminTab === "inventory") {
-    const allWarehouses = allCatalogWarehouses();
-    const inventoryQuery = state.adminEntitySearch.trim().toLowerCase();
-    const inventoryItems = products.flatMap((product) =>
-      productWarehouses(product).map((warehouse) => ({ product, warehouse })),
-    ).filter(({ product, warehouse }) => {
-      const matchesQuery = !inventoryQuery || `${product.name} ${product.sku || ""} ${warehouse.name}`.toLowerCase().includes(inventoryQuery);
-      const matchesWarehouse = state.inventoryWarehouseFilter === "all" || warehouse.id === state.inventoryWarehouseFilter;
-      const matchesStock = state.inventoryStockFilter === "all"
-        || (state.inventoryStockFilter === "low" && warehouse.available > 0 && warehouse.available <= 5)
-        || (state.inventoryStockFilter === "empty" && warehouse.available <= 0)
-        || (state.inventoryStockFilter === "available" && warehouse.available > 5);
-      return matchesQuery && matchesWarehouse && matchesStock;
-    }).sort((left, right) => left.warehouse.available - right.warehouse.available);
-    const rows = inventoryItems.map(({ product, warehouse }) => {
-        const key = `${product.id}::${warehouse.id}`;
-        const saving = state.inventorySavingKey === key;
-        const targetOptions = allWarehouses
-          .filter((item) => item.id !== warehouse.id)
-          .map(
-            (item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`,
-          )
-          .join("");
-        return `
-          <div class="inventory-row">
-            <div class="inventory-item-heading">
-              <strong>${escapeHtml(product.name)}</strong>
-              <span>${escapeHtml(warehouse.name)}</span>
-              <div class="inventory-badges">
-                <span>${warehouse.stock} факт</span>
-                <span>${warehouse.reserved} резерв</span>
-                <span>${warehouse.available} свободно</span>
-              </div>
-            </div>
-            <div class="inventory-action-group">
-              <label>
-                <span>Фактический остаток</span>
-                <input
-                  data-inventory-quantity="${escapeHtml(key)}"
-                  inputmode="numeric"
-                  min="${warehouse.reserved}"
-                  type="number"
-                  value="${warehouse.stock}"
-                />
-              </label>
-              <button
-                class="secondary-action"
-                type="button"
-                data-adjust-inventory="${escapeHtml(key)}"
-                ${saving ? "disabled" : ""}
-              >${saving ? "Сохранение..." : "Обновить"}</button>
-            </div>
-            <div class="inventory-action-group inventory-transfer-group">
-              <label>
-                <span>Перенести на склад</span>
-                <select data-transfer-target="${escapeHtml(key)}">${targetOptions}</select>
-              </label>
-              <label class="inventory-quantity-field">
-                <span>Количество</span>
-                <input
-                  data-transfer-quantity="${escapeHtml(key)}"
-                  inputmode="numeric"
-                  min="1"
-                  max="${warehouse.available}"
-                  type="number"
-                  value="${warehouse.available > 0 ? 1 : 0}"
-                />
-              </label>
-              <button
-                class="secondary-action"
-                type="button"
-                data-transfer-inventory="${escapeHtml(key)}"
-                ${saving || warehouse.available <= 0 || !targetOptions ? "disabled" : ""}
-              >Перенести</button>
-            </div>
-          </div>
-        `;
-      });
-
-    qs("#adminPanel").innerHTML = `
-      <div class="admin-section-toolbar">
-        <div><h3>Остатки по складам</h3><span>${inventoryItems.length} позиций</span></div>
-      </div>
-      <div class="admin-filter-toolbar inventory-filter-toolbar">
-        <label class="search-field"><i data-lucide="search"></i><input id="adminEntitySearch" type="search" value="${escapeHtml(state.adminEntitySearch)}" placeholder="Товар, SKU или склад" /><button class="search-clear" type="button" data-clear-admin-search ${state.adminEntitySearch ? "" : "hidden"}><i data-lucide="x"></i></button></label>
-        <select id="inventoryWarehouseFilter" aria-label="Склад"><option value="all">Все склады</option>${allWarehouses.map((warehouse) => `<option value="${escapeHtml(warehouse.id)}" ${state.inventoryWarehouseFilter === warehouse.id ? "selected" : ""}>${escapeHtml(warehouse.name)}</option>`).join("")}</select>
-        <select id="inventoryStockFilter" aria-label="Остаток">
-          <option value="all">Любой остаток</option>
-          <option value="low" ${state.inventoryStockFilter === "low" ? "selected" : ""}>Мало товара</option>
-          <option value="empty" ${state.inventoryStockFilter === "empty" ? "selected" : ""}>Нет в наличии</option>
-          <option value="available" ${state.inventoryStockFilter === "available" ? "selected" : ""}>В наличии</option>
-        </select>
-      </div>
-      <div class="inventory-list">
-        ${rows.join("") || '<div class="empty-state compact-empty"><strong>Позиции не найдены</strong><button class="secondary-action" type="button" data-clear-inventory-filters>Сбросить фильтры</button></div>'}
-      </div>
-    `;
-    refreshIcons();
     return;
   }
 

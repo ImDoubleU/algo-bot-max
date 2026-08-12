@@ -41,7 +41,9 @@ def choose_inventory_for_reservation(
     candidates = [
         inventory
         for inventory in inventories
-        if inventory.product is not None and available_for_reservation(inventory) >= quantity
+        if inventory.product is not None
+        and getattr(inventory, "is_active", True)
+        and available_for_reservation(inventory) >= quantity
     ]
     if not candidates:
         return None

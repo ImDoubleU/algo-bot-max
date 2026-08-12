@@ -348,7 +348,8 @@ async def schedule_low_stock_notification(
             ],
         ),
         view="admin",
-        button_label="Проверить остатки",
+        button_label="Товары и остатки",
+        product_id=str(product.id),
     )
 
 

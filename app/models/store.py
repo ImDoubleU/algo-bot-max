@@ -152,6 +152,7 @@ class WarehouseInventory(TimestampMixin, Base):
     issued_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     returned_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     low_stock_notified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     warehouse = relationship("Warehouse", back_populates="inventory_items")
     product = relationship("Product", back_populates="inventory_items")

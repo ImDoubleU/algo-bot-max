@@ -193,6 +193,56 @@ function fileAsDataUrl(file) {
   });
 }
 
+function readProductInventoriesFromForm() {
+  return qsa("[data-product-warehouse-select]:checked").map((checkbox) => {
+    const warehouseId = checkbox.dataset.productWarehouseSelect || "";
+    const quantityInput = qsa("[data-product-warehouse-quantity]").find(
+      (input) => input.dataset.productWarehouseQuantity === warehouseId,
+    );
+    return {
+      warehouse_id: warehouseId,
+      stock_quantity: Number.parseInt(quantityInput?.value || "", 10),
+      minimum_quantity: Number.parseInt(quantityInput?.min || "0", 10),
+    };
+  });
+}
+
+function syncProductInventoryEditor() {
+  qsa("[data-product-inventory-row]").forEach((row) => {
+    const warehouseId = row.dataset.productInventoryRow || "";
+    const checkbox = row.querySelector("[data-product-warehouse-select]");
+    const quantityInput = row.querySelector("[data-product-warehouse-quantity]");
+    if (!(checkbox instanceof HTMLInputElement) || !(quantityInput instanceof HTMLInputElement)) {
+      return;
+    }
+    const selected = checkbox.checked;
+    row.classList.toggle("is-selected", selected);
+    quantityInput.disabled = !selected;
+    const freeLabel = row.querySelector("[data-product-warehouse-free]");
+    if (freeLabel) {
+      const reserved = Number.parseInt(freeLabel.dataset.reservedQuantity || "0", 10);
+      const stock = Number.parseInt(quantityInput.value || "0", 10);
+      const freeText = freeLabel.querySelector("span:last-child");
+      if (freeText) {
+        freeText.textContent = selected
+          ? `Свободно ${Math.max((Number.isNaN(stock) ? 0 : stock) - reserved, 0)} шт.`
+          : "Не используется";
+      }
+    }
+    if (quantityInput.dataset.productWarehouseQuantity !== warehouseId) {
+      quantityInput.dataset.productWarehouseQuantity = warehouseId;
+    }
+  });
+
+  const total = readProductInventoriesFromForm().reduce(
+    (sum, inventory) =>
+      sum + (Number.isNaN(inventory.stock_quantity) ? 0 : inventory.stock_quantity),
+    0,
+  );
+  const totalElement = qs("[data-product-inventory-total]");
+  if (totalElement) totalElement.textContent = `${total} шт.`;
+}
+
 async function saveProductFromForm() {
   const sku = qs("#productSku")?.value.trim().toUpperCase() || "";
   const name = qs("#productName")?.value.trim() || "";
@@ -205,6 +255,7 @@ async function saveProductFromForm() {
   const photoFile = state.productPhotoFile;
   const editing = products.find((product) => product.id === state.editingProductId);
   const existingPhotoUrl = state.productPhotoRemoved ? "" : editing?.photoUrl || "";
+  const inventoryDraft = fulfillmentType === "warehouse" ? readProductInventoriesFromForm() : [];
   if (sku.length < 2 || name.length < 2) {
     showNotice("Укажите SKU и название товара", "danger");
     return;
@@ -221,6 +272,30 @@ async function saveProductFromForm() {
     showNotice("Добавьте хотя бы один код для автовыдачи", "danger");
     return;
   }
+  if (fulfillmentType === "warehouse" && inventoryDraft.length === 0) {
+    showNotice(
+      allCatalogWarehouses().length
+        ? "Выберите хотя бы один склад для товара"
+        : "Сначала добавьте склад",
+      "danger",
+    );
+    return;
+  }
+  const invalidInventory = inventoryDraft.find(
+    (inventory) =>
+      !inventory.warehouse_id ||
+      Number.isNaN(inventory.stock_quantity) ||
+      inventory.stock_quantity < inventory.minimum_quantity ||
+      inventory.stock_quantity > 1000000,
+  );
+  if (invalidInventory) {
+    showNotice("Проверьте количество товара на выбранных складах", "danger");
+    return;
+  }
+  const inventories = inventoryDraft.map(({ warehouse_id, stock_quantity }) => ({
+    warehouse_id,
+    stock_quantity,
+  }));
   const payload = {
     sku,
     name,
@@ -231,6 +306,7 @@ async function saveProductFromForm() {
     fulfillment_type: fulfillmentType,
     new_codes: newCodes,
     description: description || undefined,
+    inventories,
   };
 
   if (apiContext.demoMode || !apiContext.maxUserId || state.editingProductId.startsWith("demo-")) {
@@ -244,6 +320,30 @@ async function saveProductFromForm() {
       }
     }
     const id = editing?.id || `demo-product-${slugify(sku)}`;
+    const previousInventories = new Map(
+      (editing ? productWarehouses(editing) : []).map((warehouse) => [warehouse.id, warehouse]),
+    );
+    const demoWarehouses = fulfillmentType === "warehouse"
+      ? inventories.map((inventory) => {
+          const warehouse = allCatalogWarehouses().find(
+            (item) => item.id === inventory.warehouse_id,
+          );
+          const previous = previousInventories.get(inventory.warehouse_id);
+          const reserved = Number(previous?.reserved || 0);
+          return {
+            warehouse_id: inventory.warehouse_id,
+            warehouse_name: warehouse?.name || previous?.name || "Склад",
+            warehouse_type: warehouse?.type || previous?.type || "common",
+            stock_quantity: inventory.stock_quantity,
+            reserved_quantity: reserved,
+            available_quantity: Math.max(inventory.stock_quantity - reserved, 0),
+          };
+        })
+      : [];
+    const availableQuantity = demoWarehouses.reduce(
+      (total, warehouse) => total + Number(warehouse.available_quantity || 0),
+      0,
+    );
     const nextProduct = {
       ...(editing || {}),
       id,
@@ -260,9 +360,15 @@ async function saveProductFromForm() {
       issuedCodeCount: Number(editing?.issuedCodeCount || 0),
       photoUrl,
       description,
-      stock: editing?.stock || 0,
-      warehouse: editing?.warehouse || "Склад будет выбран",
-      warehouses: editing?.warehouses || [],
+      stock:
+        fulfillmentType === "digital_code"
+          ? Number(editing?.stock || 0)
+          : availableQuantity,
+      warehouse:
+        fulfillmentType === "digital_code"
+          ? "Автовыдача кода"
+          : demoWarehouses[0]?.warehouse_name || "Склад не выбран",
+      warehouses: demoWarehouses,
       mark: name.trim().slice(0, 1).toUpperCase() || "A",
     };
     const existingIndex = products.findIndex((product) => product.id === id || product.sku === sku);
@@ -290,6 +396,7 @@ async function saveProductFromForm() {
     formData.set("price_astrocoins", String(payload.price_astrocoins));
     formData.set("status", payload.status);
     formData.set("fulfillment_type", payload.fulfillment_type);
+    formData.set("inventories", JSON.stringify(payload.inventories));
     if (payload.new_codes) formData.set("new_codes", payload.new_codes);
     if (payload.description) formData.set("description", payload.description);
     if (existingPhotoUrl) formData.set("existing_photo_url", existingPhotoUrl);
@@ -944,23 +1051,6 @@ async function accrueSelectedStudents() {
   await accrueStudents(targets, amount, reason);
 }
 
-function cycleProductWarehouse(productId) {
-  const product = products.find((item) => item.id === productId);
-  if (!product) return;
-  const currentIndex = warehouses.findIndex(([name]) => name === product.warehouse);
-  const nextWarehouse = warehouses[(currentIndex + 1 + warehouses.length) % warehouses.length][0];
-  product.warehouse = nextWarehouse;
-  showNotice(`${product.name}: выбран склад "${nextWarehouse}"`);
-  renderProducts();
-  renderAdminPanel();
-}
-
-function showWarehouseAction(warehouseName) {
-  const warehouse = warehouses.find(([name]) => name === warehouseName);
-  if (!warehouse) return;
-  showNotice(`Склад "${warehouse[0]}": ${warehouse[3]}, статус "${warehouse[4]}"`);
-}
-
 async function saveWarehouseFromForm() {
   const name = qs("#warehouseName")?.value.trim() || "";
   const address = qs("#warehouseAddress")?.value.trim() || "";
@@ -1052,135 +1142,6 @@ async function saveWarehousePreference() {
     showNotice(error.message || "Не удалось сохранить основной склад", "danger");
   } finally {
     state.warehousePreferenceSaving = false;
-    renderAdminPanel();
-  }
-}
-
-async function adjustInventory(inventoryKey) {
-  const [productId, warehouseId] = inventoryKey.split("::");
-  const product = productById(productId);
-  const warehouse = product ? warehouseById(product, warehouseId) : null;
-  const input = qsa("[data-inventory-quantity]").find(
-    (item) => item.dataset.inventoryQuantity === inventoryKey,
-  );
-  const nextQuantity = Number.parseInt(input?.value || "", 10);
-  if (!product || !warehouse || Number.isNaN(nextQuantity)) return;
-  if (nextQuantity < warehouse.reserved) {
-    showNotice("Фактический остаток не может быть меньше резерва", "danger");
-    return;
-  }
-
-  if (apiContext.demoMode || !apiContext.maxUserId || product.id.startsWith("demo-")) {
-    const rawWarehouse = product.warehouses.find(
-      (item) => String(item.warehouse_id || item.id || item.warehouse_name) === warehouse.id,
-    );
-    if (rawWarehouse) {
-      rawWarehouse.stock_quantity = nextQuantity;
-      rawWarehouse.available_quantity = Math.max(nextQuantity - warehouse.reserved, 0);
-    }
-    product.stock = productWarehouses(product).reduce((total, item) => total + item.available, 0);
-    showNotice(`${product.name}: остаток на складе "${warehouse.name}" обновлен`);
-    renderAll();
-    return;
-  }
-
-  state.inventorySavingKey = inventoryKey;
-  renderAdminPanel();
-  try {
-    const response = await apiFetch("/api/v1/miniapp/inventory/adjust", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        max_user_id: Number(apiContext.maxUserId),
-        tenant_slug: apiContext.tenantSlug || undefined,
-        product_id: product.id,
-        warehouse_id: warehouse.id,
-        available_quantity: nextQuantity,
-        comment: "Корректировка в приложении",
-      }),
-    });
-    if (!response.ok) throw new Error(await parseApiError(response));
-
-    const result = await response.json();
-    showNotice(
-      `${product.name}: склад "${result.warehouse_name}", факт ${result.stock_quantity} шт.`,
-    );
-    await refreshCatalogAndOpsSummary();
-    renderAll();
-  } catch (error) {
-    showNotice(error.message || "Не удалось обновить остаток", "danger");
-  } finally {
-    state.inventorySavingKey = "";
-    renderAdminPanel();
-  }
-}
-
-async function transferInventory(inventoryKey) {
-  const [productId, warehouseId] = inventoryKey.split("::");
-  const product = productById(productId);
-  const source = product ? warehouseById(product, warehouseId) : null;
-  const targetId =
-    qsa("[data-transfer-target]").find((item) => item.dataset.transferTarget === inventoryKey)
-      ?.value || "";
-  const target = allCatalogWarehouses().find((warehouse) => warehouse.id === targetId);
-  const quantityValue =
-    qsa("[data-transfer-quantity]").find((item) => item.dataset.transferQuantity === inventoryKey)
-      ?.value || "";
-  const quantity = Number.parseInt(quantityValue, 10);
-  if (!product || !source || !target || Number.isNaN(quantity)) return;
-  if (quantity <= 0) {
-    showNotice("Укажите количество для перемещения", "danger");
-    return;
-  }
-  if (quantity > source.available) {
-    showNotice("Нельзя переместить больше свободного остатка", "danger");
-    return;
-  }
-
-  if (apiContext.demoMode || !apiContext.maxUserId || product.id.startsWith("demo-")) {
-    const rawSource = ensureProductWarehouse(product, source);
-    const rawTarget = ensureProductWarehouse(product, target);
-    rawSource.stock_quantity = Math.max(Number(rawSource.stock_quantity || source.stock) - quantity, 0);
-    rawSource.available_quantity = Math.max(
-      Number(rawSource.available_quantity || source.available) - quantity,
-      0,
-    );
-    rawTarget.stock_quantity = Number(rawTarget.stock_quantity || 0) + quantity;
-    rawTarget.available_quantity = Number(rawTarget.available_quantity || 0) + quantity;
-    product.stock = productWarehouses(product).reduce((total, item) => total + item.available, 0);
-    showNotice(`${product.name}: ${quantity} шт. перемещено в "${target.name}"`);
-    renderAll();
-    return;
-  }
-
-  state.inventorySavingKey = inventoryKey;
-  renderAdminPanel();
-  try {
-    const response = await apiFetch("/api/v1/miniapp/inventory/transfer", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        max_user_id: Number(apiContext.maxUserId),
-        tenant_slug: apiContext.tenantSlug || undefined,
-        product_id: product.id,
-        from_warehouse_id: source.id,
-        to_warehouse_id: target.id,
-        quantity,
-        comment: "Перемещение в приложении",
-      }),
-    });
-    if (!response.ok) throw new Error(await parseApiError(response));
-
-    const result = await response.json();
-    showNotice(
-      `${product.name}: ${result.quantity} шт. перемещено в "${result.to_warehouse_name}"`,
-    );
-    await refreshCatalogAndOpsSummary();
-    renderAll();
-  } catch (error) {
-    showNotice(error.message || "Не удалось переместить остаток", "danger");
-  } finally {
-    state.inventorySavingKey = "";
     renderAdminPanel();
   }
 }
@@ -1971,8 +1932,7 @@ document.addEventListener("click", (event) => {
     setView("orders");
     renderOrders();
   } else if (["inventory", "products", "warehouses"].includes(opsJump)) {
-    state.adminTab = opsJump;
-    if ("inventoryLowStock" in target.dataset) state.inventoryStockFilter = "low";
+    state.adminTab = opsJump === "inventory" ? "products" : opsJump;
     setView("admin");
     renderAdminPanel();
   }
@@ -2064,9 +2024,6 @@ document.addEventListener("click", (event) => {
     renderAccrual();
     qs("#accrualNameFilter")?.focus();
   }
-  const warehouseName = target.dataset.warehouseAction;
-  if (warehouseName) showWarehouseAction(warehouseName);
-
   const editWarehouseId = target.dataset.editWarehouse;
   if (editWarehouseId) {
     state.editingWarehouseId = editWarehouseId;
@@ -2093,15 +2050,6 @@ document.addEventListener("click", (event) => {
   if (target.id === "saveWarehousePreferenceButton") {
     saveWarehousePreference();
   }
-
-  const transferProductId = target.dataset.transferProduct;
-  if (transferProductId) cycleProductWarehouse(transferProductId);
-
-  const inventoryKey = target.dataset.adjustInventory;
-  if (inventoryKey) adjustInventory(inventoryKey);
-
-  const transferInventoryKey = target.dataset.transferInventory;
-  if (transferInventoryKey) transferInventory(transferInventoryKey);
 
   const contactStudentId = target.dataset.toggleContact;
   if (contactStudentId) toggleContactLink(contactStudentId);
@@ -2146,8 +2094,18 @@ document.addEventListener("click", (event) => {
   const editProductId = target.dataset.editProduct;
   if (editProductId) {
     resetProductPhotoSelection();
+    state.adminTab = "products";
     state.editingProductId = editProductId;
     state.productEditorOpen = true;
+    if (state.view !== "admin") setView("admin");
+    renderAdminPanel();
+  }
+
+  if ("openProductWarehouses" in target.dataset) {
+    resetProductPhotoSelection();
+    state.editingProductId = "";
+    state.productEditorOpen = false;
+    state.adminTab = "warehouses";
     renderAdminPanel();
   }
 
@@ -2183,13 +2141,6 @@ document.addEventListener("click", (event) => {
     state.staffRoleFilter = "all";
     renderAdminPanel();
   }
-  if ("clearInventoryFilters" in target.dataset) {
-    state.adminEntitySearch = "";
-    state.inventoryWarehouseFilter = "all";
-    state.inventoryStockFilter = "all";
-    renderAdminPanel();
-  }
-
   const productStatusId = target.dataset.toggleProductStatus;
   if (productStatusId) toggleProductStatus(productStatusId);
   if ("removeProductPhoto" in target.dataset) {
@@ -2343,7 +2294,14 @@ document.addEventListener("change", (event) => {
 
   if (target.id === "productFulfillmentType") {
     const codeEditor = qs(".product-code-editor");
+    const inventoryEditor = qs(".product-inventory-editor");
     if (codeEditor) codeEditor.hidden = target.value !== "digital_code";
+    if (inventoryEditor) inventoryEditor.hidden = target.value !== "warehouse";
+  }
+
+  const productWarehouseId = target.dataset.productWarehouseSelect;
+  if (productWarehouseId) {
+    syncProductInventoryEditor();
   }
 
   if (target.id === "broadcastPhotoFile") {
@@ -2405,14 +2363,6 @@ document.addEventListener("change", (event) => {
   }
   if (target.id === "productCategoryFilter") {
     state.productCategoryFilter = target.value;
-    renderAdminPanel();
-  }
-  if (target.id === "inventoryWarehouseFilter") {
-    state.inventoryWarehouseFilter = target.value;
-    renderAdminPanel();
-  }
-  if (target.id === "inventoryStockFilter") {
-    state.inventoryStockFilter = target.value;
     renderAdminPanel();
   }
   if (target.id === "accessStatusFilter") {
@@ -2502,6 +2452,11 @@ document.addEventListener("input", (event) => {
     return;
   }
   if (!(target instanceof HTMLInputElement)) return;
+
+  if (target.dataset.productWarehouseQuantity) {
+    syncProductInventoryEditor();
+    return;
+  }
 
   if (target.id === "broadcastTitle") {
     scheduleBroadcastDraftSave();
