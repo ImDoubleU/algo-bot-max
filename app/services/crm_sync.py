@@ -357,6 +357,7 @@ async def upsert_crm_student_rows(
     target_tenant: Tenant | None = None,
     student_status: StudentStatus = StudentStatus.ACTIVE,
     actor_account_id: UUID | None = None,
+    history_source: str = "crm_import",
 ) -> CrmSyncResult:
     result = CrmSyncResult()
     partner: Partner | None = None
@@ -504,7 +505,7 @@ async def upsert_crm_student_rows(
                 from_status=previous_status.value if previous_status else None,
                 to_status=student_status.value,
                 changed_fields=changed_fields,
-                source="crm_import",
+                source=history_source,
             )
         )
         if await ensure_wallet(db, tenant=tenant, student=student):
