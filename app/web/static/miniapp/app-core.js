@@ -1206,6 +1206,9 @@ function productStatusLabel(status) {
 }
 
 function productAvailable(product) {
+  if (product.fulfillmentType === "digital_code") {
+    return Math.max(Number(product.stock || 0), 0);
+  }
   return productWarehouses(product).reduce(
     (total, warehouse) => total + Number(warehouse.available || 0),
     0,
