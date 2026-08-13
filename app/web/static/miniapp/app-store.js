@@ -356,7 +356,9 @@ function renderProducts() {
   const grid = qs("#productGrid");
   state.productSort = sort;
   state.productCategory = category;
-  state.inStockOnly = qs("#inStockOnly").checked;
+  const stockCheckbox = qs("#inStockOnly");
+  state.inStockOnly = stockCheckbox.checked;
+  stockCheckbox.closest(".stock-filter")?.classList.toggle("is-active", state.inStockOnly);
   const visible = activeProducts()
     .filter((product) => {
       const matchesSearch = productMatchesSearch(product, search);
@@ -379,6 +381,7 @@ function renderProducts() {
   ).length;
   const favoritesFilter = qs("#favoritesFilter");
   favoritesFilter.setAttribute("aria-pressed", String(state.favoritesOnly));
+  qs(".store-sort-filter")?.classList.toggle("is-active", sort !== "recommended");
   const clearSearchButton = qs("#clearProductSearch");
   if (clearSearchButton) clearSearchButton.hidden = !search;
   const filterButton = qs("#mobileStoreFiltersButton");

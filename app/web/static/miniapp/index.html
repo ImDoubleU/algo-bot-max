@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.65.2" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.65.3" />
   </head>
   <body class="is-booting">
     <main id="accessGate" class="access-gate" hidden>
@@ -201,7 +201,7 @@
             </div>
 
             <div class="store-filter-row">
-              <div class="store-category-label">Быстрый выбор</div>
+              <div class="store-category-label">Категории</div>
               <div class="category-scroll-shell">
                 <div id="categoryChips" class="category-chips" aria-label="Категории товаров"></div>
               </div>
@@ -217,13 +217,17 @@
                   <option value="all">Все категории</option>
                 </select>
                 <label class="store-sort-filter">
-                  <span>Сортировка</span>
-                  <select id="productSort" aria-label="Сортировка">
-                    <option value="recommended">Сначала популярные</option>
-                    <option value="price-asc">Дешевле</option>
-                    <option value="price-desc">Дороже</option>
-                    <option value="newest">Новинки</option>
-                  </select>
+                  <i data-lucide="arrow-up-down" aria-hidden="true"></i>
+                  <span class="store-sort-copy">
+                    <span class="store-sort-caption">Сортировка</span>
+                    <select id="productSort" aria-label="Сортировка товаров">
+                      <option value="recommended">Сначала популярные</option>
+                      <option value="price-asc">Сначала дешевле</option>
+                      <option value="price-desc">Сначала дороже</option>
+                      <option value="newest">Сначала новые</option>
+                    </select>
+                  </span>
+                  <i class="store-sort-chevron" data-lucide="chevron-down" aria-hidden="true"></i>
                 </label>
                 <label class="stock-filter">
                   <input id="inStockOnly" type="checkbox" />
@@ -1003,11 +1007,11 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app-core.js?v=0.65.2"></script>
-    <script src="/miniapp/static/app-shell.js?v=0.65.2"></script>
-    <script src="/miniapp/static/app-store.js?v=0.65.2"></script>
-    <script src="/miniapp/static/app-admin.js?v=0.65.2"></script>
-    <script src="/miniapp/static/app-teaching.js?v=0.65.2"></script>
-    <script src="/miniapp/static/app.js?v=0.65.2"></script>
+    <script src="/miniapp/static/app-core.js?v=0.65.3"></script>
+    <script src="/miniapp/static/app-shell.js?v=0.65.3"></script>
+    <script src="/miniapp/static/app-store.js?v=0.65.3"></script>
+    <script src="/miniapp/static/app-admin.js?v=0.65.3"></script>
+    <script src="/miniapp/static/app-teaching.js?v=0.65.3"></script>
+    <script src="/miniapp/static/app.js?v=0.65.3"></script>
   </body>
 </html>
