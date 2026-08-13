@@ -621,11 +621,13 @@ function orderWarehouseOptions(item) {
 
 function renderOrderDialog(order) {
   const needsWarehouseAssignment = canAssignOrderWarehouses(order);
+  const isDigitalOrder = orderIsDigital(order);
   const items = Array.isArray(order.items) && order.items.length > 0
     ? order.items
         .map(
           (item) => {
             const product = productById(item.productId || "");
+            const isDigitalItem = item.fulfillmentType === "digital_code";
             const warehouseOptions = needsWarehouseAssignment
               ? orderWarehouseOptions(item)
               : [];
@@ -659,24 +661,45 @@ function renderOrderDialog(order) {
                 ? `<div class="student-meta">${escapeHtml(item.warehouseName)}</div>`
                 : "";
             const issuedCodes = (item.issuedCodes || []).length
-              ? `<div class="issued-code-list">${item.issuedCodes
+              ? `<section class="digital-delivery">
+                  <div class="digital-delivery-head">
+                    <span><i data-lucide="key-round"></i></span>
+                    <div>
+                      <strong>Цифровой товар готов</strong>
+                      <small>Скопируйте код и используйте его на сайте или в приложении сервиса.</small>
+                    </div>
+                  </div>
+                  <div class="issued-code-list">${item.issuedCodes
                   .map(
-                    (code) => `<div><span>Код</span><code>${escapeHtml(code)}</code><button class="icon-button" type="button" data-copy-code="${escapeHtml(code)}" title="Копировать код" aria-label="Копировать код"><i data-lucide="copy"></i></button></div>`,
+                    (code, index) => `<div class="issued-code-card">
+                      <span>${item.issuedCodes.length > 1 ? `Код ${index + 1}` : "Код товара"}</span>
+                      <code>${escapeHtml(code)}</code>
+                      <button class="primary-action" type="button" data-copy-code="${escapeHtml(code)}" aria-label="Копировать код">
+                        <i data-lucide="copy"></i><span>Копировать</span>
+                      </button>
+                    </div>`,
                   )
-                  .join("")}</div>`
+                  .join("")}</div>
+                </section>`
               : "";
             return `
-              <div class="order-detail-item ${needsWarehouseAssignment ? "needs-warehouse" : ""}">
+              <div class="order-detail-item ${needsWarehouseAssignment ? "needs-warehouse" : ""} ${isDigitalItem ? "is-digital" : ""}">
                 <span class="order-detail-thumb">
                   ${product?.photoUrl ? `<img src="${escapeHtml(product.photoUrl)}" alt="" />` : `<i data-lucide="${product ? productFallbackIcon(product) : "package"}"></i>`}
                 </span>
-                <div>
-                  <strong>${escapeHtml(item.productName || "Товар")}</strong>
-                  <div class="student-meta">${Number(item.quantity || 0)} шт.</div>
+                <div class="order-detail-copy">
+                  <div class="order-detail-product-head">
+                    <div>
+                      <strong>${escapeHtml(item.productName || "Товар")}</strong>
+                      <div class="student-meta">${Number(item.quantity || 0)} шт.</div>
+                    </div>
+                    ${isDigitalItem ? `<strong class="order-detail-price">${Number(item.totalPrice || 0)} AC</strong>` : ""}
+                  </div>
                   ${warehouseControl}
-                  ${issuedCodes}
+                  ${isDigitalItem ? "" : issuedCodes}
                 </div>
-                <strong>${Number(item.totalPrice || 0)} AC</strong>
+                ${isDigitalItem ? "" : `<strong class="order-detail-price">${Number(item.totalPrice || 0)} AC</strong>`}
+                ${isDigitalItem ? issuedCodes : ""}
               </div>
             `;
           },
@@ -698,7 +721,11 @@ function renderOrderDialog(order) {
             <div class="order-history-row ${index === 0 ? "is-current" : "is-complete"}">
               <span class="order-history-marker"><i data-lucide="${index === 0 ? "circle-dot" : "check"}"></i></span>
               <div>
-                <strong>${escapeHtml(orderStatusLabel(event.toStatus))}</strong>
+                <strong>${escapeHtml(
+                  isDigitalOrder && event.toStatus === "issued_to_student"
+                    ? "Заказ выполнен"
+                    : orderStatusLabel(event.toStatus),
+                )}</strong>
                 <span>${escapeHtml(formatOrderDate(event.createdAt))}</span>
                 ${event.comment ? `<div>${escapeHtml(event.comment)}</div>` : ""}
               </div>
@@ -715,14 +742,14 @@ function renderOrderDialog(order) {
 
   qs("#orderDialogTitle").textContent = `Заказ №${order.id}`;
   qs("#orderDialogContent").innerHTML = `
-    <div class="order-dialog-summary">
+    <div class="order-dialog-summary ${isDigitalOrder ? "is-digital" : ""}">
       <div>
-        <span class="status-badge ${escapeHtml(order.tone)}">${escapeHtml(order.status)}</span>
+        <span class="status-badge ${escapeHtml(order.tone)}">${isDigitalOrder ? "Выполнен" : escapeHtml(order.status)}</span>
         <h3>${escapeHtml(order.student)}</h3>
         <div class="student-meta">
           ${
-            orderIsDigital(order)
-              ? "Код выдан автоматически"
+            isDigitalOrder
+              ? "Код хранится в этом заказе"
               : ["teacher", "admin"].includes(state.role)
               ? orderHasAssignedWarehouses(order)
                 ? "Склад назначен"
@@ -1610,16 +1637,21 @@ async function placeOrder() {
     if (!response.ok) throw new Error(await parseApiError(response));
 
     const result = await response.json();
+    const isDigitalOrder = result.order.status === "issued_to_student";
     state.cart.clear();
     state.orderRequestKey = "";
     state.orderRequestSignature = "";
     await saveCart();
     closeCheckoutDialog();
     await refreshOrderAndInventoryState();
+    if (isDigitalOrder) {
+      state.orderStatusFilter = "issued";
+      savePreferences();
+    }
     setView("orders");
     showNotice(
-      result.order.status === "issued_to_student"
-        ? `Заказ №${result.order.order_number} оплачен, код уже доступен в заказе`
+      isDigitalOrder
+        ? `Покупка готова. Откройте заказ №${result.order.order_number}, чтобы посмотреть и скопировать код.`
         : `Заказ №${result.order.order_number} оформлен и зарезервирован`,
     );
     renderAll();

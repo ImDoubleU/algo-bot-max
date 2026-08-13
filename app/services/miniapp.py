@@ -2544,7 +2544,7 @@ async def create_miniapp_order(
             from_status=None,
             to_status=order.status,
             comment=(
-                "Код выдан автоматически после оплаты"
+                "Цифровой товар оплачен и готов к использованию"
                 if is_digital_order
                 else "Заказ создан в приложении Algo MAX"
             ),
