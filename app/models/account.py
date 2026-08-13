@@ -46,6 +46,37 @@ class StaffRoleAssignment(TimestampMixin, Base):
 
     tenant = relationship("Tenant", back_populates="staff_assignments")
     account = relationship("MaxAccount", back_populates="staff_assignments")
+    venue_scopes = relationship(
+        "StaffVenueScope",
+        back_populates="assignment",
+        cascade="all, delete-orphan",
+    )
+
+
+class StaffVenueScope(TimestampMixin, Base):
+    __tablename__ = "staff_venue_scopes"
+    __table_args__ = (
+        UniqueConstraint(
+            "assignment_id",
+            "venue_id",
+            name="uq_staff_venue_scopes_assignment_venue",
+        ),
+    )
+
+    id: Mapped[UUID] = uuid_pk()
+    assignment_id: Mapped[UUID] = mapped_column(
+        ForeignKey("staff_role_assignments.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    venue_id: Mapped[UUID] = mapped_column(
+        ForeignKey("venues.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+
+    assignment = relationship("StaffRoleAssignment", back_populates="venue_scopes")
+    venue = relationship("Venue")
 
 
 class StaffWarehousePreference(TimestampMixin, Base):

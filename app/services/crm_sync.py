@@ -429,6 +429,7 @@ async def upsert_crm_student_rows(
         imported_at = datetime.now(UTC)
         is_new_student = student is None
         previous_status: StudentStatus | None = None
+        previous_group_name: str | None = None
         changed_fields: list[str] = []
         if student is None:
             student = Student(
@@ -449,6 +450,7 @@ async def upsert_crm_student_rows(
             result = result.add(created_students=result.created_students + 1)
         else:
             previous_status = student.status
+            previous_group_name = student.group_name
             incoming_values = {
                 "crm_deal_id": row.deal_id,
                 "crm_uuid": row.uuid,
@@ -500,10 +502,14 @@ async def upsert_crm_student_rows(
                     if is_new_student
                     else "status_changed"
                     if previous_status != student_status
+                    else "group_changed"
+                    if previous_group_name != row.group_name
                     else "updated"
                 ),
                 from_status=previous_status.value if previous_status else None,
                 to_status=student_status.value,
+                from_group_name=previous_group_name,
+                to_group_name=row.group_name,
                 changed_fields=changed_fields,
                 source=history_source,
             )

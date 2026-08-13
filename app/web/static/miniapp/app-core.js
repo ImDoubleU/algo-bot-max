@@ -45,6 +45,14 @@ const ROLE_MOBILE_PRIMARY = Object.freeze({
   admin: ["dashboard", "orders", "admin", "store"],
 });
 
+const DEFAULT_ACCRUAL_RULES = Object.freeze([
+  { reason: "Активность на уроке", amount: 10, isActive: true },
+  { reason: "Домашнее задание", amount: 20, isActive: true },
+  { reason: "Проект", amount: 30, isActive: true },
+  { reason: "Помощь группе", amount: 10, isActive: true },
+  { reason: "Бонус", amount: 50, isActive: true },
+]);
+
 const state = {
   hasAccess: apiContext.demoMode,
   role: "student",
@@ -54,6 +62,7 @@ const state = {
   defaultWarehouseId: "",
   availableTenants: [],
   canManageTenants: false,
+  canCreateTenants: false,
   tenantSaving: false,
   tenantSearch: "",
   availableRoles: ["student", "parent", "teacher", "admin"],
@@ -69,6 +78,9 @@ const state = {
   accrualGroup: "",
   accrualNameFilter: "",
   selectedAccrualStudents: new Set(),
+  accrualRules: DEFAULT_ACCRUAL_RULES.map((rule) => ({ ...rule })),
+  accrualRulesDraft: [],
+  accrualRulesSaving: false,
   balance: 1240,
   activeStudentId: "demo-alisa",
   carts: new Map(),
@@ -557,15 +569,6 @@ if (!apiContext.demoMode) {
   catalogWarehouses = [];
 }
 
-const accrualReasons = [
-  "Активность на уроке",
-  "Домашнее задание",
-  "Проект",
-  "Помощь группе",
-  "Бонус",
-];
-
-const accrualAmounts = [10, 20, 30, 50, 100];
 const PRODUCT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const PRODUCT_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
@@ -1704,7 +1707,16 @@ function applySession(session) {
     ? session.available_tenants
     : [];
   state.canManageTenants = Boolean(session.can_manage_tenants);
+  state.canCreateTenants = Boolean(session.can_create_tenants);
   state.defaultWarehouseId = String(session.default_warehouse_id || "");
+  state.accrualRules = Array.isArray(session.accrual_rules) && session.accrual_rules.length
+    ? session.accrual_rules.map((rule) => ({
+        id: rule.id ? String(rule.id) : "",
+        reason: rule.reason || "",
+        amount: Number(rule.amount || 0),
+        isActive: rule.is_active !== false,
+      })).filter((rule) => rule.reason && rule.amount > 0)
+    : DEFAULT_ACCRUAL_RULES.map((rule) => ({ ...rule }));
   state.account = session.account || null;
   state.staffRoles = Array.isArray(session.staff_roles) ? session.staff_roles : [];
   if (!state.hasAccess) {

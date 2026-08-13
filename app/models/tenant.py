@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, uuid_pk
@@ -44,6 +44,35 @@ class Tenant(TimestampMixin, Base):
     students = relationship("Student", back_populates="tenant")
     staff_assignments = relationship("StaffRoleAssignment", back_populates="tenant")
     warehouses = relationship("Warehouse", back_populates="tenant")
+    accrual_rules = relationship(
+        "AstrocoinAccrualRule",
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+    )
+
+
+class AstrocoinAccrualRule(TimestampMixin, Base):
+    __tablename__ = "astrocoin_accrual_rules"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "reason",
+            name="uq_astrocoin_accrual_rules_tenant_reason",
+        ),
+    )
+
+    id: Mapped[UUID] = uuid_pk()
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    reason: Mapped[str] = mapped_column(String(160), nullable=False)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+
+    tenant = relationship("Tenant", back_populates="accrual_rules")
 
 
 class Venue(TimestampMixin, Base):

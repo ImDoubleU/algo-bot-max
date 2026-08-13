@@ -72,6 +72,8 @@ function normalizeRegistryStudent(item) {
           eventType: event.event_type || "updated",
           fromStatus: event.from_status || "",
           toStatus: event.to_status || "active",
+          fromGroupName: event.from_group_name || "",
+          toGroupName: event.to_group_name || "",
           changedFields: Array.isArray(event.changed_fields) ? event.changed_fields : [],
           source: event.source || "",
           actorName: event.actor_name || "",
@@ -239,7 +241,7 @@ function setTenantCreateMode(enabled) {
   if (hint) hint.textContent = enabled
     ? "Добавьте нового партнера. Его данные будут храниться отдельно."
     : "Выберите город и партнера.";
-  if (showButton) showButton.hidden = enabled;
+  if (showButton) showButton.hidden = enabled || !state.canCreateTenants;
   if (cancelButton) cancelButton.hidden = !enabled;
   if (saveButton) saveButton.hidden = !enabled;
 }

@@ -5,10 +5,11 @@ import io
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 from zipfile import BadZipFile
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils.exceptions import InvalidFileException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +38,7 @@ HEADER_ALIASES = {
     "цена": "price_astrocoins",
     "price_astrocoins": "price_astrocoins",
     "астрокоины": "price_astrocoins",
+    "цена ac": "price_astrocoins",
     "quantity": "quantity",
     "остаток": "quantity",
     "количество": "quantity",
@@ -49,9 +51,22 @@ HEADER_ALIASES = {
     "описание": "description",
     "photo_url": "photo_url",
     "фото": "photo_url",
+    "фото url": "photo_url",
     "status": "status",
     "статус": "status",
 }
+
+PRODUCT_TEMPLATE_SHEET_NAME = "Товары"
+PRODUCT_TEMPLATE_COLUMNS = (
+    "Название",
+    "Категория",
+    "Цена AC",
+    "Склад",
+    "Остаток",
+    "Статус",
+    "Описание",
+    "Фото URL",
+)
 
 
 class ProductImportError(RuntimeError):
@@ -78,7 +93,7 @@ class ProductImportResult:
 @dataclass(frozen=True)
 class ProductImportRow:
     row_number: int
-    sku: str
+    sku: str | None
     name: str
     category_name: str
     category_slug: str
@@ -115,7 +130,11 @@ def _read_csv(content: bytes) -> list[dict[str, Any]]:
 def _read_xlsx(content: bytes) -> list[dict[str, Any]]:
     workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
     try:
-        sheet = workbook.active
+        sheet = (
+            workbook[PRODUCT_TEMPLATE_SHEET_NAME]
+            if PRODUCT_TEMPLATE_SHEET_NAME in workbook.sheetnames
+            else workbook.active
+        )
         rows = list(sheet.iter_rows(values_only=True))
         if not rows:
             return []
@@ -180,8 +199,6 @@ def _normalize_rows(raw_rows: list[dict[str, Any]]) -> list[ProductImportRow]:
         name = _text(_cell(raw_row, "name"))
         if not sku and not name:
             continue
-        if not sku:
-            raise ProductImportError(f"Строка {index}: не указан sku/артикул")
         if not name:
             raise ProductImportError(f"Строка {index}: не указано название товара")
 
@@ -189,11 +206,13 @@ def _normalize_rows(raw_rows: list[dict[str, Any]]) -> list[ProductImportRow]:
         category_slug = _text(_cell(raw_row, "category_slug")) or slugify(category_name)
         warehouse_name = _text(_cell(raw_row, "warehouse_name")) or "Общий склад"
         warehouse_slug = _text(_cell(raw_row, "warehouse_slug")) or slugify(warehouse_name)
-        inventory_key = (sku, warehouse_slug)
+        product_key = sku or f"{category_slug}:{name.casefold()}"
+        inventory_key = (product_key, warehouse_slug)
         if inventory_key in seen_inventory_rows:
             first_row = seen_inventory_rows[inventory_key]
+            product_label = sku or f"«{name}»"
             raise ProductImportError(
-                f"Строки {first_row} и {index}: повторяется товар {sku} на складе "
+                f"Строки {first_row} и {index}: повторяется товар {product_label} на складе "
                 f"«{warehouse_name}»"
             )
         seen_inventory_rows[inventory_key] = index
@@ -227,6 +246,48 @@ def _normalize_rows(raw_rows: list[dict[str, Any]]) -> list[ProductImportRow]:
             )
         )
     return rows
+
+
+def generate_product_sku() -> str:
+    return f"PRD-{uuid4().hex[:12].upper()}"
+
+
+def build_product_import_template() -> bytes:
+    workbook = Workbook()
+    instruction = workbook.active
+    instruction.title = "Инструкция"
+    instruction.append(["Шаблон массовой загрузки товаров"])
+    instruction.append([])
+    instruction.append(["1. Заполняйте только лист «Товары»."])
+    instruction.append(["2. Обязательные поля: название, цена, склад и остаток."])
+    instruction.append([
+        "3. Для нескольких складов повторите название и категорию товара в нескольких строках."
+    ])
+    instruction.append(["4. Статус: Активен, Скрыт или Архив. Пустое значение означает «Активен»."])
+    instruction.append(["5. Лишние листы и колонки система игнорирует."])
+    instruction.column_dimensions["A"].width = 105
+    instruction["A1"].font = Font(bold=True, size=16, color="FFFFFF")
+    instruction["A1"].fill = PatternFill("solid", fgColor="6F35D5")
+    instruction["A1"].alignment = Alignment(vertical="center")
+    instruction.row_dimensions[1].height = 28
+
+    sheet = workbook.create_sheet(PRODUCT_TEMPLATE_SHEET_NAME)
+    sheet.append(list(PRODUCT_TEMPLATE_COLUMNS))
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = "A1:H1"
+    widths = (32, 24, 14, 28, 14, 16, 48, 48)
+    for index, width in enumerate(widths, start=1):
+        sheet.column_dimensions[chr(64 + index)].width = width
+        cell = sheet.cell(row=1, column=index)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="6F35D5")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    sheet.row_dimensions[1].height = 26
+
+    output = io.BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return output.getvalue()
 
 
 async def import_products_for_tenant(
@@ -264,15 +325,21 @@ async def import_products_for_tenant(
             result.created_categories += 1
             category._import_created = False
 
-        product = await db.scalar(
-            select(Product).where(Product.tenant_id == tenant.id, Product.sku == row.sku)
-        )
+        product_query = select(Product).where(Product.tenant_id == tenant.id)
+        if row.sku:
+            product_query = product_query.where(Product.sku == row.sku)
+        else:
+            product_query = product_query.where(
+                Product.category_id == category.id,
+                Product.name == row.name,
+            )
+        product = await db.scalar(product_query.order_by(Product.created_at).limit(1))
         product_created = product is None
         if product_created:
             product = Product(
                 tenant_id=tenant.id,
                 category_id=category.id,
-                sku=row.sku,
+                sku=row.sku or generate_product_sku(),
                 name=row.name,
                 description=row.description,
                 photo_url=row.photo_url,

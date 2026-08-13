@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
+from app.models.enums import StudentStatus
 from app.models.student import Student
 from app.models.teaching import AttendanceRecord, Course, TeachingSchedule
 from app.models.tenant import Tenant
@@ -17,7 +18,6 @@ from app.services.feedback_notifications import deliver_feedback_to_teacher
 from app.services.teaching import (
     generate_schedule_feedback,
     next_lesson_date,
-    schedule_has_lesson_at_position,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,26 +58,6 @@ async def process_due_feedback(db: AsyncSession, *, now: datetime | None = None)
                 await db.rollback()
                 continue
             lesson_date = next_lesson_date(schedule)
-            stale_cutoff = current.date() - timedelta(days=1)
-            if lesson_date < stale_cutoff:
-                skipped_lessons = 0
-                while lesson_date < stale_cutoff:
-                    schedule.current_lesson_number += 1
-                    skipped_lessons += 1
-                    if not schedule_has_lesson_at_position(
-                        schedule,
-                        schedule.current_lesson_number,
-                    ):
-                        schedule.is_active = False
-                        break
-                    lesson_date = next_lesson_date(schedule)
-                await db.commit()
-                logger.info(
-                    "Расписание %s продвинуто после простоя: пропущено занятий %s",
-                    schedule.id,
-                    skipped_lessons,
-                )
-                continue
             if lesson_date > current.date():
                 await db.rollback()
                 continue
@@ -97,23 +77,44 @@ async def process_due_feedback(db: AsyncSession, *, now: datetime | None = None)
             if not tenant_slug:
                 await db.rollback()
                 continue
-            absent_students = list(
+            active_students = list(
                 (
                     await db.scalars(
                         select(Student)
-                        .join(
-                            AttendanceRecord,
-                            AttendanceRecord.student_id == Student.id,
-                        )
                         .where(
-                            AttendanceRecord.schedule_id == schedule.id,
-                            AttendanceRecord.lesson_date == lesson_date,
-                            AttendanceRecord.present.is_(False),
+                            Student.tenant_id == schedule.tenant_id,
+                            Student.group_name == schedule.group_name,
+                            Student.status == StudentStatus.ACTIVE,
                         )
                         .order_by(Student.last_name, Student.first_name)
                     )
                 ).all()
             )
+            attendance_records = list(
+                (
+                    await db.scalars(
+                        select(AttendanceRecord).where(
+                            AttendanceRecord.schedule_id == schedule.id,
+                            AttendanceRecord.lesson_date == lesson_date,
+                            AttendanceRecord.student_id.in_(
+                                [student.id for student in active_students]
+                            ),
+                        )
+                    )
+                ).all()
+            ) if active_students else []
+            marked_student_ids = {record.student_id for record in attendance_records}
+            if not active_students or marked_student_ids != {
+                student.id for student in active_students
+            }:
+                await db.rollback()
+                continue
+            absent_ids = {
+                record.student_id for record in attendance_records if not record.present
+            }
+            absent_students = [
+                student for student in active_students if student.id in absent_ids
+            ]
             output = await generate_schedule_feedback(
                 db,
                 schedule_id=schedule.id,

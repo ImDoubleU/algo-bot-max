@@ -37,6 +37,12 @@ function studentHistoryCopy(event) {
       detail: `${from} → ${to}`,
     };
   }
+  if (event.eventType === "group_changed") {
+    return {
+      title: "Переведен в другую группу",
+      detail: `${event.fromGroupName || "Без группы"} → ${event.toGroupName || "Без группы"}`,
+    };
+  }
   const changedFields = studentHistoryChangedFields(event.changedFields);
   return {
     title: "Данные обновлены",
@@ -675,7 +681,7 @@ function renderAdminPanel() {
         }
       </div>
       ${editorOpen ? "" : `<div class="admin-filter-toolbar">
-        <label class="search-field"><i data-lucide="search"></i><input id="adminEntitySearch" type="search" value="${escapeHtml(state.adminEntitySearch)}" placeholder="Название, SKU или категория" /><button class="search-clear" type="button" data-clear-admin-search ${state.adminEntitySearch ? "" : "hidden"}><i data-lucide="x"></i></button></label>
+        <label class="search-field"><i data-lucide="search"></i><input id="adminEntitySearch" type="search" value="${escapeHtml(state.adminEntitySearch)}" placeholder="Название или категория" /><button class="search-clear" type="button" data-clear-admin-search ${state.adminEntitySearch ? "" : "hidden"}><i data-lucide="x"></i></button></label>
         <select id="productStatusFilter" aria-label="Статус товара">
           <option value="all">Все статусы</option>
           <option value="active" ${state.productStatusFilter === "active" ? "selected" : ""}>Активные</option>
@@ -693,7 +699,7 @@ function renderAdminPanel() {
         <div class="product-editor-heading">
           <div>
             <h3>${editing ? "Редактирование товара" : "Новый товар"}</h3>
-            <span>${editing ? escapeHtml(editing.sku) : "Заполните карточку целиком"}</span>
+            <span>${editing ? "Измените данные и сохраните" : "Заполните карточку целиком"}</span>
           </div>
           <button
             id="productCancelEditButton"
@@ -743,10 +749,6 @@ function renderAdminPanel() {
           </div>
 
           <div class="product-form-grid">
-            <label>
-              <span>SKU</span>
-              <input id="productSku" value="${escapeHtml(editing?.sku || "")}" placeholder="PEN-LOGO" />
-            </label>
             <label>
               <span>Статус</span>
               <select id="productStatus">
@@ -845,6 +847,9 @@ function renderAdminPanel() {
           <i class="product-import-chevron" data-lucide="chevron-down"></i>
         </summary>
         <div class="product-import-controls">
+          <a class="secondary-action" href="${escapeHtml(apiUrl("/api/v1/miniapp/products/import-template", { max_user_id: apiContext.maxUserId, tenant_slug: apiContext.tenantSlug }))}" download>
+            <i data-lucide="download"></i><span>Скачать шаблон XLSX</span>
+          </a>
           <label class="file-picker">
             <input id="productImportFile" type="file" accept=".xlsx,.csv,text/csv" />
             <span>${escapeHtml(state.productImportFileName || "Выбрать CSV или XLSX")}</span>
@@ -884,7 +889,6 @@ function renderAdminPanel() {
                   }">${escapeHtml(productStatusLabel(product.status))}</span>
                 </div>
                 <div class="admin-entity-meta">
-                  ${product.sku ? `<span>${escapeHtml(product.sku)}</span>` : ""}
                   <span>${escapeHtml(product.category)}</span>
                   <span>${
                     product.fulfillmentType === "digital_code"

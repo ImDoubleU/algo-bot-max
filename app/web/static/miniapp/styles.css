@@ -6756,6 +6756,44 @@ body[data-active-role="student"] #studentContext {
   gap: 16px;
 }
 
+.accrual-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.accrual-rules-dialog {
+  width: min(640px, calc(100vw - 24px));
+}
+
+.accrual-rules-editor {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0 12px;
+}
+
+.accrual-rule-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 130px 44px;
+  gap: 8px;
+  align-items: center;
+}
+
+.accrual-rule-row input {
+  width: 100%;
+}
+
+@media (max-width: 520px) {
+  .accrual-page-actions {
+    align-items: flex-end;
+    flex-direction: column;
+  }
+
+  .accrual-rule-row {
+    grid-template-columns: minmax(0, 1fr) 92px 42px;
+  }
+}
+
 .accrual-page-head > div {
   min-width: 0;
 }

@@ -65,6 +65,8 @@ class MiniAppStudentHistoryEventRead(BaseModel):
     event_type: str
     from_status: StudentStatus | None = None
     to_status: StudentStatus
+    from_group_name: str | None = None
+    to_group_name: str | None = None
     changed_fields: list[str] = Field(default_factory=list)
     source: str
     actor_name: str | None = None
@@ -224,7 +226,7 @@ class MiniAppProductUpsert(BaseModel):
     max_user_id: int = Field(gt=0)
     tenant_slug: str | None = None
     product_id: UUID | None = None
-    sku: str = Field(min_length=2, max_length=120)
+    sku: str | None = Field(default=None, min_length=2, max_length=120)
     name: str = Field(min_length=2, max_length=200)
     category_name: str = Field(default="Без категории", min_length=2, max_length=160)
     category_slug: str | None = Field(default=None, min_length=2, max_length=100)
@@ -393,6 +395,7 @@ class MiniAppAccrualCreate(BaseModel):
     student_ids: list[UUID] = Field(min_length=1, max_length=100)
     amount: int = Field(gt=0, le=10000)
     reason: str = Field(min_length=2, max_length=240)
+    custom_reason: bool = False
     comment: str | None = Field(default=None, max_length=500)
     request_key: str | None = Field(
         default=None,
@@ -417,6 +420,26 @@ class MiniAppAccrualRead(BaseModel):
     credited_students: int
     amount: int
     total_astrocoins: int
+
+
+class MiniAppAccrualRuleRead(BaseModel):
+    id: UUID | None = None
+    reason: str
+    amount: int
+    is_active: bool = True
+    sort_order: int = 100
+
+
+class MiniAppAccrualRuleWrite(BaseModel):
+    reason: str = Field(min_length=2, max_length=160)
+    amount: int = Field(gt=0, le=10000)
+    is_active: bool = True
+
+
+class MiniAppAccrualRulesUpdate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    rules: list[MiniAppAccrualRuleWrite] = Field(min_length=1, max_length=50)
 
 
 class MiniAppAccrualReportEntryRead(BaseModel):
@@ -598,7 +621,9 @@ class MiniAppSessionRead(BaseModel):
     tenant: MiniAppTenantRead | None = None
     available_tenants: list[MiniAppTenantRead] = Field(default_factory=list)
     can_manage_tenants: bool = False
+    can_create_tenants: bool = False
     default_warehouse_id: UUID | None = None
+    accrual_rules: list[MiniAppAccrualRuleRead] = Field(default_factory=list)
     students: list[MiniAppStudentRead]
     access_links: list[MiniAppAccessLinkRead] = Field(default_factory=list)
     staff_assignments: list[MiniAppStaffAssignmentRead] = Field(default_factory=list)

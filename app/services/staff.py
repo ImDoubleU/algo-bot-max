@@ -8,10 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings, is_local_environment, is_placeholder
-from app.models.account import MaxAccount, StaffRoleAssignment
+from app.models.account import MaxAccount, StaffRoleAssignment, StaffVenueScope
 from app.models.audit import AuditLog
 from app.models.enums import AssignmentStatus, StaffRole
-from app.models.tenant import Tenant
+from app.models.tenant import Tenant, Venue
 
 
 class StaffServiceError(RuntimeError):
@@ -126,6 +126,100 @@ async def active_staff_roles_for_tenant(
     ) and global_superadmin:
         roles.add(StaffRole.SUPERADMIN)
     return roles
+
+
+async def staff_venue_scope_ids(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    account_id: UUID,
+    role: StaffRole,
+) -> set[UUID] | None:
+    if role != StaffRole.PARTNER_DIRECTOR:
+        return None
+    assignment = await db.scalar(
+        select(StaffRoleAssignment).where(
+            StaffRoleAssignment.tenant_id == tenant_id,
+            StaffRoleAssignment.account_id == account_id,
+            StaffRoleAssignment.role == role,
+            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+        )
+    )
+    if assignment is None:
+        return set()
+    scope_ids = set(
+        (
+            await db.scalars(
+                select(StaffVenueScope.venue_id).where(
+                    StaffVenueScope.assignment_id == assignment.id
+                )
+            )
+        ).all()
+    )
+    return scope_ids or None
+
+
+async def replace_director_venue_scopes(
+    db: AsyncSession,
+    *,
+    tenant_slug: str,
+    max_user_id: int,
+    venue_names: list[str],
+) -> list[str]:
+    tenant = await get_tenant_by_slug(db, tenant_slug)
+    if tenant is None:
+        raise StaffServiceError(f"Город не найден: {tenant_slug}")
+    account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
+    if account is None:
+        raise StaffServiceError(f"MAX-аккаунт не найден: {max_user_id}")
+    assignment = await db.scalar(
+        select(StaffRoleAssignment).where(
+            StaffRoleAssignment.tenant_id == tenant.id,
+            StaffRoleAssignment.account_id == account.id,
+            StaffRoleAssignment.role == StaffRole.PARTNER_DIRECTOR,
+            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+        )
+    )
+    if assignment is None:
+        raise StaffServiceError("Сначала назначьте пользователю роль директора в этом городе")
+    normalized_names = {name.strip().casefold() for name in venue_names if name.strip()}
+    venues = list(
+        (
+            await db.scalars(
+                select(Venue).where(
+                    Venue.tenant_id == tenant.id,
+                )
+            )
+        ).all()
+    )
+    selected = [venue for venue in venues if venue.name.casefold() in normalized_names]
+    if len(selected) != len(normalized_names):
+        found = {venue.name.casefold() for venue in selected}
+        missing = sorted(normalized_names - found)
+        raise StaffServiceError(f"Площадки не найдены: {', '.join(missing)}")
+    existing = list(
+        (
+            await db.scalars(
+                select(StaffVenueScope).where(StaffVenueScope.assignment_id == assignment.id)
+            )
+        ).all()
+    )
+    for scope in existing:
+        await db.delete(scope)
+    for venue in selected:
+        db.add(StaffVenueScope(assignment_id=assignment.id, venue_id=venue.id))
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_account_id=account.id,
+            action="staff_director.venue_scope_updated",
+            entity_type="staff_role_assignment",
+            entity_id=str(assignment.id),
+            payload={"venue_names": [venue.name for venue in selected]},
+        )
+    )
+    await db.commit()
+    return [venue.name for venue in selected]
 
 
 async def get_or_create_max_account(

@@ -11,6 +11,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     UploadFile,
     status,
 )
@@ -38,6 +39,8 @@ from app.schemas.miniapp import (
     MiniAppAccessStatusUpdate,
     MiniAppAccrualCreate,
     MiniAppAccrualRead,
+    MiniAppAccrualRuleRead,
+    MiniAppAccrualRulesUpdate,
     MiniAppAccrualReportRead,
     MiniAppAccrualUndoCreate,
     MiniAppAdminHistoryRead,
@@ -109,6 +112,7 @@ from app.services.miniapp import (
     transfer_miniapp_order_to_teacher,
     undo_miniapp_astrocoins,
     update_miniapp_access_link_status,
+    update_miniapp_accrual_rules,
     update_miniapp_staff_assignment,
     update_miniapp_staff_notification_settings,
     upsert_miniapp_product,
@@ -120,6 +124,7 @@ from app.services.product_media import (
     remove_product_image_url,
     save_product_image,
 )
+from app.services.product_import import build_product_import_template
 
 router = APIRouter()
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
@@ -478,6 +483,26 @@ async def miniapp_import_products(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+@router.get("/products/import-template")
+async def miniapp_product_import_template(
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: str | None = None,
+) -> Response:
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    return Response(
+        content=build_product_import_template(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="algo-max-products-template.xlsx"'
+        },
+    )
+
+
 @router.post("/students/import", response_model=MiniAppCrmImportRead)
 async def miniapp_import_crm_students(
     db: DbSession,
@@ -539,10 +564,10 @@ async def miniapp_save_product(
     db: DbSession,
     identity: MiniAppIdentityDep,
     max_user_id: Annotated[int, Form(gt=0)],
-    sku: Annotated[str, Form(min_length=2, max_length=120)],
     name: Annotated[str, Form(min_length=2, max_length=200)],
     category_name: Annotated[str, Form(min_length=2, max_length=160)],
     price_astrocoins: Annotated[int, Form(ge=0, le=1_000_000)],
+    sku: Annotated[str | None, Form(max_length=120)] = None,
     tenant_slug: Annotated[str | None, Form()] = None,
     product_id: Annotated[UUID | None, Form()] = None,
     category_slug: Annotated[str | None, Form()] = None,
@@ -587,12 +612,21 @@ async def miniapp_save_product(
     if photo is not None:
         tenant = await db.scalar(select(Tenant).where(Tenant.slug == resolved_tenant))
         if tenant is not None:
-            product_query = select(Product).where(Product.tenant_id == tenant.id)
+            existing_product = None
             if product_id is not None:
-                product_query = product_query.where(Product.id == product_id)
-            else:
-                product_query = product_query.where(Product.sku == sku.strip().upper())
-            existing_product = await db.scalar(product_query)
+                existing_product = await db.scalar(
+                    select(Product).where(
+                        Product.tenant_id == tenant.id,
+                        Product.id == product_id,
+                    )
+                )
+            elif sku:
+                existing_product = await db.scalar(
+                    select(Product).where(
+                        Product.tenant_id == tenant.id,
+                        Product.sku == sku.strip().upper(),
+                    )
+                )
             if existing_product is not None:
                 previous_photo_url = existing_product.photo_url
 
@@ -1029,6 +1063,28 @@ async def miniapp_accrue_coins(
     )
     try:
         return await accrue_miniapp_astrocoins(
+            db,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.put("/coins/rules", response_model=list[MiniAppAccrualRuleRead])
+async def miniapp_update_accrual_rules(
+    payload: MiniAppAccrualRulesUpdate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> list[MiniAppAccrualRuleRead]:
+    settings = get_settings()
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await update_miniapp_accrual_rules(
             db,
             payload=payload,
             default_tenant_slug=settings.default_tenant_slug,
