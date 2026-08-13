@@ -60,14 +60,22 @@ def _order_message(
     balance_after: int | None,
     issued_codes: list[str] | None = None,
 ) -> str:
-    title = f"Заказ №{order.order_number}: {_order_status_text(order.status)}"
+    is_digital_delivery = order.status == OrderStatus.ISSUED_TO_STUDENT and bool(issued_codes)
+    title = (
+        f"Заказ №{order.order_number}: цифровой товар готов"
+        if is_digital_delivery
+        else f"Заказ №{order.order_number}: {_order_status_text(order.status)}"
+    )
     message = None
     if order.status == OrderStatus.CANCELLED:
         message = "Заказ отменен, астрокоины возвращены на баланс."
     if order.status == OrderStatus.TRANSFERRED_TO_TEACHER:
         message = "Заказ передан преподавателю. Его можно получить на занятии."
-    if order.status == OrderStatus.ISSUED_TO_STUDENT and issued_codes:
-        message = "Цифровой товар оплачен. Сохраните код до его активации."
+    if is_digital_delivery:
+        message = (
+            "Код находится в приложении. Откройте раздел «Заказы», выберите "
+            "«Выполненные» и нажмите на заказ."
+        )
     facts = [
         ("Ученик", student.display_name),
         ("Сумма", f"{order.total_astrocoins} AC"),
@@ -76,8 +84,6 @@ def _order_message(
         facts.append(("Причина", order.cancellation_reason))
     if balance_after is not None:
         facts.append(("Баланс", f"{balance_after} AC"))
-    for index, code in enumerate(issued_codes or [], start=1):
-        facts.append(("Код" if len(issued_codes or []) == 1 else f"Код {index}", code))
     return _notification_text(title, facts=facts, message=message)
 
 
@@ -115,6 +121,7 @@ async def _deliver_order_notification(
     user_ids: set[int],
     tenant_slug: str,
     text: str,
+    button_label: str,
 ) -> None:
     settings = get_settings()
     client = MaxApiClient(
@@ -130,7 +137,7 @@ async def _deliver_order_notification(
             tenant_slug=tenant_slug,
             view="orders",
         )
-        rows = [[miniapp_button("Открыть заказ", miniapp_url)]] if miniapp_url else []
+        rows = [[miniapp_button(button_label, miniapp_url)]] if miniapp_url else []
         attachments = inline_keyboard_with_main_menu(rows)
         await asyncio.to_thread(
             client.send_message,
@@ -412,6 +419,11 @@ async def schedule_order_notification(
                 student=student,
                 balance_after=balance_after,
                 issued_codes=issued_codes,
+            ),
+            button_label=(
+                "Открыть приложение"
+                if order.status == OrderStatus.ISSUED_TO_STUDENT and issued_codes
+                else "Открыть заказ"
             ),
         )
     )

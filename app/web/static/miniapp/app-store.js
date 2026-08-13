@@ -578,7 +578,7 @@ function renderCart() {
         if (!product) return "";
         const maxQuantity = Math.max(productAvailable(product), item.quantity);
         return `
-          <div class="cart-row">
+          <div class="cart-row ${product.fulfillmentType === "digital_code" ? "is-digital" : ""}">
             <div class="cart-product">
               <div class="cart-product-visual">
                 ${
@@ -590,6 +590,7 @@ function renderCart() {
               <div>
                 <span>${escapeHtml(product.category)}</span>
                 <strong>${escapeHtml(product.name)}</strong>
+                <small class="cart-mobile-price">${product.price} AC за шт.</small>
               </div>
             </div>
             <div class="cart-unit-price">
@@ -643,7 +644,7 @@ function renderCart() {
   qs("#cartSummary").hidden = state.cart.size === 0;
   qs("#cartStudentName").textContent = student?.name || "Ученик не выбран";
   qs("#cartBalance").textContent = balance;
-  qs("#cartAffordabilityLabel").textContent = remaining >= 0 ? "Останется" : "Не хватает";
+  qs("#cartAffordabilityLabel").textContent = remaining >= 0 ? "После покупки" : "Не хватает";
   qs("#cartAffordabilityValue").textContent = Math.abs(remaining);
   qs("#cartAffordability").classList.toggle("is-danger", remaining < 0);
   qs("#placeOrderButton").disabled = !canCheckout;
@@ -670,6 +671,12 @@ function renderCheckoutSummary() {
     return;
   }
 
+  const cartProducts = Array.from(state.cart.values())
+    .map((item) => productById(item.productId))
+    .filter(Boolean);
+  const isDigitalCheckout =
+    cartProducts.length > 0 &&
+    cartProducts.every((product) => product.fulfillmentType === "digital_code");
   const items = Array.from(state.cart.values())
     .map((item) => {
       const product = productById(item.productId);
@@ -700,15 +707,29 @@ function renderCheckoutSummary() {
       </div>
     </div>
     <div class="checkout-items">${items}</div>
-    <p class="checkout-reservation-note">
-      После оформления администратор назначит склад. До этого заказ будет отмечен как
-      «Зарезервировано».
-    </p>
+    <div class="checkout-guidance ${isDigitalCheckout ? "is-digital" : ""}">
+      <i data-lucide="${isDigitalCheckout ? "key-round" : "package-check"}"></i>
+      <div>
+        <strong>${isDigitalCheckout ? "Где найти код после покупки" : "Что будет после оформления"}</strong>
+        <span>${
+          isDigitalCheckout
+            ? "Откройте «Заказы» → «Выполненные» и нажмите на заказ. Код и кнопка копирования будут внутри."
+            : "Заказ появится в разделе «В работе». Администратор выберет склад и подтвердит дальнейшую выдачу."
+        }</span>
+      </div>
+    </div>
     <div class="checkout-total">
       <span>К списанию</span>
       <strong>${total} AC</strong>
     </div>
   `;
+  qs("#checkoutDialogTitle").textContent = isDigitalCheckout
+    ? "Получить цифровой товар?"
+    : "Все верно?";
+  qs("#confirmOrderButton").textContent = isDigitalCheckout
+    ? `Оплатить ${total} AC`
+    : "Подтвердить заказ";
+  refreshIcons();
 }
 
 function openCheckoutDialog() {
@@ -1059,7 +1080,7 @@ function renderOrderStatusTabs() {
   const tabs = [
     ["action", "К действию"],
     ["work", "В работе"],
-    ["issued", "Выданы"],
+    ["issued", "Выполненные"],
     ["cancelled", "Отменены"],
     ["all", "Все"],
   ];
@@ -1102,6 +1123,7 @@ function renderOrders() {
       const age = orderAgeLabel(order.createdAt);
       const total = orderTotalValue(order);
       const product = productById(order.items?.[0]?.productId || "");
+      const displayStatus = orderIsDigital(order) ? "Выполнен" : order.status;
       return `
         <article class="order-card" data-tone="${escapeHtml(order.tone)}">
           <button class="order-card-visual" type="button" data-open-order="${escapeHtml(order.backendId || order.id)}" aria-label="Открыть заказ №${escapeHtml(order.id)}">
@@ -1110,7 +1132,7 @@ function renderOrders() {
           <div class="order-card-main">
             <div class="order-card-head">
               <strong class="order-number">Заказ №${escapeHtml(order.id)}</strong>
-              <span class="status-badge ${order.tone}">${escapeHtml(order.status)}</span>
+              <span class="status-badge ${order.tone}">${escapeHtml(displayStatus)}</span>
             </div>
             <strong class="order-card-student">${escapeHtml(order.student)}</strong>
             <div class="order-card-items">${escapeHtml(order.item)}</div>
