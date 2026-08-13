@@ -244,7 +244,6 @@ function syncProductInventoryEditor() {
 }
 
 async function saveProductFromForm() {
-  const sku = qs("#productSku")?.value.trim().toUpperCase() || "";
   const name = qs("#productName")?.value.trim() || "";
   const category = qs("#productCategory")?.value.trim() || "Без категории";
   const price = Number.parseInt(qs("#productPrice")?.value || "0", 10);
@@ -256,8 +255,8 @@ async function saveProductFromForm() {
   const editing = products.find((product) => product.id === state.editingProductId);
   const existingPhotoUrl = state.productPhotoRemoved ? "" : editing?.photoUrl || "";
   const inventoryDraft = fulfillmentType === "warehouse" ? readProductInventoriesFromForm() : [];
-  if (sku.length < 2 || name.length < 2) {
-    showNotice("Укажите SKU и название товара", "danger");
+  if (name.length < 2) {
+    showNotice("Укажите название товара", "danger");
     return;
   }
   if (Number.isNaN(price) || price < 0) {
@@ -297,7 +296,7 @@ async function saveProductFromForm() {
     stock_quantity,
   }));
   const payload = {
-    sku,
+    sku: editing?.sku || undefined,
     name,
     category_name: category,
     category_slug: slugify(category),
@@ -319,7 +318,8 @@ async function saveProductFromForm() {
         return;
       }
     }
-    const id = editing?.id || `demo-product-${slugify(sku)}`;
+    const demoSku = editing?.sku || `PRD-${Date.now().toString(36).toUpperCase()}`;
+    const id = editing?.id || `demo-product-${slugify(demoSku)}`;
     const previousInventories = new Map(
       (editing ? productWarehouses(editing) : []).map((warehouse) => [warehouse.id, warehouse]),
     );
@@ -347,7 +347,7 @@ async function saveProductFromForm() {
     const nextProduct = {
       ...(editing || {}),
       id,
-      sku,
+      sku: demoSku,
       name,
       category,
       categorySlug: payload.category_slug,
@@ -371,7 +371,7 @@ async function saveProductFromForm() {
       warehouses: demoWarehouses,
       mark: name.trim().slice(0, 1).toUpperCase() || "A",
     };
-    const existingIndex = products.findIndex((product) => product.id === id || product.sku === sku);
+    const existingIndex = products.findIndex((product) => product.id === id);
     if (existingIndex >= 0) products[existingIndex] = nextProduct;
     else products.unshift(nextProduct);
     state.editingProductId = "";
@@ -389,7 +389,7 @@ async function saveProductFromForm() {
     formData.set("max_user_id", apiContext.maxUserId);
     if (apiContext.tenantSlug) formData.set("tenant_slug", apiContext.tenantSlug);
     if (state.editingProductId) formData.set("product_id", state.editingProductId);
-    formData.set("sku", payload.sku);
+    if (payload.sku) formData.set("sku", payload.sku);
     formData.set("name", payload.name);
     formData.set("category_name", payload.category_name);
     formData.set("category_slug", payload.category_slug);
@@ -1060,8 +1060,13 @@ async function updateOrderAction(orderId, action, cancelData = null) {
 }
 
 async function accrueSelectedStudents() {
-  const reason = qs("#groupAccrualReason")?.value || "";
-  const amount = Number.parseInt(qs("#groupAccrualAmount")?.value || "0", 10);
+  const selectedReason = qs("#groupAccrualReason")?.value || "";
+  const customReason = selectedReason === "__custom__";
+  const rule = state.accrualRules.find((item) => item.reason === selectedReason);
+  const reason = customReason ? qs("#customAccrualReason")?.value.trim() || "" : selectedReason;
+  const amount = customReason
+    ? Number.parseInt(qs("#customAccrualAmount")?.value || "0", 10)
+    : Number(rule?.amount || 0);
   if (!reason) {
     showNotice("Выберите причину начисления", "danger");
     return;
@@ -1075,7 +1080,7 @@ async function accrueSelectedStudents() {
     showNotice("Отметьте хотя бы одного ученика", "danger");
     return;
   }
-  await accrueStudents(targets, amount, reason);
+  await accrueStudents(targets, amount, reason, "", customReason);
 }
 
 async function saveWarehouseFromForm() {
@@ -1514,7 +1519,7 @@ async function undoAccrualBatch({ requestKey = "", targets = [], amount = 0, rea
   }
 }
 
-async function accrueStudents(targets, amount, reason, groupLabel = "") {
+async function accrueStudents(targets, amount, reason, groupLabel = "", customReason = false) {
   if (targets.length === 0) {
     showNotice("Выберите учеников для начисления", "danger");
     return;
@@ -1563,6 +1568,7 @@ async function accrueStudents(targets, amount, reason, groupLabel = "") {
         student_ids: targets.map((student) => student.id),
         amount,
         reason,
+        custom_reason: customReason,
         comment: "Algo MAX",
         request_key: state.accrualRequestKey,
       }),
@@ -2042,6 +2048,20 @@ document.addEventListener("click", (event) => {
     accrueSelectedStudents();
   }
 
+  const removeAccrualRule = target.closest("[data-remove-accrual-rule]");
+  if (removeAccrualRule) {
+    state.accrualRulesDraft = readAccrualRulesEditor();
+    state.accrualRulesDraft.splice(Number(removeAccrualRule.dataset.removeAccrualRule), 1);
+    renderAccrualRulesEditor();
+  }
+
+  if (target.id === "addAccrualRuleButton") {
+    state.accrualRulesDraft = readAccrualRulesEditor();
+    state.accrualRulesDraft.push({ reason: "", amount: 10, isActive: true });
+    renderAccrualRulesEditor();
+    qs("[data-accrual-rule-row]:last-child [data-accrual-rule-reason]")?.focus();
+  }
+
   const accrualSelection = target.dataset.accrualSelect;
   if (accrualSelection === "visible") {
     const query = state.accrualNameFilter.trim().toLowerCase();
@@ -2368,7 +2388,7 @@ document.addEventListener("change", (event) => {
     renderAccrual();
   }
 
-  if (target.id === "groupAccrualReason" || target.id === "groupAccrualAmount") {
+  if (target.id === "groupAccrualReason") {
     renderAccrual();
   }
 
@@ -2526,6 +2546,9 @@ document.addEventListener("input", (event) => {
     window.clearTimeout(accrualSearchTimer);
     accrualSearchTimer = window.setTimeout(renderAccrual, 140);
   }
+  if (target.id === "customAccrualReason" || target.id === "customAccrualAmount") {
+    renderAccrual();
+  }
 
   if (target.id === "broadcastBalanceThreshold") {
     invalidateBroadcastPreview();
@@ -2555,6 +2578,13 @@ qs("#openCartButton").addEventListener("click", () => setView("cart"));
 qs("#openWalletButton")?.addEventListener("click", () => setView("wallet"));
 qs("#refreshDataButton").addEventListener("click", refreshAllData);
 qs("#tenantSwitcherButton")?.addEventListener("click", openTenantDialog);
+qs("#openAccrualRulesButton")?.addEventListener("click", openAccrualRulesDialog);
+qs("#closeAccrualRulesButton")?.addEventListener("click", closeAccrualRulesDialog);
+qs("#cancelAccrualRulesButton")?.addEventListener("click", closeAccrualRulesDialog);
+qs("#saveAccrualRulesButton")?.addEventListener("click", saveAccrualRules);
+qs("#accrualRulesDialog")?.addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) closeAccrualRulesDialog();
+});
 qs("#closeTenantDialogButton")?.addEventListener("click", closeTenantDialog);
 qs("#showTenantCreateButton")?.addEventListener("click", () => setTenantCreateMode(true));
 qs("#cancelTenantCreateButton")?.addEventListener("click", () => setTenantCreateMode(false));

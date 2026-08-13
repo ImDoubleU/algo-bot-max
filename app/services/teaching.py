@@ -55,6 +55,7 @@ from app.services.max_notifications import schedule_staff_notification
 from app.services.staff import (
     active_staff_roles_for_tenant,
     normalize_staff_name,
+    staff_venue_scope_ids,
     staff_names_match,
 )
 
@@ -377,6 +378,16 @@ async def get_teaching_workspace(
             .order_by(Student.group_name)
         )
     ).all()
+    director_venue_ids = await staff_venue_scope_ids(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        role=role,
+    )
+    if director_venue_ids is not None:
+        group_students = [
+            student for student in group_students if student.venue_id in director_venue_ids
+        ]
     if role == StaffRole.TEACHER:
         group_students = [
             student
@@ -396,7 +407,7 @@ async def get_teaching_workspace(
         )
         .order_by(TeachingSchedule.weekday, TeachingSchedule.lesson_time)
     )
-    if role not in MANAGER_ROLES:
+    if role not in MANAGER_ROLES or director_venue_ids is not None:
         accessible_group_names = {
             student.group_name
             for student in group_students
@@ -705,6 +716,24 @@ async def _load_attendance_schedule(
     schedule = await db.scalar(query)
     if schedule is None:
         raise TeachingServiceError("Расписание не найдено", status_code=404)
+    venue_scope_ids = await staff_venue_scope_ids(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        role=role,
+    )
+    if venue_scope_ids is not None:
+        accessible_group = await db.scalar(
+            select(Student.id)
+            .where(
+                Student.tenant_id == tenant.id,
+                Student.group_name == schedule.group_name,
+                Student.venue_id.in_(venue_scope_ids),
+            )
+            .limit(1)
+        )
+        if accessible_group is None:
+            raise TeachingServiceError("Группа относится к другой площадке", status_code=403)
     if role not in MANAGER_ROLES and not await teacher_has_group_access(
         db,
         tenant_id=UUID(str(tenant.id)),

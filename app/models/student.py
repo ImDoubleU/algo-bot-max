@@ -71,6 +71,8 @@ class StudentHistoryEvent(TimestampMixin, Base):
     event_type: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
     from_status: Mapped[str | None] = mapped_column(String(20))
     to_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    from_group_name: Mapped[str | None] = mapped_column(String(160))
+    to_group_name: Mapped[str | None] = mapped_column(String(160))
     changed_fields: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     source: Mapped[str] = mapped_column(String(40), default="crm_import", nullable=False)
 

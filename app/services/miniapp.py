@@ -49,7 +49,7 @@ from app.models.student import (
     StudentHistoryEvent,
     Wallet,
 )
-from app.models.tenant import Tenant
+from app.models.tenant import AstrocoinAccrualRule, Tenant
 from app.schemas.miniapp import (
     MiniAppAccessLinkRead,
     MiniAppAccessStatusRead,
@@ -57,6 +57,8 @@ from app.schemas.miniapp import (
     MiniAppAccountRead,
     MiniAppAccrualCreate,
     MiniAppAccrualRead,
+    MiniAppAccrualRuleRead,
+    MiniAppAccrualRulesUpdate,
     MiniAppAccrualReportEntryRead,
     MiniAppAccrualReportRead,
     MiniAppAccrualUndoCreate,
@@ -131,6 +133,7 @@ from app.services.max_notifications import (
 from app.services.order_sheets import order_item_mapping, upsert_order_sheet_row
 from app.services.product_import import (
     ProductImportError,
+    generate_product_sku,
     import_products_for_tenant,
     parse_product_rows,
 )
@@ -140,6 +143,7 @@ from app.services.staff import (
     get_or_create_max_account,
     is_global_superadmin,
     normalize_staff_name,
+    staff_venue_scope_ids,
     staff_names_match,
     superadmin_identity_is_allowed,
 )
@@ -210,6 +214,87 @@ STAFF_ONBOARDING_ROLES = (
     StaffRole.CURATOR,
     StaffRole.TEACHER,
 )
+
+DEFAULT_ACCRUAL_RULES = (
+    ("Активность на уроке", 10),
+    ("Домашнее задание", 20),
+    ("Проект", 30),
+    ("Помощь группе", 10),
+    ("Бонус", 50),
+)
+
+
+async def _accrual_rules_for_tenant(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+) -> list[MiniAppAccrualRuleRead]:
+    rules = list(
+        (
+            await db.scalars(
+                select(AstrocoinAccrualRule)
+                .where(AstrocoinAccrualRule.tenant_id == tenant_id)
+                .order_by(AstrocoinAccrualRule.sort_order, AstrocoinAccrualRule.reason)
+            )
+        ).all()
+    )
+    if not rules:
+        return [
+            MiniAppAccrualRuleRead(reason=reason, amount=amount, sort_order=index * 10)
+            for index, (reason, amount) in enumerate(DEFAULT_ACCRUAL_RULES, start=1)
+        ]
+    return [
+        MiniAppAccrualRuleRead(
+            id=UUID(str(rule.id)),
+            reason=rule.reason,
+            amount=rule.amount,
+            is_active=rule.is_active,
+            sort_order=rule.sort_order,
+        )
+        for rule in rules
+    ]
+
+
+async def update_miniapp_accrual_rules(
+    db: AsyncSession,
+    *,
+    payload: MiniAppAccrualRulesUpdate,
+    default_tenant_slug: str,
+) -> list[MiniAppAccrualRuleRead]:
+    tenant_slug = (payload.tenant_slug or default_tenant_slug).strip().lower()
+    tenant, account, _ = await _store_admin_context(
+        db,
+        max_user_id=payload.max_user_id,
+        tenant_slug=tenant_slug,
+        denied_message="Нет прав на настройку начислений",
+    )
+    normalized_reasons = [rule.reason.strip() for rule in payload.rules]
+    if len({reason.casefold() for reason in normalized_reasons}) != len(normalized_reasons):
+        raise MiniAppStoreError("Причины начислений не должны повторяться", status_code=409)
+    await db.execute(
+        delete(AstrocoinAccrualRule).where(AstrocoinAccrualRule.tenant_id == tenant.id)
+    )
+    for index, rule in enumerate(payload.rules, start=1):
+        db.add(
+            AstrocoinAccrualRule(
+                tenant_id=tenant.id,
+                reason=rule.reason.strip(),
+                amount=rule.amount,
+                is_active=rule.is_active,
+                sort_order=index * 10,
+            )
+        )
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_account_id=account.id,
+            action="astrocoin_accrual_rules.updated",
+            entity_type="astrocoin_accrual_rule",
+            payload={"rules_count": len(payload.rules)},
+        )
+    )
+    await db.commit()
+    return await _accrual_rules_for_tenant(db, tenant_id=tenant.id)
 
 
 async def _active_staff_role(
@@ -289,6 +374,35 @@ async def _active_tenants_for_superadmin(db: AsyncSession) -> list[MiniAppTenant
             (tenant.partner.name if tenant.partner else tenant.name).casefold(),
         )
     )
+    return [_tenant_to_read(tenant) for tenant in tenants]
+
+
+async def _assigned_tenants_for_director(
+    db: AsyncSession,
+    *,
+    account_id: UUID,
+) -> list[MiniAppTenantRead]:
+    tenants = (
+        (
+            await db.scalars(
+                select(Tenant)
+                .join(
+                    StaffRoleAssignment,
+                    StaffRoleAssignment.tenant_id == Tenant.id,
+                )
+                .options(selectinload(Tenant.city), selectinload(Tenant.partner))
+                .where(
+                    StaffRoleAssignment.account_id == account_id,
+                    StaffRoleAssignment.role == StaffRole.PARTNER_DIRECTOR,
+                    StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+                    Tenant.status == TenantStatus.ACTIVE,
+                )
+            )
+        )
+        .unique()
+        .all()
+    )
+    tenants.sort(key=lambda item: ((item.city.name if item.city else item.name).casefold()))
     return [_tenant_to_read(tenant) for tenant in tenants]
 
 
@@ -801,7 +915,7 @@ async def list_miniapp_student_registry(
     max_user_id: int,
     tenant_slug: str,
 ) -> MiniAppStudentRegistryRead:
-    tenant, _, _ = await _store_admin_context(
+    tenant, account, admin_role = await _store_admin_context(
         db,
         max_user_id=max_user_id,
         tenant_slug=tenant_slug,
@@ -814,6 +928,14 @@ async def list_miniapp_student_registry(
             .order_by(Student.status, Student.group_name, Student.last_name, Student.first_name)
         )
     ).all()
+    venue_scope_ids = await staff_venue_scope_ids(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        role=admin_role,
+    )
+    if venue_scope_ids is not None:
+        students = [student for student in students if student.venue_id in venue_scope_ids]
     student_ids = [student.id for student in students]
     balances = await _wallet_balances(db, student_ids)
     events_by_student: dict[UUID, list[MiniAppStudentHistoryEventRead]] = {}
@@ -841,6 +963,8 @@ async def list_miniapp_student_registry(
                     event_type=event.event_type,
                     from_status=(StudentStatus(event.from_status) if event.from_status else None),
                     to_status=StudentStatus(event.to_status),
+                    from_group_name=event.from_group_name,
+                    to_group_name=event.to_group_name,
                     changed_fields=list(event.changed_fields or []),
                     source=event.source,
                     actor_name=actor_name,
@@ -1056,7 +1180,7 @@ async def upsert_miniapp_product(
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на управление товарами", status_code=403)
 
-    sku = payload.sku.strip().upper()
+    requested_sku = payload.sku.strip().upper() if payload.sku else None
     category_slug = _slugify(payload.category_slug or payload.category_name)
     category = await db.scalar(
         select(ProductCategory).where(
@@ -1088,19 +1212,10 @@ async def upsert_miniapp_product(
         )
         if product is None:
             raise MiniAppStoreError("Товар не найден", status_code=404)
-        duplicate = await db.scalar(
-            select(Product).where(
-                Product.tenant_id == tenant.id,
-                Product.sku == sku,
-                Product.id != product.id,
-            )
-        )
-        if duplicate is not None:
-            raise MiniAppStoreError("Товар с таким SKU уже существует", status_code=409)
+        sku = product.sku
     else:
-        product = await db.scalar(
-            select(Product).where(Product.tenant_id == tenant.id, Product.sku == sku)
-        )
+        sku = requested_sku or generate_product_sku()
+        product = None
 
     product_created = False
     if product is None:
@@ -1570,6 +1685,16 @@ async def get_miniapp_session(
             (role for role in STAFF_ROLE_PRIORITY if role in staff_roles),
             None,
         )
+        director_venue_ids = await staff_venue_scope_ids(
+            db,
+            tenant_id=tenant.id,
+            account_id=account.id,
+            role=effective_staff_role,
+        ) if effective_staff_role is not None else None
+        if director_venue_ids is not None:
+            tenant_students = [
+                student for student in tenant_students if student.venue_id in director_venue_ids
+            ]
         teacher_scoped = effective_staff_role == StaffRole.TEACHER
         if teacher_scoped:
             tenant_students = [
@@ -1668,10 +1793,16 @@ async def get_miniapp_session(
         available_tenants=(
             await _active_tenants_for_superadmin(db)
             if StaffRole.SUPERADMIN in effective_staff_roles
+            else await _assigned_tenants_for_director(db, account_id=account.id)
+            if StaffRole.PARTNER_DIRECTOR in effective_staff_roles
             else []
         ),
-        can_manage_tenants=StaffRole.SUPERADMIN in effective_staff_roles,
+        can_manage_tenants=bool(
+            {StaffRole.SUPERADMIN, StaffRole.PARTNER_DIRECTOR} & effective_staff_roles
+        ),
+        can_create_tenants=StaffRole.SUPERADMIN in effective_staff_roles,
         default_warehouse_id=(UUID(str(default_warehouse_id)) if default_warehouse_id else None),
+        accrual_rules=await _accrual_rules_for_tenant(db, tenant_id=tenant.id),
         students=students,
         access_links=access_links,
         staff_assignments=staff_assignments,
@@ -2113,6 +2244,14 @@ async def _load_order_action_context(
         allowed_roles=ORDER_MANAGER_ROLES,
     )
     if staff_role is not None:
+        venue_scope_ids = await staff_venue_scope_ids(
+            db,
+            tenant_id=tenant.id,
+            account_id=account.id,
+            role=staff_role,
+        )
+        if venue_scope_ids is not None and student.venue_id not in venue_scope_ids:
+            raise MiniAppStoreError("Нет доступа к заказу другой площадки", status_code=403)
         if staff_role != StaffRole.TEACHER or _teacher_owns_student(account, student):
             return tenant, account, order, student, staff_role
         if require_manager:
@@ -3474,6 +3613,26 @@ async def accrue_miniapp_astrocoins(
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на начисление астрокоинов", status_code=403)
 
+    if not payload.custom_reason:
+        stored_rules = list(
+            (
+                await db.scalars(
+                    select(AstrocoinAccrualRule).where(
+                        AstrocoinAccrualRule.tenant_id == tenant.id,
+                        AstrocoinAccrualRule.is_active.is_(True),
+                    )
+                )
+            ).all()
+        )
+        if stored_rules and not any(
+            rule.reason == payload.reason.strip() and rule.amount == payload.amount
+            for rule in stored_rules
+        ):
+            raise MiniAppStoreError(
+                "Выбранная причина связана с другой суммой. Обновите данные и повторите.",
+                status_code=409,
+            )
+
     unique_student_ids = list(
         dict.fromkeys(UUID(str(student_id)) for student_id in payload.student_ids)
     )
@@ -3586,6 +3745,7 @@ async def accrue_miniapp_astrocoins(
                 "amount": payload.amount,
                 "total_astrocoins": total_astrocoins,
                 "reason": payload.reason,
+                "custom_reason": payload.custom_reason,
                 "staff_role": staff_role.value,
             },
         )
@@ -3776,6 +3936,14 @@ async def get_miniapp_accrual_report(
             .order_by(AstrocoinLedgerEntry.created_at.desc())
         )
     ).all()
+    venue_scope_ids = await staff_venue_scope_ids(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        role=role,
+    )
+    if venue_scope_ids is not None:
+        rows = [row for row in rows if row[1].venue_id in venue_scope_ids]
     actor_ids = {entry.actor_account_id for entry, _student, _actor in rows}
     assignments = []
     if actor_ids:

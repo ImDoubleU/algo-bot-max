@@ -173,6 +173,61 @@ async def test_amocrm_webhook_creates_complete_student_once(db_session) -> None:
     assert history[-1].source == "amocrm_webhook"
 
 
+async def test_amocrm_webhook_moves_existing_student_and_keeps_group_history(
+    db_session,
+) -> None:
+    await upsert_crm_student_rows(
+        db_session,
+        [
+            CrmStudentRow(
+                row_number=2,
+                deal_id="move-9001",
+                uuid="move-uuid",
+                lms_student_id="MOVE-9001",
+                first_name="Мария",
+                last_name="Смирнова",
+                group_name="Python Start",
+                course_name="Python",
+                venue_name="Учебный центр",
+                teacher_name="Анна Петрова",
+                city="Нижний Новгород",
+                status_name="Активен",
+                contact_ids="",
+                contact_names="",
+            )
+        ],
+        defaults=CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A"),
+    )
+    payload = complete_student_payload(lead_id="move-9001")
+    for key in list(payload):
+        if key.endswith("[values][0]") and payload[key] == "Python Start":
+            payload[key] = "Python Pro"
+            break
+
+    result = await sync_students_from_amocrm(
+        db_session,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        student_status=StudentStatus.ACTIVE,
+        rows=extract_amocrm_student_rows(payload),
+    )
+
+    student = await db_session.scalar(
+        select(Student).where(Student.crm_deal_id == "move-9001")
+    )
+    history = list(
+        await db_session.scalars(
+            select(StudentHistoryEvent)
+            .where(StudentHistoryEvent.student_id == student.id)
+            .order_by(StudentHistoryEvent.created_at)
+        )
+    )
+    assert result.updated_students == 1
+    assert student.group_name == "Python Pro"
+    assert history[-1].event_type == "group_changed"
+    assert history[-1].from_group_name == "Python Start"
+    assert history[-1].to_group_name == "Python Pro"
+
+
 async def test_amocrm_webhook_skips_incomplete_student(db_session) -> None:
     await upsert_crm_student_rows(
         db_session,

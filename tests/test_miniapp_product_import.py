@@ -9,7 +9,11 @@ from app.models.enums import AssignmentStatus, StaffRole
 from app.models.store import Product, ProductCategory, Warehouse, WarehouseInventory
 from app.models.tenant import City, Partner, Tenant
 from app.services.miniapp import import_miniapp_products
-from app.services.product_import import ProductImportError, parse_product_rows
+from app.services.product_import import (
+    ProductImportError,
+    build_product_import_template,
+    parse_product_rows,
+)
 
 
 @pytest.fixture
@@ -84,6 +88,28 @@ async def test_admin_imports_products_from_miniapp_csv(db_session) -> None:
     assert warehouse.name == "Союзный 45"
     assert inventory is not None
     assert inventory.available_quantity == 18
+
+
+async def test_admin_imports_product_without_sku_from_template(db_session) -> None:
+    await seed_admin(db_session)
+    rows = parse_product_rows("products.xlsx", build_product_import_template())
+    assert rows == []
+
+    content = (
+        "Название,Категория,Цена AC,Склад,Остаток\n"
+        "Набор наклеек,Сувениры,75,Главный склад,12\n"
+    ).encode()
+    result = await import_miniapp_products(
+        db_session,
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        filename="products.csv",
+        content=content,
+    )
+    product = await db_session.scalar(select(Product).where(Product.name == "Набор наклеек"))
+    assert result.created_products == 1
+    assert product is not None
+    assert product.sku.startswith("PRD-")
 
 
 def test_product_import_accepts_semicolon_csv_and_rejects_duplicate_inventory() -> None:

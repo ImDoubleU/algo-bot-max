@@ -1410,6 +1410,12 @@ function renderAccrual() {
   const studentList = qs("#accrualStudentList");
   const nameFilter = qs("#accrualNameFilter");
   if (!groupSelect || !studentList || !nameFilter) return;
+  const rulesButton = qs("#openAccrualRulesButton");
+  if (rulesButton) {
+    rulesButton.hidden = !["superadmin", "partner_director", "admin"].includes(
+      primaryStaffRole(),
+    );
+  }
 
   const groups = studentGroups();
   if (state.accrualGroup && state.accrualGroup !== "all" && !groups.includes(state.accrualGroup)) {
@@ -1425,21 +1431,25 @@ function renderAccrual() {
   nameFilter.value = state.accrualNameFilter;
 
   const groupReason = qs("#groupAccrualReason");
-  const groupAmount = qs("#groupAccrualAmount");
   const selectedGroupReason = groupReason.value;
-  const selectedGroupAmount = groupAmount.value;
+  const selectedRule = state.accrualRules.find((rule) => rule.reason === selectedGroupReason);
+  const customSelected = selectedGroupReason === "__custom__";
+  const customReason = qs("#customAccrualReason")?.value.trim() || "";
+  const customAmount = Number.parseInt(qs("#customAccrualAmount")?.value || "0", 10);
+  const selectedGroupAmount = customSelected ? customAmount : Number(selectedRule?.amount || 0);
+  const effectiveReason = customSelected ? customReason : selectedGroupReason;
   groupReason.innerHTML = [
     '<option value="">Выберите причину</option>',
-    ...accrualReasons.map(
-      (reason) => `<option value="${escapeHtml(reason)}">${escapeHtml(reason)}</option>`,
+    ...state.accrualRules.filter((rule) => rule.isActive).map(
+      (rule) => `<option value="${escapeHtml(rule.reason)}">${escapeHtml(rule.reason)} · +${rule.amount} AC</option>`,
     ),
-  ].join("");
-  groupAmount.innerHTML = [
-    '<option value="">Сумма</option>',
-    ...accrualAmounts.map((amount) => `<option value="${amount}">+${amount} AC</option>`),
+    '<option value="__custom__">Своя причина и сумма</option>',
   ].join("");
   groupReason.value = selectedGroupReason;
-  groupAmount.value = selectedGroupAmount;
+  const customReasonField = qs("#customAccrualReasonField");
+  const customAmountField = qs("#customAccrualAmountField");
+  if (customReasonField) customReasonField.hidden = !customSelected;
+  if (customAmountField) customAmountField.hidden = !customSelected;
   const normalizedName = state.accrualNameFilter.trim().toLowerCase();
   const groupStudents = state.accrualGroup ? studentsForGroup(state.accrualGroup) : [];
   const visibleStudents = groupStudents.filter((student) =>
@@ -1454,7 +1464,7 @@ function renderAccrual() {
   if (selectedCountLabel) {
     selectedCountLabel.textContent = selectedCount ? `Выбрано: ${selectedCount}` : "Никто не выбран";
   }
-  const canSubmitAccrual = selectedCount > 0 && Boolean(selectedGroupReason) && Boolean(selectedGroupAmount);
+  const canSubmitAccrual = selectedCount > 0 && Boolean(effectiveReason) && selectedGroupAmount > 0;
   qsa("[data-selected-accrual]").forEach((selectedButton) => {
     selectedButton.disabled = state.accrualSaving || !canSubmitAccrual;
     selectedButton.textContent = state.accrualSaving
@@ -1469,8 +1479,8 @@ function renderAccrual() {
   if (stickyCount) stickyCount.textContent = `Выбрано: ${selectedCount}`;
   const stickyDetails = qs("#accrualStickyDetails");
   if (stickyDetails) {
-    stickyDetails.textContent = selectedGroupReason && selectedGroupAmount
-      ? `${selectedGroupReason} · +${selectedGroupAmount} AC каждому`
+    stickyDetails.textContent = effectiveReason && selectedGroupAmount
+      ? `${effectiveReason} · +${selectedGroupAmount} AC каждому`
       : "Выберите причину и сумму";
   }
   const bulkHint = qs(".accrual-bulk p");
@@ -1518,4 +1528,94 @@ function renderAccrual() {
     })
     .join("");
   refreshIcons();
+}
+
+function readAccrualRulesEditor() {
+  return qsa("[data-accrual-rule-row]").map((row) => ({
+    reason: row.querySelector("[data-accrual-rule-reason]")?.value.trim() || "",
+    amount: Number.parseInt(
+      row.querySelector("[data-accrual-rule-amount]")?.value || "0",
+      10,
+    ),
+    isActive: true,
+  }));
+}
+
+function renderAccrualRulesEditor() {
+  const editor = qs("#accrualRulesEditor");
+  if (!editor) return;
+  editor.innerHTML = state.accrualRulesDraft.map((rule, index) => `
+    <div class="accrual-rule-row" data-accrual-rule-row="${index}">
+      <input data-accrual-rule-reason type="text" maxlength="160" value="${escapeHtml(rule.reason || "")}" placeholder="Причина начисления" aria-label="Причина начисления" />
+      <input data-accrual-rule-amount type="number" min="1" max="10000" inputmode="numeric" value="${Number(rule.amount || 0) || ""}" placeholder="Сумма AC" aria-label="Сумма астрокоинов" />
+      <button class="icon-button danger-action" type="button" data-remove-accrual-rule="${index}" title="Удалить причину" aria-label="Удалить причину"><i data-lucide="trash-2"></i></button>
+    </div>
+  `).join("");
+  refreshIcons();
+}
+
+function openAccrualRulesDialog() {
+  if (!["superadmin", "partner_director", "admin"].includes(primaryStaffRole())) return;
+  state.accrualRulesDraft = state.accrualRules.map((rule) => ({ ...rule }));
+  renderAccrualRulesEditor();
+  const dialog = qs("#accrualRulesDialog");
+  if (dialog) dialog.hidden = false;
+}
+
+function closeAccrualRulesDialog() {
+  const dialog = qs("#accrualRulesDialog");
+  if (dialog) dialog.hidden = true;
+  state.accrualRulesDraft = [];
+}
+
+async function saveAccrualRules() {
+  if (state.accrualRulesSaving) return;
+  const rules = readAccrualRulesEditor();
+  if (!rules.length) {
+    showNotice("Добавьте хотя бы одну причину начисления", "danger");
+    return;
+  }
+  if (rules.some((rule) => rule.reason.length < 2 || !rule.amount || rule.amount < 1)) {
+    showNotice("Заполните причину и положительную сумму в каждой строке", "danger");
+    return;
+  }
+  const normalized = rules.map((rule) => rule.reason.toLowerCase());
+  if (new Set(normalized).size !== normalized.length) {
+    showNotice("Причины начислений не должны повторяться", "danger");
+    return;
+  }
+  state.accrualRulesSaving = true;
+  const saveButton = qs("#saveAccrualRulesButton");
+  if (saveButton) saveButton.disabled = true;
+  try {
+    const response = await apiFetch("/api/v1/miniapp/coins/rules", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        max_user_id: Number(apiContext.maxUserId),
+        tenant_slug: apiContext.tenantSlug || undefined,
+        rules: rules.map((rule) => ({
+          reason: rule.reason,
+          amount: rule.amount,
+          is_active: true,
+        })),
+      }),
+    });
+    if (!response.ok) throw new Error(await parseApiError(response));
+    const result = await response.json();
+    state.accrualRules = result.map((rule) => ({
+      id: rule.id ? String(rule.id) : "",
+      reason: rule.reason,
+      amount: Number(rule.amount),
+      isActive: rule.is_active !== false,
+    }));
+    closeAccrualRulesDialog();
+    renderAccrual();
+    showNotice("Причины начислений сохранены");
+  } catch (error) {
+    showNotice(error.message || "Не удалось сохранить причины", "danger");
+  } finally {
+    state.accrualRulesSaving = false;
+    if (saveButton) saveButton.disabled = false;
+  }
 }

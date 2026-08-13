@@ -232,17 +232,22 @@ async def sync_students_from_amocrm(
     lead_ids = list(
         dict.fromkeys(row.deal_id for row in rows if row.deal_id)
     )
-    existing_lead_ids = set(
-        await db.scalars(
-            select(Student.crm_deal_id).where(
+    existing_students_by_lead_id = {
+        student.crm_deal_id: student
+        for student in (
+            await db.scalars(
+                select(Student).where(
                 Student.tenant_id == tenant.id,
                 Student.crm_deal_id.in_(lead_ids),
             )
-        )
-    )
+            )
+        ).all()
+        if student.crm_deal_id
+    }
     created_students = 0
     updated_students = 0
     incomplete_leads: dict[str, list[str]] = {}
+    existing_students = 0
     defaults = CrmSyncDefaults(
         partner_slug="amocrm",
         partner_name="amoCRM",
@@ -251,7 +256,29 @@ async def sync_students_from_amocrm(
 
     for row in rows:
         lead_id = row.deal_id
-        if not lead_id or lead_id in existing_lead_ids:
+        if not lead_id:
+            continue
+        existing_student = existing_students_by_lead_id.get(lead_id)
+        if existing_student is not None:
+            existing_students += 1
+            new_group_name = normalize_text(row.group_name)
+            if new_group_name and existing_student.group_name != new_group_name:
+                previous_group_name = existing_student.group_name
+                existing_student.group_name = new_group_name
+                db.add(
+                    StudentHistoryEvent(
+                        tenant_id=tenant.id,
+                        student_id=existing_student.id,
+                        event_type="group_changed",
+                        from_status=existing_student.status.value,
+                        to_status=existing_student.status.value,
+                        from_group_name=previous_group_name,
+                        to_group_name=new_group_name,
+                        changed_fields=["group_name"],
+                        source="amocrm_webhook",
+                    )
+                )
+                updated_students += 1
             continue
         missing_fields = missing_amocrm_student_fields(row)
         if missing_fields:
@@ -268,7 +295,14 @@ async def sync_students_from_amocrm(
         )
         created_students += sync_result.created_students
         updated_students += sync_result.updated_students
-        existing_lead_ids.add(lead_id)
+        created_student = await db.scalar(
+            select(Student).where(
+                Student.tenant_id == tenant.id,
+                Student.crm_deal_id == lead_id,
+            )
+        )
+        if created_student is not None:
+            existing_students_by_lead_id[lead_id] = created_student
 
     db.add(
         AuditLog(
@@ -279,8 +313,7 @@ async def sync_students_from_amocrm(
                 "lead_ids": lead_ids,
                 "created_students": created_students,
                 "updated_students": updated_students,
-                "existing_students": len(lead_ids) - len(incomplete_leads)
-                - created_students - updated_students,
+                "existing_students": existing_students,
                 "incomplete_leads": incomplete_leads,
             },
         )
@@ -292,9 +325,7 @@ async def sync_students_from_amocrm(
         received_lead_ids=lead_ids,
         created_students=created_students,
         updated_students=updated_students,
-        existing_students=(
-            len(lead_ids) - len(incomplete_leads) - created_students - updated_students
-        ),
+        existing_students=existing_students,
         incomplete_leads=incomplete_leads,
     )
 

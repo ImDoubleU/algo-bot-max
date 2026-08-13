@@ -2,6 +2,7 @@ from app.models.account import (
     MaxAccount,
     StaffNotificationPreference,
     StaffRoleAssignment,
+    StaffVenueScope,
     StaffWarehousePreference,
 )
 from app.models.audit import AuditLog
@@ -36,10 +37,11 @@ from app.models.teaching import (
     TeachingLessonOverride,
     TeachingSchedule,
 )
-from app.models.tenant import City, Partner, Tenant, Venue
+from app.models.tenant import AstrocoinAccrualRule, City, Partner, Tenant, Venue
 
 __all__ = [
     "AstrocoinLedgerEntry",
+    "AstrocoinAccrualRule",
     "AttendanceRecord",
     "AuditLog",
     "City",
@@ -61,6 +63,7 @@ __all__ = [
     "StaffNotificationPreference",
     "StudentCartItem",
     "StaffRoleAssignment",
+    "StaffVenueScope",
     "StaffWarehousePreference",
     "StockMovement",
     "Student",
