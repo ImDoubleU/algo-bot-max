@@ -58,6 +58,10 @@ class MiniAppStudentRead(BaseModel):
     venue_name: str | None = None
     teacher_name: str | None = None
     balance: int
+    student_status: StudentStatus = StudentStatus.ACTIVE
+    access_until: date | None = None
+    access_paused: bool = False
+    access_days_remaining: int | None = None
 
 
 class MiniAppStudentHistoryEventRead(BaseModel):
@@ -95,6 +99,33 @@ class MiniAppStudentRegistryRead(BaseModel):
     students: list[MiniAppAdminStudentRead] = Field(default_factory=list)
 
 
+class MiniAppStudentCreate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    first_name: str = Field(min_length=1, max_length=120)
+    last_name: str = Field(min_length=1, max_length=120)
+    lms_student_id: str | None = Field(default=None, max_length=120)
+    group_name: str | None = Field(default=None, max_length=160)
+    course_name: str | None = Field(default=None, max_length=160)
+    venue_name: str | None = Field(default=None, max_length=160)
+    teacher_name: str | None = Field(default=None, max_length=160)
+    status: StudentStatus = StudentStatus.ACTIVE
+
+
+class MiniAppStudentStatusUpdate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    status: StudentStatus
+
+
+class MiniAppStudentBalanceUpdate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    balance: int = Field(ge=0, le=10_000_000)
+    reason: str = Field(default="Ручная корректировка баланса", min_length=2, max_length=240)
+    comment: str | None = Field(default=None, max_length=500)
+
+
 class MiniAppAdminHistoryEntryRead(BaseModel):
     id: UUID
     action: str
@@ -119,9 +150,27 @@ class MiniAppAdminHistoryRead(BaseModel):
 class MiniAppStudentInvitationRead(BaseModel):
     student_id: UUID
     student_name: str
-    bot_url: str
-    qr_data_url: str
-    qr_download_url: str
+    group_name: str | None = None
+    available: bool = True
+    parent_connected: bool = True
+    message: str | None = None
+    bot_url: str | None = None
+    qr_data_url: str | None = None
+    qr_download_url: str | None = None
+
+
+class MiniAppStudentAccessPolicyRead(BaseModel):
+    departed_access_days: int = 30
+    freeze_from: date | None = None
+    freeze_until: date | None = None
+
+
+class MiniAppStudentAccessPolicyUpdate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    departed_access_days: int = Field(ge=1, le=365)
+    freeze_from: date | None = None
+    freeze_until: date | None = None
 
 
 class MiniAppLedgerRead(BaseModel):
@@ -615,6 +664,7 @@ class MiniAppWarehousePreferenceRead(BaseModel):
 class MiniAppSessionRead(BaseModel):
     tenant_slug: str
     has_access: bool = False
+    access_message: str | None = None
     account: MiniAppAccountRead | None
     staff_roles: list[StaffRole]
     student_roles: list[StudentAccessRole]
@@ -623,6 +673,7 @@ class MiniAppSessionRead(BaseModel):
     can_manage_tenants: bool = False
     can_create_tenants: bool = False
     default_warehouse_id: UUID | None = None
+    student_access_policy: MiniAppStudentAccessPolicyRead | None = None
     accrual_rules: list[MiniAppAccrualRuleRead] = Field(default_factory=list)
     students: list[MiniAppStudentRead]
     access_links: list[MiniAppAccessLinkRead] = Field(default_factory=list)

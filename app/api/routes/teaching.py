@@ -1,4 +1,3 @@
-from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -13,33 +12,15 @@ from app.core.config import get_settings
 from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
 from app.schemas.teaching import (
-    AttendanceJournalRead,
-    AttendanceJournalUpdateRequest,
-    AttendanceMarkRequest,
     CourseLessonSummaryRead,
-    FeedbackGenerateRequest,
-    FeedbackOutputRead,
-    GroupAttendanceJournalRead,
-    ManualFeedbackCreate,
-    ManualFeedbackOutputRead,
-    ManualFeedbackSendRead,
-    ManualFeedbackSendRequest,
     TeachingScheduleRead,
     TeachingScheduleUpsert,
     TeachingWorkspaceRead,
 )
 from app.services.teaching import (
     TeachingServiceError,
-    generate_manual_feedback,
-    generate_schedule_feedback,
-    get_attendance_journal,
-    get_group_attendance_journal,
     get_teaching_workspace,
     list_course_lessons,
-    list_manual_feedback,
-    mark_attendance,
-    send_manual_feedback_to_parents,
-    update_group_attendance_journal,
     upsert_teaching_schedule,
 )
 
@@ -112,194 +93,6 @@ async def teaching_course_lessons(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
-@router.get(
-    "/schedules/{schedule_id}/attendance",
-    response_model=AttendanceJournalRead,
-)
-async def teaching_attendance_journal(
-    schedule_id: UUID,
-    lesson_date: date,
-    db: DbSession,
-    identity: MiniAppIdentityDep,
-    max_user_id: Annotated[int, Query(gt=0)],
-    tenant_slug: str | None = None,
-) -> AttendanceJournalRead:
-    resolved_tenant = _authorize(
-        identity,
-        max_user_id=max_user_id,
-        tenant_slug=tenant_slug,
-    )
-    try:
-        return await get_attendance_journal(
-            db,
-            max_user_id=max_user_id,
-            tenant_slug=resolved_tenant,
-            schedule_id=schedule_id,
-            lesson_date=lesson_date,
-        )
-    except TeachingServiceError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-
-
-@router.put(
-    "/schedules/{schedule_id}/attendance",
-    response_model=AttendanceJournalRead,
-)
-async def teaching_attendance_mark(
-    schedule_id: UUID,
-    payload: AttendanceMarkRequest,
-    db: DbSession,
-    identity: MiniAppIdentityDep,
-) -> AttendanceJournalRead:
-    settings = get_settings()
-    _authorize(
-        identity,
-        max_user_id=payload.max_user_id,
-        tenant_slug=payload.tenant_slug,
-    )
-    try:
-        return await mark_attendance(
-            db,
-            schedule_id=schedule_id,
-            payload=payload,
-            default_tenant_slug=settings.default_tenant_slug,
-        )
-    except TeachingServiceError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-
-
-@router.get(
-    "/schedules/{schedule_id}/journal",
-    response_model=GroupAttendanceJournalRead,
-)
-async def teaching_group_journal(
-    schedule_id: UUID,
-    db: DbSession,
-    identity: MiniAppIdentityDep,
-    max_user_id: Annotated[int, Query(gt=0)],
-    tenant_slug: str | None = None,
-) -> GroupAttendanceJournalRead:
-    resolved_tenant = _authorize(
-        identity,
-        max_user_id=max_user_id,
-        tenant_slug=tenant_slug,
-    )
-    try:
-        return await get_group_attendance_journal(
-            db,
-            max_user_id=max_user_id,
-            tenant_slug=resolved_tenant,
-            schedule_id=schedule_id,
-        )
-    except TeachingServiceError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-
-
-@router.put(
-    "/schedules/{schedule_id}/journal",
-    response_model=GroupAttendanceJournalRead,
-)
-async def teaching_group_journal_update(
-    schedule_id: UUID,
-    payload: AttendanceJournalUpdateRequest,
-    db: DbSession,
-    identity: MiniAppIdentityDep,
-) -> GroupAttendanceJournalRead:
-    settings = get_settings()
-    _authorize(
-        identity,
-        max_user_id=payload.max_user_id,
-        tenant_slug=payload.tenant_slug,
-    )
-    try:
-        return await update_group_attendance_journal(
-            db,
-            schedule_id=schedule_id,
-            payload=payload,
-            default_tenant_slug=settings.default_tenant_slug,
-        )
-    except TeachingServiceError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-
-
-@router.get(
-    "/manual-feedback",
-    response_model=list[ManualFeedbackOutputRead],
-)
-async def teaching_manual_feedback_list(
-    db: DbSession,
-    identity: MiniAppIdentityDep,
-    max_user_id: Annotated[int, Query(gt=0)],
-    tenant_slug: str | None = None,
-) -> list[ManualFeedbackOutputRead]:
-    resolved_tenant = _authorize(
-        identity,
-        max_user_id=max_user_id,
-        tenant_slug=tenant_slug,
-    )
-    try:
-        return await list_manual_feedback(
-            db,
-            max_user_id=max_user_id,
-            tenant_slug=resolved_tenant,
-        )
-    except TeachingServiceError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-
-
-@router.post(
-    "/manual-feedback",
-    response_model=ManualFeedbackOutputRead,
-    status_code=status.HTTP_201_CREATED,
-)
-async def teaching_manual_feedback_generate(
-    payload: ManualFeedbackCreate,
-    db: DbSession,
-    identity: MiniAppIdentityDep,
-) -> ManualFeedbackOutputRead:
-    settings = get_settings()
-    _authorize(
-        identity,
-        max_user_id=payload.max_user_id,
-        tenant_slug=payload.tenant_slug,
-    )
-    try:
-        return await generate_manual_feedback(
-            db,
-            payload=payload,
-            default_tenant_slug=settings.default_tenant_slug,
-        )
-    except TeachingServiceError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-
-
-@router.post(
-    "/manual-feedback/{output_id}/send",
-    response_model=ManualFeedbackSendRead,
-)
-async def teaching_manual_feedback_send(
-    output_id: UUID,
-    payload: ManualFeedbackSendRequest,
-    db: DbSession,
-    identity: MiniAppIdentityDep,
-) -> ManualFeedbackSendRead:
-    settings = get_settings()
-    _authorize(
-        identity,
-        max_user_id=payload.max_user_id,
-        tenant_slug=payload.tenant_slug,
-    )
-    try:
-        return await send_manual_feedback_to_parents(
-            db,
-            output_id=output_id,
-            payload=payload,
-            default_tenant_slug=settings.default_tenant_slug,
-        )
-    except TeachingServiceError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-
-
 @router.post(
     "/schedules",
     response_model=TeachingScheduleRead,
@@ -319,34 +112,6 @@ async def teaching_schedule_upsert(
     try:
         return await upsert_teaching_schedule(
             db,
-            payload=payload,
-            default_tenant_slug=settings.default_tenant_slug,
-        )
-    except TeachingServiceError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-
-
-@router.post(
-    "/schedules/{schedule_id}/feedback",
-    response_model=FeedbackOutputRead,
-    status_code=status.HTTP_201_CREATED,
-)
-async def teaching_feedback_generate(
-    schedule_id: UUID,
-    payload: FeedbackGenerateRequest,
-    db: DbSession,
-    identity: MiniAppIdentityDep,
-) -> FeedbackOutputRead:
-    settings = get_settings()
-    _authorize(
-        identity,
-        max_user_id=payload.max_user_id,
-        tenant_slug=payload.tenant_slug,
-    )
-    try:
-        return await generate_schedule_feedback(
-            db,
-            schedule_id=schedule_id,
             payload=payload,
             default_tenant_slug=settings.default_tenant_slug,
         )

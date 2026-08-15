@@ -94,13 +94,6 @@ class Settings(BaseSettings):
         default=True,
         alias="MAX_ORDER_NOTIFICATIONS_ENABLED",
     )
-    feedback_worker_enabled: bool = Field(default=True, alias="FEEDBACK_WORKER_ENABLED")
-    feedback_worker_interval_seconds: int = Field(
-        default=60,
-        alias="FEEDBACK_WORKER_INTERVAL_SECONDS",
-        ge=15,
-        le=3600,
-    )
 
     database_url: str = Field(
         default="postgresql+asyncpg://postgres:postgres@localhost:5432/algo_bot_max",
@@ -295,8 +288,6 @@ class Settings(BaseSettings):
             "amocrm_webhook": (
                 "configured" if not is_placeholder(self.amocrm_webhook_secret) else "disabled"
             ),
-            "feedback_worker_enabled": self.feedback_worker_enabled,
-            "feedback_worker_interval_seconds": self.feedback_worker_interval_seconds,
             "database_url": "configured" if not is_placeholder(self.database_url) else "missing",
             "redis_url": "configured" if not is_placeholder(self.redis_url) else "missing",
             "rate_limit_backend": self.rate_limit_backend,

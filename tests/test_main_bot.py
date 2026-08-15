@@ -4,7 +4,6 @@ from typing import Any
 
 import app.bot.max_long_polling as max_bot
 from app.bot.keyboards import (
-    CALLBACK_FEEDBACK,
     CALLBACK_KNOWLEDGE,
     CALLBACK_MENU,
     CALLBACK_ONBOARDING_CANCEL,
@@ -141,14 +140,6 @@ class FakeBackendClient:
         self.linked = True
         return {"links": [{"id": "link-1"}, {"id": "link-2"}]}
 
-    def get_manual_feedback_outputs(
-        self,
-        *,
-        tenant_slug: str,
-        max_user_id: int,
-    ) -> list[dict[str, Any]]:
-        return []
-
     def revoke_stopped_bot_access(
         self,
         *,
@@ -246,7 +237,7 @@ def test_start_for_linked_staff_opens_role_menu() -> None:
     assert "Рабочий кабинет" in response["text"]
     button_texts = {button.get("text") for button in _buttons(response)}
     assert "Открыть рабочий кабинет" in button_texts
-    assert "Обратная связь" in button_texts
+    assert "Обратная связь" not in button_texts
     assert "База знаний" in button_texts
 
 
@@ -323,7 +314,7 @@ def test_onboarding_can_be_cancelled_and_restarted() -> None:
     assert "Вход · шаг 1 из 2" in client.sent_messages[-1]["text"]
 
 
-def test_staff_inline_sections_open_without_store_duplication() -> None:
+def test_removed_staff_sections_return_current_menu() -> None:
     client = FakeMaxClient()
     bot = LongPollingBot(
         client,
@@ -334,8 +325,8 @@ def test_staff_inline_sections_open_without_store_duplication() -> None:
     bot.handle_message_callback(_callback(CALLBACK_KNOWLEDGE))
     assert client.sent_messages[-1]["text"].startswith("База знаний")
 
-    bot.handle_message_callback(_callback(CALLBACK_FEEDBACK))
-    assert client.sent_messages[-1]["text"].startswith("Обратная связь")
+    bot.handle_message_callback(_callback("feedback"))
+    assert "раздел перенесен в личный кабинет" in client.sent_messages[-1]["text"]
 
     bot.handle_message_callback(_callback("catalog"))
     assert "раздел перенесен в личный кабинет" in client.sent_messages[-1]["text"]

@@ -25,7 +25,6 @@ install -d -o algomax -g algomax -m 0750 \
     /var/lib/algo-max/product-media \
     "$project_dir"
 install -m 0644 deploy/systemd/algo-max-api.service /etc/systemd/system/algo-max-api.service
-install -m 0644 deploy/systemd/algo-max-feedback.service /etc/systemd/system/algo-max-feedback.service
 install -m 0644 deploy/systemd/algo-max-backup.service /etc/systemd/system/algo-max-backup.service
 install -m 0644 deploy/systemd/algo-max-backup.timer /etc/systemd/system/algo-max-backup.timer
 install -m 0755 deploy/scripts/backup_postgres.sh /usr/local/sbin/algo-max-backup

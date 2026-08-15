@@ -33,7 +33,7 @@ const VIEW_META = Object.freeze({
   wallet: { label: "История AC", icon: "wallet-cards" },
   report: { label: "Отчет AC", icon: "file-chart-column" },
   accrual: { label: "Начисления", icon: "circle-plus" },
-  teaching: { label: "Журнал", icon: "calendar-days" },
+  teaching: { label: "Расписание", icon: "calendar-days" },
   broadcasts: { label: "Рассылки", icon: "megaphone" },
   admin: { label: "Управление", icon: "settings-2" },
 });
@@ -55,6 +55,7 @@ const DEFAULT_ACCRUAL_RULES = Object.freeze([
 
 const state = {
   hasAccess: apiContext.demoMode,
+  accessMessage: "",
   role: "student",
   account: null,
   staffRoles: [],
@@ -110,6 +111,10 @@ const state = {
   studentInvitations: new Map(),
   studentInvitationsLoading: false,
   studentInvitationsLoaded: false,
+  teacherInvitations: new Map(),
+  teacherInvitationsLoading: false,
+  teacherInvitationsLoaded: false,
+  teacherInvitationGroup: "all",
   qrPreviewStudentId: "",
   qrBrightnessRequested: false,
   productImporting: false,
@@ -155,15 +160,6 @@ const state = {
   scheduleEditorOpen: false,
   editingScheduleId: "",
   scheduleDraftGroup: "",
-  generatedFeedback: "",
-  generatedFeedbackId: "",
-  attendanceScheduleId: "",
-  attendanceJournal: null,
-  attendanceLoading: false,
-  attendanceSaving: false,
-  attendanceDirty: new Map(),
-  attendanceLessonDirty: new Map(),
-  attendanceAutoScroll: false,
   accrualReport: null,
   accrualReportLoading: false,
   accrualReportPeriod: "month",
@@ -174,6 +170,14 @@ const state = {
   adminStudentsLoaded: false,
   adminStudentsLoading: false,
   adminStudentsError: "",
+  studentCreateOpen: false,
+  studentMutationSaving: "",
+  studentAccessPolicy: {
+    departedAccessDays: 30,
+    freezeFrom: "",
+    freezeUntil: "",
+  },
+  studentAccessPolicySaving: false,
   adminHistory: [],
   adminHistoryKind: "actions",
   adminHistoryPeriod: 30,
@@ -234,14 +238,11 @@ const demoTeachingWorkspace = {
       lesson_place: "Союзный 45",
       current_lesson_number: 18,
       lesson_offset: 0,
-      auto_feedback_enabled: true,
-      parent_delivery_enabled: false,
       is_active: true,
       next_lesson_date: "2026-05-10",
       next_lesson_title: "Работа со списками",
     },
   ],
-  feedback_outputs: [],
 };
 
 let students = [
@@ -1701,6 +1702,7 @@ function applySession(session) {
   if (!session || !Array.isArray(session.students)) return;
 
   state.hasAccess = apiContext.demoMode || Boolean(session.has_access);
+  state.accessMessage = session.access_message || "";
   apiContext.tenantSlug = session.tenant_slug || apiContext.tenantSlug;
   state.currentTenant = session.tenant || null;
   state.availableTenants = Array.isArray(session.available_tenants)
@@ -1709,6 +1711,11 @@ function applySession(session) {
   state.canManageTenants = Boolean(session.can_manage_tenants);
   state.canCreateTenants = Boolean(session.can_create_tenants);
   state.defaultWarehouseId = String(session.default_warehouse_id || "");
+  state.studentAccessPolicy = {
+    departedAccessDays: Number(session.student_access_policy?.departed_access_days || 30),
+    freezeFrom: session.student_access_policy?.freeze_from || "",
+    freezeUntil: session.student_access_policy?.freeze_until || "",
+  };
   state.accrualRules = Array.isArray(session.accrual_rules) && session.accrual_rules.length
     ? session.accrual_rules.map((rule) => ({
         id: rule.id ? String(rule.id) : "",
@@ -1749,6 +1756,10 @@ function applySession(session) {
     venue: student.venue_name || "",
     teacher: student.teacher_name || "Педагог не указан",
     balance: student.balance,
+    status: student.student_status || "active",
+    accessUntil: student.access_until || "",
+    accessPaused: Boolean(student.access_paused),
+    accessDaysRemaining: student.access_days_remaining,
     contact: session.account?.max_user_id || "",
   }));
 
@@ -1825,7 +1836,7 @@ function applySession(session) {
   state.sessionLoaded = true;
 }
 
-function applyAccessGate(message = "") {
+function applyAccessGate(message = state.accessMessage || "") {
   const locked = !apiContext.demoMode && !state.hasAccess;
   const gate = qs("#accessGate");
   const shell = qs(".app-shell");
@@ -1909,6 +1920,71 @@ async function loadParentInvitations() {
   state.studentInvitationsLoading = false;
   state.studentInvitationsLoaded = true;
   renderParentInvitations();
+}
+
+async function loadTeacherInvitations(force = false) {
+  if (apiContext.demoMode) {
+    const teacherStudents = studentsForCurrentRole();
+    state.teacherInvitations = new Map(
+      teacherStudents.map((student, index) => [
+        student.id,
+        {
+          data: index === 0
+            ? {
+                student_id: student.id,
+                student_name: student.name,
+                group_name: student.group,
+                available: true,
+                parent_connected: true,
+                qr_data_url: `/miniapp/static/assets/${student.id}-qr.svg`,
+                qr_download_url: `/miniapp/static/assets/${student.id}-qr.svg`,
+                bot_url: "",
+              }
+            : {
+                student_id: student.id,
+                student_name: student.name,
+                group_name: student.group,
+                available: false,
+                parent_connected: false,
+                message: "Родитель еще не подключен. Попросите его открыть письмо школы и перейти по персональной ссылке.",
+              },
+          error: "",
+        },
+      ]),
+    );
+    state.teacherInvitationsLoaded = true;
+    renderTeacherInvitations();
+    return;
+  }
+  if (
+    !state.hasAccess ||
+    !apiContext.maxUserId ||
+    primaryStaffRole() !== "teacher" ||
+    state.teacherInvitationsLoading ||
+    (state.teacherInvitationsLoaded && !force)
+  ) return;
+
+  state.teacherInvitationsLoading = true;
+  renderTeacherInvitations();
+  try {
+    const response = await apiFetch(
+      apiUrl("/api/v1/miniapp/students/invitations", {
+        max_user_id: apiContext.maxUserId,
+        tenant_slug: apiContext.tenantSlug,
+      }),
+    );
+    if (!response.ok) throw new Error(await parseApiError(response));
+    const invitations = await response.json();
+    state.teacherInvitations = new Map(
+      invitations.map((item) => [String(item.student_id), { data: item, error: "" }]),
+    );
+    state.teacherInvitationsLoaded = true;
+  } catch (error) {
+    showNotice(error.message || "Не удалось загрузить QR-коды", "danger");
+  } finally {
+    state.teacherInvitationsLoading = false;
+    renderTeacherInvitations();
+  }
 }
 
 async function loadTeachingWorkspace() {

@@ -24,14 +24,14 @@ else
 fi
 sudo -u algomax "$project_dir/.venv/bin/pip" install -r "$project_dir/requirements-prod.txt"
 install -m 0644 deploy/systemd/algo-max-api.service /etc/systemd/system/algo-max-api.service
-install -m 0644 deploy/systemd/algo-max-feedback.service /etc/systemd/system/algo-max-feedback.service
 install -m 0644 deploy/systemd/algo-max-backup.service /etc/systemd/system/algo-max-backup.service
 install -m 0644 deploy/systemd/algo-max-backup.timer /etc/systemd/system/algo-max-backup.timer
 install -m 0755 deploy/scripts/backup_postgres.sh /usr/local/sbin/algo-max-backup
+systemctl disable --now algo-max-feedback.service 2>/dev/null || true
 systemctl daemon-reload
 sudo --preserve-env -u algomax env HOME=/home/algomax "$project_dir/.venv/bin/python" -m alembic upgrade head
 sudo --preserve-env -u algomax env HOME=/home/algomax "$project_dir/.venv/bin/python" -m app.cli.doctor --production
-systemctl restart algo-max-api algo-max-feedback
+systemctl restart algo-max-api
 sleep 2
 curl --fail --silent --show-error http://127.0.0.1:8000/api/v1/health
 systemctl --no-pager --full status algo-max-api

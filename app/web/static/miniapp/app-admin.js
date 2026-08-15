@@ -23,6 +23,12 @@ function studentHistoryChangedFields(fields) {
 }
 
 function studentHistoryCopy(event) {
+  if (event.eventType === "created") {
+    return {
+      title: "Добавлен вручную",
+      detail: "Карточка ученика создана сотрудником школы.",
+    };
+  }
   if (event.eventType === "imported") {
     return {
       title: "Добавлен в систему",
@@ -50,6 +56,235 @@ function studentHistoryCopy(event) {
       ? `Изменено: ${changedFields.join(", ")}.`
       : "Файл загружен повторно, данные не изменились.",
   };
+}
+
+function studentCreateEditor() {
+  if (!state.studentCreateOpen) return "";
+  return `
+    <section class="student-create-editor">
+      <div class="student-create-heading">
+        <span><i data-lucide="user-plus"></i></span>
+        <div>
+          <strong>Новый ученик</strong>
+          <small>Связь с родителем можно добавить позже через импорт CRM.</small>
+        </div>
+        <button class="icon-button" type="button" data-close-student-create title="Закрыть" aria-label="Закрыть">×</button>
+      </div>
+      <form id="studentCreateForm" class="student-create-form">
+        <label><span>Фамилия</span><input name="last_name" maxlength="120" autocomplete="family-name" required /></label>
+        <label><span>Имя</span><input name="first_name" maxlength="120" autocomplete="given-name" required /></label>
+        <label><span>ID ученика</span><input name="lms_student_id" maxlength="120" placeholder="Если уже известен" /></label>
+        <label><span>Состояние</span><select name="status"><option value="active">Обучается</option><option value="departed">Выбыл</option><option value="archived">Архив</option></select></label>
+        <label><span>Группа</span><input name="group_name" maxlength="160" /></label>
+        <label><span>Курс</span><input name="course_name" maxlength="160" /></label>
+        <label><span>Площадка</span><input name="venue_name" maxlength="160" /></label>
+        <label><span>Преподаватель</span><input name="teacher_name" maxlength="160" /></label>
+        <div class="student-create-actions">
+          <button class="secondary-action" type="button" data-close-student-create>Отмена</button>
+          <button class="primary-action" type="submit"><i data-lucide="user-plus"></i><span>Добавить ученика</span></button>
+        </div>
+      </form>
+    </section>
+  `;
+}
+
+function studentAccessPolicyEditor() {
+  if (!["superadmin", "partner_director"].includes(primaryStaffRole())) return "";
+  const policy = state.studentAccessPolicy || {};
+  return `
+    <section class="student-access-policy">
+      <div class="student-access-policy-heading">
+        <span class="student-access-policy-icon"><i data-lucide="calendar-clock"></i></span>
+        <span>
+          <strong>Доступ после выбытия</strong>
+          <small>Баланс, заказы и привязки сохраняются. При возвращении ученик продолжит с прежними данными.</small>
+        </span>
+      </div>
+      <form id="studentAccessPolicyForm" class="student-access-policy-form">
+        <label>
+          <span>Срок доступа, дней</span>
+          <input id="departedAccessDays" type="number" min="1" max="365" inputmode="numeric" value="${Number(policy.departedAccessDays || 30)}" required />
+        </label>
+        <label>
+          <span>Пауза с</span>
+          <input id="studentAccessFreezeFrom" type="date" value="${escapeHtml(policy.freezeFrom || "")}" />
+        </label>
+        <label>
+          <span>Пауза до</span>
+          <input id="studentAccessFreezeUntil" type="date" value="${escapeHtml(policy.freezeUntil || "")}" />
+        </label>
+        <div class="student-access-policy-actions">
+          <button class="text-action" type="button" data-clear-access-freeze ${policy.freezeFrom || policy.freezeUntil ? "" : "disabled"}>Очистить даты</button>
+          <button class="primary-action" type="submit" ${state.studentAccessPolicySaving ? "disabled" : ""}>
+            ${state.studentAccessPolicySaving ? '<span class="button-spinner" aria-hidden="true"></span> Сохраняем' : "Сохранить"}
+          </button>
+        </div>
+      </form>
+      <p>Дни внутри указанного периода не расходуют срок доступа. Например, пауза до 31 августа переносит оставшиеся дни на сентябрь.</p>
+    </section>
+  `;
+}
+
+async function saveStudentAccessPolicy(event) {
+  event.preventDefault();
+  if (state.studentAccessPolicySaving || !apiContext.maxUserId) return;
+  const departedAccessDays = Number(qs("#departedAccessDays")?.value || 0);
+  const freezeFrom = qs("#studentAccessFreezeFrom")?.value || "";
+  const freezeUntil = qs("#studentAccessFreezeUntil")?.value || "";
+  if (!Number.isInteger(departedAccessDays) || departedAccessDays < 1 || departedAccessDays > 365) {
+    showNotice("Укажите срок от 1 до 365 дней", "danger");
+    return;
+  }
+  if (Boolean(freezeFrom) !== Boolean(freezeUntil)) {
+    showNotice("Укажите обе даты паузы или очистите обе", "danger");
+    return;
+  }
+  if (freezeFrom && freezeUntil && freezeFrom > freezeUntil) {
+    showNotice("Дата начала паузы должна быть раньше даты окончания", "danger");
+    return;
+  }
+
+  state.studentAccessPolicySaving = true;
+  renderStudentRegistry();
+  try {
+    const response = await apiFetch("/api/v1/miniapp/students/access-policy", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        max_user_id: Number(apiContext.maxUserId),
+        tenant_slug: apiContext.tenantSlug || undefined,
+        departed_access_days: departedAccessDays,
+        freeze_from: freezeFrom || null,
+        freeze_until: freezeUntil || null,
+      }),
+    });
+    if (!response.ok) throw new Error(await parseApiError(response));
+    const result = await response.json();
+    state.studentAccessPolicy = {
+      departedAccessDays: Number(result.departed_access_days || 30),
+      freezeFrom: result.freeze_from || "",
+      freezeUntil: result.freeze_until || "",
+    };
+    showNotice("Настройки доступа сохранены");
+  } catch (error) {
+    showNotice(error.message || "Не удалось сохранить настройки доступа", "danger");
+  } finally {
+    state.studentAccessPolicySaving = false;
+    renderStudentRegistry();
+  }
+}
+
+async function createAdminStudent(event) {
+  event.preventDefault();
+  if (state.studentMutationSaving || !apiContext.maxUserId) return;
+  const form = event.target;
+  const data = new FormData(form);
+  const firstName = String(data.get("first_name") || "").trim();
+  const lastName = String(data.get("last_name") || "").trim();
+  if (!firstName || !lastName) {
+    showNotice("Укажите имя и фамилию ученика", "danger");
+    return;
+  }
+  const submitButton = form.querySelector('button[type="submit"]');
+  state.studentMutationSaving = "create";
+  if (submitButton) submitButton.disabled = true;
+  try {
+    const response = await apiFetch("/api/v1/miniapp/students", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        max_user_id: Number(apiContext.maxUserId),
+        tenant_slug: apiContext.tenantSlug || undefined,
+        first_name: firstName,
+        last_name: lastName,
+        lms_student_id: String(data.get("lms_student_id") || "").trim() || null,
+        group_name: String(data.get("group_name") || "").trim() || null,
+        course_name: String(data.get("course_name") || "").trim() || null,
+        venue_name: String(data.get("venue_name") || "").trim() || null,
+        teacher_name: String(data.get("teacher_name") || "").trim() || null,
+        status: String(data.get("status") || "active"),
+      }),
+    });
+    if (!response.ok) throw new Error(await parseApiError(response));
+    applyAdminStudentRegistry(await response.json());
+    state.studentCreateOpen = false;
+    showNotice("Ученик добавлен");
+    renderStudentRegistry();
+  } catch (error) {
+    showNotice(error.message || "Не удалось добавить ученика", "danger");
+  } finally {
+    state.studentMutationSaving = "";
+    if (submitButton?.isConnected) submitButton.disabled = false;
+  }
+}
+
+async function updateAdminStudentStatus(event) {
+  event.preventDefault();
+  if (state.studentMutationSaving || !apiContext.maxUserId) return;
+  const form = event.target;
+  const studentId = form.dataset.studentStatusForm || "";
+  const status = new FormData(form).get("status");
+  const submitButton = form.querySelector('button[type="submit"]');
+  state.studentMutationSaving = studentId;
+  if (submitButton) submitButton.disabled = true;
+  try {
+    const response = await apiFetch(`/api/v1/miniapp/students/${encodeURIComponent(studentId)}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        max_user_id: Number(apiContext.maxUserId),
+        tenant_slug: apiContext.tenantSlug || undefined,
+        status,
+      }),
+    });
+    if (!response.ok) throw new Error(await parseApiError(response));
+    applyAdminStudentRegistry(await response.json());
+    showNotice("Состояние ученика обновлено");
+    renderStudentRegistry();
+  } catch (error) {
+    showNotice(error.message || "Не удалось изменить состояние ученика", "danger");
+  } finally {
+    state.studentMutationSaving = "";
+    if (submitButton?.isConnected) submitButton.disabled = false;
+  }
+}
+
+async function updateAdminStudentBalance(event) {
+  event.preventDefault();
+  if (state.studentMutationSaving || !apiContext.maxUserId) return;
+  const form = event.target;
+  const studentId = form.dataset.studentBalanceForm || "";
+  const data = new FormData(form);
+  const balance = Number(data.get("balance"));
+  if (!Number.isInteger(balance) || balance < 0 || balance > 10000000) {
+    showNotice("Укажите итоговый баланс от 0 до 10 000 000 AC", "danger");
+    return;
+  }
+  const submitButton = form.querySelector('button[type="submit"]');
+  state.studentMutationSaving = studentId;
+  if (submitButton) submitButton.disabled = true;
+  try {
+    const response = await apiFetch(`/api/v1/miniapp/students/${encodeURIComponent(studentId)}/balance`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        max_user_id: Number(apiContext.maxUserId),
+        tenant_slug: apiContext.tenantSlug || undefined,
+        balance,
+        reason: "Ручная корректировка баланса",
+        comment: String(data.get("comment") || "").trim() || null,
+      }),
+    });
+    if (!response.ok) throw new Error(await parseApiError(response));
+    applyAdminStudentRegistry(await response.json());
+    showNotice("Баланс ученика обновлен");
+    renderStudentRegistry();
+  } catch (error) {
+    showNotice(error.message || "Не удалось изменить баланс", "danger");
+  } finally {
+    state.studentMutationSaving = "";
+    if (submitButton?.isConnected) submitButton.disabled = false;
+  }
 }
 
 function renderStudentRegistry() {
@@ -126,15 +361,22 @@ function renderStudentRegistry() {
   ];
 
   panel.innerHTML = `
+    ${studentAccessPolicyEditor()}
     <div class="admin-section-toolbar student-registry-heading">
       <div>
         <h3>Все ученики</h3>
-        <span>Состояние и история изменений с момента первого импорта</span>
+        <span>Состояние, баланс и история изменений с момента добавления</span>
       </div>
-      <button class="secondary-action" type="button" data-retry-student-registry>
-        <i data-lucide="refresh-cw"></i><span>Обновить</span>
-      </button>
+      <div class="student-registry-heading-actions">
+        <button class="primary-action" type="button" data-toggle-student-create>
+          <i data-lucide="user-plus"></i><span>Добавить</span>
+        </button>
+        <button class="secondary-action" type="button" data-retry-student-registry>
+          <i data-lucide="refresh-cw"></i><span>Обновить</span>
+        </button>
+      </div>
     </div>
+    ${studentCreateEditor()}
     <div class="student-registry-metrics" aria-label="Фильтр по состоянию">
       ${statusFilters.map(([status, label, icon]) => `
         <button
@@ -192,6 +434,38 @@ function renderStudentRegistry() {
                 <span><small>ID ученика</small><strong>${escapeHtml(student.lmsId || "Не указан")}</strong></span>
                 <span><small>Группа</small><strong>${escapeHtml(student.group || "Не указана")}</strong></span>
               </div>
+              <section class="student-card-management" aria-label="Управление учеником">
+                <form class="student-card-action" data-student-status-form="${escapeHtml(student.id)}">
+                  <div>
+                    <strong>Состояние ученика</strong>
+                    <small>Возврат в обучение восстанавливает доступ с прежней историей и балансом.</small>
+                  </div>
+                  <label>
+                    <span>Новое состояние</span>
+                    <select name="status">
+                      <option value="active" ${student.status === "active" ? "selected" : ""}>Обучается</option>
+                      <option value="departed" ${student.status === "departed" ? "selected" : ""}>Выбыл</option>
+                      <option value="archived" ${student.status === "archived" ? "selected" : ""}>Архив</option>
+                    </select>
+                  </label>
+                  <button class="secondary-action" type="submit">Сохранить состояние</button>
+                </form>
+                <form class="student-card-action" data-student-balance-form="${escapeHtml(student.id)}">
+                  <div>
+                    <strong>Баланс астрокоинов</strong>
+                    <small>Введите итоговое количество. Разница сохранится отдельной операцией.</small>
+                  </div>
+                  <label>
+                    <span>Итоговый баланс</span>
+                    <input name="balance" type="number" min="0" max="10000000" inputmode="numeric" value="${student.balance}" required />
+                  </label>
+                  <label>
+                    <span>Комментарий</span>
+                    <input name="comment" maxlength="500" placeholder="Необязательно" />
+                  </label>
+                  <button class="primary-action" type="submit">Обновить баланс</button>
+                </form>
+              </section>
               <section class="student-history">
                 <div class="student-history-head">
                   <h4>История ученика</h4>

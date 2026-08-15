@@ -39,9 +39,9 @@ from app.schemas.miniapp import (
     MiniAppAccessStatusUpdate,
     MiniAppAccrualCreate,
     MiniAppAccrualRead,
+    MiniAppAccrualReportRead,
     MiniAppAccrualRuleRead,
     MiniAppAccrualRulesUpdate,
-    MiniAppAccrualReportRead,
     MiniAppAccrualUndoCreate,
     MiniAppAdminHistoryRead,
     MiniAppCartRead,
@@ -68,8 +68,13 @@ from app.schemas.miniapp import (
     MiniAppStaffNotificationSettingsRead,
     MiniAppStaffNotificationSettingsUpdate,
     MiniAppStaffOnboardingOptionsRead,
+    MiniAppStudentAccessPolicyRead,
+    MiniAppStudentAccessPolicyUpdate,
+    MiniAppStudentBalanceUpdate,
+    MiniAppStudentCreate,
     MiniAppStudentInvitationRead,
     MiniAppStudentRegistryRead,
+    MiniAppStudentStatusUpdate,
     MiniAppTenantCreate,
     MiniAppTenantCreatedRead,
     MiniAppWarehousePreferenceRead,
@@ -91,6 +96,7 @@ from app.services.miniapp import (
     assign_miniapp_order_warehouses,
     cancel_miniapp_order,
     create_miniapp_order,
+    create_miniapp_student,
     create_miniapp_tenant,
     get_miniapp_accrual_report,
     get_miniapp_cart,
@@ -105,8 +111,10 @@ from app.services.miniapp import (
     list_miniapp_catalog,
     list_miniapp_staff_onboarding_options,
     list_miniapp_student_registry,
+    list_miniapp_teacher_invitations,
     replace_miniapp_cart,
     return_miniapp_order,
+    set_miniapp_student_balance,
     set_miniapp_warehouse_preference,
     transfer_miniapp_inventory,
     transfer_miniapp_order_to_teacher,
@@ -115,16 +123,18 @@ from app.services.miniapp import (
     update_miniapp_accrual_rules,
     update_miniapp_staff_assignment,
     update_miniapp_staff_notification_settings,
+    update_miniapp_student_access_policy,
+    update_miniapp_student_status,
     upsert_miniapp_product,
     upsert_miniapp_warehouse,
 )
+from app.services.product_import import build_product_import_template
 from app.services.product_media import (
     ProductMediaError,
     remove_product_image,
     remove_product_image_url,
     save_product_image,
 )
-from app.services.product_import import build_product_import_template
 
 router = APIRouter()
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
@@ -332,6 +342,83 @@ async def miniapp_student_registry(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+@router.post(
+    "/students",
+    response_model=MiniAppStudentRegistryRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def miniapp_student_create(
+    payload: MiniAppStudentCreate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppStudentRegistryRead:
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await create_miniapp_student(
+            db,
+            payload=payload,
+            default_tenant_slug=get_settings().default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.patch(
+    "/students/{student_id}/status",
+    response_model=MiniAppStudentRegistryRead,
+)
+async def miniapp_student_status_update(
+    student_id: UUID,
+    payload: MiniAppStudentStatusUpdate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppStudentRegistryRead:
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await update_miniapp_student_status(
+            db,
+            student_id=student_id,
+            payload=payload,
+            default_tenant_slug=get_settings().default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.put(
+    "/students/{student_id}/balance",
+    response_model=MiniAppStudentRegistryRead,
+)
+async def miniapp_student_balance_update(
+    student_id: UUID,
+    payload: MiniAppStudentBalanceUpdate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppStudentRegistryRead:
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await set_miniapp_student_balance(
+            db,
+            student_id=student_id,
+            payload=payload,
+            default_tenant_slug=get_settings().default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
 @router.get(
     "/admin/history",
     response_model=MiniAppAdminHistoryRead,
@@ -363,10 +450,29 @@ async def miniapp_admin_history(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
-@router.get(
-    "/students/{student_id}/invitation",
-    response_model=MiniAppStudentInvitationRead,
-)
+@router.get("/students/invitations", response_model=list[MiniAppStudentInvitationRead])
+async def miniapp_teacher_invitations(
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: str | None = None,
+) -> list[MiniAppStudentInvitationRead]:
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        return await list_miniapp_teacher_invitations(
+            db,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/students/{student_id}/invitation", response_model=MiniAppStudentInvitationRead)
 async def miniapp_student_invitation(
     student_id: UUID,
     db: DbSession,
@@ -385,6 +491,31 @@ async def miniapp_student_invitation(
             max_user_id=max_user_id,
             tenant_slug=resolved_tenant,
             student_id=student_id,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.put(
+    "/students/access-policy",
+    response_model=MiniAppStudentAccessPolicyRead,
+)
+async def miniapp_update_student_access_policy(
+    payload: MiniAppStudentAccessPolicyUpdate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppStudentAccessPolicyRead:
+    settings = get_settings()
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await update_miniapp_student_access_policy(
+            db,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
         )
     except MiniAppStoreError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

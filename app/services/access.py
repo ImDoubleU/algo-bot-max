@@ -12,7 +12,6 @@ from app.models.enums import (
     StudentAccessRole,
     StudentAccessSource,
     StudentAccessStatus,
-    StudentStatus,
 )
 from app.models.student import Contact, ContactStudentLink, Student, StudentAccessLink
 from app.models.tenant import Tenant
@@ -22,6 +21,7 @@ from app.schemas.access import (
     StudentInvitationLinkCreate,
     StudentResolveRequest,
 )
+from app.services.student_access_policy import student_access_window
 from app.services.student_invitations import (
     StudentInvitationError,
     verify_student_invitation_token,
@@ -88,17 +88,23 @@ async def resolve_students_by_contact_id(
     if contact is None:
         return None
 
+    tenant = await db.scalar(select(Tenant).where(Tenant.id == contact.tenant_id))
+    if tenant is None:
+        return None
+
     stmt = (
         select(Student)
         .join(ContactStudentLink, ContactStudentLink.student_id == Student.id)
         .where(
             ContactStudentLink.tenant_id == contact.tenant_id,
             ContactStudentLink.contact_id == contact.id,
-            Student.status == StudentStatus.ACTIVE,
         )
         .order_by(Student.first_name, Student.last_name)
     )
-    return contact, list((await db.scalars(stmt)).all())
+    students = list((await db.scalars(stmt)).all())
+    return contact, [
+        student for student in students if student_access_window(student, tenant).allowed
+    ]
 
 
 async def record_student_access_attempt(
@@ -446,11 +452,14 @@ async def create_invited_student_access_link(
         select(Student).where(
             Student.id == student_id,
             Student.tenant_id == tenant.id,
-            Student.status == StudentStatus.ACTIVE,
         )
     )
     if student is None:
         raise AccessServiceError("Student was not found for this tenant")
+    if not student_access_window(student, tenant).allowed:
+        raise AccessServiceError(
+            "Срок доступа после завершения обучения истек. Обратитесь в школу."
+        )
 
     sponsor_link = await db.scalar(
         select(StudentAccessLink).where(

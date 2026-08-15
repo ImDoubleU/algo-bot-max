@@ -1046,7 +1046,7 @@ async def _seed_teaching(
                 id=_id(run_id, f"course:{course_index}"),
                 tenant_id=tenant.id,
                 name=f"{marker} · {course_name}",
-                description=f"{marker} курс для проверки журнала",
+                description=f"{marker} курс для проверки расписания",
                 is_active=True,
             ),
         )
@@ -1172,72 +1172,6 @@ async def _seed_teaching(
         ),
     )
 
-    schedule_students = [
-        student for student in full_students if student.group_name == schedules[0].group_name
-    ]
-    for lesson_position in range(1, 9):
-        lesson_date = (
-            moved_date
-            if lesson_position == 3
-            else first_monday + timedelta(weeks=lesson_position - 1)
-        )
-        for student_index, student in enumerate(schedule_students):
-            present = (lesson_position + student_index) % 4 != 0
-            makeup_completed = not present and lesson_position <= 5
-            await _merge(
-                db,
-                AttendanceRecord(
-                    id=_id(
-                        run_id,
-                        f"attendance:1:{lesson_position}:{student_index}",
-                    ),
-                    tenant_id=tenant.id,
-                    schedule_id=schedules[0].id,
-                    student_id=student.id,
-                    lesson_date=lesson_date,
-                    present=present,
-                    makeup_completed=makeup_completed,
-                    marked_by_account_id=accounts["teacher_one"].id,
-                    comment=(
-                        "Отработка проведена"
-                        if makeup_completed
-                        else "Пропуск без отработки"
-                        if not present
-                        else None
-                    ),
-                ),
-            )
-    await _merge(
-        db,
-        FeedbackOutput(
-            id=_id(run_id, "feedback:auto:1"),
-            tenant_id=tenant.id,
-            schedule_id=schedules[0].id,
-            lesson_date=first_monday + timedelta(weeks=7),
-            lesson_number=8,
-            lesson_title="Урок 8. Практическая тема",
-            feedback_text="На занятии ученики выполнили практическую работу.",
-            status="sent",
-            sent_at=_utcnow() - timedelta(days=1),
-        ),
-    )
-    await _merge(
-        db,
-        ManualFeedbackOutput(
-            id=_id(run_id, "feedback:manual:1"),
-            tenant_id=tenant.id,
-            author_account_id=accounts["teacher_two"].id,
-            course_id=courses[1].id,
-            group_name=group_names[1],
-            lesson_date=today - timedelta(days=2),
-            lesson_number=5,
-            lesson_title="Урок 5. Практическая тема",
-            lesson_mode="group",
-            lesson_place="Северная площадка",
-            feedback_text="Группа разобрала тему и закрепила материал.",
-            status="generated",
-        ),
-    )
 
 
 async def _seed_broadcasts_and_preferences(
@@ -1295,8 +1229,6 @@ async def _seed_broadcasts_and_preferences(
         "orders.returned",
         "inventory.low_stock",
         "lessons.changed",
-        "attendance.makeup_required",
-        "attendance.makeup_completed",
         "broadcasts.completed",
         "broadcasts.partial",
         "broadcasts.failed",
@@ -1311,7 +1243,7 @@ async def _seed_broadcasts_and_preferences(
                     tenant_id=tenant.id,
                     account_id=accounts[account_key].id,
                     event_key=event_key,
-                    enabled=(account_key == "admin" or event_key.startswith("attendance.")),
+                    enabled=(account_key == "admin"),
                 ),
             )
 
@@ -1587,25 +1519,6 @@ async def audit_matrix(run_id: str, default_tenant_slug: str) -> dict[str, Any]:
             passed=not wallet_mismatches,
             actual=wallet_mismatches,
             expected=[],
-        )
-
-        qa_auto_feedback_count = int(
-            await db.scalar(
-                select(func.count())
-                .select_from(TeachingSchedule)
-                .where(
-                    TeachingSchedule.tenant_id.in_(tenant_ids),
-                    TeachingSchedule.auto_feedback_enabled.is_(True),
-                )
-            )
-            or 0
-        )
-        _check(
-            checks,
-            key="feedback.external_delivery_disabled",
-            passed=qa_auto_feedback_count == 0,
-            actual=qa_auto_feedback_count,
-            expected=0,
         )
 
         configured_superadmin_id = configured_superadmin_max_user_id()

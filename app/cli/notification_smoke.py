@@ -197,20 +197,6 @@ def build_cases(
             tenant_slug=tenant_slug,
         ),
         NotificationCase(
-            key="feedback_teacher",
-            label="ОС преподавателю",
-            text=(
-                "ОС готова · Тестовая группа\n\n"
-                "На занятии группа разобрала новую тему и выполнила практическое задание."
-            ),
-            attachments=_miniapp_attachments(
-                user_id=user_id,
-                tenant_slug=tenant_slug,
-                view="teaching",
-                button_label="Открыть кабинет",
-            ),
-        ),
-        NotificationCase(
             key="staff_request",
             label="Новая заявка сотрудника",
             text=(

@@ -15,24 +15,35 @@ from app.models.enums import (
     StudentAccessRole,
     StudentAccessSource,
     StudentAccessStatus,
+    StudentStatus,
 )
 from app.models.store import Order, OrderItem, OrderStatusHistory, Product
 from app.models.student import (
     AstrocoinLedgerEntry,
     Student,
     StudentAccessLink,
+    StudentHistoryEvent,
     Wallet,
 )
 from app.schemas.access import AccessLinkCreate
-from app.schemas.miniapp import MiniAppAccessStatusUpdate, MiniAppStaffAssignmentUpdate
+from app.schemas.miniapp import (
+    MiniAppAccessStatusUpdate,
+    MiniAppStaffAssignmentUpdate,
+    MiniAppStudentBalanceUpdate,
+    MiniAppStudentCreate,
+    MiniAppStudentStatusUpdate,
+)
 from app.services.access import create_contact_access_links
 from app.services.crm_import import CrmStudentRow
 from app.services.crm_sync import CrmSyncDefaults, upsert_crm_student_rows
 from app.services.miniapp import (
     MiniAppStoreError,
+    create_miniapp_student,
     get_miniapp_session,
+    set_miniapp_student_balance,
     update_miniapp_access_link_status,
     update_miniapp_staff_assignment,
+    update_miniapp_student_status,
 )
 
 
@@ -403,3 +414,87 @@ async def test_superadmin_cannot_revoke_own_last_manager_role(db_session) -> Non
             ),
             default_tenant_slug="nizhniy-novgorod-partner-a",
         )
+
+
+async def test_admin_can_create_student_change_status_and_set_exact_balance(db_session) -> None:
+    defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+    await upsert_crm_student_rows(db_session, [crm_row()], defaults=defaults)
+    existing_student = await db_session.scalar(select(Student))
+    assert existing_student is not None
+
+    admin = MaxAccount(max_user_id=9191, username="student_admin")
+    db_session.add(admin)
+    await db_session.flush()
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=existing_student.tenant_id,
+            account_id=admin.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    registry = await create_miniapp_student(
+        db_session,
+        payload=MiniAppStudentCreate(
+            max_user_id=9191,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            first_name="Мария",
+            last_name="Соколова",
+            lms_student_id="MANUAL-001",
+            group_name="Python Start",
+            course_name="Python",
+            venue_name="Союзный 45",
+            teacher_name="Олейник Д",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    created = next(item for item in registry.students if item.lms_student_id == "MANUAL-001")
+
+    registry = await update_miniapp_student_status(
+        db_session,
+        student_id=created.student_id,
+        payload=MiniAppStudentStatusUpdate(
+            max_user_id=9191,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            status=StudentStatus.DEPARTED,
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    updated = next(item for item in registry.students if item.student_id == created.student_id)
+    assert updated.status == StudentStatus.DEPARTED
+    assert updated.departed_at is not None
+
+    registry = await set_miniapp_student_balance(
+        db_session,
+        student_id=created.student_id,
+        payload=MiniAppStudentBalanceUpdate(
+            max_user_id=9191,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            balance=275,
+            comment="Перенос подтвержденного остатка",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    updated = next(item for item in registry.students if item.student_id == created.student_id)
+    assert updated.balance == 275
+
+    history_types = set(
+        (
+            await db_session.scalars(
+                select(StudentHistoryEvent.event_type).where(
+                    StudentHistoryEvent.student_id == created.student_id
+                )
+            )
+        ).all()
+    )
+    ledger = await db_session.scalar(
+        select(AstrocoinLedgerEntry).where(
+            AstrocoinLedgerEntry.student_id == created.student_id
+        )
+    )
+    assert history_types == {"created", "status_changed"}
+    assert ledger is not None
+    assert ledger.direction == LedgerDirection.CREDIT
+    assert ledger.amount == 275

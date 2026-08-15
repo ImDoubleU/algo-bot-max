@@ -20,7 +20,7 @@ PROFILE_COMMANDS = {
 PROFILE_CALLBACKS = {
     "basic": DEFAULT_CALLBACKS,
     "store": DEFAULT_CALLBACKS,
-    "ops": ("help", "feedback"),
+    "ops": DEFAULT_CALLBACKS,
 }
 SMOKE_PROFILES = tuple(PROFILE_COMMANDS)
 ALL_PROFILE = "all"

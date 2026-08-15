@@ -43,7 +43,7 @@ certbot --nginx \
     --agree-tos \
     --register-unsafely-without-email
 
-systemctl restart algo-max-api.service algo-max-feedback.service
+systemctl restart algo-max-api.service
 
 mapfile -t polling_units < <(
     systemctl list-units --all --plain --no-legend "algo-max-id-polling*" \
