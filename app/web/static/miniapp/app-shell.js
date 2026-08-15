@@ -83,12 +83,55 @@ function normalizeRegistryStudent(item) {
   };
 }
 
+function demoAdminStudentRegistry() {
+  const now = new Date().toISOString();
+  return {
+    students: students.map((student) => ({
+      student_id: student.id,
+      lms_student_id: student.lmsId || null,
+      display_name: student.name,
+      group_name: student.group || null,
+      course_name: student.course || null,
+      venue_name: student.venue || null,
+      teacher_name: student.teacher || null,
+      status: student.status || "active",
+      balance: Number(student.balance || 0),
+      imported_at: student.importedAt || now,
+      updated_at: student.updatedAt || now,
+      status_updated_at: student.statusUpdatedAt || now,
+      departed_at: student.departedAt || null,
+      history: [
+        {
+          event_type: "imported",
+          to_status: student.status || "active",
+          to_group_name: student.group || null,
+          changed_fields: ["student"],
+          source: "demo",
+          occurred_at: student.importedAt || now,
+        },
+      ],
+    })),
+  };
+}
+
+function applyAdminStudentRegistry(result) {
+  state.adminStudents = Array.isArray(result?.students)
+    ? result.students.map(normalizeRegistryStudent)
+    : [];
+  state.adminStudentsLoaded = true;
+  state.adminStudentsError = "";
+}
+
 async function loadAdminStudents(force = false) {
+  if (apiContext.demoMode) {
+    applyAdminStudentRegistry(demoAdminStudentRegistry());
+    if (state.adminTab === "students") renderAdminPanel();
+    return;
+  }
   if (
     state.role !== "admin" ||
     !state.hasAccess ||
-    !apiContext.maxUserId ||
-    apiContext.demoMode
+    !apiContext.maxUserId
   ) return;
   if (
     state.adminStudentsLoading ||
@@ -107,10 +150,7 @@ async function loadAdminStudents(force = false) {
     );
     if (!response.ok) throw new Error(await parseApiError(response));
     const result = await response.json();
-    state.adminStudents = Array.isArray(result.students)
-      ? result.students.map(normalizeRegistryStudent)
-      : [];
-    state.adminStudentsLoaded = true;
+    applyAdminStudentRegistry(result);
   } catch (error) {
     state.adminStudentsError = error.message || "Не удалось загрузить учеников";
     showNotice(state.adminStudentsError, "danger");
@@ -276,11 +316,16 @@ async function switchTenant(tenantSlug) {
   state.adminStudents = [];
   state.adminStudentsLoaded = false;
   state.adminStudentsError = "";
+  state.studentCreateOpen = false;
+  state.studentMutationSaving = "";
   state.adminHistory = [];
   state.adminHistoryLoaded = false;
   state.adminHistoryError = "";
   state.studentRegistryStatusFilter = "all";
   state.studentRegistryGroupFilter = "all";
+  state.teacherInvitations = new Map();
+  state.teacherInvitationsLoaded = false;
+  state.teacherInvitationGroup = "all";
   syncTenantToUrl();
   closeTenantDialog();
   try {
@@ -295,10 +340,6 @@ async function switchTenant(tenantSlug) {
     state.favorites = new Set();
     state.teachingWorkspace = null;
     state.teachingLoaded = false;
-    state.attendanceScheduleId = "";
-    state.attendanceJournal = null;
-    state.attendanceDirty = new Map();
-    state.attendanceLessonDirty = new Map();
     state.accrualReport = null;
     state.accrualReportTeacherFilter = "all";
     state.accrualReportGroupFilter = "all";
@@ -415,10 +456,13 @@ async function refreshAllData() {
   });
   state.studentInvitations = new Map();
   state.studentInvitationsLoaded = false;
+  state.teacherInvitations = new Map();
+  state.teacherInvitationsLoaded = false;
   await loadParentInvitations();
   if (["teacher", "admin"].includes(state.role)) {
     try {
       await loadTeachingWorkspace();
+      if (primaryStaffRole() === "teacher") await loadTeacherInvitations(true);
     } catch (error) {
       errors.push(error);
     }
@@ -450,14 +494,6 @@ function setView(view) {
   const allowedViews = roleViews(state.role);
   const nextView = allowedViews.includes(view) ? view : "dashboard";
   const previousView = state.view;
-  if (
-    previousView === "teaching" &&
-    nextView !== "teaching" &&
-    hasAttendanceChanges()
-  ) {
-    confirmDiscardAttendanceChanges(() => setView(nextView));
-    return;
-  }
   if (previousView !== nextView) hideNotice();
   if (nextView !== "store") state.storeFiltersOpen = false;
   state.view = nextView;
@@ -491,6 +527,14 @@ function setView(view) {
         state.teachingLoading = false;
         renderTeaching();
       });
+  }
+  if (
+    nextView === "teaching" &&
+    primaryStaffRole() === "teacher" &&
+    !state.teacherInvitationsLoaded &&
+    !state.teacherInvitationsLoading
+  ) {
+    loadTeacherInvitations().catch((error) => console.warn(error));
   }
   if (nextView === "broadcasts" && !state.teachingLoaded && !state.teachingLoading) {
     state.teachingLoading = true;
@@ -688,6 +732,14 @@ function setRole(role) {
   ) {
     loadParentInvitations().catch((error) => console.warn(error));
   }
+  if (
+    role === "teacher" &&
+    primaryStaffRole() === "teacher" &&
+    !state.teacherInvitationsLoaded &&
+    !state.teacherInvitationsLoading
+  ) {
+    loadTeacherInvitations().catch((error) => console.warn(error));
+  }
 }
 
 function closeMobileMorePanel() {
@@ -812,8 +864,8 @@ function renderStatus() {
       title: primaryRole === "curator" ? "Группы и занятия" : "Мои группы и занятия",
       text:
         primaryRole === "curator"
-          ? "Ученики, расписание и обратная связь по филиалу."
-          : "Ученики, расписание и обратная связь по вашим группам.",
+          ? "Ученики и расписание по филиалу."
+          : "Ученики и расписание по вашим группам.",
     },
     admin: {
       kicker: "Управление филиалом",
@@ -831,11 +883,32 @@ function renderStatus() {
   qs("#dashboardRoleKicker").textContent = spotlight.kicker;
   qs("#dashboardSpotlightTitle").textContent = spotlight.title;
   qs("#dashboardSpotlightText").textContent = spotlight.text;
+  const accessNotice = qs("#studentAccessNotice");
+  if (accessNotice) {
+    const showAccessNotice = !isStaff && student?.status === "departed" && student.accessUntil;
+    accessNotice.hidden = !showAccessNotice;
+    if (showAccessNotice) {
+      const accessDate = new Intl.DateTimeFormat("ru-RU", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }).format(new Date(`${student.accessUntil}T12:00:00`));
+      accessNotice.innerHTML = `
+        <i data-lucide="clock-3"></i>
+        <span>
+          <strong>Доступ сохранен до ${escapeHtml(accessDate)}</strong>
+          <small>${student.accessPaused ? "Отсчет сейчас приостановлен школой." : "До этой даты доступны баланс, магазин и история заказов."}</small>
+        </span>
+      `;
+    } else {
+      accessNotice.innerHTML = "";
+    }
+  }
   const taskActions = qs("#dashboardTaskActions");
   if (taskActions) {
     const actions = state.role === "teacher"
       ? [
-          ["teaching", "calendar-check", "Открыть журнал"],
+          ["teaching", "calendar-check", "Открыть расписание"],
           ["accrual", "circle-plus", "Начислить AC"],
         ]
       : state.role === "admin"

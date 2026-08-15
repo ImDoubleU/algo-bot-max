@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 
 from app.core.config import get_settings
@@ -40,7 +40,7 @@ async def crm_import_template() -> Response:
 
 
 @router.get("/miniapp/qr/{token}.png", include_in_schema=False)
-async def student_invitation_qr(token: str) -> Response:
+async def student_invitation_qr(token: str, preview: bool = Query(default=False)) -> Response:
     try:
         verify_student_invitation_token(token)
     except StudentInvitationError as exc:
@@ -55,7 +55,11 @@ async def student_invitation_qr(token: str) -> Response:
         media_type="image/png",
         headers={
             "Cache-Control": "private, max-age=300",
-            "Content-Disposition": 'attachment; filename="algo-max-student-qr.png"',
+            "Content-Disposition": (
+                'inline; filename="algo-max-student-qr.png"'
+                if preview
+                else 'attachment; filename="algo-max-student-qr.png"'
+            ),
             "X-Content-Type-Options": "nosniff",
         },
     )

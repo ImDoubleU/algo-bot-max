@@ -14,7 +14,6 @@ function renderAll() {
   renderAccrualReport();
   renderAccrual();
   renderTeaching();
-  renderAttendanceJournal();
   renderBroadcasts();
   renderAdminPanel();
   refreshIcons();
@@ -1744,6 +1743,10 @@ document.addEventListener("click", (event) => {
   const printedStudentId = target.dataset.printStudentInvite;
   if (printedStudentId) printStudentInvitation(printedStudentId);
 
+  if ("loadTeacherQr" in target.dataset) {
+    void loadTeacherInvitations(true);
+  }
+
   if (target.id === "closeStudentQrDialogButton") {
     closeStudentQrPreview();
     return;
@@ -1773,40 +1776,6 @@ document.addEventListener("click", (event) => {
 
   const configureScheduleGroup = target.dataset.configureSchedule;
   if (configureScheduleGroup) openScheduleEditor("", configureScheduleGroup);
-
-  const attendanceScheduleId = target.dataset.openAttendance;
-  if (attendanceScheduleId) loadAttendanceJournal(attendanceScheduleId);
-
-  const attendanceLessonPosition = target.dataset.editAttendanceLesson;
-  if (attendanceLessonPosition) openAttendanceLessonEditor(attendanceLessonPosition);
-
-  if (target.dataset.attendanceCycle) {
-    cycleAttendanceStatus(
-      target.dataset.studentId || "",
-      target.dataset.lessonDate || "",
-    );
-  }
-
-  const journalScrollDirection = Number(target.dataset.journalScroll || 0);
-  if (journalScrollDirection) scrollAttendanceJournal(journalScrollDirection);
-  if ("journalCurrent" in target.dataset) scrollJournalToCurrent();
-  const markAllPresentDate = target.dataset.markAllPresent;
-  if (markAllPresentDate) markGroupPresent(markAllPresentDate);
-
-  if (target.id === "closeAttendanceJournalButton") closeAttendanceJournal();
-  if (
-    target.id === "closeAttendanceLessonDialogButton"
-    || target.id === "cancelAttendanceLessonButton"
-  ) {
-    closeAttendanceLessonEditor();
-  }
-  if (target.id === "applyAttendanceLessonButton") applyAttendanceLessonEditor();
-
-  const feedbackOutputId = target.dataset.openFeedback;
-  if (feedbackOutputId) openFeedbackDialog(feedbackOutputId);
-
-  if (target.id === "closeFeedbackDialogButton") closeFeedbackDialog();
-  if (target.id === "copyFeedbackButton") copyGeneratedFeedback();
 
   if (target.id === "previewBroadcastButton") {
     previewBroadcastAudience();
@@ -1941,6 +1910,25 @@ document.addEventListener("click", (event) => {
     void loadAdminStudents(true);
   }
 
+  if ("toggleStudentCreate" in target.dataset) {
+    state.studentCreateOpen = !state.studentCreateOpen;
+    renderStudentRegistry();
+    if (state.studentCreateOpen) qs('#studentCreateForm input[name="last_name"]')?.focus();
+  }
+
+  if ("closeStudentCreate" in target.dataset) {
+    state.studentCreateOpen = false;
+    renderStudentRegistry();
+  }
+
+  if ("clearAccessFreeze" in target.dataset) {
+    const from = qs("#studentAccessFreezeFrom");
+    const until = qs("#studentAccessFreezeUntil");
+    if (from) from.value = "";
+    if (until) until.value = "";
+    target.disabled = true;
+  }
+
   if ("resetStudentRegistry" in target.dataset) {
     state.adminEntitySearch = "";
     state.studentRegistryStatusFilter = "all";
@@ -2038,10 +2026,6 @@ document.addEventListener("click", (event) => {
     state.accrualReportTeacherFilter = "all";
     state.accrualReportGroupFilter = "all";
     renderAccrualReport();
-  }
-
-  if (target.id === "saveAttendanceButton") {
-    saveAttendanceJournal();
   }
 
   if ("selectedAccrual" in target.dataset) {
@@ -2253,14 +2237,6 @@ qs("#studentQrDialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) closeStudentQrPreview();
 });
 
-qs("#feedbackDialog").addEventListener("click", (event) => {
-  if (event.target === event.currentTarget) closeFeedbackDialog();
-});
-
-qs("#attendanceLessonDialog").addEventListener("click", (event) => {
-  if (event.target === event.currentTarget) closeAttendanceLessonEditor();
-});
-
 qs("#confirmationDialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) settleConfirmation(false);
 });
@@ -2293,20 +2269,12 @@ document.addEventListener("keydown", (event) => {
     closeMobileMorePanel();
     return;
   }
-  if (!qs("#attendanceLessonDialog").hidden) {
-    closeAttendanceLessonEditor();
-    return;
-  }
   if (!qs("#productDialog").hidden) {
     closeProductDialog();
     return;
   }
   if (!qs("#orderDialog").hidden) {
     closeOrderDialog();
-    return;
-  }
-  if (!qs("#feedbackDialog").hidden) {
-    closeFeedbackDialog();
     return;
   }
   if (!qs("#checkoutDialog").hidden) closeCheckoutDialog();
@@ -2413,6 +2381,10 @@ document.addEventListener("change", (event) => {
     state.studentRegistryGroupFilter = target.value;
     renderAdminPanel();
   }
+  if (target.id === "teacherQrGroupFilter") {
+    state.teacherInvitationGroup = target.value;
+    renderTeacherInvitations();
+  }
   if (target.id === "productCategoryFilter") {
     state.productCategoryFilter = target.value;
     renderAdminPanel();
@@ -2483,15 +2455,6 @@ document.addEventListener("change", (event) => {
     updateCartQuantity(cartQuantityKey, target.value);
   }
 
-});
-
-document.addEventListener("input", (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLInputElement) || !target.dataset.journalScrollRange) return;
-  const scroll = qs("#attendanceJournalList .school-journal-scroll");
-  if (!scroll) return;
-  const maximum = Math.max(scroll.scrollWidth - scroll.clientWidth, 0);
-  scroll.scrollLeft = maximum * (Number(target.value) / 1000);
 });
 
 document.addEventListener("input", (event) => {
@@ -2589,6 +2552,17 @@ qs("#closeTenantDialogButton")?.addEventListener("click", closeTenantDialog);
 qs("#showTenantCreateButton")?.addEventListener("click", () => setTenantCreateMode(true));
 qs("#cancelTenantCreateButton")?.addEventListener("click", () => setTenantCreateMode(false));
 qs("#tenantCreateForm")?.addEventListener("submit", createTenantFromForm);
+document.addEventListener("submit", (event) => {
+  if (event.target?.id === "studentAccessPolicyForm") {
+    void saveStudentAccessPolicy(event);
+  } else if (event.target?.id === "studentCreateForm") {
+    void createAdminStudent(event);
+  } else if (event.target?.dataset?.studentStatusForm) {
+    void updateAdminStudentStatus(event);
+  } else if (event.target?.dataset?.studentBalanceForm) {
+    void updateAdminStudentBalance(event);
+  }
+});
 qs("#tenantDialog")?.addEventListener("click", (event) => {
   if (event.target === event.currentTarget) closeTenantDialog();
 });
@@ -2622,12 +2596,6 @@ qs("#placeOrderButton").addEventListener("click", openCheckoutDialog);
 qs("#storeCartBar").addEventListener("click", () => setView("cart"));
 qs("#broadcastForm")?.addEventListener("submit", sendSchoolBroadcast);
 qs("#mobileMoreBackdrop")?.addEventListener("click", closeMobileMorePanel);
-window.addEventListener("beforeunload", (event) => {
-  if (!hasAttendanceChanges()) return;
-  event.preventDefault();
-  event.returnValue = "";
-});
-
 async function init() {
   qs("#tenantTitle").textContent = tenantTitle();
   restorePreferences();
@@ -2658,7 +2626,7 @@ async function init() {
     applyAccessGate(
       sessionError
         ? "Не удалось проверить привязку профиля. Откройте бота и попробуйте войти снова."
-        : "",
+        : state.accessMessage || "",
     )
   ) {
     document.body.classList.remove("is-booting");
@@ -2687,6 +2655,7 @@ async function init() {
   if (apiContext.demoMode || state.catalogLoaded) restoreCart();
   await loadServerCart(state.activeStudentId);
   await loadParentInvitations();
+  if (primaryStaffRole() === "teacher") await loadTeacherInvitations();
   setView(state.view);
   state.lastSyncAt = new Date();
   renderAll();

@@ -129,9 +129,13 @@ function renderParentInvitations() {
     .join("");
   refreshIcons();
 }
+function studentInvitationData(studentId) {
+  return state.teacherInvitations.get(studentId)?.data || state.studentInvitations.get(studentId)?.data;
+}
+
 function openStudentQrPreview(studentId) {
   const student = students.find((item) => item.id === studentId);
-  const invitation = state.studentInvitations.get(studentId)?.data;
+  const invitation = studentInvitationData(studentId);
   const dialog = qs("#studentQrDialog");
   if (!student || !invitation || !dialog) return;
   state.qrPreviewStudentId = studentId;
@@ -171,7 +175,7 @@ function closeStudentQrPreview() {
 
 function studentQrDownload(studentId) {
   const student = students.find((item) => item.id === studentId);
-  const invitation = state.studentInvitations.get(studentId)?.data;
+  const invitation = studentInvitationData(studentId);
   if (!student || !invitation) return null;
   const safeId = String(student.id || "student").replace(/[^a-z0-9_-]/gi, "").slice(0, 24);
   const filename = `algo-max-qr-${safeId || "student"}.png`;
@@ -245,7 +249,7 @@ async function saveStudentQrImage(studentId, button = null) {
 
 async function shareStudentInvitation(studentId) {
   const student = students.find((item) => item.id === studentId);
-  const invitation = state.studentInvitations.get(studentId)?.data;
+  const invitation = studentInvitationData(studentId);
   if (!student || !invitation) return;
   const shareData = {
     title: `Вход в Algo MAX: ${student.name}`,
@@ -265,7 +269,7 @@ async function shareStudentInvitation(studentId) {
 
 function printStudentInvitation(studentId) {
   const student = students.find((item) => item.id === studentId);
-  const invitation = state.studentInvitations.get(studentId)?.data;
+  const invitation = studentInvitationData(studentId);
   if (!student || !invitation) return;
   const printWindow = window.open("", "_blank", "width=520,height=680");
   if (!printWindow) return showNotice("Разрешите всплывающие окна для печати", "danger");

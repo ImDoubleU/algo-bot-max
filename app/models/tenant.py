@@ -1,6 +1,7 @@
+from datetime import date
 from uuid import UUID
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Date, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, uuid_pk
@@ -37,6 +38,9 @@ class Tenant(TimestampMixin, Base):
     slug: Mapped[str] = mapped_column(String(80), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     status: Mapped[TenantStatus] = mapped_column(default=TenantStatus.ACTIVE, nullable=False)
+    departed_access_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    access_freeze_from: Mapped[date | None] = mapped_column(Date)
+    access_freeze_until: Mapped[date | None] = mapped_column(Date)
 
     city = relationship("City", back_populates="tenants")
     partner = relationship("Partner", back_populates="tenants")

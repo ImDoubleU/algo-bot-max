@@ -1,4 +1,4 @@
-from datetime import date, datetime, time
+from datetime import date, time
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -37,26 +37,9 @@ class TeachingScheduleRead(BaseModel):
     current_lesson_number: int
     next_lesson_number: int
     lesson_offset: int
-    auto_feedback_enabled: bool
-    parent_delivery_enabled: bool
     is_active: bool
-    last_generated_lesson_date: date | None = None
     next_lesson_date: date
     next_lesson_title: str | None = None
-
-
-class FeedbackOutputRead(BaseModel):
-    id: UUID
-    schedule_id: UUID
-    group_name: str
-    course_name: str
-    lesson_date: date
-    lesson_number: int
-    lesson_title: str
-    feedback_text: str
-    status: str
-    sent_at: datetime | None = None
-    created_at: datetime
 
 
 class TeachingWorkspaceRead(BaseModel):
@@ -64,7 +47,6 @@ class TeachingWorkspaceRead(BaseModel):
     courses: list[CourseSummaryRead]
     groups: list[TeachingGroupOptionRead]
     schedules: list[TeachingScheduleRead]
-    feedback_outputs: list[FeedbackOutputRead]
 
 
 class TeachingScheduleUpsert(BaseModel):
@@ -80,142 +62,4 @@ class TeachingScheduleUpsert(BaseModel):
     lesson_place: str = Field(default="offline", min_length=2, max_length=200)
     current_lesson_number: int = Field(default=1, ge=1, le=1000)
     lesson_offset: int = Field(default=0, ge=-100, le=100)
-    auto_feedback_enabled: bool = True
-    parent_delivery_enabled: bool = False
     is_active: bool = True
-
-
-class FeedbackGenerateRequest(BaseModel):
-    max_user_id: int = Field(gt=0)
-    tenant_slug: str | None = None
-    lesson_date: date | None = None
-    absent_students: list[str] = Field(default_factory=list, max_length=100)
-    is_repetition: bool = False
-    advance_lesson: bool = False
-
-
-class ManualFeedbackCreate(BaseModel):
-    max_user_id: int = Field(gt=0)
-    tenant_slug: str | None = None
-    group_name: str = Field(min_length=2, max_length=200)
-    course_id: UUID
-    lesson_number: int = Field(ge=1, le=1000)
-    lesson_date: date
-    lesson_mode: str = Field(default="group", pattern="^(group|individual)$")
-    lesson_place: str = Field(default="offline", min_length=2, max_length=200)
-    absent_students: list[str] = Field(default_factory=list, max_length=100)
-    is_repetition: bool = False
-
-
-class ManualFeedbackOutputRead(BaseModel):
-    id: UUID
-    group_name: str
-    course_id: UUID
-    course_name: str
-    lesson_date: date
-    lesson_number: int
-    lesson_title: str
-    lesson_mode: str
-    lesson_place: str
-    feedback_text: str
-    status: str
-    sent_at: datetime | None = None
-    created_at: datetime
-
-
-class ManualFeedbackSendRequest(BaseModel):
-    max_user_id: int = Field(gt=0)
-    tenant_slug: str | None = None
-
-
-class ManualFeedbackSendRead(BaseModel):
-    output_id: UUID
-    parent_recipients: int
-    sent_recipients: int
-    failed_recipients: int
-    status: str
-
-
-class AttendanceStudentRead(BaseModel):
-    student_id: UUID
-    student_name: str
-    group_name: str
-    present: bool | None = None
-    makeup_completed: bool = False
-    comment: str | None = None
-
-
-class AttendanceJournalRead(BaseModel):
-    schedule_id: UUID
-    group_name: str
-    lesson_date: date
-    lesson_number: int
-    students: list[AttendanceStudentRead]
-
-
-class AttendanceMarkItem(BaseModel):
-    student_id: UUID
-    present: bool
-    makeup_completed: bool = False
-    comment: str | None = Field(default=None, max_length=300)
-
-
-class AttendanceMarkRequest(BaseModel):
-    max_user_id: int = Field(gt=0)
-    tenant_slug: str | None = None
-    lesson_date: date
-    items: list[AttendanceMarkItem] = Field(min_length=1, max_length=100)
-
-
-class AttendanceLessonRead(BaseModel):
-    position: int
-    lesson_date: date
-    lesson_number: int
-    lesson_title: str | None = None
-    is_current: bool = False
-    is_future: bool = False
-
-
-class AttendanceMarkRead(BaseModel):
-    lesson_date: date
-    present: bool
-    makeup_completed: bool = False
-    comment: str | None = None
-
-
-class GroupAttendanceStudentRead(BaseModel):
-    student_id: UUID
-    student_name: str
-    group_name: str
-    marks: list[AttendanceMarkRead] = Field(default_factory=list)
-
-
-class GroupAttendanceJournalRead(BaseModel):
-    schedule_id: UUID
-    group_name: str
-    course_name: str
-    lesson_time: time
-    current_lesson_number: int
-    lessons: list[AttendanceLessonRead]
-    students: list[GroupAttendanceStudentRead]
-
-
-class AttendanceJournalUpdateItem(BaseModel):
-    student_id: UUID
-    lesson_date: date
-    present: bool | None = None
-    makeup_completed: bool = False
-    comment: str | None = Field(default=None, max_length=300)
-
-
-class AttendanceLessonUpdateItem(BaseModel):
-    position: int = Field(ge=1, le=1000)
-    lesson_date: date
-    lesson_number: int = Field(ge=1, le=1000)
-
-
-class AttendanceJournalUpdateRequest(BaseModel):
-    max_user_id: int = Field(gt=0)
-    tenant_slug: str | None = None
-    items: list[AttendanceJournalUpdateItem] = Field(default_factory=list, max_length=500)
-    lessons: list[AttendanceLessonUpdateItem] = Field(default_factory=list, max_length=1000)

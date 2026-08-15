@@ -4,7 +4,7 @@ Production-схема проекта:
 
 `MAX -> HTTPS/Nginx -> FastAPI webhook -> PostgreSQL`
 
-FastAPI одновременно отдает mini-app и backend API. Отдельный worker готовит обратные связи.
+FastAPI одновременно отдает личный кабинет и backend API.
 Long polling в production не запускается.
 
 ## 1. Что нужно подготовить
@@ -212,7 +212,7 @@ sudo -u algomax --preserve-env /opt/algo-max/.venv/bin/python -m app.cli.bootstr
 ## 8. Запустить API и получить HTTPS
 
 ```bash
-systemctl enable --now algo-max-api algo-max-feedback algo-max-backup.timer
+systemctl enable --now algo-max-api algo-max-backup.timer
 systemctl status algo-max-api --no-pager
 curl http://127.0.0.1:8000/api/v1/health
 curl --fail http://127.0.0.1:8000/api/v1/ready
@@ -253,7 +253,7 @@ Mini-app URL: `https://bot.example.ru/miniapp`.
 
 Укажите URL mini-app в настройках приложения MAX. Затем откройте диалог с ботом,
 запустите его штатной кнопкой MAX и проверьте ролевое inline-меню, рабочий кабинет
-и раздел «Обратная связь».
+и актуальные разделы для выбранной роли.
 
 ## 10. Проверить рабочий сценарий
 
@@ -261,7 +261,7 @@ Mini-app URL: `https://bot.example.ru/miniapp`.
 2. Убедиться, что superadmin видит операции и сотрудников.
 3. Выдать преподавателю роль через раздел сотрудников.
 4. Открыть mini-app преподавателя и проверить только его группы.
-5. Добавить расписание группы и сформировать тестовую обратную связь.
+5. Добавить расписание группы и проверить его отображение преподавателю.
 6. Привязать тестового ученика по Contact ID.
 7. Начислить AC, оформить тестовый заказ и отменить его.
 8. В разделе операций создать реальный склад и загрузить CSV/XLSX каталога товаров.
@@ -270,7 +270,6 @@ Mini-app URL: `https://bot.example.ru/miniapp`.
 
 ```bash
 journalctl -u algo-max-api -f
-journalctl -u algo-max-feedback -f
 tail -f /var/log/nginx/error.log
 ```
 
@@ -288,14 +287,14 @@ ls -lh /var/backups/algo-max
 Восстановление в пустую базу:
 
 ```bash
-systemctl stop algo-max-api algo-max-feedback
+systemctl stop algo-max-api
 pg_restore --clean --if-exists --no-owner \
   --dbname 'postgresql://algomax:ПАРОЛЬ@127.0.0.1:5432/algo_bot_max' \
   /var/backups/algo-max/algo_bot_max_YYYYMMDDTHHMMSSZ.dump
 tar --extract --gzip \
   --file /var/backups/algo-max/product_media_YYYYMMDDTHHMMSSZ.tar.gz \
   --directory /var/lib/algo-max/product-media
-systemctl start algo-max-api algo-max-feedback
+systemctl start algo-max-api
 ```
 
 Обновление после публикации нового коммита:

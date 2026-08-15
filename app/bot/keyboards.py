@@ -12,8 +12,6 @@ CALLBACK_MENU = "menu"
 CALLBACK_MINIAPP = "miniapp:open"
 CALLBACK_KNOWLEDGE = "knowledge"
 CALLBACK_KNOWLEDGE_PREFIX = "knowledge"
-CALLBACK_FEEDBACK = "feedback"
-CALLBACK_FEEDBACK_PREFIX = "feedback"
 CALLBACK_STAFF_JOIN_PREFIX = "staff_join"
 CALLBACK_ROLE_PARENT = "role:parent"
 CALLBACK_ROLE_STUDENT = "role:student"
@@ -114,22 +112,6 @@ def inline_keyboard_with_main_menu(
     if not has_main_menu:
         navigation_rows.append([callback_button("Главное меню", CALLBACK_MENU)])
     return inline_keyboard(navigation_rows)
-
-
-def feedback_payload(action: str, value: str | int | None = None) -> str:
-    if value is None:
-        return f"{CALLBACK_FEEDBACK_PREFIX}:{action}"
-    return f"{CALLBACK_FEEDBACK_PREFIX}:{action}:{parse.quote(str(value), safe='')}"
-
-
-def parse_feedback_payload(payload: str) -> tuple[str, str | None] | None:
-    prefix = f"{CALLBACK_FEEDBACK_PREFIX}:"
-    if not payload.startswith(prefix):
-        return None
-    action, separator, encoded_value = payload[len(prefix) :].partition(":")
-    if not action:
-        return None
-    return action, parse.unquote(encoded_value) if separator and encoded_value else None
 
 
 def staff_join_payload(action: str, value: str | None = None) -> str:
@@ -347,7 +329,6 @@ def role_menu_keyboard(
         "partner_director",
         "superadmin",
     }:
-        rows.append([callback_button("Обратная связь", CALLBACK_FEEDBACK)])
         rows.append([callback_button("База знаний", CALLBACK_KNOWLEDGE)])
     rows.append([callback_button("Помощь", CALLBACK_HELP)])
     return inline_keyboard(rows)
@@ -389,232 +370,6 @@ def knowledge_section_keyboard(
     rows.extend(
         [
             [callback_button("К разделам", CALLBACK_KNOWLEDGE)],
-            [callback_button("Главное меню", CALLBACK_MENU)],
-        ]
-    )
-    return inline_keyboard(rows)
-
-
-def feedback_menu_keyboard(outputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    rows: list[list[dict[str, str]]] = [
-        [callback_button("Создать ОС вручную", feedback_payload("manual"))]
-    ]
-    unsent_outputs = [
-        output for output in outputs if str(output.get("status") or "") != "sent_to_parents"
-    ]
-    if unsent_outputs:
-        rows.append(
-            [
-                callback_button(
-                    f"Черновики · {len(unsent_outputs)}",
-                    feedback_payload("drafts"),
-                )
-            ]
-        )
-    rows.append([callback_button("Главное меню", CALLBACK_MENU)])
-    return inline_keyboard(rows)
-
-
-def _feedback_page_rows(
-    items: list[dict[str, Any]],
-    *,
-    page: int,
-    action: str,
-    page_action: str,
-    label_builder: Any,
-    page_size: int = 8,
-) -> list[list[dict[str, str]]]:
-    safe_page = max(page, 0)
-    start = safe_page * page_size
-    visible = items[start : start + page_size]
-    rows = [
-        [
-            callback_button(
-                _button_label(label_builder(item)),
-                feedback_payload(action, start + index),
-            )
-        ]
-        for index, item in enumerate(visible)
-    ]
-    navigation: list[dict[str, str]] = []
-    if safe_page > 0:
-        navigation.append(callback_button("Назад", feedback_payload(page_action, safe_page - 1)))
-    if start + page_size < len(items):
-        navigation.append(callback_button("Далее", feedback_payload(page_action, safe_page + 1)))
-    if navigation:
-        rows.append(navigation)
-    return rows
-
-
-def feedback_groups_keyboard(
-    groups: list[dict[str, Any]],
-    *,
-    page: int,
-) -> list[dict[str, Any]]:
-    rows = _feedback_page_rows(
-        groups,
-        page=page,
-        action="group",
-        page_action="groups",
-        label_builder=lambda item: (
-            f"{item.get('name') or 'Группа'} · {item.get('student_count') or 0} уч."
-        ),
-    )
-    rows.extend(
-        [
-            [callback_button("К разделу ОС", CALLBACK_FEEDBACK)],
-            [callback_button("Главное меню", CALLBACK_MENU)],
-        ]
-    )
-    return inline_keyboard(rows)
-
-
-def feedback_courses_keyboard(
-    courses: list[dict[str, Any]],
-    *,
-    page: int,
-) -> list[dict[str, Any]]:
-    rows = _feedback_page_rows(
-        courses,
-        page=page,
-        action="course",
-        page_action="courses",
-        label_builder=lambda item: (
-            f"{item.get('name') or 'Курс'} · {item.get('lesson_count') or 0} ур."
-        ),
-    )
-    rows.extend(
-        [
-            [callback_button("К группам", feedback_payload("groups", 0))],
-            [callback_button("Главное меню", CALLBACK_MENU)],
-        ]
-    )
-    return inline_keyboard(rows)
-
-
-def feedback_lessons_keyboard(
-    lessons: list[dict[str, Any]],
-    *,
-    page: int,
-) -> list[dict[str, Any]]:
-    rows = _feedback_page_rows(
-        lessons,
-        page=page,
-        action="lesson",
-        page_action="lessons",
-        label_builder=lambda item: (
-            f"Урок {item.get('lesson_number') or 1} · {item.get('title') or 'Без названия'}"
-        ),
-    )
-    rows.extend(
-        [
-            [callback_button("К курсам", feedback_payload("courses", 0))],
-            [callback_button("Главное меню", CALLBACK_MENU)],
-        ]
-    )
-    return inline_keyboard(rows)
-
-
-def feedback_drafts_keyboard(outputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    rows: list[list[dict[str, str]]] = []
-    for output in outputs[:12]:
-        label = (
-            f"{output.get('group_name') or 'Группа'} · {output.get('lesson_date') or 'без даты'}"
-        )
-        rows.append(
-            [
-                callback_button(
-                    _button_label(label),
-                    feedback_payload("manual_output", str(output.get("id") or "")),
-                )
-            ]
-        )
-    rows.extend(
-        [
-            [callback_button("К разделу ОС", CALLBACK_FEEDBACK)],
-            [callback_button("Главное меню", CALLBACK_MENU)],
-        ]
-    )
-    return inline_keyboard(rows)
-
-
-def feedback_setup_keyboard(
-    students: list[dict[str, Any]],
-    *,
-    absent_student_ids: set[str],
-    is_repetition: bool,
-    lesson_mode_label: str,
-    attendance_page: int,
-) -> list[dict[str, Any]]:
-    rows: list[list[dict[str, str]]] = []
-    page_size = 10
-    safe_page = max(attendance_page, 0)
-    start = safe_page * page_size
-    for student in students[start : start + page_size]:
-        student_id = str(student.get("student_id") or "")
-        selected = student_id in absent_student_ids
-        prefix = "Отсутствовал" if selected else "Был на уроке"
-        rows.append(
-            [
-                callback_button(
-                    _button_label(f"{prefix} · {student.get('display_name') or 'Ученик'}"),
-                    feedback_payload("absent", student_id),
-                )
-            ]
-        )
-    attendance_navigation: list[dict[str, str]] = []
-    if safe_page > 0:
-        attendance_navigation.append(
-            callback_button(
-                "Ученики назад",
-                feedback_payload("attendance", safe_page - 1),
-            )
-        )
-    if start + page_size < len(students):
-        attendance_navigation.append(
-            callback_button(
-                "Ученики далее",
-                feedback_payload("attendance", safe_page + 1),
-            )
-        )
-    if attendance_navigation:
-        rows.append(attendance_navigation)
-    rows.extend(
-        [
-            [
-                callback_button("Дата −1 день", feedback_payload("date", -1)),
-                callback_button("Дата +1 день", feedback_payload("date", 1)),
-            ],
-            [
-                callback_button(
-                    f"Формат: {lesson_mode_label}",
-                    feedback_payload("mode"),
-                )
-            ],
-            [
-                callback_button(
-                    f"Повторение: {'да' if is_repetition else 'нет'}",
-                    feedback_payload("repeat"),
-                )
-            ],
-            [callback_button("Сформировать ОС", feedback_payload("generate"))],
-            [callback_button("К урокам", feedback_payload("lessons", 0))],
-            [callback_button("Главное меню", CALLBACK_MENU)],
-        ]
-    )
-    return inline_keyboard(rows)
-
-
-def feedback_preview_keyboard(output_id: str | None = None) -> list[dict[str, Any]]:
-    rows: list[list[dict[str, str]]] = []
-    if output_id:
-        rows.append(
-            [callback_button("Отправить родителям", feedback_payload("manual_send", output_id))]
-        )
-    rows.extend(
-        [
-            [callback_button("Создать ещё", feedback_payload("manual"))],
-            [callback_button("Черновики", feedback_payload("drafts"))],
             [callback_button("Главное меню", CALLBACK_MENU)],
         ]
     )
