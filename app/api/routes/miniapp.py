@@ -258,7 +258,6 @@ async def miniapp_broadcast_send(
     audience_filter: Annotated[str, Form()] = "all",
     group_names: Annotated[list[str] | None, Form()] = None,
     venue_names: Annotated[list[str] | None, Form()] = None,
-    lesson_modes: Annotated[list[str] | None, Form()] = None,
     balance_threshold: Annotated[int | None, Form(ge=0, le=1_000_000)] = None,
     photo: Annotated[UploadFile | None, File()] = None,
 ) -> SchoolBroadcastRead:
@@ -276,7 +275,6 @@ async def miniapp_broadcast_send(
             audience_filter=audience_filter,
             group_names=group_names or [],
             venue_names=venue_names or [],
-            lesson_modes=lesson_modes or [],
             balance_threshold=balance_threshold,
         )
     except ValidationError as exc:

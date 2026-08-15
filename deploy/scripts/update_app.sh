@@ -22,6 +22,11 @@ else
     echo "No Git checkout found in $project_dir. Upload the release archive and rerun with SKIP_GIT_PULL=1." >&2
     exit 1
 fi
+rm -f \
+    "$project_dir/app/api/routes/teaching.py" \
+    "$project_dir/app/schemas/teaching.py" \
+    "$project_dir/app/services/teaching.py" \
+    "$project_dir/app/web/static/miniapp/app-teaching.js"
 sudo -u algomax "$project_dir/.venv/bin/pip" install -r "$project_dir/requirements-prod.txt"
 install -m 0644 deploy/systemd/algo-max-api.service /etc/systemd/system/algo-max-api.service
 install -m 0644 deploy/systemd/algo-max-backup.service /etc/systemd/system/algo-max-backup.service

@@ -77,7 +77,7 @@ SOURCE_SPECS = (
     ("app/web/static/miniapp/app-shell.js", "Приложение", "javascript"),
     ("app/web/static/miniapp/app-store.js", "Приложение", "javascript"),
     ("app/web/static/miniapp/app-admin.js", "Приложение", "javascript"),
-    ("app/web/static/miniapp/app-teaching.js", "Приложение", "javascript"),
+    ("app/web/static/miniapp/app-communications.js", "Приложение", "javascript"),
     ("app/web/static/miniapp/app.js", "Приложение", "javascript"),
     ("app/bot/keyboards.py", "MAX-бот", "python"),
     ("app/bot/max_long_polling.py", "MAX-бот", "python"),
@@ -211,8 +211,6 @@ def audience_from_context(context: str, *, surface: str) -> str:
             "broadcast",
             "crm",
             "tenant",
-            "teaching",
-            "schedule",
         )
     ):
         return "Сотрудники"
@@ -684,7 +682,6 @@ def javascript_function_ranges(source: str) -> list[tuple[int, int, str]]:
 def javascript_excluded_ranges(source: str) -> list[tuple[int, int]]:
     ranges: list[tuple[int, int]] = []
     declarations = (
-        "const demoTeachingWorkspace =",
         "let students =",
         "let accessLinks =",
         "let staffAssignments =",

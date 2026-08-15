@@ -1,30 +1,3 @@
-function teachingWorkspace() {
-  return state.teachingWorkspace || { courses: [], groups: [], schedules: [] };
-}
-
-function formatTeachingDate(value) {
-  if (!value) return "Дата не задана";
-  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long" }).format(
-    new Date(`${value}T12:00:00`),
-  );
-}
-
-function renderTeaching() {
-  const workspace = teachingWorkspace();
-  const summary = qs("#teachingSummary");
-  if (!summary) return;
-  const active = workspace.schedules.filter((item) => item.is_active);
-  const nearest = [...active].sort((a, b) =>
-    `${a.next_lesson_date}${a.lesson_time}`.localeCompare(`${b.next_lesson_date}${b.lesson_time}`),
-  )[0];
-  summary.innerHTML = `
-    <div><i data-lucide="users"></i><strong>${active.length}</strong><span>групп</span></div>
-    <div class="teaching-next"><i data-lucide="calendar-clock"></i><span>Ближайшее занятие</span><strong>${nearest ? `${escapeHtml(formatTeachingDate(nearest.next_lesson_date))}, ${escapeHtml(nearest.lesson_time.slice(0, 5))}` : "Не запланировано"}</strong></div>`;
-  renderTeacherInvitations();
-  renderScheduleEditor();
-  renderScheduleList();
-}
-
 function renderTeacherInvitations() {
   const panel = qs("#teacherQrPanel");
   const list = qs("#teacherQrList");
@@ -99,168 +72,6 @@ function renderTeacherInvitations() {
   refreshIcons();
 }
 
-function renderScheduleEditor() {
-  const editor = qs("#scheduleEditor");
-  if (!editor) return;
-  editor.hidden = !state.scheduleEditorOpen;
-  if (!state.scheduleEditorOpen) return;
-  const workspace = teachingWorkspace();
-  const item = workspace.schedules.find((schedule) => schedule.id === state.editingScheduleId);
-  const selectedGroup = item?.group_name || state.scheduleDraftGroup;
-  const today = new Date().toISOString().slice(0, 10);
-  const scheduledGroups = new Set(
-    workspace.schedules
-      .filter((schedule) => schedule.id !== item?.id)
-      .map((schedule) => schedule.group_name),
-  );
-  const groupNames = [...new Set([
-    ...(selectedGroup ? [selectedGroup] : []),
-    ...workspace.groups
-      .map((group) => group.name)
-      .filter((groupName) => !scheduledGroups.has(groupName)),
-  ])];
-  const groupField = groupNames.length
-    ? `<select id="scheduleGroupName"><option value="">Выберите группу</option>${groupNames
-        .map(
-          (groupName) =>
-            `<option value="${escapeHtml(groupName)}" ${groupName === selectedGroup ? "selected" : ""}>${escapeHtml(groupName)}</option>`,
-        )
-        .join("")}</select>`
-    : '<input id="scheduleGroupName" value="" placeholder="Название группы" />';
-  editor.innerHTML = `
-    <div class="schedule-editor-head"><div><p class="eyebrow">${item ? "Редактирование" : "Новая группа"}</p><h3>${escapeHtml(selectedGroup || "Добавить занятие")}</h3></div><button class="icon-button" type="button" data-close-schedule title="Закрыть">×</button></div>
-    <div class="schedule-form-grid">
-      <label class="schedule-field-wide"><span>Группа</span>${groupField}</label>
-      <label class="schedule-field-wide"><span>Курс</span><select id="scheduleCourseId">${workspace.courses.map((course) => `<option value="${escapeHtml(course.id)}" ${course.id === item?.course_id ? "selected" : ""}>${escapeHtml(course.name)} · ${course.lesson_count} уроков</option>`).join("")}</select></label>
-      <label><span>Первое занятие</span><input id="scheduleFirstDate" type="date" value="${item?.first_lesson_date || today}" /></label>
-      <label><span>Время</span><input id="scheduleTime" type="time" value="${item?.lesson_time?.slice(0, 5) || "10:00"}" /></label>
-      <label><span>Формат</span><select id="scheduleMode"><option value="group">Группа</option><option value="individual" ${item?.lesson_mode === "individual" ? "selected" : ""}>Индивидуально</option></select></label>
-      <label><span>Место</span><input id="schedulePlace" value="${escapeHtml(item?.lesson_place || "offline")}" placeholder="Адрес или online" /></label>
-      <label><span>Текущий урок</span><input id="scheduleLessonNumber" type="number" min="1" value="${item?.current_lesson_number || 1}" /></label>
-      <label><span>Длительность</span><select id="scheduleDuration"><option value="90">90 минут</option><option value="60" ${item?.duration_minutes === 60 ? "selected" : ""}>60 минут</option><option value="120" ${item?.duration_minutes === 120 ? "selected" : ""}>120 минут</option></select></label>
-    </div>
-    <div class="schedule-editor-actions"><button class="secondary-action" type="button" data-close-schedule>Отмена</button><button id="scheduleSaveButton" class="primary-action" type="button">Сохранить расписание</button></div>`;
-}
-
-function renderScheduleList() {
-  const list = qs("#scheduleList");
-  if (!list) return;
-  const workspace = teachingWorkspace();
-  const items = workspace.schedules;
-  if (state.teachingLoading) return void (list.innerHTML = '<div class="empty-state">Загружаем расписание...</div>');
-  const groupsByName = new Map();
-  workspace.groups.forEach((group) => {
-    const existing = groupsByName.get(group.name);
-    groupsByName.set(group.name, {
-      ...group,
-      student_count: (existing?.student_count || 0) + group.student_count,
-      course_name: existing?.course_name || group.course_name,
-    });
-  });
-  const scheduledNames = new Set(items.map((item) => item.group_name));
-  const unscheduledGroups = [...groupsByName.values()].filter(
-    (group) => !scheduledNames.has(group.name),
-  );
-  if (!items.length && !unscheduledGroups.length) {
-    list.innerHTML = '<div class="empty-state">Доступных групп пока нет.</div>';
-    return;
-  }
-  const scheduledRows = items
-    .map((item) => {
-      const group = groupsByName.get(item.group_name);
-      return `
-        <article class="schedule-card ${item.is_active ? "" : "is-paused"}">
-          <div class="schedule-time">
-            <strong>${escapeHtml(item.lesson_time.slice(0, 5))}</strong>
-            <span>${escapeHtml(weekdayNames[item.weekday] || "")}</span>
-          </div>
-          <div class="schedule-main">
-            <div class="schedule-card-title">
-              <h3>${escapeHtml(item.group_name)}</h3>
-              <span class="soft-badge">${group?.student_count || 0} учеников</span>
-            </div>
-            <p>${escapeHtml(item.course_name)}</p>
-            <div class="schedule-next">
-              <strong>${formatTeachingDate(item.next_lesson_date)}</strong>
-              <span>Урок ${item.next_lesson_number || item.current_lesson_number} из ${item.lesson_count}</span>
-            </div>
-          </div>
-          <div class="schedule-actions">
-            <button class="secondary-action" type="button" data-edit-schedule="${escapeHtml(item.id)}">Изменить</button>
-          </div>
-        </article>`;
-    })
-    .join("");
-  const unscheduledRows = unscheduledGroups
-    .map(
-      (group) => `
-        <article class="schedule-card is-unconfigured">
-          <div class="schedule-time">
-            <strong>--:--</strong>
-            <span>Не настроено</span>
-          </div>
-          <div class="schedule-main">
-            <div class="schedule-card-title">
-              <h3>${escapeHtml(group.name)}</h3>
-              <span class="soft-badge">${group.student_count} учеников</span>
-            </div>
-            <p>${escapeHtml(group.course_name || "Курс не указан")}</p>
-            <div class="schedule-next"><strong>Добавьте день и время занятия</strong></div>
-          </div>
-          <div class="schedule-actions">
-            <button class="primary-action" type="button" data-configure-schedule="${escapeHtml(group.name)}">Настроить</button>
-          </div>
-        </article>`,
-    )
-    .join("");
-  list.innerHTML = scheduledRows + unscheduledRows;
-}
-
-function openScheduleEditor(scheduleId = "", groupName = "") {
-  state.editingScheduleId = scheduleId;
-  state.scheduleDraftGroup = groupName;
-  state.scheduleEditorOpen = true;
-  renderTeaching();
-  qs("#scheduleEditor")?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function closeScheduleEditor() {
-  state.scheduleEditorOpen = false;
-  state.editingScheduleId = "";
-  state.scheduleDraftGroup = "";
-  renderTeaching();
-}
-
-async function saveTeachingSchedule() {
-  const groupName = qs("#scheduleGroupName")?.value.trim();
-  const courseId = qs("#scheduleCourseId")?.value;
-  if (!groupName || !courseId) return showNotice("Укажите группу и курс", "danger");
-  const payload = { max_user_id: Number(apiContext.maxUserId || 1), tenant_slug: apiContext.tenantSlug || null, schedule_id: state.editingScheduleId || null, group_name: groupName, course_id: courseId, first_lesson_date: qs("#scheduleFirstDate").value, lesson_time: qs("#scheduleTime").value, duration_minutes: Number(qs("#scheduleDuration").value), lesson_mode: qs("#scheduleMode").value, lesson_place: qs("#schedulePlace").value.trim() || "offline", current_lesson_number: Number(qs("#scheduleLessonNumber").value || 1), lesson_offset: 0, is_active: true };
-  const button = qs("#scheduleSaveButton");
-  button.disabled = true;
-  button.textContent = "Сохраняем...";
-  try {
-    if (apiContext.demoMode || !apiContext.maxUserId) {
-      const index = teachingWorkspace().schedules.findIndex((item) => item.id === payload.schedule_id);
-      const course = teachingWorkspace().courses.find((item) => item.id === courseId);
-      const firstDate = new Date(`${payload.first_lesson_date}T12:00:00`);
-      const saved = { ...payload, id: payload.schedule_id || `demo-schedule-${Date.now()}`, course_name: course.name, lesson_count: course.lesson_count, weekday: (firstDate.getDay() + 6) % 7, next_lesson_date: payload.first_lesson_date, next_lesson_title: "Следующая тема курса" };
-      if (index >= 0) teachingWorkspace().schedules[index] = saved;
-      else teachingWorkspace().schedules.push(saved);
-    } else {
-      const response = await apiFetch("/api/v1/teaching/schedules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      if (!response.ok) throw new Error(await parseApiError(response));
-      await loadTeachingWorkspace();
-    }
-    closeScheduleEditor();
-    showNotice("Расписание сохранено");
-  } catch (error) {
-    showNotice(error.message || "Не удалось сохранить расписание", "danger");
-    button.disabled = false;
-    button.textContent = "Сохранить расписание";
-  }
-}
-
 function availableBroadcastVenues() {
   return [...new Set(
     students
@@ -273,25 +84,13 @@ function broadcastVenueFilterValue() {
   return qs("#broadcastVenueFilter")?.value || "all";
 }
 
-function broadcastLessonModeFilterValue() {
-  return qs("#broadcastLessonModeFilter")?.value || "all";
-}
-
-function broadcastScheduleForGroup(groupName) {
-  return teachingWorkspace().schedules.find(
-    (schedule) => schedule.is_active !== false && schedule.group_name === groupName,
-  );
-}
-
 function availableBroadcastGroups() {
   const venueFilter = broadcastVenueFilterValue();
-  const lessonModeFilter = broadcastLessonModeFilterValue();
   return [...new Set(
     students
       .filter((student) => {
         if (venueFilter !== "all" && String(student.venue || "") !== venueFilter) return false;
-        if (lessonModeFilter === "all") return true;
-        return broadcastScheduleForGroup(student.group)?.lesson_mode === lessonModeFilter;
+        return true;
       })
       .map((student) => String(student.group || "").trim())
       .filter(Boolean),
@@ -328,8 +127,6 @@ function broadcastAudiencePayload() {
     group_names: state.broadcastAllGroups ? [] : selectedBroadcastGroups(),
     venue_names:
       broadcastVenueFilterValue() === "all" ? [] : [broadcastVenueFilterValue()],
-    lesson_modes:
-      broadcastLessonModeFilterValue() === "all" ? [] : [broadcastLessonModeFilterValue()],
     balance_threshold:
       qs("#broadcastAudienceFilter")?.value === "low_balance"
         ? Number(qs("#broadcastBalanceThreshold")?.value || 300)
@@ -354,10 +151,9 @@ function renderBroadcastGroups() {
   const groups = availableBroadcastGroups();
   if (groups.length === 0) {
     list.innerHTML = '<div class="empty-state">Подходящих групп нет.</div>';
-    hint.textContent =
-      broadcastVenueFilterValue() !== "all" || broadcastLessonModeFilterValue() !== "all"
-        ? "Измените площадку или формат занятий."
-        : "После импорта учеников группы появятся здесь.";
+    hint.textContent = broadcastVenueFilterValue() !== "all"
+      ? "Выберите другую площадку."
+      : "После импорта учеников группы появятся здесь.";
     return;
   }
   hint.textContent = state.broadcastAllGroups
@@ -420,12 +216,7 @@ function broadcastAudienceLabel(item) {
     ? `${item.group_names.length} гр.`
     : "все группы";
   const venues = item.venue_names?.length ? item.venue_names.join(", ") : "все площадки";
-  const lessonModes = item.lesson_modes?.length
-    ? item.lesson_modes
-        .map((mode) => (mode === "individual" ? "индивидуально" : "в группах"))
-        .join(", ")
-    : "любой формат";
-  return `${recipients} · ${venues} · ${lessonModes} · ${groups}`;
+  return `${recipients} · ${venues} · ${groups}`;
 }
 
 function formatBroadcastDate(value) {
@@ -490,7 +281,6 @@ function broadcastDraftPayload() {
     recipientCategory: qs("#broadcastRecipientCategory")?.value || "all",
     audienceFilter: qs("#broadcastAudienceFilter")?.value || "all",
     venueFilter: broadcastVenueFilterValue(),
-    lessonModeFilter: broadcastLessonModeFilterValue(),
     balanceThreshold: qs("#broadcastBalanceThreshold")?.value || "300",
     allGroups: state.broadcastAllGroups,
     groups: selectedBroadcastGroups(),
@@ -511,7 +301,7 @@ function saveBroadcastDraft({ quiet = false } = {}) {
   }
 }
 
-function scheduleBroadcastDraftSave() {
+function queueBroadcastDraftSave() {
   window.clearTimeout(broadcastDraftTimer);
   const label = qs("#broadcastDraftState");
   if (label) label.textContent = "Сохраняем черновик...";
@@ -528,7 +318,6 @@ function restoreBroadcastDraft() {
     qs("#broadcastAudienceFilter").value = draft.audienceFilter || "all";
     renderBroadcastTargetFilters();
     qs("#broadcastVenueFilter").value = draft.venueFilter || "all";
-    qs("#broadcastLessonModeFilter").value = draft.lessonModeFilter || "all";
     qs("#broadcastBalanceThreshold").value = draft.balanceThreshold || "300";
     state.broadcastAllGroups = draft.allGroups !== false;
     state.broadcastSelectedGroups = new Set(Array.isArray(draft.groups) ? draft.groups : []);
@@ -593,12 +382,11 @@ function duplicateBroadcast(itemId) {
   qs("#broadcastAudienceFilter").value = item.audience_filter || "all";
   renderBroadcastTargetFilters();
   qs("#broadcastVenueFilter").value = item.venue_names?.[0] || "all";
-  qs("#broadcastLessonModeFilter").value = item.lesson_modes?.[0] || "all";
   state.broadcastAllGroups = !(item.group_names || []).length;
   state.broadcastSelectedGroups = new Set(item.group_names || []);
   invalidateBroadcastPreview();
   state.broadcastStep = 1;
-  scheduleBroadcastDraftSave();
+  queueBroadcastDraftSave();
   renderBroadcasts();
   qs("#broadcastForm")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -685,12 +473,6 @@ function demoBroadcastPreview(payload) {
     const venueNames = new Set(payload.venue_names);
     matched = matched.filter((student) => venueNames.has(student.venue));
   }
-  if (payload.lesson_modes.length) {
-    const lessonModes = new Set(payload.lesson_modes);
-    matched = matched.filter((student) =>
-      lessonModes.has(broadcastScheduleForGroup(student.group)?.lesson_mode),
-    );
-  }
   if (payload.audience_filter === "low_balance") {
     const threshold = Number(payload.balance_threshold ?? 300);
     matched = matched.filter((student) => Number(student.balance || 0) <= threshold);
@@ -712,7 +494,6 @@ function demoBroadcastPreview(payload) {
     unavailable_students: 0,
     selected_groups: payload.group_names,
     selected_venues: payload.venue_names,
-    selected_lesson_modes: payload.lesson_modes,
   };
 }
 
@@ -849,7 +630,6 @@ async function sendSchoolBroadcast(event) {
         audience_filter: payload.audience_filter,
         group_names: payload.group_names,
         venue_names: payload.venue_names,
-        lesson_modes: payload.lesson_modes,
         balance_threshold: payload.balance_threshold,
         status: "sent",
         recipient_count: preview.recipient_count,
@@ -875,9 +655,6 @@ async function sendSchoolBroadcast(event) {
       });
       payload.venue_names.forEach((venueName) => {
         formData.append("venue_names", venueName);
-      });
-      payload.lesson_modes.forEach((lessonMode) => {
-        formData.append("lesson_modes", lessonMode);
       });
       if (state.broadcastPhotoFile) {
         formData.set("photo", state.broadcastPhotoFile);

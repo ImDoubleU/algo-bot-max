@@ -9,8 +9,7 @@ import re
 import sys
 import time
 from collections import defaultdict
-from datetime import UTC, date, datetime, timedelta
-from datetime import time as clock_time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib import parse
@@ -1029,151 +1028,6 @@ async def _seed_wallets_and_orders(
     )
 
 
-async def _seed_teaching(
-    db: AsyncSession,
-    *,
-    run_id: str,
-    tenant: Tenant,
-    accounts: dict[str, MaxAccount],
-    students: list[Student],
-) -> None:
-    marker = _marker(run_id)
-    courses: list[Course] = []
-    for course_index, course_name in enumerate(("Робототехника", "Python Start"), start=1):
-        course = await _merge(
-            db,
-            Course(
-                id=_id(run_id, f"course:{course_index}"),
-                tenant_id=tenant.id,
-                name=f"{marker} · {course_name}",
-                description=f"{marker} курс для проверки расписания",
-                is_active=True,
-            ),
-        )
-        courses.append(course)
-        for lesson_number in range(1, 13):
-            await _merge(
-                db,
-                CourseLesson(
-                    id=_id(run_id, f"course:{course_index}:lesson:{lesson_number}"),
-                    tenant_id=tenant.id,
-                    course_id=course.id,
-                    lesson_number=lesson_number,
-                    title=f"Урок {lesson_number}. Практическая тема",
-                    educational_results=(
-                        "Ученик выполняет практическое задание "
-                        "и объясняет результат."
-                    ),
-                ),
-            )
-
-    today = date.today()
-    monday = today - timedelta(days=today.weekday())
-    first_monday = monday - timedelta(weeks=8)
-    full_students = [student for student in students if student.tenant_id == tenant.id]
-    group_names = []
-    for student in full_students:
-        if student.group_name and student.group_name not in group_names:
-            group_names.append(student.group_name)
-    schedules: list[TeachingSchedule] = []
-    schedule_specs = (
-        (
-            group_names[0],
-            courses[0],
-            accounts["teacher_one"],
-            first_monday,
-            clock_time(16, 0),
-            "group",
-            "Центральная площадка",
-        ),
-        (
-            group_names[1],
-            courses[1],
-            accounts["teacher_two"],
-            first_monday + timedelta(days=2),
-            clock_time(18, 0),
-            "group",
-            "Северная площадка",
-        ),
-        (
-            group_names[2],
-            courses[0],
-            accounts["teacher_one"],
-            first_monday + timedelta(days=5),
-            clock_time(12, 0),
-            "group",
-            "online",
-        ),
-        (
-            group_names[3],
-            courses[1],
-            accounts["teacher_two"],
-            first_monday + timedelta(days=1),
-            clock_time(15, 0),
-            "individual",
-            "Центральная площадка",
-        ),
-    )
-    for index, (
-        group_name,
-        course,
-        teacher,
-        first_date,
-        lesson_time,
-        lesson_mode,
-        lesson_place,
-    ) in enumerate(schedule_specs, start=1):
-        schedule = await _merge(
-            db,
-            TeachingSchedule(
-                id=_id(run_id, f"schedule:{index}"),
-                tenant_id=tenant.id,
-                teacher_account_id=teacher.id,
-                course_id=course.id,
-                group_name=group_name,
-                first_lesson_date=first_date,
-                weekday=first_date.weekday(),
-                lesson_time=lesson_time,
-                duration_minutes=90,
-                lesson_mode=lesson_mode,
-                lesson_place=lesson_place,
-                current_lesson_number=9,
-                lesson_offset=0,
-                auto_feedback_enabled=False,
-                parent_delivery_enabled=index == 1,
-                is_active=True,
-                last_generated_lesson_date=first_date + timedelta(weeks=7),
-            ),
-        )
-        schedules.append(schedule)
-    await db.flush()
-
-    moved_date = first_monday + timedelta(weeks=2, days=2)
-    await _merge(
-        db,
-        TeachingLessonOverride(
-            id=_id(run_id, "schedule:1:override:3"),
-            tenant_id=tenant.id,
-            schedule_id=schedules[0].id,
-            position=3,
-            lesson_date=moved_date,
-            lesson_number=3,
-        ),
-    )
-    await _merge(
-        db,
-        TeachingLessonOverride(
-            id=_id(run_id, "schedule:1:override:5"),
-            tenant_id=tenant.id,
-            schedule_id=schedules[0].id,
-            position=5,
-            lesson_date=first_monday + timedelta(weeks=4),
-            lesson_number=4,
-        ),
-    )
-
-
-
 async def _seed_broadcasts_and_preferences(
     db: AsyncSession,
     *,
@@ -1202,7 +1056,7 @@ async def _seed_broadcasts_and_preferences(
                 audience_filter=("all", "low_balance", "active_orders")[index - 1],
                 group_names=[],
                 venue_names=[],
-                lesson_modes=[] if index == 1 else ["group"],
+                lesson_modes=[],
                 balance_threshold=500 if index == 2 else None,
                 status=status,
                 recipient_count=recipients,
@@ -1228,7 +1082,6 @@ async def _seed_broadcasts_and_preferences(
         "orders.issued",
         "orders.returned",
         "inventory.low_stock",
-        "lessons.changed",
         "broadcasts.completed",
         "broadcasts.partial",
         "broadcasts.failed",
@@ -1265,6 +1118,9 @@ async def _reset_qa_runtime_state(
         FeedbackOutput,
         ManualFeedbackOutput,
         TeachingLessonOverride,
+        TeachingSchedule,
+        CourseLesson,
+        Course,
         SchoolBroadcast,
         StaffRoleAssignment,
         StaffNotificationPreference,
@@ -1331,13 +1187,6 @@ async def seed_matrix(run_id: str, default_tenant_slug: str) -> dict[str, Any]:
             products=full_products,
             warehouses=full_warehouses,
             inventory=full_inventory,
-        )
-        await _seed_teaching(
-            db,
-            run_id=run_id,
-            tenant=tenants["full"],
-            accounts=accounts,
-            students=students,
         )
         await _seed_broadcasts_and_preferences(
             db,
@@ -1420,11 +1269,6 @@ async def audit_matrix(run_id: str, default_tenant_slug: str) -> dict[str, Any]:
             "orders": await db.scalar(
                 select(func.count()).select_from(Order).where(Order.tenant_id == full.id)
             ),
-            "schedules": await db.scalar(
-                select(func.count())
-                .select_from(TeachingSchedule)
-                .where(TeachingSchedule.tenant_id == full.id)
-            ),
             "broadcasts": await db.scalar(
                 select(func.count())
                 .select_from(SchoolBroadcast)
@@ -1436,7 +1280,6 @@ async def audit_matrix(run_id: str, default_tenant_slug: str) -> dict[str, Any]:
             "products": 8,
             "warehouses": 3,
             "orders": 8,
-            "schedules": 4,
             "broadcasts": 3,
         }
         for key, expected in expected_counts.items():

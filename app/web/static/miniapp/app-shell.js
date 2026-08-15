@@ -338,8 +338,6 @@ async function switchTenant(tenantSlug) {
     state.studentInvitations = new Map();
     state.studentInvitationsLoaded = false;
     state.favorites = new Set();
-    state.teachingWorkspace = null;
-    state.teachingLoaded = false;
     state.accrualReport = null;
     state.accrualReportTeacherFilter = "all";
     state.accrualReportGroupFilter = "all";
@@ -459,10 +457,9 @@ async function refreshAllData() {
   state.teacherInvitations = new Map();
   state.teacherInvitationsLoaded = false;
   await loadParentInvitations();
-  if (["teacher", "admin"].includes(state.role)) {
+  if (primaryStaffRole() === "teacher") {
     try {
-      await loadTeachingWorkspace();
-      if (primaryStaffRole() === "teacher") await loadTeacherInvitations(true);
+      await loadTeacherInvitations(true);
     } catch (error) {
       errors.push(error);
     }
@@ -510,43 +507,12 @@ function setView(view) {
   const mobileMoreButton = qs("#mobileMoreButton");
   mobileMoreButton?.classList.toggle(
     "is-active",
-    ["wallet", "report", "accrual", "teaching", "broadcasts", "admin"].includes(nextView),
+    ["wallet", "report", "accrual", "broadcasts", "admin"].includes(nextView),
   );
   closeMobileMorePanel();
   renderMobileNavigation();
   if (previousView !== nextView && window.matchMedia("(max-width: 640px)").matches) {
     window.scrollTo({ top: 0, behavior: "auto" });
-  }
-  if (nextView === "teaching" && !state.teachingLoaded && !state.teachingLoading) {
-    state.teachingLoading = true;
-    renderTeaching();
-    loadTeachingWorkspace()
-      .then(renderTeaching)
-      .catch((error) => showNotice(error.message || "Не удалось загрузить расписание", "danger"))
-      .finally(() => {
-        state.teachingLoading = false;
-        renderTeaching();
-      });
-  }
-  if (
-    nextView === "teaching" &&
-    primaryStaffRole() === "teacher" &&
-    !state.teacherInvitationsLoaded &&
-    !state.teacherInvitationsLoading
-  ) {
-    loadTeacherInvitations().catch((error) => console.warn(error));
-  }
-  if (nextView === "broadcasts" && !state.teachingLoaded && !state.teachingLoading) {
-    state.teachingLoading = true;
-    loadTeachingWorkspace()
-      .then(renderBroadcasts)
-      .catch((error) =>
-        showNotice(error.message || "Не удалось загрузить форматы занятий", "danger"),
-      )
-      .finally(() => {
-        state.teachingLoading = false;
-        renderBroadcasts();
-      });
   }
   if (
     nextView === "broadcasts" &&
@@ -861,11 +827,11 @@ function renderStatus() {
     },
     teacher: {
       kicker: "Рабочий день",
-      title: primaryRole === "curator" ? "Группы и занятия" : "Мои группы и занятия",
+      title: primaryRole === "curator" ? "Ученики филиала" : "Мои ученики",
       text:
         primaryRole === "curator"
-          ? "Ученики и расписание по филиалу."
-          : "Ученики и расписание по вашим группам.",
+          ? "Ученики, начисления, заказы и рассылки по филиалу."
+          : "Ученики, начисления, заказы и QR-коды ваших групп.",
     },
     admin: {
       kicker: "Управление филиалом",
@@ -908,8 +874,8 @@ function renderStatus() {
   if (taskActions) {
     const actions = state.role === "teacher"
       ? [
-          ["teaching", "calendar-check", "Открыть расписание"],
           ["accrual", "circle-plus", "Начислить AC"],
+          ["orders", "package-check", "Заказы учеников"],
         ]
       : state.role === "admin"
         ? [
