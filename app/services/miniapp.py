@@ -1434,8 +1434,10 @@ AMOCRM_AUDIT_ACTIONS = {
     "amocrm.students_synced",
     "amocrm.student_status_updated",
 }
-REMOVED_TEACHING_AUDIT_ACTIONS = {
+REMOVED_FEATURE_AUDIT_ACTIONS = {
     "teaching_journal.lessons_updated",
+    "teaching_schedule.created",
+    "teaching_schedule.updated",
     "manual_feedback.generated",
     "manual_feedback.sent_to_parents",
 }
@@ -1469,8 +1471,6 @@ AUDIT_ACTION_COPY = {
     "warehouse_inventory.adjusted": ("Остаток скорректирован", "Склады"),
     "warehouse_inventory.transferred": ("Товар перемещен", "Склады"),
     "school_broadcast.sent": ("Рассылка отправлена", "Рассылки"),
-    "teaching_schedule.created": ("Расписание создано", "Расписание"),
-    "teaching_schedule.updated": ("Расписание изменено", "Расписание"),
 }
 
 
@@ -1518,7 +1518,7 @@ async def list_miniapp_admin_history(
             [
                 AuditLog.actor_account_id.is_not(None),
                 AuditLog.action.not_in(AMOCRM_AUDIT_ACTIONS),
-                AuditLog.action.not_in(REMOVED_TEACHING_AUDIT_ACTIONS),
+                AuditLog.action.not_in(REMOVED_FEATURE_AUDIT_ACTIONS),
             ]
         )
     rows = (

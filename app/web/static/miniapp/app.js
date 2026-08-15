@@ -13,7 +13,7 @@ function renderAll() {
   renderLedger();
   renderAccrualReport();
   renderAccrual();
-  renderTeaching();
+  renderTeacherInvitations();
   renderBroadcasts();
   renderAdminPanel();
   refreshIcons();
@@ -102,7 +102,6 @@ async function importCrmStudents(dryRun) {
       );
     } else {
       await loadSession();
-      state.teachingLoaded = false;
       state.adminStudents = [];
       state.adminStudentsLoaded = false;
       state.adminStudentsError = "";
@@ -1767,16 +1766,6 @@ document.addEventListener("click", (event) => {
   const view = target.dataset.view || target.dataset.viewJump;
   if (view) setView(view);
 
-  if (target.id === "scheduleCreateButton") openScheduleEditor();
-  if ("closeSchedule" in target.dataset) closeScheduleEditor();
-  if (target.id === "scheduleSaveButton") saveTeachingSchedule();
-
-  const editScheduleId = target.dataset.editSchedule;
-  if (editScheduleId) openScheduleEditor(editScheduleId);
-
-  const configureScheduleGroup = target.dataset.configureSchedule;
-  if (configureScheduleGroup) openScheduleEditor("", configureScheduleGroup);
-
   if (target.id === "previewBroadcastButton") {
     previewBroadcastAudience();
   }
@@ -2411,11 +2400,10 @@ document.addEventListener("change", (event) => {
   if (
     target.id === "broadcastRecipientCategory" ||
     target.id === "broadcastAudienceFilter" ||
-    target.id === "broadcastVenueFilter" ||
-    target.id === "broadcastLessonModeFilter"
+    target.id === "broadcastVenueFilter"
   ) {
     invalidateBroadcastPreview();
-    scheduleBroadcastDraftSave();
+    queueBroadcastDraftSave();
     renderBroadcasts();
   }
 
@@ -2428,7 +2416,7 @@ document.addEventListener("change", (event) => {
     if (target.checked) state.broadcastSelectedGroups.add(broadcastGroupName);
     else state.broadcastSelectedGroups.delete(broadcastGroupName);
     invalidateBroadcastPreview();
-    scheduleBroadcastDraftSave();
+    queueBroadcastDraftSave();
     renderBroadcastGroups();
   }
 
@@ -2462,7 +2450,7 @@ document.addEventListener("input", (event) => {
   if (target instanceof HTMLTextAreaElement && target.id === "broadcastMessage") {
     const count = qs("#broadcastMessageCount");
     if (count) count.textContent = String(target.value.length);
-    scheduleBroadcastDraftSave();
+    queueBroadcastDraftSave();
     renderBroadcastLivePreview();
     return;
   }
@@ -2474,7 +2462,7 @@ document.addEventListener("input", (event) => {
   }
 
   if (target.id === "broadcastTitle") {
-    scheduleBroadcastDraftSave();
+    queueBroadcastDraftSave();
     renderBroadcastLivePreview();
   }
 
@@ -2515,7 +2503,7 @@ document.addEventListener("input", (event) => {
 
   if (target.id === "broadcastBalanceThreshold") {
     invalidateBroadcastPreview();
-    scheduleBroadcastDraftSave();
+    queueBroadcastDraftSave();
   }
 });
 
@@ -2600,15 +2588,6 @@ async function init() {
   qs("#tenantTitle").textContent = tenantTitle();
   restorePreferences();
   applyDemoRole();
-  if (
-    apiContext.demoMode &&
-    !apiContext.demoRole &&
-    state.view === "teaching"
-  ) {
-    state.role = "teacher";
-    state.staffRoles = ["teacher"];
-    state.availableRoles = ["teacher"];
-  }
   qs("#productSort").value = state.productSort;
   qs("#inStockOnly").checked = state.inStockOnly;
   const results = [];

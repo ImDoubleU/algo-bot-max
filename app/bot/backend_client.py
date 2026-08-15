@@ -277,38 +277,6 @@ class AccessBackendClient:
             },
         )
 
-    def get_teaching_workspace(
-        self,
-        *,
-        tenant_slug: str,
-        max_user_id: int,
-    ) -> dict[str, Any]:
-        return self._request(
-            "GET",
-            "/teaching/workspace",
-            params={
-                "tenant_slug": tenant_slug,
-                "max_user_id": max_user_id,
-            },
-        )
-
-    def get_course_lessons(
-        self,
-        *,
-        course_id: str,
-        tenant_slug: str,
-        max_user_id: int,
-    ) -> list[dict[str, Any]]:
-        result = self._request(
-            "GET",
-            f"/teaching/courses/{parse.quote(str(course_id))}/lessons",
-            params={
-                "tenant_slug": tenant_slug,
-                "max_user_id": max_user_id,
-            },
-        )
-        return list(result) if isinstance(result, list) else []
-
     def update_order(
         self,
         *,

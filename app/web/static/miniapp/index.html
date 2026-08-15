@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.67.0" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.68.0" />
   </head>
   <body class="is-booting">
     <main id="accessGate" class="access-gate" hidden>
@@ -68,9 +68,6 @@
             </button>
             <button class="nav-button" data-view="accrual">
               <i data-lucide="circle-plus"></i><span>Начисления</span>
-            </button>
-            <button class="nav-button" data-view="teaching">
-              <i data-lucide="calendar-days"></i><span>Расписание</span>
             </button>
             <button class="nav-button" data-view="broadcasts">
               <i data-lucide="megaphone"></i><span>Рассылки</span>
@@ -180,6 +177,20 @@
                 <div id="dashboardOrders" class="compact-order-list"></div>
               </section>
             </div>
+
+            <section id="teacherQrPanel" class="panel teacher-qr-panel" hidden>
+              <div class="panel-head teacher-qr-head">
+                <div>
+                  <p class="eyebrow">Вход учеников</p>
+                  <h3>QR-коды групп</h3>
+                  <span>Покажите ученику его код на экране.</span>
+                </div>
+                <select id="teacherQrGroupFilter" aria-label="Группа для QR-кодов">
+                  <option value="all">Все группы</option>
+                </select>
+              </div>
+              <div id="teacherQrList" class="teacher-qr-list"></div>
+            </section>
 
           </section>
 
@@ -448,45 +459,6 @@
             </div>
           </section>
 
-          <section id="teachingView" class="view" data-view-panel="teaching">
-            <div class="section-heading teaching-heading">
-              <div>
-                <p class="eyebrow">Преподавателю</p>
-                <h2>Расписание групп</h2>
-              </div>
-              <button id="scheduleCreateButton" class="primary-action" type="button">
-                Добавить группу
-              </button>
-            </div>
-
-            <div id="teachingSummary" class="teaching-summary"></div>
-            <div id="scheduleEditor" class="schedule-editor" hidden></div>
-
-            <section id="teacherQrPanel" class="teaching-column teacher-qr-panel" hidden>
-              <div class="panel-head teacher-qr-head">
-                <div>
-                  <p class="eyebrow">Вход учеников</p>
-                  <h3>QR-коды группы</h3>
-                  <span>Покажите ученику его код на экране.</span>
-                </div>
-                <select id="teacherQrGroupFilter" aria-label="Группа для QR-кодов">
-                  <option value="all">Все группы</option>
-                </select>
-              </div>
-              <div id="teacherQrList" class="teacher-qr-list"></div>
-            </section>
-
-            <section class="teaching-column schedule-groups-panel">
-              <div class="panel-head">
-                <div>
-                  <h3>Доступные группы</h3>
-                  <span>Дни, время и текущий урок</span>
-                </div>
-              </div>
-              <div id="scheduleList" class="schedule-list"></div>
-            </section>
-          </section>
-
           <section id="broadcastsView" class="view" data-view-panel="broadcasts">
             <div class="section-heading broadcasts-heading">
               <div>
@@ -524,14 +496,6 @@
                     <span>Площадка</span>
                     <select id="broadcastVenueFilter">
                       <option value="all">Все площадки</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>Формат занятий</span>
-                    <select id="broadcastLessonModeFilter">
-                      <option value="all">Все форматы</option>
-                      <option value="group">Групповые занятия</option>
-                      <option value="individual">Индивидуальные занятия</option>
                     </select>
                   </label>
                 </div>
@@ -956,11 +920,11 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app-core.js?v=0.67.0"></script>
-    <script src="/miniapp/static/app-shell.js?v=0.67.0"></script>
-    <script src="/miniapp/static/app-store.js?v=0.67.0"></script>
-    <script src="/miniapp/static/app-admin.js?v=0.67.0"></script>
-    <script src="/miniapp/static/app-teaching.js?v=0.67.0"></script>
-    <script src="/miniapp/static/app.js?v=0.67.0"></script>
+    <script src="/miniapp/static/app-core.js?v=0.68.0"></script>
+    <script src="/miniapp/static/app-shell.js?v=0.68.0"></script>
+    <script src="/miniapp/static/app-store.js?v=0.68.0"></script>
+    <script src="/miniapp/static/app-admin.js?v=0.68.0"></script>
+    <script src="/miniapp/static/app-communications.js?v=0.68.0"></script>
+    <script src="/miniapp/static/app.js?v=0.68.0"></script>
   </body>
 </html>

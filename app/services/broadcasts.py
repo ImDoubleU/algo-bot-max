@@ -28,7 +28,6 @@ from app.models.enums import (
 )
 from app.models.store import Order
 from app.models.student import Student, StudentAccessLink, Wallet
-from app.models.teaching import TeachingSchedule
 from app.models.tenant import Tenant
 from app.schemas.broadcasts import (
     BroadcastAudiencePreviewRead,
@@ -154,18 +153,6 @@ async def _resolve_recipients(
             Student.venue_name.in_(payload.venue_names)
         )
 
-    if payload.lesson_modes:
-        lesson_mode_condition = exists(
-            select(TeachingSchedule.id).where(
-                TeachingSchedule.tenant_id == tenant_id,
-                TeachingSchedule.group_name == Student.group_name,
-                TeachingSchedule.lesson_mode.in_(payload.lesson_modes),
-                TeachingSchedule.is_active.is_(True),
-            )
-        )
-        recipient_query = recipient_query.where(lesson_mode_condition)
-        eligible_query = eligible_query.where(lesson_mode_condition)
-
     if payload.audience_filter == "low_balance":
         threshold = payload.balance_threshold if payload.balance_threshold is not None else 300
         audience_condition = exists(
@@ -219,7 +206,6 @@ def _preview_read(
         unavailable_students=len(recipients.unavailable_student_ids),
         selected_groups=payload.group_names,
         selected_venues=payload.venue_names,
-        selected_lesson_modes=payload.lesson_modes,
     )
 
 
@@ -237,7 +223,6 @@ def _broadcast_read(
         audience_filter=broadcast.audience_filter,
         group_names=list(broadcast.group_names or []),
         venue_names=list(broadcast.venue_names or []),
-        lesson_modes=list(broadcast.lesson_modes or []),
         balance_threshold=broadcast.balance_threshold,
         status=broadcast.status,
         recipient_count=broadcast.recipient_count,
@@ -313,7 +298,7 @@ async def send_school_broadcast(
         audience_filter=payload.audience_filter,
         group_names=payload.group_names,
         venue_names=payload.venue_names,
-        lesson_modes=payload.lesson_modes,
+        lesson_modes=[],
         balance_threshold=payload.balance_threshold,
         status="sending",
         recipient_count=len(recipients.max_user_ids),
@@ -383,7 +368,6 @@ async def send_school_broadcast(
                 "audience_filter": payload.audience_filter,
                 "group_names": payload.group_names,
                 "venue_names": payload.venue_names,
-                "lesson_modes": payload.lesson_modes,
                 "recipient_count": len(results),
                 "delivered_count": delivered,
                 "failed_count": failed,

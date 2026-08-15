@@ -17,6 +17,15 @@ def test_miniapp_route_serves_html() -> None:
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "Алгоритмика" in response.text
+    assert "Расписание" not in response.text
+
+
+def test_teaching_api_is_not_exposed() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/api/v1/teaching/workspace")
+
+    assert response.status_code == 404
 
 
 def test_miniapp_static_serves_assets() -> None:

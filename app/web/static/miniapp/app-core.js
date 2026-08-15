@@ -21,8 +21,8 @@ const sessionStartedAt = new Date();
 const ROLE_VIEWS = Object.freeze({
   student: ["dashboard", "store", "cart", "orders", "wallet"],
   parent: ["dashboard", "store", "cart", "orders", "wallet"],
-  teacher: ["dashboard", "store", "orders", "wallet", "report", "accrual", "teaching", "broadcasts"],
-  admin: ["dashboard", "store", "orders", "wallet", "report", "accrual", "teaching", "broadcasts", "admin"],
+  teacher: ["dashboard", "store", "orders", "wallet", "report", "accrual", "broadcasts"],
+  admin: ["dashboard", "store", "orders", "wallet", "report", "accrual", "broadcasts", "admin"],
 });
 
 const VIEW_META = Object.freeze({
@@ -33,7 +33,6 @@ const VIEW_META = Object.freeze({
   wallet: { label: "История AC", icon: "wallet-cards" },
   report: { label: "Отчет AC", icon: "file-chart-column" },
   accrual: { label: "Начисления", icon: "circle-plus" },
-  teaching: { label: "Расписание", icon: "calendar-days" },
   broadcasts: { label: "Рассылки", icon: "megaphone" },
   admin: { label: "Управление", icon: "settings-2" },
 });
@@ -41,7 +40,7 @@ const VIEW_META = Object.freeze({
 const ROLE_MOBILE_PRIMARY = Object.freeze({
   student: ["dashboard", "store", "cart", "orders"],
   parent: ["dashboard", "store", "cart", "orders"],
-  teacher: ["dashboard", "accrual", "teaching", "orders"],
+  teacher: ["dashboard", "store", "accrual", "orders"],
   admin: ["dashboard", "orders", "admin", "store"],
 });
 
@@ -67,7 +66,7 @@ const state = {
   tenantSaving: false,
   tenantSearch: "",
   availableRoles: ["student", "parent", "teacher", "admin"],
-  view: ["dashboard", "store", "cart", "orders", "wallet", "report", "accrual", "teaching", "broadcasts", "admin"].includes(
+  view: ["dashboard", "store", "cart", "orders", "wallet", "report", "accrual", "broadcasts", "admin"].includes(
     queryParam("view"),
   )
     ? queryParam("view")
@@ -154,12 +153,6 @@ const state = {
   editingWarehouseId: "",
   opsSummary: null,
   opsSummaryLoaded: false,
-  teachingWorkspace: null,
-  teachingLoaded: false,
-  teachingLoading: false,
-  scheduleEditorOpen: false,
-  editingScheduleId: "",
-  scheduleDraftGroup: "",
   accrualReport: null,
   accrualReportLoading: false,
   accrualReportPeriod: "month",
@@ -211,39 +204,6 @@ let broadcastDraftTimer = null;
 let confirmationResolver = null;
 let confirmationReturnFocus = null;
 const cartSyncChains = new Map();
-
-const demoTeachingWorkspace = {
-  tenant_slug: "demo",
-  courses: [
-    { id: "demo-python-start", name: "Python Start 1 год", lesson_count: 32 },
-    { id: "demo-game-design", name: "Геймдизайн NEW", lesson_count: 32 },
-    { id: "demo-sites", name: "Создание сайтов", lesson_count: 32 },
-  ],
-  groups: [
-    { name: "Союзный 45, вс 10:00", course_name: "Python Start 1 год", student_count: 8 },
-    { name: "Гагарина 64, сб 18:00", course_name: "Геймдизайн NEW", student_count: 7 },
-  ],
-  schedules: [
-    {
-      id: "demo-schedule-1",
-      group_name: "Союзный 45, вс 10:00",
-      course_id: "demo-python-start",
-      course_name: "Python Start 1 год",
-      lesson_count: 32,
-      first_lesson_date: "2026-01-11",
-      weekday: 6,
-      lesson_time: "10:00:00",
-      duration_minutes: 90,
-      lesson_mode: "group",
-      lesson_place: "Союзный 45",
-      current_lesson_number: 18,
-      lesson_offset: 0,
-      is_active: true,
-      next_lesson_date: "2026-05-10",
-      next_lesson_title: "Работа со списками",
-    },
-  ],
-};
 
 let students = [
   {
@@ -1985,24 +1945,6 @@ async function loadTeacherInvitations(force = false) {
     state.teacherInvitationsLoading = false;
     renderTeacherInvitations();
   }
-}
-
-async function loadTeachingWorkspace() {
-  if (apiContext.demoMode || !apiContext.maxUserId) {
-    state.teachingWorkspace = structuredClone(demoTeachingWorkspace);
-    state.teachingLoaded = true;
-    return;
-  }
-
-  const response = await apiFetch(
-    apiUrl("/api/v1/teaching/workspace", {
-      max_user_id: apiContext.maxUserId,
-      tenant_slug: apiContext.tenantSlug,
-    }),
-  );
-  if (!response.ok) throw new Error(await parseApiError(response));
-  state.teachingWorkspace = await response.json();
-  state.teachingLoaded = true;
 }
 
 function applyCatalog(catalog) {
