@@ -963,6 +963,93 @@ async function assignOrderWarehouses(orderId) {
   }
 }
 
+async function assignSummaryOrderWarehouses(rawOrderIds, button = null) {
+  const orderIds = String(rawOrderIds || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const targets = orderIds
+    .map((orderId) => orders.find((order) => (order.backendId || order.id) === orderId))
+    .filter(
+      (order) =>
+        order &&
+        canAssignOrderWarehouses(order) &&
+        (order.items || []).every((item) => Boolean(orderPreferredWarehouseId(item))),
+    );
+  if (!targets.length) {
+    showNotice("Нет заказов с готовым выбором склада", "danger");
+    return;
+  }
+
+  const confirmed = await requestConfirmation({
+    eyebrow: "Комплектация",
+    title: "Подтвердить склады",
+    message: `Для заказов: ${targets.length}. Будут выбраны ваш главный склад или склад текущего резерва.`,
+    confirmLabel: "Подтвердить",
+    cancelLabel: "Отмена",
+  });
+  if (!confirmed) return;
+
+  if (button) button.disabled = true;
+  let completed = 0;
+  try {
+    if (apiContext.demoMode || !apiContext.maxUserId) {
+      targets.forEach((order) => {
+        (order.items || []).forEach((item) => {
+          const warehouseId = orderPreferredWarehouseId(item);
+          const product = productById(item.productId);
+          const warehouse = product ? warehouseById(product, warehouseId) : null;
+          if (!warehouse) return;
+          item.warehouseId = warehouse.id;
+          item.warehouseName = warehouse.name;
+        });
+        if (order.rawStatus === "problem") {
+          order.rawStatus = "reserved";
+          order.status = orderStatusLabel(order.rawStatus);
+          order.tone = orderStatusTone(order.rawStatus);
+        }
+        order.warehouse = orderWarehouseSummary(order.items, "Склад назначен");
+        completed += 1;
+      });
+    } else {
+      for (const order of targets) {
+        const response = await apiFetch(
+          `/api/v1/miniapp/orders/${encodeURIComponent(order.backendId)}/assign-warehouses`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              max_user_id: Number(apiContext.maxUserId),
+              tenant_slug: apiContext.tenantSlug || undefined,
+              items: (order.items || []).map((item) => ({
+                product_id: item.productId,
+                warehouse_id: orderPreferredWarehouseId(item),
+              })),
+              comment: "Склады подтверждены из сводки комплектации",
+            }),
+          },
+        );
+        if (!response.ok) throw new Error(await parseApiError(response));
+        completed += 1;
+      }
+      await refreshOrderAndInventoryState();
+    }
+    renderAll();
+    showNotice(`Склады подтверждены для заказов: ${completed}`);
+  } catch (error) {
+    if (completed > 0 && !apiContext.demoMode) {
+      await refreshOrderAndInventoryState();
+      renderAll();
+    }
+    showNotice(
+      `${completed ? `Подтверждено: ${completed}. ` : ""}${error.message || "Не удалось подтвердить склады"}`,
+      "danger",
+    );
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function updateOrderAction(orderId, action, cancelData = null) {
   const order = orders.find((item) => item.backendId === orderId || item.id === orderId);
   if (!order) return;
@@ -1718,6 +1805,12 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const summaryWarehouseOrders = target.dataset.confirmSummaryWarehouses;
+  if (summaryWarehouseOrders) {
+    void assignSummaryOrderWarehouses(summaryWarehouseOrders, target);
+    return;
+  }
+
   const previewStudentId = target.dataset.openStudentQr;
   if (previewStudentId) {
     openStudentQrPreview(previewStudentId);
@@ -1735,12 +1828,6 @@ document.addEventListener("click", (event) => {
     openStudentQrFile(openedQrFileStudentId);
     return;
   }
-
-  const sharedStudentId = target.dataset.shareStudentInvite;
-  if (sharedStudentId) shareStudentInvitation(sharedStudentId);
-
-  const printedStudentId = target.dataset.printStudentInvite;
-  if (printedStudentId) printStudentInvitation(printedStudentId);
 
   if ("loadTeacherQr" in target.dataset) {
     void loadTeacherInvitations(true);
@@ -1973,7 +2060,7 @@ document.addEventListener("click", (event) => {
 
   const opsJump = target.dataset.opsJump;
   if (opsJump === "orders") {
-    state.orderStatusFilter = "action";
+    state.orderStatusFilter = "all";
     setView("orders");
     renderOrders();
   } else if (["inventory", "products", "warehouses"].includes(opsJump)) {

@@ -1220,7 +1220,7 @@ function renderAdminPanel() {
               <span>Способ выдачи</span>
               <select id="productFulfillmentType">
                 <option value="warehouse" ${(editing?.fulfillmentType || "warehouse") === "warehouse" ? "selected" : ""}>Со склада</option>
-                <option value="digital_code" ${editing?.fulfillmentType === "digital_code" ? "selected" : ""}>Код сразу после покупки</option>
+                <option value="digital_code" ${editing?.fulfillmentType === "digital_code" ? "selected" : ""}>Цифровой товар</option>
               </select>
             </label>
             <label class="product-field-wide">

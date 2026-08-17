@@ -73,7 +73,7 @@ const state = {
     : "dashboard",
   adminTab: "summary",
   studentGroupFilter: "all",
-  orderStatusFilter: "action",
+  orderStatusFilter: "all",
   orderSearch: "",
   accrualGroup: "",
   accrualNameFilter: "",
@@ -449,6 +449,8 @@ let orders = [
         totalPrice: 120,
         warehouseId: "",
         warehouseName: "",
+        suggestedWarehouseId: "demo-warehouse-soyuznyy",
+        suggestedWarehouseName: "Союзный 45",
       },
     ],
     statusHistory: [
@@ -499,7 +501,10 @@ let orders = [
         productName: "Игра Кибертаун",
         quantity: 1,
         totalPrice: 900,
-        warehouseName: "Не выбран",
+        warehouseId: "",
+        warehouseName: "",
+        suggestedWarehouseId: "demo-warehouse-common",
+        suggestedWarehouseName: "Общий склад",
       },
     ],
     statusHistory: [
@@ -1118,12 +1123,11 @@ function restorePreferences() {
       ? preferences.recentProductSearches.map(String).filter(Boolean).slice(0, 5)
       : [];
     state.railCollapsed = Boolean(preferences.railCollapsed);
-    const storedOrderFilter = preferences.orderStatusFilter === "open"
-      ? "action"
+    const storedOrderFilter = ["open", "action"].includes(preferences.orderStatusFilter)
+      ? "all"
       : preferences.orderStatusFilter;
     if (
       [
-        "action",
         "work",
         "issued",
         "cancelled",
@@ -1765,15 +1769,23 @@ function applySession(session) {
     total: Number(order.total_astrocoins || 0),
     createdAt: order.created_at || "",
     teacherName: order.teacher_name || "",
+    venueName: order.venue_name || "",
   }));
 
   orders = orders.map((order, index) => {
     const sourceOrder = (session.orders || [])[index] || {};
+    const orderStudent = students.find((student) => student.id === order.studentId);
     const items = normalizeOrderItems(sourceOrder);
     const statusHistory = normalizeOrderStatusHistory(sourceOrder);
-    if (items.length === 0) return { ...order, statusHistory };
+    const context = {
+      groupName: orderStudent?.group || "Группа не указана",
+      venueName: sourceOrder.venue_name || orderStudent?.venue || "",
+      teacherName: sourceOrder.teacher_name || orderStudent?.teacher || "",
+    };
+    if (items.length === 0) return { ...order, ...context, statusHistory };
     return {
       ...order,
+      ...context,
       item: orderItemsSummary(items, order.item),
       items,
       statusHistory,
