@@ -56,6 +56,7 @@ function normalizeRegistryStudent(item) {
     id: String(item.student_id || ""),
     lmsId: item.lms_student_id || "",
     name: item.display_name || "Без имени",
+    birthDate: item.birth_date || "",
     group: item.group_name || "",
     course: item.course_name || "",
     venue: item.venue_name || "",
@@ -66,6 +67,9 @@ function normalizeRegistryStudent(item) {
     updatedAt: item.updated_at || "",
     statusUpdatedAt: item.status_updated_at || "",
     departedAt: item.departed_at || "",
+    parentContactIds: Array.isArray(item.parent_contact_ids) ? item.parent_contact_ids : [],
+    parentNames: Array.isArray(item.parent_names) ? item.parent_names : [],
+    parentMaxUserIds: Array.isArray(item.parent_max_user_ids) ? item.parent_max_user_ids : [],
     history: Array.isArray(item.history)
       ? item.history.map((event) => ({
           id: event.id ? String(event.id) : "",
@@ -90,6 +94,7 @@ function demoAdminStudentRegistry() {
       student_id: student.id,
       lms_student_id: student.lmsId || null,
       display_name: student.name,
+      birth_date: student.birthDate || null,
       group_name: student.group || null,
       course_name: student.course || null,
       venue_name: student.venue || null,
@@ -100,6 +105,9 @@ function demoAdminStudentRegistry() {
       updated_at: student.updatedAt || now,
       status_updated_at: student.statusUpdatedAt || now,
       departed_at: student.departedAt || null,
+      parent_contact_ids: student.parentContactIds || [],
+      parent_names: student.parentNames || [],
+      parent_max_user_ids: student.parentMaxUserIds || [],
       history: [
         {
           event_type: "imported",
@@ -122,14 +130,95 @@ function applyAdminStudentRegistry(result) {
   state.adminStudentsError = "";
 }
 
+function normalizeStudentLedgerEntry(item) {
+  const amount = Number(item.amount || 0);
+  const direction = item.direction === "debit" ? "debit" : "credit";
+  return {
+    id: String(item.id || ""),
+    studentId: String(item.student_id || ""),
+    direction,
+    amount,
+    amountLabel: `${direction === "debit" ? "-" : "+"}${amount} AC`,
+    reason: item.reason || "Операция с балансом",
+    comment: item.comment || "",
+    createdAt: item.created_at || "",
+  };
+}
+
+function demoStudentLedger(studentId) {
+  return ledger
+    .filter(([, , , entryStudentId]) => !entryStudentId || entryStudentId === studentId)
+    .map(([date, reason, amount], index) => {
+      const numericAmount = Number(String(amount).replace(/[^\d,.-]/g, "").replace(",", ".")) || 0;
+      return {
+        id: `demo-${studentId}-${index}`,
+        studentId,
+        direction: numericAmount < 0 ? "debit" : "credit",
+        amount: Math.abs(numericAmount),
+        amountLabel: amount,
+        reason,
+        comment: "",
+        createdAt: date,
+      };
+    });
+}
+
+async function loadStudentLedger(studentId, force = false) {
+  const normalizedStudentId = String(studentId || "");
+  if (!normalizedStudentId) return;
+  if (
+    state.studentLedgerLoading.has(normalizedStudentId) ||
+    (state.studentLedgerById.has(normalizedStudentId) && !force)
+  ) return;
+
+  state.studentLedgerLoading.add(normalizedStudentId);
+  state.studentLedgerErrors.delete(normalizedStudentId);
+  if (typeof renderStudentLedgerPanel === "function") {
+    renderStudentLedgerPanel(normalizedStudentId);
+  }
+  try {
+    if (apiContext.demoMode) {
+      state.studentLedgerById.set(normalizedStudentId, demoStudentLedger(normalizedStudentId));
+      return;
+    }
+    const response = await apiFetch(
+      apiUrl(`/api/v1/miniapp/students/${encodeURIComponent(normalizedStudentId)}/ledger`, {
+        max_user_id: apiContext.maxUserId,
+        tenant_slug: apiContext.tenantSlug,
+        limit: 100,
+      }),
+    );
+    if (!response.ok) throw new Error(await parseApiError(response));
+    const result = await response.json();
+    state.studentLedgerById.set(
+      normalizedStudentId,
+      Array.isArray(result) ? result.map(normalizeStudentLedgerEntry) : [],
+    );
+  } catch (error) {
+    state.studentLedgerErrors.set(
+      normalizedStudentId,
+      error.message || "Не удалось загрузить операции",
+    );
+  } finally {
+    state.studentLedgerLoading.delete(normalizedStudentId);
+    if (typeof renderStudentLedgerPanel === "function") {
+      renderStudentLedgerPanel(normalizedStudentId);
+    }
+  }
+}
+
 async function loadAdminStudents(force = false) {
   if (apiContext.demoMode) {
     applyAdminStudentRegistry(demoAdminStudentRegistry());
-    if (state.adminTab === "students") renderAdminPanel();
+    if (force) {
+      state.studentLedgerById = new Map();
+      state.studentLedgerErrors = new Map();
+    }
+    if (isStaffStudentHistoryView()) renderStudentRegistry();
     return;
   }
   if (
-    state.role !== "admin" ||
+    !["teacher", "admin"].includes(state.role) ||
     !state.hasAccess ||
     !apiContext.maxUserId
   ) return;
@@ -140,7 +229,7 @@ async function loadAdminStudents(force = false) {
 
   state.adminStudentsLoading = true;
   state.adminStudentsError = "";
-  if (state.adminTab === "students") renderAdminPanel();
+  if (isStaffStudentHistoryView()) renderStudentRegistry();
   try {
     const response = await apiFetch(
       apiUrl("/api/v1/miniapp/students/registry", {
@@ -151,12 +240,16 @@ async function loadAdminStudents(force = false) {
     if (!response.ok) throw new Error(await parseApiError(response));
     const result = await response.json();
     applyAdminStudentRegistry(result);
+    if (force) {
+      state.studentLedgerById = new Map();
+      state.studentLedgerErrors = new Map();
+    }
   } catch (error) {
     state.adminStudentsError = error.message || "Не удалось загрузить учеников";
     showNotice(state.adminStudentsError, "danger");
   } finally {
     state.adminStudentsLoading = false;
-    if (state.adminTab === "students") renderAdminPanel();
+    if (isStaffStudentHistoryView()) renderStudentRegistry();
   }
 }
 
@@ -316,11 +409,15 @@ async function switchTenant(tenantSlug) {
   state.adminStudents = [];
   state.adminStudentsLoaded = false;
   state.adminStudentsError = "";
+  state.studentLedgerById = new Map();
+  state.studentLedgerLoading = new Set();
+  state.studentLedgerErrors = new Map();
   state.studentCreateOpen = false;
   state.studentMutationSaving = "";
   state.adminHistory = [];
   state.adminHistoryLoaded = false;
   state.adminHistoryError = "";
+  state.studentRegistrySearch = "";
   state.studentRegistryStatusFilter = "all";
   state.studentRegistryGroupFilter = "all";
   state.teacherInvitations = new Map();
@@ -333,7 +430,7 @@ async function switchTenant(tenantSlug) {
     if (applyAccessGate()) return;
     await loadCatalog();
     await loadOpsSummary();
-    if (state.adminTab === "students") await loadAdminStudents();
+    if (isStaffStudentHistoryView()) await loadAdminStudents();
     if (state.adminTab === "history") await loadAdminHistory();
     state.studentInvitations = new Map();
     state.studentInvitationsLoaded = false;
@@ -347,6 +444,15 @@ async function switchTenant(tenantSlug) {
     state.broadcastPreviewSignature = "";
     state.broadcastSelectedGroups = new Set();
     state.broadcastAllGroups = true;
+    state.broadcastTargetOptions = null;
+    state.broadcastTargetOptionsLoaded = false;
+    state.broadcastTargetOptionsLoading = false;
+    state.broadcastTargetOptionsError = "";
+    state.broadcastSelectedVenues = new Set();
+    state.broadcastSelectedLessonModes = new Set();
+    state.broadcastVenueEditorOpen = false;
+    state.broadcastVenueDraft = null;
+    state.broadcastVenueSaving = false;
     qs("#broadcastForm")?.reset();
     clearBroadcastPhoto();
     restoreBroadcastDraft();
@@ -442,7 +548,7 @@ async function refreshAllData() {
     return;
   }
   const refreshTasks = [loadCatalog(), loadOpsSummary()];
-  if (state.adminStudentsLoaded || state.adminTab === "students") {
+  if (state.adminStudentsLoaded || isStaffStudentHistoryView()) {
     refreshTasks.push(loadAdminStudents(true));
   }
   if (state.adminHistoryLoaded || state.adminTab === "history") {
@@ -466,8 +572,9 @@ async function refreshAllData() {
   }
   if (roleViews(state.role).includes("broadcasts")) {
     state.broadcastHistoryLoaded = false;
+    state.broadcastTargetOptionsLoaded = false;
     try {
-      await loadBroadcastHistory();
+      await Promise.all([loadBroadcastHistory(), loadBroadcastTargetOptions(true)]);
     } catch (error) {
       errors.push(error);
     }
@@ -524,6 +631,10 @@ function setView(view) {
     });
   }
   renderStatus();
+  if (nextView === "wallet") {
+    renderLedger();
+    if (isStaffStudentHistoryView()) void loadAdminStudents();
+  }
   if (nextView === "report") renderAccrualReport();
   if (nextView === "broadcasts") renderBroadcasts();
 }
@@ -747,7 +858,7 @@ function renderStatus() {
   const statusStrip = qs(".status-strip");
   const studentContext = qs("#studentContext");
   if (studentContext) {
-    studentContext.hidden = linkedCount === 0 || (isStaff && state.view !== "wallet");
+    studentContext.hidden = linkedCount === 0 || isStaff;
   }
   if (statusStrip) statusStrip.classList.toggle("has-no-students", linkedCount === 0);
   if (statusStrip) statusStrip.classList.toggle("is-staff-profile", isStaff);

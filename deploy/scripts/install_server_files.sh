@@ -27,6 +27,8 @@ install -d -o algomax -g algomax -m 0750 \
 install -m 0644 deploy/systemd/algo-max-api.service /etc/systemd/system/algo-max-api.service
 install -m 0644 deploy/systemd/algo-max-backup.service /etc/systemd/system/algo-max-backup.service
 install -m 0644 deploy/systemd/algo-max-backup.timer /etc/systemd/system/algo-max-backup.timer
+install -m 0644 deploy/systemd/algo-max-birthday.service /etc/systemd/system/algo-max-birthday.service
+install -m 0644 deploy/systemd/algo-max-birthday.timer /etc/systemd/system/algo-max-birthday.timer
 install -m 0755 deploy/scripts/backup_postgres.sh /usr/local/sbin/algo-max-backup
 sed "s/bot\.example\.ru/$domain/g" deploy/nginx/algo-max.conf > /etc/nginx/sites-available/algo-max
 if [[ ! -f "$env_file" ]]; then
@@ -37,6 +39,7 @@ fi
 ln -sfn /etc/nginx/sites-available/algo-max /etc/nginx/sites-enabled/algo-max
 rm -f /etc/nginx/sites-enabled/default
 systemctl daemon-reload
+systemctl enable algo-max-birthday.timer
 nginx -t
 systemctl reload nginx
 

@@ -50,6 +50,7 @@ from app.core.config import get_settings, is_placeholder
 from app.services.deep_links import (
     parse_contact_payload,
     parse_shop_payload,
+    parse_staff_payload,
 )
 from app.services.knowledge_base import (
     KnowledgeBaseError,
@@ -494,6 +495,42 @@ class LongPollingBot:
                 "Выберите город, в котором вы работаете."
             ),
             staff_tenant_keyboard(tenants),
+        )
+
+    def handle_staff_deeplink_response(
+        self,
+        *,
+        user_id: int | None,
+        username: str | None,
+        display_name: str | None,
+        tenant_slug: str,
+        role: str,
+    ) -> BotResponse:
+        initial = self.staff_invite_start_response(
+            user_id=user_id,
+            username=username,
+            display_name=display_name,
+        )
+        invite = self.staff_invite_state(user_id)
+        if invite is None or user_id is None:
+            return initial
+
+        tenant = next(
+            (item for item in invite.tenants if item.get("tenant_slug") == tenant_slug),
+            None,
+        )
+        if tenant is None or role not in invite.roles:
+            self.pending_staff_invites.pop(user_id, None)
+            return BotResponse(
+                "Город или роль из ссылки больше недоступны. Попросите отправить новую ссылку.",
+                self.main_menu_attachments(user_id),
+            )
+
+        invite.tenant_slug = tenant_slug
+        return self.submit_staff_request(
+            user_id=user_id,
+            invite=invite,
+            role=role,
         )
 
     @staticmethod
@@ -1060,8 +1097,25 @@ class LongPollingBot:
         *,
         payload: str | None,
         user_id: int | None,
+        username: str | None = None,
+        display_name: str | None = None,
     ) -> BotResponse | None:
         raw_payload = (payload or "").strip()
+        is_staff_payload = raw_payload.casefold().startswith("staff_")
+        staff_tenant_slug, staff_role = parse_staff_payload(raw_payload)
+        if is_staff_payload:
+            if not staff_tenant_slug or not staff_role:
+                return BotResponse(
+                    "Ссылка сотрудника повреждена. Попросите отправить новую ссылку.",
+                    self.main_menu_attachments(user_id),
+                )
+            return self.handle_staff_deeplink_response(
+                user_id=user_id,
+                username=username,
+                display_name=display_name,
+                tenant_slug=staff_tenant_slug,
+                role=staff_role,
+            )
         if raw_payload.casefold().startswith("student_"):
             return self.handle_student_invitation_response(
                 token=raw_payload[len("student_") :],
@@ -1229,7 +1283,17 @@ class LongPollingBot:
         if len(text) < 2:
             return False
         lowered = text.casefold()
-        explicit_prefixes = ("cid_", "sid_", "contact_", "contact:", "id_", "id:")
+        explicit_prefixes = (
+            "cid_",
+            "sid_",
+            "student_",
+            "shop_",
+            "staff_",
+            "contact_",
+            "contact:",
+            "id_",
+            "id:",
+        )
         if lowered.startswith(explicit_prefixes):
             return False
         normalized_contact_id = parse_contact_payload(text) or ""
@@ -1366,6 +1430,8 @@ class LongPollingBot:
         response = self.handle_contact_payload_response(
             payload=payload,
             user_id=user_id,
+            username=user.get("username"),
+            display_name=display_name_from_user(user),
         ) or self.first_entry_response(user_id)
 
         self.send_response(response, chat_id=chat_id, user_id=user_id)
@@ -1457,7 +1523,10 @@ class LongPollingBot:
             )
         elif command in {"/start", "start"}:
             response = self.handle_contact_payload_response(
-                payload=argument, user_id=user_id
+                payload=argument,
+                user_id=user_id,
+                username=sender.get("username"),
+                display_name=display_name_from_user(sender),
             ) or self.first_entry_response(user_id)
         elif command.startswith("/"):
             response = BotResponse(
@@ -1465,7 +1534,12 @@ class LongPollingBot:
                 self.main_menu_attachments(user_id),
             )
         else:
-            response = self.handle_contact_payload_response(payload=text, user_id=user_id)
+            response = self.handle_contact_payload_response(
+                payload=text,
+                user_id=user_id,
+                username=sender.get("username"),
+                display_name=display_name_from_user(sender),
+            )
             if (
                 response is not None
                 and user_id is not None

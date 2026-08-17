@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import exists, select
+from sqlalchemy import and_, exists, false, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.keyboards import (
@@ -28,12 +28,16 @@ from app.models.enums import (
 )
 from app.models.store import Order
 from app.models.student import Student, StudentAccessLink, Wallet
-from app.models.tenant import Tenant
+from app.models.tenant import Tenant, Venue
 from app.schemas.broadcasts import (
     BroadcastAudiencePreviewRead,
     BroadcastAudienceRequest,
+    BroadcastTargetOptionsRead,
+    BroadcastVenueRuleRead,
+    BroadcastVenueRuleUpsert,
     SchoolBroadcastRead,
 )
+from app.services.crm_sync import slugify
 from app.services.max_notifications import schedule_staff_notification
 from app.services.staff import active_staff_roles_for_tenant
 
@@ -44,6 +48,11 @@ BROADCAST_ROLES = {
     StaffRole.PARTNER_DIRECTOR,
     StaffRole.ADMIN,
     StaffRole.CURATOR,
+}
+BROADCAST_VENUE_MANAGEMENT_ROLES = {
+    StaffRole.SUPERADMIN,
+    StaffRole.PARTNER_DIRECTOR,
+    StaffRole.ADMIN,
 }
 ACTIVE_ORDER_STATUSES = {
     OrderStatus.CREATED,
@@ -63,6 +72,7 @@ class BroadcastServiceError(RuntimeError):
 class BroadcastContext:
     tenant: Tenant
     account: MaxAccount
+    roles: frozenset[StaffRole]
 
 
 @dataclass(frozen=True)
@@ -70,6 +80,61 @@ class BroadcastRecipients:
     max_user_ids: set[int]
     student_ids: set[UUID]
     unavailable_student_ids: set[UUID]
+
+
+def normalize_broadcast_target_text(value: str | None) -> str:
+    return " ".join((value or "").strip().casefold().replace("ё", "е").split())
+
+
+def classify_broadcast_group(group_name: str | None) -> str:
+    normalized = normalize_broadcast_target_text(group_name)
+    if "индивид" in normalized:
+        return "individual"
+    if "общ" in normalized:
+        return "online"
+    return "offline"
+
+
+def _normalized_sql(column):
+    return func.replace(func.lower(func.coalesce(column, "")), "ё", "е")
+
+
+def _lesson_mode_condition(lesson_modes: list[str]):
+    if not lesson_modes:
+        return None
+    group_name = _normalized_sql(Student.group_name)
+    is_individual = group_name.contains("индивид")
+    contains_online_marker = group_name.contains("общ")
+    conditions = []
+    if "individual" in lesson_modes:
+        conditions.append(is_individual)
+    if "online" in lesson_modes:
+        conditions.append(and_(~is_individual, contains_online_marker))
+    if "offline" in lesson_modes:
+        conditions.append(and_(~is_individual, ~contains_online_marker))
+    return or_(*conditions) if conditions else false()
+
+
+def _venue_matches_group(
+    *,
+    group_name: str,
+    imported_venue_name: str,
+    venue: Venue,
+    explicit_group_owners: dict[str, set[UUID]],
+) -> bool:
+    normalized_group = normalize_broadcast_target_text(group_name)
+    explicit_owners = explicit_group_owners.get(normalized_group)
+    if explicit_owners:
+        return UUID(str(venue.id)) in explicit_owners
+    if normalize_broadcast_target_text(
+        imported_venue_name
+    ) == normalize_broadcast_target_text(venue.name):
+        return True
+    return any(
+        normalize_broadcast_target_text(keyword) in normalized_group
+        for keyword in (venue.broadcast_keywords or [])
+        if normalize_broadcast_target_text(keyword)
+    )
 
 
 async def _load_context(
@@ -101,7 +166,66 @@ async def _load_context(
             "Рассылки доступны администратору, куратору, директору и суперадмину",
             status_code=403,
         )
-    return BroadcastContext(tenant=tenant, account=account)
+    return BroadcastContext(
+        tenant=tenant,
+        account=account,
+        roles=frozenset(roles),
+    )
+
+
+async def _venue_condition(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    venue_names: list[str],
+):
+    if not venue_names:
+        return None
+    venues = list(
+        (
+            await db.scalars(
+                select(Venue).where(Venue.tenant_id == tenant_id)
+            )
+        ).all()
+    )
+    selected_names = {
+        normalize_broadcast_target_text(name) for name in venue_names
+    }
+    selected = [
+        venue
+        for venue in venues
+        if normalize_broadcast_target_text(venue.name) in selected_names
+    ]
+    all_explicit_groups = {
+        normalize_broadcast_target_text(group_name)
+        for venue in venues
+        for group_name in (venue.broadcast_group_names or [])
+        if normalize_broadcast_target_text(group_name)
+    }
+    selected_explicit_groups = {
+        normalize_broadcast_target_text(group_name)
+        for venue in selected
+        for group_name in (venue.broadcast_group_names or [])
+        if normalize_broadcast_target_text(group_name)
+    }
+    normalized_group = _normalized_sql(Student.group_name)
+    fallback_conditions = [
+        Student.venue_id.in_([venue.id for venue in selected]),
+        Student.venue_name.in_(venue_names),
+        _normalized_sql(Student.venue_name).in_(selected_names),
+    ]
+    fallback_conditions.extend(
+        normalized_group.contains(normalize_broadcast_target_text(keyword))
+        for venue in selected
+        for keyword in (venue.broadcast_keywords or [])
+        if normalize_broadcast_target_text(keyword)
+    )
+    fallback = or_(*fallback_conditions)
+    if all_explicit_groups:
+        fallback = and_(~normalized_group.in_(all_explicit_groups), fallback)
+    if selected_explicit_groups:
+        return or_(normalized_group.in_(selected_explicit_groups), fallback)
+    return fallback
 
 
 async def _resolve_recipients(
@@ -145,13 +269,19 @@ async def _resolve_recipients(
             Student.group_name.in_(payload.group_names)
         )
 
-    if payload.venue_names:
-        recipient_query = recipient_query.where(
-            Student.venue_name.in_(payload.venue_names)
-        )
-        eligible_query = eligible_query.where(
-            Student.venue_name.in_(payload.venue_names)
-        )
+    lesson_mode_condition = _lesson_mode_condition(payload.lesson_modes)
+    if lesson_mode_condition is not None:
+        recipient_query = recipient_query.where(lesson_mode_condition)
+        eligible_query = eligible_query.where(lesson_mode_condition)
+
+    venue_condition = await _venue_condition(
+        db,
+        tenant_id=tenant_id,
+        venue_names=payload.venue_names,
+    )
+    if venue_condition is not None:
+        recipient_query = recipient_query.where(venue_condition)
+        eligible_query = eligible_query.where(venue_condition)
 
     if payload.audience_filter == "low_balance":
         threshold = payload.balance_threshold if payload.balance_threshold is not None else 300
@@ -206,6 +336,7 @@ def _preview_read(
         unavailable_students=len(recipients.unavailable_student_ids),
         selected_groups=payload.group_names,
         selected_venues=payload.venue_names,
+        selected_lesson_modes=payload.lesson_modes,
     )
 
 
@@ -223,6 +354,7 @@ def _broadcast_read(
         audience_filter=broadcast.audience_filter,
         group_names=list(broadcast.group_names or []),
         venue_names=list(broadcast.venue_names or []),
+        lesson_modes=list(broadcast.lesson_modes or []),
         balance_threshold=broadcast.balance_threshold,
         status=broadcast.status,
         recipient_count=broadcast.recipient_count,
@@ -298,7 +430,7 @@ async def send_school_broadcast(
         audience_filter=payload.audience_filter,
         group_names=payload.group_names,
         venue_names=payload.venue_names,
-        lesson_modes=[],
+        lesson_modes=payload.lesson_modes,
         balance_threshold=payload.balance_threshold,
         status="sending",
         recipient_count=len(recipients.max_user_ids),
@@ -368,6 +500,7 @@ async def send_school_broadcast(
                 "audience_filter": payload.audience_filter,
                 "group_names": payload.group_names,
                 "venue_names": payload.venue_names,
+                "lesson_modes": payload.lesson_modes,
                 "recipient_count": len(results),
                 "delivered_count": delivered,
                 "failed_count": failed,
@@ -431,3 +564,164 @@ async def list_school_broadcasts(
         _broadcast_read(broadcast, creator_name=creator_name)
         for broadcast, creator_name in rows
     ]
+
+
+async def get_broadcast_target_options(
+    db: AsyncSession,
+    *,
+    max_user_id: int,
+    tenant_slug: str,
+) -> BroadcastTargetOptionsRead:
+    context = await _load_context(
+        db,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    tenant_id = UUID(str(context.tenant.id))
+    student_rows = (
+        await db.execute(
+            select(Student.group_name, Student.venue_name).where(
+                Student.tenant_id == tenant_id,
+                Student.status == StudentStatus.ACTIVE,
+                Student.group_name.is_not(None),
+            )
+        )
+    ).all()
+    group_names = sorted(
+        {
+            str(row.group_name).strip()
+            for row in student_rows
+            if str(row.group_name or "").strip()
+        },
+        key=lambda value: normalize_broadcast_target_text(value),
+    )
+    venues = list(
+        (
+            await db.scalars(
+                select(Venue)
+                .where(Venue.tenant_id == tenant_id)
+                .order_by(Venue.name)
+            )
+        ).all()
+    )
+    explicit_group_owners: dict[str, set[UUID]] = {}
+    for venue in venues:
+        for group_name in venue.broadcast_group_names or []:
+            normalized = normalize_broadcast_target_text(group_name)
+            if normalized:
+                explicit_group_owners.setdefault(normalized, set()).add(
+                    UUID(str(venue.id))
+                )
+
+    venue_reads = []
+    for venue in venues:
+        matched_groups = {
+            str(row.group_name).strip()
+            for row in student_rows
+            if _venue_matches_group(
+                group_name=str(row.group_name or ""),
+                imported_venue_name=str(row.venue_name or ""),
+                venue=venue,
+                explicit_group_owners=explicit_group_owners,
+            )
+        }
+        venue_reads.append(
+            BroadcastVenueRuleRead(
+                id=UUID(str(venue.id)),
+                name=venue.name,
+                keywords=list(venue.broadcast_keywords or []),
+                group_names=list(venue.broadcast_group_names or []),
+                matched_group_count=len(matched_groups),
+            )
+        )
+    return BroadcastTargetOptionsRead(
+        groups=group_names,
+        venues=venue_reads,
+        can_manage_venues=bool(context.roles & BROADCAST_VENUE_MANAGEMENT_ROLES),
+    )
+
+
+async def upsert_broadcast_venue_rule(
+    db: AsyncSession,
+    *,
+    payload: BroadcastVenueRuleUpsert,
+    default_tenant_slug: str,
+    venue_id: UUID | None = None,
+) -> BroadcastVenueRuleRead:
+    context = await _load_context(
+        db,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug or default_tenant_slug,
+    )
+    if not context.roles & BROADCAST_VENUE_MANAGEMENT_ROLES:
+        raise BroadcastServiceError(
+            "Настраивать площадки могут директор, администратор и суперадминистратор",
+            status_code=403,
+        )
+    tenant_id = UUID(str(context.tenant.id))
+    venues = list(
+        (
+            await db.scalars(select(Venue).where(Venue.tenant_id == tenant_id))
+        ).all()
+    )
+    venue = next(
+        (item for item in venues if venue_id is not None and UUID(str(item.id)) == venue_id),
+        None,
+    )
+    if venue_id is not None and venue is None:
+        raise BroadcastServiceError("Площадка не найдена", status_code=404)
+    duplicate = next(
+        (
+            item
+            for item in venues
+            if normalize_broadcast_target_text(item.name)
+            == normalize_broadcast_target_text(payload.name)
+            and (venue is None or item.id != venue.id)
+        ),
+        None,
+    )
+    if duplicate is not None:
+        raise BroadcastServiceError("Площадка с таким названием уже существует")
+
+    if venue is None:
+        used_slugs = {item.slug for item in venues}
+        base_slug = slugify(payload.name) or "venue"
+        slug = base_slug
+        suffix = 2
+        while slug in used_slugs:
+            slug = f"{base_slug}-{suffix}"
+            suffix += 1
+        venue = Venue(
+            tenant_id=tenant_id,
+            slug=slug,
+            name=payload.name,
+        )
+        db.add(venue)
+        await db.flush()
+        action = "broadcast_venue.created"
+    else:
+        venue.name = payload.name
+        action = "broadcast_venue.updated"
+    venue.broadcast_keywords = payload.keywords
+    venue.broadcast_group_names = payload.group_names
+    db.add(
+        AuditLog(
+            tenant_id=tenant_id,
+            actor_account_id=context.account.id,
+            action=action,
+            entity_type="venue",
+            entity_id=str(venue.id),
+            payload={
+                "name": venue.name,
+                "keywords": payload.keywords,
+                "group_names": payload.group_names,
+            },
+        )
+    )
+    await db.commit()
+    options = await get_broadcast_target_options(
+        db,
+        max_user_id=payload.max_user_id,
+        tenant_slug=context.tenant.slug,
+    )
+    return next(item for item in options.venues if item.id == UUID(str(venue.id)))

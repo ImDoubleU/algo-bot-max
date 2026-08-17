@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.68.0" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.70.1" />
   </head>
   <body class="is-booting">
     <main id="accessGate" class="access-gate" hidden>
@@ -335,15 +335,18 @@
           </section>
 
           <section id="walletView" class="view" data-view-panel="wallet">
-            <div class="section-heading">
-              <div>
-                <p class="eyebrow">Астрокоины</p>
-                <h2 id="walletTitle">История операций</h2>
+            <div id="personalWalletContent">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Астрокоины</p>
+                  <h2 id="walletTitle">История операций</h2>
+                </div>
+                <button class="secondary-action" type="button" data-view-jump="accrual">Начисления</button>
               </div>
-              <button class="secondary-action" type="button" data-view-jump="accrual">Начисления</button>
+              <div id="walletSummary" class="wallet-summary"></div>
+              <div id="ledgerList" class="ledger-list"></div>
             </div>
-            <div id="walletSummary" class="wallet-summary"></div>
-            <div id="ledgerList" class="ledger-list"></div>
+            <div id="staffStudentHistory" class="staff-student-history" hidden></div>
           </section>
 
           <section id="reportView" class="view" data-view-panel="report">
@@ -491,13 +494,97 @@
                   </label>
                 </div>
 
-                <div class="broadcast-form-row broadcast-target-row broadcast-stage broadcast-stage-1">
-                  <label>
-                    <span>Площадка</span>
-                    <select id="broadcastVenueFilter">
-                      <option value="all">Все площадки</option>
-                    </select>
-                  </label>
+                <div class="broadcast-targeting broadcast-stage broadcast-stage-1">
+                  <section class="broadcast-target-section" aria-labelledby="broadcastLessonModeTitle">
+                    <div class="broadcast-target-head">
+                      <div>
+                        <h3 id="broadcastLessonModeTitle">Формат занятий</h3>
+                        <p>Формат определяется автоматически по названию группы.</p>
+                      </div>
+                    </div>
+                    <div id="broadcastLessonModeOptions" class="broadcast-filter-chips">
+                      <button class="broadcast-filter-chip is-active" type="button" data-broadcast-modes="all">Все форматы</button>
+                      <label class="broadcast-filter-chip">
+                        <input type="checkbox" value="offline" data-broadcast-lesson-mode />
+                        <span>Очные</span>
+                      </label>
+                      <label class="broadcast-filter-chip">
+                        <input type="checkbox" value="online" data-broadcast-lesson-mode />
+                        <span>Онлайн</span>
+                      </label>
+                      <label class="broadcast-filter-chip">
+                        <input type="checkbox" value="individual" data-broadcast-lesson-mode />
+                        <span>Индивидуальные</span>
+                      </label>
+                    </div>
+                  </section>
+
+                  <section class="broadcast-target-section" aria-labelledby="broadcastVenueTitle">
+                    <div class="broadcast-target-head">
+                      <div>
+                        <h3 id="broadcastVenueTitle">Площадки</h3>
+                        <p>Можно выбрать несколько площадок или отправить всем.</p>
+                      </div>
+                      <button id="addBroadcastVenueButton" class="secondary-action compact-action" type="button" hidden>
+                        <i data-lucide="plus"></i><span>Добавить</span>
+                      </button>
+                    </div>
+                    <div id="broadcastVenueOptions" class="broadcast-venue-options"></div>
+                    <div id="broadcastVenueEditor" class="broadcast-venue-editor" hidden>
+                      <div class="broadcast-venue-editor-head">
+                        <div>
+                          <span class="eyebrow">Настройка площадки</span>
+                          <h4 id="broadcastVenueEditorTitle">Новая площадка</h4>
+                        </div>
+                        <button id="closeBroadcastVenueEditor" class="icon-action" type="button" title="Закрыть" aria-label="Закрыть">
+                          <i data-lucide="x"></i>
+                        </button>
+                      </div>
+                      <section class="broadcast-venue-editor-section" aria-labelledby="broadcastVenueRulesTitle">
+                        <div class="broadcast-venue-section-title">
+                          <span class="broadcast-venue-step" aria-hidden="true">1</span>
+                          <div>
+                            <strong id="broadcastVenueRulesTitle">Название и правила отбора</strong>
+                            <small>Укажите, как найти группы этой площадки.</small>
+                          </div>
+                        </div>
+                        <div class="broadcast-venue-fields">
+                          <label>
+                            <span>Название площадки</span>
+                            <input id="broadcastVenueName" type="text" maxlength="180" placeholder="Например, Союзный 45" />
+                          </label>
+                          <label>
+                            <span>Слова в названии группы</span>
+                            <input id="broadcastVenueKeywords" type="text" maxlength="500" placeholder="Например: Союзный, Сормово" />
+                            <small>Разделяйте слова запятыми. Группа подойдет, если в ее названии есть хотя бы одно слово.</small>
+                          </label>
+                        </div>
+                      </section>
+                      <section class="broadcast-venue-editor-section" aria-labelledby="broadcastVenueGroupsTitle">
+                        <div class="broadcast-venue-groups-head">
+                          <div class="broadcast-venue-section-title">
+                            <span class="broadcast-venue-step" aria-hidden="true">2</span>
+                            <div>
+                              <strong id="broadcastVenueGroupsTitle">Проверьте группы</strong>
+                              <small>Отметьте группы вручную, если слов из названия недостаточно.</small>
+                            </div>
+                          </div>
+                          <span id="broadcastVenueSelectedCount" class="broadcast-venue-selection-count">Выбрано: 0</span>
+                        </div>
+                        <label class="broadcast-venue-search">
+                          <i data-lucide="search"></i>
+                          <input id="broadcastVenueGroupSearch" type="search" placeholder="Найти группу" />
+                        </label>
+                        <div id="broadcastVenueGroupList" class="broadcast-venue-group-list"></div>
+                      </section>
+                      <div class="broadcast-venue-editor-actions">
+                        <button id="cancelBroadcastVenueButton" class="secondary-action" type="button">Отмена</button>
+                        <button id="saveBroadcastVenueButton" class="primary-action" type="button">
+                          <i data-lucide="save"></i><span>Сохранить площадку</span>
+                        </button>
+                      </div>
+                    </div>
+                  </section>
                 </div>
 
                 <label class="broadcast-message-field broadcast-stage broadcast-stage-2">
@@ -604,9 +691,6 @@
             <div class="admin-tabs" role="tablist" aria-label="Админские разделы">
               <button class="admin-tab is-active" type="button" data-admin-tab="summary">
                 <i data-lucide="chart-no-axes-combined"></i><span>Сводка</span>
-              </button>
-              <button class="admin-tab" type="button" data-admin-tab="students">
-                <i data-lucide="graduation-cap"></i><span>Ученики</span>
               </button>
               <button class="admin-tab" type="button" data-admin-tab="staff">
                 <i data-lucide="users"></i><span>Сотрудники</span>
@@ -920,11 +1004,11 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app-core.js?v=0.68.0"></script>
-    <script src="/miniapp/static/app-shell.js?v=0.68.0"></script>
-    <script src="/miniapp/static/app-store.js?v=0.68.0"></script>
-    <script src="/miniapp/static/app-admin.js?v=0.68.0"></script>
-    <script src="/miniapp/static/app-communications.js?v=0.68.0"></script>
-    <script src="/miniapp/static/app.js?v=0.68.0"></script>
+    <script src="/miniapp/static/app-core.js?v=0.70.1"></script>
+    <script src="/miniapp/static/app-shell.js?v=0.70.1"></script>
+    <script src="/miniapp/static/app-store.js?v=0.70.1"></script>
+    <script src="/miniapp/static/app-admin.js?v=0.70.1"></script>
+    <script src="/miniapp/static/app-communications.js?v=0.70.1"></script>
+    <script src="/miniapp/static/app.js?v=0.70.1"></script>
   </body>
 </html>

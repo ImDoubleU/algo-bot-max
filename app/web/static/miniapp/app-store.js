@@ -1165,6 +1165,16 @@ function renderOrders() {
 }
 
 function renderLedger() {
+  const personalWalletContent = qs("#personalWalletContent");
+  const staffStudentHistory = qs("#staffStudentHistory");
+  const showStudentRegistry = ["teacher", "admin"].includes(state.role);
+  if (personalWalletContent) personalWalletContent.hidden = showStudentRegistry;
+  if (staffStudentHistory) staffStudentHistory.hidden = !showStudentRegistry;
+  if (showStudentRegistry) {
+    renderStudentRegistry();
+    return;
+  }
+
   const student = selectedStudent();
   const visibleLedger = ledger.filter(
     ([, , , studentId]) => !studentId || !student || studentId === student.id,

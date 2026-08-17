@@ -155,6 +155,23 @@ class FakeBackendClient:
             "affected_tenants": 1,
         }
 
+    def get_staff_onboarding_options(
+        self,
+        *,
+        tenant_slug: str,
+        max_user_id: int,
+    ) -> dict[str, Any]:
+        return {
+            "tenants": [
+                {
+                    "tenant_slug": "n-novgorod",
+                    "tenant_name": "Нижний Новгород",
+                    "city_name": "Нижний Новгород",
+                }
+            ],
+            "roles": ["partner_director", "admin", "curator", "teacher"],
+        }
+
 
 def _message(text: str, *, user_id: int = 1, chat_id: int = 10) -> dict[str, Any]:
     return {
@@ -362,6 +379,31 @@ def test_bot_stopped_revokes_access_and_clears_pending_state() -> None:
     assert backend.revoke_calls == [
         {"tenant_slug": "n-novgorod", "max_user_id": 1}
     ]
+
+
+def test_staff_deeplink_submits_preselected_role_request() -> None:
+    client = FakeMaxClient()
+    bot = LongPollingBot(
+        client,
+        backend_client=FakeBackendClient(linked=False),
+        default_tenant_slug="n-novgorod",
+    )
+    bot.staff_approver_user_id = 53364725
+
+    response = bot.handle_contact_payload_response(
+        payload="staff_n-novgorod~curator",
+        user_id=901,
+        username="curator_demo",
+        display_name="Куратор Демо",
+    )
+
+    assert response is not None
+    assert "Заявка отправлена на подтверждение" in response.text
+    assert "Роль: Куратор" in response.text
+    request = next(iter(bot.pending_staff_requests.values()))
+    assert request.tenant_slug == "n-novgorod"
+    assert request.role == "curator"
+    assert client.sent_messages[-1]["user_id"] == 53364725
 
 
 def test_bot_ignores_its_own_messages() -> None:

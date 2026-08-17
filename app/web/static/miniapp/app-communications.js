@@ -72,43 +72,235 @@ function renderTeacherInvitations() {
   refreshIcons();
 }
 
-function availableBroadcastVenues() {
-  return [...new Set(
-    students
-      .map((student) => String(student.venue || "").trim())
-      .filter(Boolean),
-  )].sort((left, right) => left.localeCompare(right, "ru"));
+function broadcastAudienceSignature() {
+  return JSON.stringify(broadcastAudiencePayload());
 }
 
-function broadcastVenueFilterValue() {
-  return qs("#broadcastVenueFilter")?.value || "all";
+function invalidateBroadcastPreview() {
+  state.broadcastPreview = null;
+  state.broadcastPreviewSignature = "";
+  renderBroadcastAudiencePreview();
+}
+
+const BROADCAST_LESSON_MODE_LABELS = {
+  offline: "очные",
+  online: "онлайн",
+  individual: "индивидуальные",
+};
+
+function normalizeBroadcastTargetText(value) {
+  return String(value || "")
+    .trim()
+    .toLocaleLowerCase("ru-RU")
+    .replaceAll("ё", "е")
+    .replace(/\s+/g, " ");
+}
+
+function broadcastGroupLessonMode(groupName) {
+  const normalized = normalizeBroadcastTargetText(groupName);
+  if (normalized.includes("индивид")) return "individual";
+  if (normalized.includes("общ")) return "online";
+  return "offline";
+}
+
+function broadcastTargetGroups() {
+  const configuredGroups = state.broadcastTargetOptions?.groups || [];
+  const source = configuredGroups.length
+    ? configuredGroups
+    : students.map((student) => String(student.group || "").trim()).filter(Boolean);
+  return [...new Set(source)].sort((left, right) => left.localeCompare(right, "ru"));
+}
+
+function broadcastTargetVenues() {
+  return state.broadcastTargetOptions?.venues || [];
+}
+
+function broadcastExplicitGroupOwners() {
+  const owners = new Map();
+  broadcastTargetVenues().forEach((venue) => {
+    (venue.group_names || []).forEach((groupName) => {
+      const key = normalizeBroadcastTargetText(groupName);
+      if (!key) return;
+      if (!owners.has(key)) owners.set(key, new Set());
+      owners.get(key).add(normalizeBroadcastTargetText(venue.name));
+    });
+  });
+  return owners;
+}
+
+function broadcastVenueMatchesGroup(groupName, venue, explicitOwners = null) {
+  const normalizedGroup = normalizeBroadcastTargetText(groupName);
+  const normalizedVenue = normalizeBroadcastTargetText(venue?.name);
+  const owners = (explicitOwners || broadcastExplicitGroupOwners()).get(normalizedGroup);
+  if (owners?.size) return owners.has(normalizedVenue);
+  const importedVenueMatch = students.some(
+    (student) =>
+      normalizeBroadcastTargetText(student.group) === normalizedGroup &&
+      normalizeBroadcastTargetText(student.venue) === normalizedVenue,
+  );
+  if (importedVenueMatch) return true;
+  return (venue?.keywords || []).some((keyword) => {
+    const normalizedKeyword = normalizeBroadcastTargetText(keyword);
+    return normalizedKeyword && normalizedGroup.includes(normalizedKeyword);
+  });
+}
+
+function selectedBroadcastVenues() {
+  const availableNames = new Set(broadcastTargetVenues().map((venue) => venue.name));
+  return [...state.broadcastSelectedVenues]
+    .filter((name) => availableNames.has(name))
+    .sort((left, right) => left.localeCompare(right, "ru"));
+}
+
+function selectedBroadcastLessonModes() {
+  return [...state.broadcastSelectedLessonModes].filter(
+    (mode) => mode in BROADCAST_LESSON_MODE_LABELS,
+  );
 }
 
 function availableBroadcastGroups() {
-  const venueFilter = broadcastVenueFilterValue();
-  return [...new Set(
-    students
-      .filter((student) => {
-        if (venueFilter !== "all" && String(student.venue || "") !== venueFilter) return false;
-        return true;
-      })
-      .map((student) => String(student.group || "").trim())
-      .filter(Boolean),
-  )].sort((left, right) => left.localeCompare(right, "ru"));
+  const selectedModes = new Set(selectedBroadcastLessonModes());
+  const selectedVenueNames = new Set(
+    selectedBroadcastVenues().map(normalizeBroadcastTargetText),
+  );
+  const selectedVenues = broadcastTargetVenues().filter((venue) =>
+    selectedVenueNames.has(normalizeBroadcastTargetText(venue.name)),
+  );
+  const explicitOwners = broadcastExplicitGroupOwners();
+  return broadcastTargetGroups().filter((groupName) => {
+    if (selectedModes.size && !selectedModes.has(broadcastGroupLessonMode(groupName))) {
+      return false;
+    }
+    if (
+      selectedVenues.length &&
+      !selectedVenues.some((venue) =>
+        broadcastVenueMatchesGroup(groupName, venue, explicitOwners),
+      )
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function setBroadcastFilterChipState(chip, selected) {
+  if (!chip) return;
+  chip.classList.toggle("is-active", selected);
+  chip.classList.toggle("is-selected", selected);
+  if (chip instanceof HTMLButtonElement) {
+    chip.setAttribute("aria-pressed", String(selected));
+  }
+}
+
+function renderBroadcastVenueSelectionSummary() {
+  const summary = qs("#broadcastVenueSelectedCount");
+  if (!summary) return;
+  summary.textContent = `Выбрано: ${state.broadcastVenueDraft?.groups.size || 0}`;
+}
+
+function renderBroadcastVenueEditorGroups() {
+  const list = qs("#broadcastVenueGroupList");
+  if (!list || !state.broadcastVenueDraft) return;
+  const search = normalizeBroadcastTargetText(qs("#broadcastVenueGroupSearch")?.value);
+  const visibleGroups = broadcastTargetGroups().filter(
+    (groupName) => !search || normalizeBroadcastTargetText(groupName).includes(search),
+  );
+  list.innerHTML = visibleGroups.length
+    ? visibleGroups
+        .map((groupName) => {
+          const selected = state.broadcastVenueDraft.groups.has(groupName);
+          return `
+            <label class="broadcast-venue-group-option ${selected ? "is-selected" : ""}">
+              <input
+                type="checkbox"
+                data-broadcast-venue-group="${escapeHtml(groupName)}"
+                ${selected ? "checked" : ""}
+              />
+              <span>${escapeHtml(groupName)}</span>
+            </label>`;
+        })
+        .join("")
+    : '<div class="empty-state compact-empty">Подходящих групп нет</div>';
+  renderBroadcastVenueSelectionSummary();
+}
+
+function renderBroadcastVenueEditor() {
+  const editor = qs("#broadcastVenueEditor");
+  if (!editor) return;
+  const draft = state.broadcastVenueDraft;
+  editor.hidden = !state.broadcastVenueEditorOpen || !draft;
+  if (editor.hidden) return;
+  const title = qs("#broadcastVenueEditorTitle");
+  const nameInput = qs("#broadcastVenueName");
+  const keywordsInput = qs("#broadcastVenueKeywords");
+  const saveButton = qs("#saveBroadcastVenueButton");
+  if (title) title.textContent = draft.id ? "Редактирование площадки" : "Новая площадка";
+  if (nameInput && nameInput.value !== draft.name) nameInput.value = draft.name;
+  if (keywordsInput && keywordsInput.value !== draft.keywords) keywordsInput.value = draft.keywords;
+  if (saveButton) {
+    saveButton.disabled = state.broadcastVenueSaving;
+    const label = saveButton.querySelector("span");
+    if (label) label.textContent = state.broadcastVenueSaving ? "Сохраняем..." : "Сохранить площадку";
+  }
+  renderBroadcastVenueEditorGroups();
 }
 
 function renderBroadcastTargetFilters() {
-  const venueSelect = qs("#broadcastVenueFilter");
-  if (!venueSelect) return;
-  const currentVenue = venueSelect.value || "all";
-  const venues = availableBroadcastVenues();
-  venueSelect.innerHTML = [
-    '<option value="all">Все площадки</option>',
-    ...venues.map(
-      (venueName) => `<option value="${escapeHtml(venueName)}">${escapeHtml(venueName)}</option>`,
-    ),
-  ].join("");
-  venueSelect.value = venues.includes(currentVenue) ? currentVenue : "all";
+  const modeAllButton = qs('[data-broadcast-modes="all"]');
+  if (modeAllButton) {
+    setBroadcastFilterChipState(modeAllButton, state.broadcastSelectedLessonModes.size === 0);
+  }
+  qsa("[data-broadcast-lesson-mode]").forEach((input) => {
+    input.checked = state.broadcastSelectedLessonModes.has(input.value);
+    setBroadcastFilterChipState(input.closest(".broadcast-filter-chip"), input.checked);
+  });
+
+  const container = qs("#broadcastVenueOptions");
+  const addButton = qs("#addBroadcastVenueButton");
+  if (!container) return;
+  if (addButton) {
+    addButton.hidden = !state.broadcastTargetOptions?.can_manage_venues;
+  }
+  if (state.broadcastTargetOptionsLoading) {
+    container.innerHTML = '<div class="broadcast-target-loading"><i data-lucide="loader-circle"></i>Загружаем площадки...</div>';
+    refreshIcons();
+    return;
+  }
+  if (state.broadcastTargetOptionsError) {
+    container.innerHTML = `
+      <div class="broadcast-target-error">
+        <span>${escapeHtml(state.broadcastTargetOptionsError)}</span>
+        <button class="text-action" type="button" data-reload-broadcast-targets>Повторить</button>
+      </div>`;
+    return;
+  }
+  const venues = broadcastTargetVenues();
+  const selected = new Set(selectedBroadcastVenues());
+  container.innerHTML = `
+    <button class="broadcast-filter-chip ${selected.size ? "" : "is-active is-selected"}" type="button" data-broadcast-venues="all" aria-pressed="${String(!selected.size)}">
+      Все площадки
+    </button>
+    ${venues
+      .map(
+        (venue) => `
+          <div class="broadcast-venue-option">
+            <label class="broadcast-filter-chip ${selected.has(venue.name) ? "is-active is-selected" : ""}">
+              <input type="checkbox" value="${escapeHtml(venue.name)}" data-broadcast-venue ${selected.has(venue.name) ? "checked" : ""} />
+              <span>${escapeHtml(venue.name)}</span>
+              <small>${Number(venue.matched_group_count || 0)} гр.</small>
+            </label>
+            ${state.broadcastTargetOptions?.can_manage_venues ? `
+              <button class="icon-action" type="button" data-edit-broadcast-venue="${escapeHtml(venue.id)}" title="Настроить ${escapeHtml(venue.name)}" aria-label="Настроить ${escapeHtml(venue.name)}">
+                <i data-lucide="pencil"></i>
+              </button>` : ""}
+          </div>
+        `,
+      )
+      .join("")}
+    ${!venues.length ? '<p class="broadcast-target-empty">Площадки еще не настроены. Добавьте название и слова из названий групп.</p>' : ""}
+  `;
+  renderBroadcastVenueEditor();
+  refreshIcons();
 }
 
 function selectedBroadcastGroups() {
@@ -125,8 +317,8 @@ function broadcastAudiencePayload() {
     recipient_category: qs("#broadcastRecipientCategory")?.value || "all",
     audience_filter: qs("#broadcastAudienceFilter")?.value || "all",
     group_names: state.broadcastAllGroups ? [] : selectedBroadcastGroups(),
-    venue_names:
-      broadcastVenueFilterValue() === "all" ? [] : [broadcastVenueFilterValue()],
+    venue_names: selectedBroadcastVenues(),
+    lesson_modes: selectedBroadcastLessonModes(),
     balance_threshold:
       qs("#broadcastAudienceFilter")?.value === "low_balance"
         ? Number(qs("#broadcastBalanceThreshold")?.value || 300)
@@ -134,30 +326,18 @@ function broadcastAudiencePayload() {
   };
 }
 
-function broadcastAudienceSignature() {
-  return JSON.stringify(broadcastAudiencePayload());
-}
-
-function invalidateBroadcastPreview() {
-  state.broadcastPreview = null;
-  state.broadcastPreviewSignature = "";
-  renderBroadcastAudiencePreview();
-}
-
 function renderBroadcastGroups() {
   const list = qs("#broadcastGroupList");
   const hint = qs("#broadcastGroupHint");
   if (!list || !hint) return;
   const groups = availableBroadcastGroups();
-  if (groups.length === 0) {
-    list.innerHTML = '<div class="empty-state">Подходящих групп нет.</div>';
-    hint.textContent = broadcastVenueFilterValue() !== "all"
-      ? "Выберите другую площадку."
-      : "После импорта учеников группы появятся здесь.";
+  if (!groups.length) {
+    list.innerHTML = '<div class="empty-state compact-empty">По выбранным условиям групп нет</div>';
+    hint.textContent = "Измените формат или площадку.";
     return;
   }
   hint.textContent = state.broadcastAllGroups
-    ? `Выбраны все группы: ${groups.length}`
+    ? `Подойдут все группы: ${groups.length}`
     : selectedBroadcastGroups().length
       ? `Выбрано групп: ${selectedBroadcastGroups().length}`
       : "Выберите хотя бы одну группу.";
@@ -175,6 +355,139 @@ function renderBroadcastGroups() {
       `,
     )
     .join("");
+}
+
+function demoBroadcastTargetOptions() {
+  const venueNames = [...new Set(students.map((student) => String(student.venue || "").trim()).filter(Boolean))];
+  return {
+    groups: broadcastTargetGroups(),
+    venues: venueNames.map((name, index) => ({
+      id: `demo-venue-${index + 1}`,
+      name,
+      keywords: [],
+      group_names: [],
+      matched_group_count: new Set(
+        students.filter((student) => String(student.venue || "").trim() === name).map((student) => student.group),
+      ).size,
+    })),
+    can_manage_venues: ["admin", "partner_director", "superadmin"].includes(
+      primaryStaffRole(),
+    ),
+  };
+}
+
+async function loadBroadcastTargetOptions(force = false) {
+  if (state.broadcastTargetOptionsLoading) return;
+  if (state.broadcastTargetOptionsLoaded && !force) return;
+  state.broadcastTargetOptionsLoading = true;
+  state.broadcastTargetOptionsError = "";
+  renderBroadcastTargetFilters();
+  try {
+    if (apiContext.demoMode || !apiContext.maxUserId) {
+      state.broadcastTargetOptions = demoBroadcastTargetOptions();
+    } else {
+      const params = new URLSearchParams({
+        max_user_id: String(apiContext.maxUserId),
+        tenant_slug: apiContext.tenantSlug || "",
+      });
+      const response = await apiFetch(`/api/v1/miniapp/broadcasts/options?${params}`);
+      if (!response.ok) throw new Error(await parseApiError(response));
+      state.broadcastTargetOptions = await response.json();
+    }
+    state.broadcastTargetOptionsLoaded = true;
+  } catch (error) {
+    state.broadcastTargetOptionsError = error.message || "Не удалось загрузить площадки";
+  } finally {
+    state.broadcastTargetOptionsLoading = false;
+    renderBroadcasts();
+  }
+}
+
+function openBroadcastVenueEditor(venueId = "") {
+  const venue = broadcastTargetVenues().find((item) => String(item.id) === String(venueId));
+  state.broadcastVenueDraft = {
+    id: venue?.id || "",
+    originalName: venue?.name || "",
+    name: venue?.name || "",
+    keywords: (venue?.keywords || []).join(", "),
+    groups: new Set(venue?.group_names || []),
+  };
+  state.broadcastVenueEditorOpen = true;
+  renderBroadcastTargetFilters();
+  qs("#broadcastVenueName")?.focus();
+}
+
+function closeBroadcastVenueEditor() {
+  state.broadcastVenueEditorOpen = false;
+  state.broadcastVenueDraft = null;
+  renderBroadcastTargetFilters();
+}
+
+async function saveBroadcastVenue() {
+  if (state.broadcastVenueSaving || !state.broadcastVenueDraft) return;
+  const name = qs("#broadcastVenueName")?.value.trim() || "";
+  if (!name) {
+    showNotice("Введите название площадки", "danger");
+    qs("#broadcastVenueName")?.focus();
+    return;
+  }
+  const keywords = (qs("#broadcastVenueKeywords")?.value || "")
+    .split(/[,;\n]+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const body = {
+    max_user_id: Number(apiContext.maxUserId || 1),
+    tenant_slug: apiContext.tenantSlug || undefined,
+    name,
+    keywords,
+    group_names: [...state.broadcastVenueDraft.groups],
+  };
+  state.broadcastVenueSaving = true;
+  renderBroadcastVenueEditor();
+  try {
+    let saved;
+    if (apiContext.demoMode || !apiContext.maxUserId) {
+      saved = {
+        id: state.broadcastVenueDraft.id || `demo-venue-${Date.now()}`,
+        name,
+        keywords,
+        group_names: body.group_names,
+        matched_group_count: body.group_names.length,
+      };
+    } else {
+      const path = state.broadcastVenueDraft.id
+        ? `/api/v1/miniapp/broadcasts/venues/${encodeURIComponent(state.broadcastVenueDraft.id)}`
+        : "/api/v1/miniapp/broadcasts/venues";
+      const response = await apiFetch(path, {
+        method: state.broadcastVenueDraft.id ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) throw new Error(await parseApiError(response));
+      saved = await response.json();
+    }
+    const venues = [...broadcastTargetVenues()];
+    const index = venues.findIndex((venue) => String(venue.id) === String(saved.id));
+    if (index >= 0) venues[index] = saved;
+    else venues.push(saved);
+    state.broadcastTargetOptions = {
+      ...(state.broadcastTargetOptions || { groups: broadcastTargetGroups(), can_manage_venues: true }),
+      venues: venues.sort((left, right) => left.name.localeCompare(right.name, "ru")),
+    };
+    if (state.broadcastSelectedVenues.delete(state.broadcastVenueDraft.originalName)) {
+      state.broadcastSelectedVenues.add(saved.name);
+    }
+    state.broadcastVenueEditorOpen = false;
+    state.broadcastVenueDraft = null;
+    invalidateBroadcastPreview();
+    queueBroadcastDraftSave();
+    showNotice("Площадка сохранена", "ok");
+  } catch (error) {
+    showNotice(error.message || "Не удалось сохранить площадку", "danger");
+  } finally {
+    state.broadcastVenueSaving = false;
+    renderBroadcasts();
+  }
 }
 
 function renderBroadcastPhoto() {
@@ -216,7 +529,10 @@ function broadcastAudienceLabel(item) {
     ? `${item.group_names.length} гр.`
     : "все группы";
   const venues = item.venue_names?.length ? item.venue_names.join(", ") : "все площадки";
-  return `${recipients} · ${venues} · ${groups}`;
+  const modes = item.lesson_modes?.length
+    ? item.lesson_modes.map((mode) => BROADCAST_LESSON_MODE_LABELS[mode] || mode).join(", ")
+    : "все форматы";
+  return `${recipients} · ${modes} · ${venues} · ${groups}`;
 }
 
 function formatBroadcastDate(value) {
@@ -280,7 +596,8 @@ function broadcastDraftPayload() {
     message: qs("#broadcastMessage")?.value || "",
     recipientCategory: qs("#broadcastRecipientCategory")?.value || "all",
     audienceFilter: qs("#broadcastAudienceFilter")?.value || "all",
-    venueFilter: broadcastVenueFilterValue(),
+    venues: selectedBroadcastVenues(),
+    lessonModes: selectedBroadcastLessonModes(),
     balanceThreshold: qs("#broadcastBalanceThreshold")?.value || "300",
     allGroups: state.broadcastAllGroups,
     groups: selectedBroadcastGroups(),
@@ -316,8 +633,16 @@ function restoreBroadcastDraft() {
     qs("#broadcastMessage").value = draft.message || "";
     qs("#broadcastRecipientCategory").value = draft.recipientCategory || "all";
     qs("#broadcastAudienceFilter").value = draft.audienceFilter || "all";
-    renderBroadcastTargetFilters();
-    qs("#broadcastVenueFilter").value = draft.venueFilter || "all";
+    state.broadcastSelectedVenues = new Set(
+      Array.isArray(draft.venues)
+        ? draft.venues
+        : draft.venueFilter && draft.venueFilter !== "all"
+          ? [draft.venueFilter]
+          : [],
+    );
+    state.broadcastSelectedLessonModes = new Set(
+      Array.isArray(draft.lessonModes) ? draft.lessonModes : [],
+    );
     qs("#broadcastBalanceThreshold").value = draft.balanceThreshold || "300";
     state.broadcastAllGroups = draft.allGroups !== false;
     state.broadcastSelectedGroups = new Set(Array.isArray(draft.groups) ? draft.groups : []);
@@ -380,8 +705,8 @@ function duplicateBroadcast(itemId) {
   qs("#broadcastMessage").value = item.message || "";
   qs("#broadcastRecipientCategory").value = item.recipient_category || "all";
   qs("#broadcastAudienceFilter").value = item.audience_filter || "all";
-  renderBroadcastTargetFilters();
-  qs("#broadcastVenueFilter").value = item.venue_names?.[0] || "all";
+  state.broadcastSelectedVenues = new Set(item.venue_names || []);
+  state.broadcastSelectedLessonModes = new Set(item.lesson_modes || []);
   state.broadcastAllGroups = !(item.group_names || []).length;
   state.broadcastSelectedGroups = new Set(item.group_names || []);
   invalidateBroadcastPreview();
@@ -432,6 +757,13 @@ function renderBroadcastAudiencePreview() {
 }
 
 function renderBroadcasts() {
+  if (
+    roleViews(state.role).includes("broadcasts") &&
+    !state.broadcastTargetOptionsLoaded &&
+    !state.broadcastTargetOptionsLoading
+  ) {
+    void loadBroadcastTargetOptions();
+  }
   const form = qs("#broadcastForm");
   if (form) form.dataset.currentStep = String(state.broadcastStep);
   qsa("[data-broadcast-step]").forEach((button) => {
@@ -469,9 +801,19 @@ function demoBroadcastPreview(payload) {
     const groupNames = new Set(payload.group_names);
     matched = matched.filter((student) => groupNames.has(student.group));
   }
+  if (payload.lesson_modes.length) {
+    const modes = new Set(payload.lesson_modes);
+    matched = matched.filter((student) => modes.has(broadcastGroupLessonMode(student.group)));
+  }
   if (payload.venue_names.length) {
-    const venueNames = new Set(payload.venue_names);
-    matched = matched.filter((student) => venueNames.has(student.venue));
+    const venueNames = new Set(payload.venue_names.map(normalizeBroadcastTargetText));
+    const venues = broadcastTargetVenues().filter((venue) =>
+      venueNames.has(normalizeBroadcastTargetText(venue.name)),
+    );
+    const explicitOwners = broadcastExplicitGroupOwners();
+    matched = matched.filter((student) =>
+      venues.some((venue) => broadcastVenueMatchesGroup(student.group, venue, explicitOwners)),
+    );
   }
   if (payload.audience_filter === "low_balance") {
     const threshold = Number(payload.balance_threshold ?? 300);
@@ -494,6 +836,7 @@ function demoBroadcastPreview(payload) {
     unavailable_students: 0,
     selected_groups: payload.group_names,
     selected_venues: payload.venue_names,
+    selected_lesson_modes: payload.lesson_modes,
   };
 }
 
@@ -521,6 +864,17 @@ async function loadBroadcastHistory() {
 }
 
 async function previewBroadcastAudience() {
+  if (state.broadcastTargetOptionsLoading) {
+    showNotice("Подождите, площадки еще загружаются");
+    return null;
+  }
+  if (!state.broadcastTargetOptionsLoaded) {
+    await loadBroadcastTargetOptions();
+  }
+  if (state.broadcastTargetOptionsError) {
+    showNotice(state.broadcastTargetOptionsError, "danger");
+    return null;
+  }
   if (!state.broadcastAllGroups && selectedBroadcastGroups().length === 0) {
     invalidateBroadcastPreview();
     return null;
@@ -630,6 +984,7 @@ async function sendSchoolBroadcast(event) {
         audience_filter: payload.audience_filter,
         group_names: payload.group_names,
         venue_names: payload.venue_names,
+        lesson_modes: payload.lesson_modes,
         balance_threshold: payload.balance_threshold,
         status: "sent",
         recipient_count: preview.recipient_count,
@@ -656,6 +1011,9 @@ async function sendSchoolBroadcast(event) {
       payload.venue_names.forEach((venueName) => {
         formData.append("venue_names", venueName);
       });
+      payload.lesson_modes.forEach((lessonMode) => {
+        formData.append("lesson_modes", lessonMode);
+      });
       if (state.broadcastPhotoFile) {
         formData.set("photo", state.broadcastPhotoFile);
       }
@@ -672,6 +1030,8 @@ async function sendSchoolBroadcast(event) {
     qs("#broadcastForm")?.reset();
     state.broadcastSelectedGroups = new Set();
     state.broadcastAllGroups = true;
+    state.broadcastSelectedVenues = new Set();
+    state.broadcastSelectedLessonModes = new Set();
     state.broadcastPreview = null;
     state.broadcastPreviewSignature = "";
     state.broadcastStep = 1;

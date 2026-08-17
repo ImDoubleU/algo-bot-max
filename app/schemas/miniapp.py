@@ -53,6 +53,7 @@ class MiniAppStudentRead(BaseModel):
     access_status: StudentAccessStatus = StudentAccessStatus.ACTIVE
     staff_visible: bool = False
     display_name: str
+    birth_date: date | None = None
     group_name: str | None = None
     course_name: str | None = None
     venue_name: str | None = None
@@ -81,6 +82,7 @@ class MiniAppAdminStudentRead(BaseModel):
     student_id: UUID
     lms_student_id: str | None = None
     display_name: str
+    birth_date: date | None = None
     group_name: str | None = None
     course_name: str | None = None
     venue_name: str | None = None
@@ -91,6 +93,9 @@ class MiniAppAdminStudentRead(BaseModel):
     updated_at: datetime
     status_updated_at: datetime
     departed_at: datetime | None = None
+    parent_contact_ids: list[str] = Field(default_factory=list)
+    parent_names: list[str] = Field(default_factory=list)
+    parent_max_user_ids: list[int] = Field(default_factory=list)
     history: list[MiniAppStudentHistoryEventRead] = Field(default_factory=list)
 
 
@@ -104,12 +109,26 @@ class MiniAppStudentCreate(BaseModel):
     tenant_slug: str | None = None
     first_name: str = Field(min_length=1, max_length=120)
     last_name: str = Field(min_length=1, max_length=120)
+    birth_date: date | None = None
     lms_student_id: str | None = Field(default=None, max_length=120)
+    crm_deal_id: str | None = Field(default=None, max_length=120)
+    crm_uuid: str | None = Field(default=None, max_length=180)
     group_name: str | None = Field(default=None, max_length=160)
     course_name: str | None = Field(default=None, max_length=160)
     venue_name: str | None = Field(default=None, max_length=160)
     teacher_name: str | None = Field(default=None, max_length=160)
     status: StudentStatus = StudentStatus.ACTIVE
+    parent_contact_id: str | None = Field(default=None, max_length=120)
+    parent_name: str | None = Field(default=None, max_length=160)
+    parent_max_user_id: int | None = Field(default=None, gt=0)
+    parent_max_username: str | None = Field(default=None, max_length=120)
+    initial_balance: int = Field(default=0, ge=0, le=10_000_000)
+
+
+class MiniAppStudentBirthDateUpdate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    birth_date: date | None = None
 
 
 class MiniAppStudentStatusUpdate(BaseModel):

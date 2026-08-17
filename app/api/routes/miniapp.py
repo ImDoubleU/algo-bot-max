@@ -32,6 +32,9 @@ from app.models.tenant import Tenant
 from app.schemas.broadcasts import (
     BroadcastAudiencePreviewRead,
     BroadcastAudienceRequest,
+    BroadcastTargetOptionsRead,
+    BroadcastVenueRuleRead,
+    BroadcastVenueRuleUpsert,
     SchoolBroadcastRead,
 )
 from app.schemas.miniapp import (
@@ -52,6 +55,7 @@ from app.schemas.miniapp import (
     MiniAppInventoryAdjustmentRead,
     MiniAppInventoryTransferCreate,
     MiniAppInventoryTransferRead,
+    MiniAppLedgerRead,
     MiniAppOpsSummaryRead,
     MiniAppOrderActionCreate,
     MiniAppOrderActionRead,
@@ -71,6 +75,7 @@ from app.schemas.miniapp import (
     MiniAppStudentAccessPolicyRead,
     MiniAppStudentAccessPolicyUpdate,
     MiniAppStudentBalanceUpdate,
+    MiniAppStudentBirthDateUpdate,
     MiniAppStudentCreate,
     MiniAppStudentInvitationRead,
     MiniAppStudentRegistryRead,
@@ -84,9 +89,11 @@ from app.schemas.miniapp import (
 )
 from app.services.broadcasts import (
     BroadcastServiceError,
+    get_broadcast_target_options,
     list_school_broadcasts,
     preview_school_broadcast,
     send_school_broadcast,
+    upsert_broadcast_venue_rule,
 )
 from app.services.crm_import import CRM_TEMPLATE_SHEET_NAME
 from app.services.miniapp import (
@@ -110,6 +117,7 @@ from app.services.miniapp import (
     list_miniapp_admin_history,
     list_miniapp_catalog,
     list_miniapp_staff_onboarding_options,
+    list_miniapp_student_ledger,
     list_miniapp_student_registry,
     list_miniapp_teacher_invitations,
     replace_miniapp_cart,
@@ -124,6 +132,7 @@ from app.services.miniapp import (
     update_miniapp_staff_assignment,
     update_miniapp_staff_notification_settings,
     update_miniapp_student_access_policy,
+    update_miniapp_student_birth_date,
     update_miniapp_student_status,
     upsert_miniapp_product,
     upsert_miniapp_warehouse,
@@ -216,6 +225,92 @@ async def miniapp_broadcast_preview(
 
 
 @router.get(
+    "/broadcasts/options",
+    response_model=BroadcastTargetOptionsRead,
+)
+async def miniapp_broadcast_options(
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: str | None = None,
+) -> BroadcastTargetOptionsRead:
+    settings = get_settings()
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        return await get_broadcast_target_options(
+            db,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant or settings.default_tenant_slug,
+        )
+    except BroadcastServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+async def _save_broadcast_venue_rule(
+    *,
+    payload: BroadcastVenueRuleUpsert,
+    db: AsyncSession,
+    identity: MiniAppIdentity | None,
+    venue_id: UUID | None,
+) -> BroadcastVenueRuleRead:
+    settings = get_settings()
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await upsert_broadcast_venue_rule(
+            db,
+            payload=payload.model_copy(update={"tenant_slug": resolved_tenant}),
+            default_tenant_slug=settings.default_tenant_slug,
+            venue_id=venue_id,
+        )
+    except BroadcastServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post(
+    "/broadcasts/venues",
+    response_model=BroadcastVenueRuleRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def miniapp_broadcast_venue_create(
+    payload: BroadcastVenueRuleUpsert,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> BroadcastVenueRuleRead:
+    return await _save_broadcast_venue_rule(
+        payload=payload,
+        db=db,
+        identity=identity,
+        venue_id=None,
+    )
+
+
+@router.put(
+    "/broadcasts/venues/{venue_id}",
+    response_model=BroadcastVenueRuleRead,
+)
+async def miniapp_broadcast_venue_update(
+    venue_id: UUID,
+    payload: BroadcastVenueRuleUpsert,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> BroadcastVenueRuleRead:
+    return await _save_broadcast_venue_rule(
+        payload=payload,
+        db=db,
+        identity=identity,
+        venue_id=venue_id,
+    )
+
+
+@router.get(
     "/broadcasts",
     response_model=list[SchoolBroadcastRead],
 )
@@ -258,6 +353,7 @@ async def miniapp_broadcast_send(
     audience_filter: Annotated[str, Form()] = "all",
     group_names: Annotated[list[str] | None, Form()] = None,
     venue_names: Annotated[list[str] | None, Form()] = None,
+    lesson_modes: Annotated[list[str] | None, Form()] = None,
     balance_threshold: Annotated[int | None, Form(ge=0, le=1_000_000)] = None,
     photo: Annotated[UploadFile | None, File()] = None,
 ) -> SchoolBroadcastRead:
@@ -275,6 +371,7 @@ async def miniapp_broadcast_send(
             audience_filter=audience_filter,
             group_names=group_names or [],
             venue_names=venue_names or [],
+            lesson_modes=lesson_modes or [],
             balance_threshold=balance_threshold,
         )
     except ValidationError as exc:
@@ -340,6 +437,37 @@ async def miniapp_student_registry(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+@router.get(
+    "/students/{student_id}/ledger",
+    response_model=list[MiniAppLedgerRead],
+)
+async def miniapp_student_ledger(
+    student_id: UUID,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+) -> list[MiniAppLedgerRead]:
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    if not resolved_tenant:
+        raise HTTPException(status_code=400, detail="Не выбран город или партнер")
+    try:
+        return await list_miniapp_student_ledger(
+            db,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+            student_id=student_id,
+            limit=limit,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
 @router.post(
     "/students",
     response_model=MiniAppStudentRegistryRead,
@@ -358,6 +486,32 @@ async def miniapp_student_create(
     try:
         return await create_miniapp_student(
             db,
+            payload=payload,
+            default_tenant_slug=get_settings().default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.patch(
+    "/students/{student_id}/birth-date",
+    response_model=MiniAppStudentRegistryRead,
+)
+async def miniapp_student_birth_date_update(
+    student_id: UUID,
+    payload: MiniAppStudentBirthDateUpdate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppStudentRegistryRead:
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await update_miniapp_student_birth_date(
+            db,
+            student_id=student_id,
             payload=payload,
             default_tenant_slug=get_settings().default_tenant_slug,
         )

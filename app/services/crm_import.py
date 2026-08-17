@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,13 @@ CRM_TEMPLATE_COLUMNS: tuple[tuple[str, str, bool, str, str], ...] = (
         True,
         "Имя полностью",
         "Есения",
+    ),
+    (
+        "birth_date",
+        "Дата рождения",
+        False,
+        "Дата рождения ученика в формате ДД.ММ.ГГГГ",
+        "15.04.2015",
     ),
     (
         "group_name",
@@ -109,6 +117,7 @@ class CrmStudentRow:
     status_name: str | None
     contact_ids: str | None
     contact_names: str | None
+    birth_date: date | None = None
 
     @property
     def needs_generated_access_code(self) -> bool:
@@ -137,6 +146,13 @@ HEADER_ALIASES: dict[str, tuple[str, ...]] = {
         "\u0438\u043c\u044f \u0440\u0435\u0431\u0451\u043d\u043a\u0430 \u0438\u0437 lms",
         "\u0438\u043c\u044f \u0440\u0435\u0431\u0435\u043d\u043a\u0430",
         "\u0438\u043c\u044f \u0440\u0435\u0431\u0451\u043d\u043a\u0430",
+    ),
+    "birth_date": (
+        "дата рождения",
+        "день рождения",
+        "дата рождения ребенка",
+        "дата рождения ребёнка",
+        "birth date",
     ),
     "last_name": (
         "\u0444\u0430\u043c\u0438\u043b\u0438\u044f \u0440\u0435\u0431\u0435\u043d\u043a\u0430 \u0438\u0437 lms",  # noqa: E501
@@ -195,6 +211,31 @@ def normalize_text(value: Any) -> str | None:
 def normalize_header(value: Any) -> str:
     text = normalize_text(value) or ""
     return text.lower().replace("\u0451", "\u0435")
+
+
+def parse_birth_date(value: Any) -> date | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        parsed = value.date()
+    elif isinstance(value, date):
+        parsed = value
+    else:
+        text = normalize_text(value)
+        if not text:
+            return None
+        parsed = None
+        for date_format in ("%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S"):
+            try:
+                parsed = datetime.strptime(text, date_format).date()
+                break
+            except ValueError:
+                continue
+        if parsed is None:
+            raise ValueError("use DD.MM.YYYY")
+    if parsed > date.today():
+        raise ValueError("birth date is in the future")
+    return parsed
 
 
 def find_header_mapping(
@@ -293,7 +334,7 @@ def build_crm_import_template() -> bytes:
         column=len(CRM_TEMPLATE_COLUMNS),
     ).column_letter
     template.auto_filter.ref = f"A1:{last_column}1"
-    template_widths = (18, 22, 24, 22, 38, 22, 28, 34, 20, 34)
+    template_widths = (18, 22, 24, 22, 18, 38, 22, 28, 34, 20, 34)
     for column_index, width in enumerate(template_widths, start=1):
         template.column_dimensions[
             template.cell(row=1, column=column_index).column_letter
@@ -401,10 +442,11 @@ def parse_crm_workbook(
                         )
             continue
 
-        row = {
-            field: normalize_text(values[index])
+        raw_row = {
+            field: values[index]
             for index, field in header_mapping.items()
         }
+        row = {field: normalize_text(value) for field, value in raw_row.items()}
         first_name = row.get("first_name")
         last_name = row.get("last_name")
         group_name = row.get("group_name")
@@ -413,6 +455,13 @@ def parse_crm_workbook(
 
         if not any([first_name, last_name, group_name, deal_id, contact_ids]):
             continue
+
+        try:
+            birth_date = parse_birth_date(raw_row.get("birth_date"))
+        except ValueError as exc:
+            raise CrmImportError(
+                f"Строка {row_number}: дата рождения должна быть в формате ДД.ММ.ГГГГ"
+            ) from exc
 
         if template_format:
             missing_fields = [
@@ -456,6 +505,7 @@ def parse_crm_workbook(
                 status_name=row.get("status_name"),
                 contact_ids=contact_ids,
                 contact_names=row.get("contact_names"),
+                birth_date=birth_date,
             )
         )
 
