@@ -142,6 +142,7 @@ from app.services.max_notifications import (
     schedule_order_notification,
     schedule_staff_notification,
     schedule_staff_order_notification,
+    schedule_teacher_order_transfer_notification,
 )
 from app.services.order_sheets import order_item_mapping, upsert_order_sheet_row
 from app.services.product_import import (
@@ -3922,8 +3923,19 @@ async def cancel_miniapp_order(
         default_tenant_slug=default_tenant_slug,
         require_manager=False,
     )
-    if order.status not in {OrderStatus.RESERVED, OrderStatus.TRANSFERRED_TO_TEACHER}:
-        raise MiniAppStoreError("Отменить можно только зарезервированный заказ", status_code=409)
+    if staff_role is None:
+        if order.status != OrderStatus.RESERVED:
+            raise MiniAppStoreError(
+                "Ученик или родитель может отменить только зарезервированный заказ",
+                status_code=409,
+            )
+        if any(item.warehouse_id is not None for item in order.items):
+            raise MiniAppStoreError(
+                "Склад уже подтвержден. Для отмены обратитесь к сотруднику школы",
+                status_code=409,
+            )
+    elif order.status not in {OrderStatus.RESERVED, OrderStatus.TRANSFERRED_TO_TEACHER}:
+        raise MiniAppStoreError("Отменить можно только заказ в работе", status_code=409)
 
     out_of_stock_product_ids: set[UUID] = set()
     if reason.casefold() == "товар закончился":
@@ -4281,6 +4293,12 @@ async def transfer_miniapp_order_to_teacher(
         title="Заказ передан преподавателю",
         actor_name=account.display_name,
         extra_facts=[("Преподаватель", order.teacher_name or "Не указан")],
+    )
+    await schedule_teacher_order_transfer_notification(
+        db,
+        tenant=tenant,
+        order=order,
+        student=student,
     )
     return MiniAppOrderActionRead(
         order=_order_to_read(order, student, status_history=status_history),

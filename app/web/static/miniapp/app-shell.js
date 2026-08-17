@@ -858,7 +858,7 @@ function renderStatus() {
   const statusStrip = qs(".status-strip");
   const studentContext = qs("#studentContext");
   if (studentContext) {
-    studentContext.hidden = linkedCount === 0 || isStaff;
+    studentContext.hidden = true;
   }
   if (statusStrip) statusStrip.classList.toggle("has-no-students", linkedCount === 0);
   if (statusStrip) statusStrip.classList.toggle("is-staff-profile", isStaff);
@@ -1007,7 +1007,7 @@ function renderStatus() {
   qs("#dashboardOrdersTitle").textContent = {
     student: "Мои заказы",
     parent: "Заказы детей",
-    teacher: "Заказы к выдаче",
+    teacher: primaryRole === "teacher" ? "Передано вам к выдаче" : "Заказы к выдаче",
     admin: "Заказы к выдаче",
   }[state.role] || "Заказы";
   qs("#studentPanelTitle").textContent = {

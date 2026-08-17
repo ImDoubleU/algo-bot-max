@@ -638,6 +638,64 @@ async def test_cancel_order_releases_stock_and_refunds_wallet(db_session) -> Non
     ]
 
 
+async def test_parent_cannot_cancel_after_warehouse_is_confirmed(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, _inventory = await seed_product(db_session, student)
+    created = await create_miniapp_order(
+        db_session,
+        payload=MiniAppOrderCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            student_id=student.id,
+            items=[MiniAppOrderItemCreate(product_id=product.id, quantity=1)],
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    admin = MaxAccount(max_user_id=90000001, display_name="Администратор")
+    db_session.add(admin)
+    await db_session.flush()
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=admin.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+    inventory = await db_session.scalar(
+        select(WarehouseInventory).where(WarehouseInventory.product_id == product.id)
+    )
+    assert inventory is not None
+    await assign_miniapp_order_warehouses(
+        db_session,
+        order_id=created.order.id,
+        payload=MiniAppOrderWarehouseAssignmentCreate(
+            max_user_id=admin.max_user_id,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            items=[
+                MiniAppOrderWarehouseAssignmentItem(
+                    product_id=product.id,
+                    warehouse_id=inventory.warehouse_id,
+                )
+            ],
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    with pytest.raises(MiniAppStoreError, match="Склад уже подтвержден"):
+        await cancel_miniapp_order(
+            db_session,
+            order_id=created.order.id,
+            payload=MiniAppOrderCancelCreate(
+                max_user_id=53364725,
+                tenant_slug="nizhniy-novgorod-partner-a",
+                reason="Передумали",
+            ),
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
+
+
 async def test_staff_can_issue_reserved_order(db_session) -> None:
     student = await seed_linked_student(db_session)
     product, inventory = await seed_product(db_session, student)

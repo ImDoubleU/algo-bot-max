@@ -14,14 +14,17 @@ from app.bot.keyboards import (
 )
 from app.bot.max_client import MaxApiClient
 from app.core.config import get_settings, is_placeholder
-from app.models.account import MaxAccount
+from app.models.account import MaxAccount, StaffRoleAssignment
 from app.models.enums import (
+    AssignmentStatus,
     OrderStatus,
+    StaffRole,
     StudentAccessStatus,
 )
 from app.models.store import Order, Product, WarehouseInventory
 from app.models.student import Student, StudentAccessLink
 from app.models.tenant import Tenant
+from app.services.staff import staff_names_match
 from app.services.staff_notifications import staff_notification_user_ids
 
 logger = logging.getLogger(__name__)
@@ -295,6 +298,80 @@ async def schedule_staff_order_notification(
         title=title,
         message=message,
         facts=facts,
+        view="orders",
+        button_label="Открыть заказы",
+    )
+
+
+async def schedule_teacher_order_transfer_notification(
+    db: AsyncSession,
+    *,
+    tenant: Tenant,
+    order: Order,
+    student: Student,
+) -> None:
+    settings = get_settings()
+    teacher_name = (order.teacher_name or student.teacher_name or "").strip()
+    if (
+        not teacher_name
+        or not settings.max_order_notifications_enabled
+        or is_placeholder(settings.max_bot_token)
+    ):
+        return
+
+    teacher_accounts = (
+        await db.scalars(
+            select(MaxAccount)
+            .join(StaffRoleAssignment, StaffRoleAssignment.account_id == MaxAccount.id)
+            .where(
+                StaffRoleAssignment.tenant_id == tenant.id,
+                StaffRoleAssignment.role == StaffRole.TEACHER,
+                StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+            )
+        )
+    ).unique().all()
+    user_ids = {
+        account.max_user_id
+        for account in teacher_accounts
+        if staff_names_match(account.display_name, teacher_name)
+    }
+    if not user_ids:
+        return
+
+    product_totals: dict[str, int] = {}
+    warehouse_totals: dict[str, dict[str, int]] = {}
+    for item in order.items:
+        product_name = item.product.name if item.product else "Товар"
+        warehouse_name = item.warehouse.name if item.warehouse else "Склад не указан"
+        product_totals[product_name] = product_totals.get(product_name, 0) + item.quantity
+        warehouse_products = warehouse_totals.setdefault(warehouse_name, {})
+        warehouse_products[product_name] = warehouse_products.get(product_name, 0) + item.quantity
+
+    products_text = "; ".join(
+        f"{name} — {quantity} шт." for name, quantity in sorted(product_totals.items())
+    )
+    pickup_text = "; ".join(
+        f"{warehouse}: "
+        + ", ".join(
+            f"{name} — {quantity} шт."
+            for name, quantity in sorted(products.items())
+        )
+        for warehouse, products in sorted(warehouse_totals.items())
+    )
+    facts = [
+        ("Ученик", student.display_name),
+        ("Площадка", order.venue_name or student.venue_name or "Не указана"),
+        ("Состав", products_text or "Нет позиций"),
+        ("Забрать", pickup_text or "Склад не указан"),
+    ]
+    _schedule_direct_notification(
+        user_ids=user_ids,
+        tenant_slug=tenant.slug,
+        text=_notification_text(
+            f"Вам передан заказ №{order.order_number}",
+            message="Проверьте комплект и выдайте его ученику.",
+            facts=facts,
+        ),
         view="orders",
         button_label="Открыть заказы",
     )

@@ -32,7 +32,10 @@ function renderStudents() {
                         : `<div class="student-meta">${escapeHtml(student.teacher)}</div>`
                     }
                   </div>
-                  <span class="soft-badge">${student.balance} AC</span>
+                  <span class="student-balance-badge">
+                    <small>Остаток на счете</small>
+                    <strong>${student.balance} AC</strong>
+                  </span>
                 </div>
               `;
             })
@@ -118,8 +121,6 @@ function renderParentInvitations() {
               <span>Покажите QR-код ребенку или сохраните его как изображение.</span>
               <div class="parent-invite-actions">
                 <button class="secondary-action parent-invite-save" type="button" data-save-student-qr="${escapeHtml(student.id)}"><i data-lucide="download"></i> Сохранить картинку</button>
-                <button class="icon-button" type="button" data-share-student-invite="${escapeHtml(student.id)}" title="Поделиться" aria-label="Поделиться"><i data-lucide="share-2"></i></button>
-                <button class="icon-button" type="button" data-print-student-invite="${escapeHtml(student.id)}" title="Печать" aria-label="Печать"><i data-lucide="printer"></i></button>
               </div>
             </div>
           </div>
@@ -247,52 +248,16 @@ async function saveStudentQrImage(studentId, button = null) {
   }
 }
 
-async function shareStudentInvitation(studentId) {
-  const student = students.find((item) => item.id === studentId);
-  const invitation = studentInvitationData(studentId);
-  if (!student || !invitation) return;
-  const shareData = {
-    title: `Вход в Algo MAX: ${student.name}`,
-    text: `Персональная ссылка для входа ребенка ${student.name}`,
-    url: invitation.bot_url || window.location.href,
-  };
-  try {
-    if (navigator.share && invitation.bot_url) await navigator.share(shareData);
-    else {
-      const copied = await copyTextToClipboard(invitation.bot_url || invitation.qr_data_url);
-      showNotice(copied ? "Ссылка скопирована" : "Не удалось скопировать ссылку", copied ? "ok" : "danger");
-    }
-  } catch (error) {
-    if (error?.name !== "AbortError") showNotice("Не удалось поделиться ссылкой", "danger");
-  }
-}
-
-function printStudentInvitation(studentId) {
-  const student = students.find((item) => item.id === studentId);
-  const invitation = studentInvitationData(studentId);
-  if (!student || !invitation) return;
-  const printWindow = window.open("", "_blank", "width=520,height=680");
-  if (!printWindow) return showNotice("Разрешите всплывающие окна для печати", "danger");
-  const heading = printWindow.document.createElement("h1");
-  const group = printWindow.document.createElement("p");
-  const image = printWindow.document.createElement("img");
-  heading.textContent = student.name;
-  group.textContent = student.group;
-  image.src = invitation.qr_data_url;
-  image.alt = `QR-код: ${student.name}`;
-  image.style.width = "360px";
-  image.style.maxWidth = "100%";
-  printWindow.document.title = `QR-код ${student.name}`;
-  printWindow.document.body.style.cssText = "font-family:Arial,sans-serif;text-align:center;padding:32px;color:#171326";
-  printWindow.document.body.append(heading, group, image);
-  image.addEventListener("load", () => printWindow.print(), { once: true });
-}
-
 function renderDashboardOrders() {
   const list = qs("#dashboardOrders");
   if (!list) return;
 
-  const visible = ordersForCurrentRole().slice(0, 4);
+  const teacherView = primaryStaffRole() === "teacher";
+  const roleOrders = ordersForCurrentRole();
+  const visible = (teacherView
+    ? roleOrders.filter((order) => order.rawStatus === "transferred_to_teacher")
+    : roleOrders
+  ).slice(0, 4);
   if (visible.length === 0) {
     list.innerHTML = '<div class="empty-state compact-empty">Заказов пока нет</div>';
     return;
@@ -310,6 +275,7 @@ function renderDashboardOrders() {
           <div>
             <strong>${escapeHtml(order.student)}</strong>
             <div class="student-meta">${escapeHtml(order.item)}</div>
+            ${teacherView && order.warehouse ? `<div class="compact-order-warehouse"><i data-lucide="warehouse"></i> Забрать: ${escapeHtml(order.warehouse)}</div>` : ""}
           </div>
           <span class="status-badge ${order.tone}">${escapeHtml(order.status)}</span>
         </button>
@@ -431,7 +397,7 @@ function renderProducts() {
             : "В наличии";
       const fulfillmentLabel =
         product.fulfillmentType === "digital_code"
-          ? '<span class="product-auto-issue"><i data-lucide="zap"></i> Код сразу после покупки</span>'
+          ? '<span class="product-auto-issue"><i data-lucide="zap"></i> Цифровой товар</span>'
           : "";
       return `
         <article class="product-card" data-product-card="${escapeHtml(product.id)}" tabindex="0" role="button" aria-label="Открыть ${escapeHtml(product.name)}">
@@ -943,7 +909,10 @@ function canTransferOrder(order) {
 }
 
 function canCancelOrder(order) {
-  return ["reserved", "transferred_to_teacher"].includes(order.rawStatus);
+  if (["teacher", "admin"].includes(state.role)) {
+    return ["reserved", "transferred_to_teacher"].includes(order.rawStatus);
+  }
+  return order.rawStatus === "reserved" && !orderHasAssignedWarehouses(order);
 }
 
 function canReturnOrder(order) {
@@ -1083,13 +1052,13 @@ function orderAgeLabel(value) {
 function renderOrderStatusTabs() {
   const container = qs("#orderStatusTabs");
   if (!container) return;
+  if (state.orderStatusFilter === "action") state.orderStatusFilter = "all";
   const roleOrders = ordersForCurrentRole();
   const tabs = [
-    ["action", "К действию"],
+    ["all", "Все"],
     ["work", "В работе"],
     ["issued", "Выполненные"],
     ["cancelled", "Отменены"],
-    ["all", "Все"],
   ];
   container.innerHTML = tabs
     .map(([value, label]) => {
@@ -1103,7 +1072,173 @@ function renderOrderStatusTabs() {
     .join("");
 }
 
+function orderStudentContext(order) {
+  return students.find((student) => student.id === order.studentId) || null;
+}
+
+function orderVenueName(order) {
+  const student = orderStudentContext(order);
+  return order.venueName || student?.venue || "Площадка не указана";
+}
+
+function orderTeacherName(order) {
+  const student = orderStudentContext(order);
+  return order.teacherName || student?.teacher || "Преподаватель не указан";
+}
+
+function orderPreferredWarehouseId(item) {
+  const product = productById(item.productId || "");
+  if (!product) return item.suggestedWarehouseId || "";
+  const options = productWarehouses(product).filter(
+    (warehouse) =>
+      warehouse.id === item.suggestedWarehouseId ||
+      warehouse.id === item.warehouseId ||
+      warehouse.available >= Number(item.quantity || 0),
+  );
+  if (options.some((warehouse) => warehouse.id === state.defaultWarehouseId)) {
+    return state.defaultWarehouseId;
+  }
+  return item.suggestedWarehouseId || "";
+}
+
+function summaryWarehouseLabel(item) {
+  if (item.warehouseName) return item.warehouseName;
+  if (item.suggestedWarehouseName) return `${item.suggestedWarehouseName} · в резерве`;
+  return "Склад не назначен";
+}
+
+function orderFulfillmentSummaryOrders() {
+  const staffRole = primaryStaffRole();
+  const physicalOrders = ordersForCurrentRole().filter(
+    (order) => !orderIsDigital(order) && Array.isArray(order.items) && order.items.length > 0,
+  );
+  if (["superadmin", "partner_director", "admin"].includes(staffRole)) {
+    return physicalOrders.filter((order) =>
+      ["created", "reserved", "transferred_to_teacher", "problem"].includes(order.rawStatus),
+    );
+  }
+  if (staffRole === "teacher") {
+    return physicalOrders.filter((order) => order.rawStatus === "transferred_to_teacher");
+  }
+  return [];
+}
+
+function renderOrderFulfillmentSummary() {
+  const container = qs("#orderFulfillmentSummary");
+  if (!container) return;
+  const staffRole = primaryStaffRole();
+  const isManager = ["superadmin", "partner_director", "admin"].includes(staffRole);
+  const isTeacher = staffRole === "teacher";
+  const summaryOrders = orderFulfillmentSummaryOrders();
+  const visible = (isManager || isTeacher) && summaryOrders.length > 0;
+  container.hidden = !visible;
+  if (!visible) {
+    container.innerHTML = "";
+    return;
+  }
+
+  const venues = new Map();
+  summaryOrders.forEach((order) => {
+    const venueName = orderVenueName(order);
+    const teacherName = orderTeacherName(order);
+    if (!venues.has(venueName)) venues.set(venueName, new Map());
+    const teachers = venues.get(venueName);
+    if (!teachers.has(teacherName)) teachers.set(teacherName, []);
+    teachers.get(teacherName).push(order);
+  });
+
+  const venueMarkup = [...venues.entries()]
+    .sort(([left], [right]) => left.localeCompare(right, "ru"))
+    .map(([venueName, teachers]) => {
+      const venueOrderCount = [...teachers.values()].reduce((sum, rows) => sum + rows.length, 0);
+      const teacherMarkup = [...teachers.entries()]
+        .sort(([left], [right]) => left.localeCompare(right, "ru"))
+        .map(([teacherName, teacherOrders]) => {
+          const productsByWarehouse = new Map();
+          teacherOrders.forEach((order) => {
+            (order.items || []).forEach((item) => {
+              if (item.fulfillmentType === "digital_code") return;
+              const warehouse = summaryWarehouseLabel(item);
+              const key = `${item.productId || item.productName}|${warehouse}`;
+              if (!productsByWarehouse.has(key)) {
+                productsByWarehouse.set(key, {
+                  name: item.productName || "Товар",
+                  quantity: 0,
+                  warehouse,
+                });
+              }
+              productsByWarehouse.get(key).quantity += Number(item.quantity || 0);
+            });
+          });
+          const assignableOrders = isManager
+            ? teacherOrders.filter(
+                (order) =>
+                  canAssignOrderWarehouses(order) &&
+                  (order.items || []).every((item) => Boolean(orderPreferredWarehouseId(item))),
+              )
+            : [];
+          const orderButtons = teacherOrders
+            .map((order) => {
+              const needsWarehouse = canAssignOrderWarehouses(order);
+              const label = isTeacher
+                ? `№${order.id} · ${order.student}`
+                : `№${order.id} · ${needsWarehouse ? "назначить склад" : order.student}`;
+              return `<button class="fulfillment-order-link" type="button" data-open-order="${escapeHtml(order.backendId || order.id)}">${escapeHtml(label)}</button>`;
+            })
+            .join("");
+          return `
+            <article class="fulfillment-teacher-group">
+              <div class="fulfillment-teacher-head">
+                <div><i data-lucide="user-round"></i><strong>${escapeHtml(teacherName)}</strong></div>
+                <span>Заказов: ${teacherOrders.length}</span>
+              </div>
+              <div class="fulfillment-product-list">
+                ${[...productsByWarehouse.values()]
+                  .sort((left, right) => left.name.localeCompare(right.name, "ru"))
+                  .map(
+                    (item) => `
+                      <div class="fulfillment-product-row">
+                        <strong>${escapeHtml(item.name)}</strong>
+                        <b>${item.quantity} шт.</b>
+                        <span><i data-lucide="warehouse"></i>${escapeHtml(item.warehouse)}</span>
+                      </div>`,
+                  )
+                  .join("")}
+              </div>
+              <div class="fulfillment-group-actions">
+                <div class="fulfillment-order-links">${orderButtons}</div>
+                ${assignableOrders.length
+                  ? `<button class="secondary-action" type="button" data-confirm-summary-warehouses="${escapeHtml(assignableOrders.map((order) => order.backendId || order.id).join(","))}"><i data-lucide="warehouse"></i>Подтвердить склады (${assignableOrders.length})</button>`
+                  : ""}
+              </div>
+            </article>`;
+        })
+        .join("");
+      return `
+        <details class="fulfillment-venue" open>
+          <summary>
+            <span><i data-lucide="map-pin"></i><strong>${escapeHtml(venueName)}</strong></span>
+            <b>Заказов: ${venueOrderCount}</b>
+          </summary>
+          <div class="fulfillment-teachers">${teacherMarkup}</div>
+        </details>`;
+    })
+    .join("");
+
+  container.innerHTML = `
+    <div class="fulfillment-summary-head">
+      <div>
+        <span>${isTeacher ? "К выдаче" : "Комплектация"}</span>
+        <h3>${isTeacher ? "Передано вам" : "Заказы по площадкам"}</h3>
+        <p>${isTeacher ? "Проверьте товары и склады перед выдачей ученикам." : "Сначала площадка, затем преподаватель, товары и склады."}</p>
+      </div>
+      <strong>${summaryOrders.length}</strong>
+    </div>
+    <div class="fulfillment-venue-list">${venueMarkup}</div>`;
+}
+
 function renderOrders() {
+  if (state.orderStatusFilter === "action") state.orderStatusFilter = "all";
   const searchInput = qs("#orderSearch");
   const statusFilter = qs("#orderStatusFilter");
   if (searchInput) searchInput.value = state.orderSearch;
@@ -1111,6 +1246,7 @@ function renderOrders() {
   const clearSearchButton = qs("#clearOrderSearch");
   if (clearSearchButton) clearSearchButton.hidden = !state.orderSearch;
   renderOrderStatusTabs();
+  renderOrderFulfillmentSummary();
 
   if (ordersForCurrentRole().length === 0) {
     qs("#ordersTable").innerHTML = '<div class="empty-state">Заказов пока нет</div>';

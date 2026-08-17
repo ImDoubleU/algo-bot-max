@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.70.1" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.70.4" />
   </head>
   <body class="is-booting">
     <main id="accessGate" class="access-gate" hidden>
@@ -88,12 +88,12 @@
                 <span id="statusTenantTitle" class="status-tenant" hidden></span>
               </div>
             </div>
-            <div id="studentContext" class="status-context">
+            <div id="studentContext" class="status-context" hidden>
               <p id="studentContextLabel" class="label">Ученик для заказа</p>
               <select id="studentSelect" aria-label="Ученик для заказа"></select>
             </div>
             <div class="status-balance">
-              <span class="status-balance-label">Баланс</span>
+              <span class="status-balance-label">Остаток на счете</span>
               <div class="status-balance-value">
                 <button id="openWalletButton" class="balance-link" type="button" title="Открыть историю астрокоинов">
                   <strong><span id="balanceValue">1240</span> <small>AC</small></strong>
@@ -320,14 +320,14 @@
                   <button id="clearOrderSearch" class="search-clear" type="button" title="Очистить поиск" aria-label="Очистить поиск" hidden><i data-lucide="x"></i></button>
                 </label>
                 <select id="orderStatusFilter" aria-label="Статус заказа">
-                  <option value="action">К действию</option>
+                  <option value="all">Все заказы</option>
                   <option value="work">В работе</option>
                   <option value="issued">Выполненные</option>
                   <option value="cancelled">Отменены</option>
-                  <option value="all">Все</option>
                 </select>
               </div>
             </div>
+            <section id="orderFulfillmentSummary" class="order-fulfillment-summary" hidden></section>
             <div id="orderStatusTabs" class="order-status-tabs" role="tablist" aria-label="Статусы заказов"></div>
             <div id="ordersTable" class="orders-list">
               <div class="initial-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
@@ -1004,11 +1004,11 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app-core.js?v=0.70.1"></script>
-    <script src="/miniapp/static/app-shell.js?v=0.70.1"></script>
-    <script src="/miniapp/static/app-store.js?v=0.70.1"></script>
-    <script src="/miniapp/static/app-admin.js?v=0.70.1"></script>
-    <script src="/miniapp/static/app-communications.js?v=0.70.1"></script>
-    <script src="/miniapp/static/app.js?v=0.70.1"></script>
+    <script src="/miniapp/static/app-core.js?v=0.70.4"></script>
+    <script src="/miniapp/static/app-shell.js?v=0.70.4"></script>
+    <script src="/miniapp/static/app-store.js?v=0.70.4"></script>
+    <script src="/miniapp/static/app-admin.js?v=0.70.4"></script>
+    <script src="/miniapp/static/app-communications.js?v=0.70.4"></script>
+    <script src="/miniapp/static/app.js?v=0.70.4"></script>
   </body>
 </html>
