@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -31,6 +31,7 @@ class Student(TimestampMixin, Base):
     student_access_code: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
     first_name: Mapped[str] = mapped_column(String(120), nullable=False)
     last_name: Mapped[str | None] = mapped_column(String(120))
+    birth_date: Mapped[date | None] = mapped_column(Date)
     group_name: Mapped[str | None] = mapped_column(String(160))
     course_name: Mapped[str | None] = mapped_column(String(160))
     venue_name: Mapped[str | None] = mapped_column(String(160))

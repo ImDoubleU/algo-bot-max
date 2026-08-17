@@ -1,3 +1,4 @@
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 
@@ -110,6 +111,7 @@ def test_standard_template_ignores_other_sheets_and_columns() -> None:
         "deal_id": "1357",
         "last_name": "\u0412\u0430\u0441\u0438\u043b\u044c\u0435\u0432\u0430",
         "first_name": "\u0410\u043b\u0438\u0441\u0430",
+        "birth_date": "15.04.2015",
         "group_name": "Python, \u0432\u0442 17:30",
         "course_name": "Python Start",
         "venue_name": "\u0413\u0430\u0433\u0430\u0440\u0438\u043d\u0430 64",
@@ -131,6 +133,7 @@ def test_standard_template_ignores_other_sheets_and_columns() -> None:
     assert rows[0].lms_student_id == "ST-001"
     assert rows[0].first_name == "\u0410\u043b\u0438\u0441\u0430"
     assert rows[0].deal_id == "1357"
+    assert rows[0].birth_date == date(2015, 4, 15)
 
 
 def test_standard_template_rejects_duplicate_student_ids() -> None:

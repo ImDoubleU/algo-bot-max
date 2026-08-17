@@ -1777,6 +1777,32 @@ document.addEventListener("click", (event) => {
   const duplicateBroadcastId = target.dataset.duplicateBroadcast || target.dataset.retryBroadcast;
   if (duplicateBroadcastId) duplicateBroadcast(duplicateBroadcastId);
 
+  if ("reloadBroadcastTargets" in target.dataset) {
+    void loadBroadcastTargetOptions(true);
+  }
+  if (target.id === "addBroadcastVenueButton") openBroadcastVenueEditor();
+  const broadcastVenueId = target.dataset.editBroadcastVenue;
+  if (broadcastVenueId) openBroadcastVenueEditor(broadcastVenueId);
+  if (
+    target.id === "closeBroadcastVenueEditor" ||
+    target.id === "cancelBroadcastVenueButton"
+  ) {
+    closeBroadcastVenueEditor();
+  }
+  if (target.id === "saveBroadcastVenueButton") void saveBroadcastVenue();
+  if (target.dataset.broadcastModes === "all") {
+    state.broadcastSelectedLessonModes.clear();
+    invalidateBroadcastPreview();
+    queueBroadcastDraftSave();
+    renderBroadcasts();
+  }
+  if (target.dataset.broadcastVenues === "all") {
+    state.broadcastSelectedVenues.clear();
+    invalidateBroadcastPreview();
+    queueBroadcastDraftSave();
+    renderBroadcasts();
+  }
+
   const broadcastGroupAction = target.dataset.broadcastGroups;
   if (broadcastGroupAction === "all") {
     state.broadcastAllGroups = true;
@@ -1872,7 +1898,6 @@ document.addEventListener("click", (event) => {
     state.adminTab = adminTab;
     state.adminEntitySearch = "";
     renderAdminPanel();
-    if (adminTab === "students") void loadAdminStudents();
     if (adminTab === "history") void loadAdminHistory();
   }
 
@@ -1892,11 +1917,16 @@ document.addEventListener("click", (event) => {
   const studentRegistryStatusFilter = target.dataset.studentRegistryStatus;
   if (["all", "active", "departed", "archived"].includes(studentRegistryStatusFilter)) {
     state.studentRegistryStatusFilter = studentRegistryStatusFilter;
-    renderAdminPanel();
+    renderStudentRegistry();
   }
 
   if ("retryStudentRegistry" in target.dataset) {
     void loadAdminStudents(true);
+  }
+
+  const studentLedgerId = target.dataset.retryStudentLedger;
+  if (studentLedgerId) {
+    void loadStudentLedger(studentLedgerId, true);
   }
 
   if ("toggleStudentCreate" in target.dataset) {
@@ -1919,10 +1949,10 @@ document.addEventListener("click", (event) => {
   }
 
   if ("resetStudentRegistry" in target.dataset) {
-    state.adminEntitySearch = "";
+    state.studentRegistrySearch = "";
     state.studentRegistryStatusFilter = "all";
     state.studentRegistryGroupFilter = "all";
-    renderAdminPanel();
+    renderStudentRegistry();
   }
 
   const orderStatus = target.dataset.orderStatus;
@@ -2157,14 +2187,16 @@ document.addEventListener("click", (event) => {
 
   if ("clearAdminSearch" in target.dataset) {
     state.adminEntitySearch = "";
-    state.studentRegistryStatusFilter = "all";
-    state.studentRegistryGroupFilter = "all";
     state.productStatusFilter = "all";
     state.productCategoryFilter = "all";
     state.accessStatusFilter = "all";
     state.accessRoleFilter = "all";
     state.staffRoleFilter = "all";
     renderAdminPanel();
+  }
+  if ("clearStudentRegistrySearch" in target.dataset) {
+    state.studentRegistrySearch = "";
+    renderStudentRegistry();
   }
   const productStatusId = target.dataset.toggleProductStatus;
   if (productStatusId) toggleProductStatus(productStatusId);
@@ -2368,7 +2400,7 @@ document.addEventListener("change", (event) => {
   }
   if (target.id === "studentRegistryGroupFilter") {
     state.studentRegistryGroupFilter = target.value;
-    renderAdminPanel();
+    renderStudentRegistry();
   }
   if (target.id === "teacherQrGroupFilter") {
     state.teacherInvitationGroup = target.value;
@@ -2399,12 +2431,39 @@ document.addEventListener("change", (event) => {
 
   if (
     target.id === "broadcastRecipientCategory" ||
-    target.id === "broadcastAudienceFilter" ||
-    target.id === "broadcastVenueFilter"
+    target.id === "broadcastAudienceFilter"
   ) {
     invalidateBroadcastPreview();
     queueBroadcastDraftSave();
     renderBroadcasts();
+  }
+
+  if ("broadcastLessonMode" in target.dataset) {
+    if (target.checked) state.broadcastSelectedLessonModes.add(target.value);
+    else state.broadcastSelectedLessonModes.delete(target.value);
+    setBroadcastFilterChipState(target.closest(".broadcast-filter-chip"), target.checked);
+    invalidateBroadcastPreview();
+    queueBroadcastDraftSave();
+    renderBroadcasts();
+  }
+
+  if ("broadcastVenue" in target.dataset) {
+    if (target.checked) state.broadcastSelectedVenues.add(target.value);
+    else state.broadcastSelectedVenues.delete(target.value);
+    setBroadcastFilterChipState(target.closest(".broadcast-filter-chip"), target.checked);
+    invalidateBroadcastPreview();
+    queueBroadcastDraftSave();
+    renderBroadcasts();
+  }
+
+  const broadcastVenueGroup = target.dataset.broadcastVenueGroup;
+  if (broadcastVenueGroup && state.broadcastVenueDraft) {
+    if (target.checked) state.broadcastVenueDraft.groups.add(broadcastVenueGroup);
+    else state.broadcastVenueDraft.groups.delete(broadcastVenueGroup);
+    target
+      .closest(".broadcast-venue-group-option")
+      ?.classList.toggle("is-selected", target.checked);
+    renderBroadcastVenueSelectionSummary();
   }
 
   const broadcastGroupName = target.dataset.broadcastGroup;
@@ -2466,6 +2525,16 @@ document.addEventListener("input", (event) => {
     renderBroadcastLivePreview();
   }
 
+  if (target.id === "broadcastVenueName" && state.broadcastVenueDraft) {
+    state.broadcastVenueDraft.name = target.value;
+  }
+  if (target.id === "broadcastVenueKeywords" && state.broadcastVenueDraft) {
+    state.broadcastVenueDraft.keywords = target.value;
+  }
+  if (target.id === "broadcastVenueGroupSearch") {
+    renderBroadcastVenueEditorGroups();
+  }
+
   if (target.id === "tenantSearch") {
     state.tenantSearch = target.value;
     renderTenantDialog();
@@ -2487,6 +2556,18 @@ document.addEventListener("input", (event) => {
     adminSearchTimer = window.setTimeout(() => {
       renderAdminPanel();
       const input = qs("#adminEntitySearch");
+      input?.focus();
+      input?.setSelectionRange(cursor, cursor);
+    }, 120);
+  }
+
+  if (target.id === "studentRegistrySearch") {
+    state.studentRegistrySearch = target.value;
+    const cursor = target.selectionStart ?? target.value.length;
+    window.clearTimeout(adminSearchTimer);
+    adminSearchTimer = window.setTimeout(() => {
+      renderStudentRegistry();
+      const input = qs("#studentRegistrySearch");
       input?.focus();
       input?.setSelectionRange(cursor, cursor);
     }, 120);
@@ -2545,12 +2626,23 @@ document.addEventListener("submit", (event) => {
     void saveStudentAccessPolicy(event);
   } else if (event.target?.id === "studentCreateForm") {
     void createAdminStudent(event);
+  } else if (event.target?.dataset?.studentBirthDateForm) {
+    void updateAdminStudentBirthDate(event);
   } else if (event.target?.dataset?.studentStatusForm) {
     void updateAdminStudentStatus(event);
   } else if (event.target?.dataset?.studentBalanceForm) {
     void updateAdminStudentBalance(event);
   }
 });
+document.addEventListener(
+  "toggle",
+  (event) => {
+    const card = event.target;
+    if (!(card instanceof HTMLDetailsElement) || !card.open || !card.dataset.studentCard) return;
+    void loadStudentLedger(card.dataset.studentCard);
+  },
+  true,
+);
 qs("#tenantDialog")?.addEventListener("click", (event) => {
   if (event.target === event.currentTarget) closeTenantDialog();
 });

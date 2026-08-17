@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Algo MAX birthday rewards
+
+[Timer]
+OnCalendar=*-*-* 07:05:00 Europe/Moscow
+Persistent=true
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target

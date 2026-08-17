@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import app.db.base  # noqa: F401
 from app.models.account import MaxAccount
 from app.models.base import Base
-from app.models.enums import StudentAccessRole
+from app.models.enums import StudentAccessRole, StudentAccessStatus
 from app.models.student import StudentAccessLink
 from app.schemas.access import AccessLinkCreate, StudentInvitationLinkCreate, StudentResolveRequest
 from app.services.access import (
@@ -147,3 +147,47 @@ async def test_parent_max_account_cannot_accept_child_qr(db_session) -> None:
                 max_user_id=53364725,
             ),
         )
+
+
+async def test_revoked_parent_account_can_be_relinked_as_student(db_session) -> None:
+    await seed_two_students_for_one_contact(db_session)
+    former_parent_links = await create_contact_access_links(
+        db_session,
+        AccessLinkCreate(
+            tenant_slug="nizhniy-novgorod-partner-a",
+            contact_id="681",
+            max_user_id=53364725,
+            role=StudentAccessRole.PARENT,
+        ),
+    )
+    sponsor_links = await create_contact_access_links(
+        db_session,
+        AccessLinkCreate(
+            tenant_slug="nizhniy-novgorod-partner-a",
+            contact_id="681",
+            max_user_id=53364726,
+            role=StudentAccessRole.PARENT,
+        ),
+    )
+    for link in former_parent_links:
+        link.status = StudentAccessStatus.REVOKED
+        link.revoked_reason = "admin"
+    await db_session.commit()
+
+    sponsor_link = sponsor_links[0]
+    token = issue_student_invitation_token(
+        sponsor_link.tenant_id,
+        sponsor_link.student_id,
+        sponsor_link.id,
+    )
+    _, _, student_link = await create_invited_student_access_link(
+        db_session,
+        StudentInvitationLinkCreate(
+            tenant_slug="nizhniy-novgorod-partner-a",
+            token=token,
+            max_user_id=53364725,
+        ),
+    )
+
+    assert student_link.role == StudentAccessRole.STUDENT
+    assert student_link.status == StudentAccessStatus.ACTIVE

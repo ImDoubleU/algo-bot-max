@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import date
 
 import pytest
 from sqlalchemy import select
@@ -20,6 +21,8 @@ from app.models.enums import (
 from app.models.store import Order, OrderItem, OrderStatusHistory, Product
 from app.models.student import (
     AstrocoinLedgerEntry,
+    Contact,
+    ContactStudentLink,
     Student,
     StudentAccessLink,
     StudentHistoryEvent,
@@ -34,12 +37,15 @@ from app.schemas.miniapp import (
     MiniAppStudentStatusUpdate,
 )
 from app.services.access import create_contact_access_links
+from app.services.birthday_rewards import grant_birthday_rewards
 from app.services.crm_import import CrmStudentRow
 from app.services.crm_sync import CrmSyncDefaults, upsert_crm_student_rows
 from app.services.miniapp import (
     MiniAppStoreError,
     create_miniapp_student,
     get_miniapp_session,
+    list_miniapp_student_ledger,
+    list_miniapp_student_registry,
     set_miniapp_student_balance,
     update_miniapp_access_link_status,
     update_miniapp_staff_assignment,
@@ -246,6 +252,53 @@ async def test_staff_session_returns_tenant_students_sorted_by_group(db_session)
     ]
     assert [student.staff_visible for student in session.students] == [True, False]
     assert len(session.access_links) == 2
+
+    teacher_registry = await list_miniapp_student_registry(
+        db_session,
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    assert [item.display_name for item in teacher_registry.students] == ["Васильева Алиса"]
+    assert await list_miniapp_student_ledger(
+        db_session,
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        student_id=teacher_registry.students[0].student_id,
+    ) == []
+
+    foreign_student = await db_session.scalar(
+        select(Student).where(Student.teacher_name == "Другой Педагог")
+    )
+    assert foreign_student is not None
+    with pytest.raises(MiniAppStoreError, match="другой группы"):
+        await list_miniapp_student_ledger(
+            db_session,
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            student_id=foreign_student.id,
+        )
+
+    curator = MaxAccount(max_user_id=53364726, display_name="Куратор")
+    db_session.add(curator)
+    await db_session.flush()
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=curator.id,
+            role=StaffRole.CURATOR,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+    curator_registry = await list_miniapp_student_registry(
+        db_session,
+        max_user_id=53364726,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    assert {item.display_name for item in curator_registry.students} == {
+        "Васильева Алиса",
+        "Петров Борис",
+    }
 
 
 async def test_admin_can_revoke_student_access_link(db_session) -> None:
@@ -498,3 +551,86 @@ async def test_admin_can_create_student_change_status_and_set_exact_balance(db_s
     assert ledger is not None
     assert ledger.direction == LedgerDirection.CREDIT
     assert ledger.amount == 275
+
+
+async def test_create_student_with_parent_and_grant_birthday_reward_once(db_session) -> None:
+    defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+    await upsert_crm_student_rows(db_session, [crm_row()], defaults=defaults)
+    existing_student = await db_session.scalar(select(Student))
+    assert existing_student is not None
+
+    admin = MaxAccount(max_user_id=9292, username="student_admin")
+    db_session.add(admin)
+    await db_session.flush()
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=existing_student.tenant_id,
+            account_id=admin.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    registry = await create_miniapp_student(
+        db_session,
+        payload=MiniAppStudentCreate(
+            max_user_id=9292,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            first_name="Иван",
+            last_name="Петров",
+            birth_date=date(2015, 8, 16),
+            lms_student_id="MANUAL-BIRTHDAY",
+            crm_deal_id="MANUAL-DEAL-1",
+            group_name="Python Start",
+            parent_contact_id="PARENT-100",
+            parent_name="Петрова Анна",
+            parent_max_user_id=777001,
+            parent_max_username="petrova_parent",
+            initial_balance=25,
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    created = next(
+        item for item in registry.students if item.lms_student_id == "MANUAL-BIRTHDAY"
+    )
+    assert created.birth_date == date(2015, 8, 16)
+    assert created.parent_contact_ids == ["PARENT-100"]
+    assert created.parent_names == ["Петрова Анна"]
+    assert created.parent_max_user_ids == [777001]
+    assert created.balance == 25
+
+    contact_link = await db_session.scalar(
+        select(ContactStudentLink)
+        .join(Contact, Contact.id == ContactStudentLink.contact_id)
+        .where(
+            ContactStudentLink.student_id == created.student_id,
+            Contact.external_contact_id == "PARENT-100",
+        )
+    )
+    parent_link = await db_session.scalar(
+        select(StudentAccessLink)
+        .join(MaxAccount, MaxAccount.id == StudentAccessLink.account_id)
+        .where(
+            StudentAccessLink.student_id == created.student_id,
+            StudentAccessLink.role == StudentAccessRole.PARENT,
+            MaxAccount.max_user_id == 777001,
+        )
+    )
+    assert contact_link is not None
+    assert parent_link is not None
+
+    first_reward = await grant_birthday_rewards(
+        db_session,
+        reward_date=date(2026, 8, 16),
+    )
+    second_reward = await grant_birthday_rewards(
+        db_session,
+        reward_date=date(2026, 8, 16),
+    )
+    wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == created.student_id))
+    assert wallet is not None
+    assert wallet.balance == 75
+    assert first_reward.credited_students == 1
+    assert second_reward.credited_students == 0
+    assert second_reward.already_credited_students == 1

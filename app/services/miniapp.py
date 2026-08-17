@@ -26,6 +26,7 @@ from app.models.enums import (
     StaffRole,
     StockMovementType,
     StudentAccessRole,
+    StudentAccessSource,
     StudentAccessStatus,
     StudentStatus,
     TenantStatus,
@@ -44,6 +45,8 @@ from app.models.store import (
 )
 from app.models.student import (
     AstrocoinLedgerEntry,
+    Contact,
+    ContactStudentLink,
     Student,
     StudentAccessLink,
     StudentHistoryEvent,
@@ -103,6 +106,7 @@ from app.schemas.miniapp import (
     MiniAppStudentAccessPolicyRead,
     MiniAppStudentAccessPolicyUpdate,
     MiniAppStudentBalanceUpdate,
+    MiniAppStudentBirthDateUpdate,
     MiniAppStudentCreate,
     MiniAppStudentHistoryEventRead,
     MiniAppStudentInvitationRead,
@@ -121,8 +125,10 @@ from app.services.access import normalize_student_code, revoke_dependent_student
 from app.services.crm_import import CrmImportError, parse_crm_students_content
 from app.services.crm_sync import (
     CrmSyncDefaults,
+    ensure_contact_student_link,
     ensure_wallet,
     get_or_create_city,
+    get_or_create_contact,
     get_or_create_partner,
     get_or_create_tenant,
     get_or_create_venue,
@@ -934,6 +940,31 @@ async def _store_admin_context(
     return tenant, account, admin_role
 
 
+async def _student_registry_context(
+    db: AsyncSession,
+    *,
+    max_user_id: int,
+    tenant_slug: str,
+) -> tuple[Tenant, MaxAccount, StaffRole]:
+    normalized_tenant_slug = tenant_slug.strip().lower()
+    tenant = await get_tenant_by_slug(db, normalized_tenant_slug)
+    if tenant is None:
+        raise MiniAppStoreError("Партнер не найден", status_code=404)
+
+    account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
+    if account is None:
+        raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
+    staff_role = await _active_staff_role(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        allowed_roles=COIN_ACCRUAL_ROLES,
+    )
+    if staff_role is None:
+        raise MiniAppStoreError("Нет прав на просмотр учеников", status_code=403)
+    return tenant, account, staff_role
+
+
 async def import_miniapp_crm_students(
     db: AsyncSession,
     *,
@@ -1030,11 +1061,10 @@ async def list_miniapp_student_registry(
     max_user_id: int,
     tenant_slug: str,
 ) -> MiniAppStudentRegistryRead:
-    tenant, account, admin_role = await _store_admin_context(
+    tenant, account, staff_role = await _student_registry_context(
         db,
         max_user_id=max_user_id,
         tenant_slug=tenant_slug,
-        denied_message="Нет прав на просмотр реестра учеников",
     )
     students = (
         await db.scalars(
@@ -1047,12 +1077,55 @@ async def list_miniapp_student_registry(
         db,
         tenant_id=tenant.id,
         account_id=account.id,
-        role=admin_role,
+        role=staff_role,
     )
     if venue_scope_ids is not None:
         students = [student for student in students if student.venue_id in venue_scope_ids]
+    if staff_role == StaffRole.TEACHER:
+        students = [student for student in students if _teacher_owns_student(account, student)]
     student_ids = [student.id for student in students]
     balances = await _wallet_balances(db, student_ids)
+    contact_ids_by_student: dict[UUID, list[str]] = {}
+    contact_names_by_student: dict[UUID, list[str]] = {}
+    parent_max_ids_by_student: dict[UUID, list[int]] = {}
+    if student_ids:
+        contact_rows = (
+            await db.execute(
+                select(
+                    ContactStudentLink.student_id,
+                    Contact.external_contact_id,
+                    Contact.display_name,
+                )
+                .join(Contact, Contact.id == ContactStudentLink.contact_id)
+                .where(
+                    ContactStudentLink.tenant_id == tenant.id,
+                    ContactStudentLink.student_id.in_(student_ids),
+                )
+                .order_by(Contact.display_name, Contact.external_contact_id)
+            )
+        ).all()
+        for student_id, contact_id, contact_name in contact_rows:
+            contact_ids_by_student.setdefault(student_id, []).append(contact_id)
+            if contact_name:
+                names = contact_names_by_student.setdefault(student_id, [])
+                if contact_name not in names:
+                    names.append(contact_name)
+
+        parent_account_rows = (
+            await db.execute(
+                select(StudentAccessLink.student_id, MaxAccount.max_user_id)
+                .join(MaxAccount, MaxAccount.id == StudentAccessLink.account_id)
+                .where(
+                    StudentAccessLink.tenant_id == tenant.id,
+                    StudentAccessLink.student_id.in_(student_ids),
+                    StudentAccessLink.role == StudentAccessRole.PARENT,
+                    StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+                )
+                .order_by(MaxAccount.max_user_id)
+            )
+        ).all()
+        for student_id, parent_max_user_id in parent_account_rows:
+            parent_max_ids_by_student.setdefault(student_id, []).append(parent_max_user_id)
     events_by_student: dict[UUID, list[MiniAppStudentHistoryEventRead]] = {}
     if student_ids:
         event_rows = (
@@ -1122,6 +1195,7 @@ async def list_miniapp_student_registry(
                 student_id=UUID(str(student.id)),
                 lms_student_id=student.lms_student_id,
                 display_name=student.display_name,
+                birth_date=student.birth_date,
                 group_name=student.group_name,
                 course_name=student.course_name,
                 venue_name=student.venue_name,
@@ -1132,6 +1206,9 @@ async def list_miniapp_student_registry(
                 updated_at=max(student.updated_at, latest_history_at),
                 status_updated_at=student.status_updated_at,
                 departed_at=student.departed_at,
+                parent_contact_ids=contact_ids_by_student.get(student.id, []),
+                parent_names=contact_names_by_student.get(student.id, []),
+                parent_max_user_ids=parent_max_ids_by_student.get(student.id, []),
                 history=history[-50:],
             )
         )
@@ -1139,6 +1216,60 @@ async def list_miniapp_student_registry(
         tenant_slug=tenant.slug,
         students=registry_students,
     )
+
+
+async def list_miniapp_student_ledger(
+    db: AsyncSession,
+    *,
+    max_user_id: int,
+    tenant_slug: str,
+    student_id: UUID,
+    limit: int = 100,
+) -> list[MiniAppLedgerRead]:
+    tenant, account, staff_role = await _student_registry_context(
+        db,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    student = await db.scalar(
+        select(Student).where(Student.tenant_id == tenant.id, Student.id == student_id)
+    )
+    if student is None:
+        raise MiniAppStoreError("Ученик не найден", status_code=404)
+    if staff_role == StaffRole.TEACHER and not _teacher_owns_student(account, student):
+        raise MiniAppStoreError("Нет доступа к ученику другой группы", status_code=403)
+    venue_scope_ids = await staff_venue_scope_ids(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        role=staff_role,
+    )
+    if venue_scope_ids is not None and student.venue_id not in venue_scope_ids:
+        raise MiniAppStoreError("Нет доступа к ученику другой площадки", status_code=403)
+
+    entries = (
+        await db.scalars(
+            select(AstrocoinLedgerEntry)
+            .where(
+                AstrocoinLedgerEntry.tenant_id == tenant.id,
+                AstrocoinLedgerEntry.student_id == student.id,
+            )
+            .order_by(AstrocoinLedgerEntry.created_at.desc())
+            .limit(limit)
+        )
+    ).all()
+    return [
+        MiniAppLedgerRead(
+            id=UUID(str(entry.id)),
+            student_id=UUID(str(entry.student_id)),
+            direction=entry.direction,
+            amount=entry.amount,
+            reason=entry.reason,
+            comment=entry.comment,
+            created_at=entry.created_at,
+        )
+        for entry in entries
+    ]
 
 
 def _clean_student_field(value: str | None) -> str | None:
@@ -1194,6 +1325,8 @@ async def create_miniapp_student(
     last_name = payload.last_name.strip()
     if not first_name or not last_name:
         raise MiniAppStoreError("Укажите имя и фамилию ученика")
+    if payload.birth_date and payload.birth_date > date.today():
+        raise MiniAppStoreError("Дата рождения не может быть в будущем")
 
     lms_student_id = _clean_student_field(payload.lms_student_id)
     if lms_student_id:
@@ -1206,6 +1339,51 @@ async def create_miniapp_student(
         )
         if duplicate is not None:
             raise MiniAppStoreError("Ученик с таким ID уже есть в этом городе", status_code=409)
+
+    crm_deal_id = _clean_student_field(payload.crm_deal_id)
+    crm_uuid = _clean_student_field(payload.crm_uuid)
+    for field, value, label in (
+        (Student.crm_deal_id, crm_deal_id, "ID сделки amoCRM"),
+        (Student.crm_uuid, crm_uuid, "UUID CRM"),
+    ):
+        if value is None:
+            continue
+        duplicate = await db.scalar(
+            select(Student.id).where(Student.tenant_id == tenant.id, field == value)
+        )
+        if duplicate is not None:
+            raise MiniAppStoreError(
+                f"Ученик с таким {label} уже есть в этом городе",
+                status_code=409,
+            )
+
+    parent_contact_id = _clean_student_field(payload.parent_contact_id)
+    parent_name = _clean_student_field(payload.parent_name)
+    parent_username = _clean_student_field(payload.parent_max_username)
+    if parent_username:
+        parent_username = parent_username.lstrip("@") or None
+    if (parent_name or payload.parent_max_user_id) and not parent_contact_id:
+        raise MiniAppStoreError("Для связи с родителем укажите Contact ID из CRM")
+
+    parent_account: MaxAccount | None = None
+    if payload.parent_max_user_id is not None:
+        parent_account = await db.scalar(
+            select(MaxAccount).where(MaxAccount.max_user_id == payload.parent_max_user_id)
+        )
+        if parent_account is not None:
+            active_student_link = await db.scalar(
+                select(StudentAccessLink.id).where(
+                    StudentAccessLink.tenant_id == tenant.id,
+                    StudentAccessLink.account_id == parent_account.id,
+                    StudentAccessLink.role == StudentAccessRole.STUDENT,
+                    StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+                )
+            )
+            if active_student_link is not None:
+                raise MiniAppStoreError(
+                    "Этот MAX-аккаунт уже используется учеником. Укажите аккаунт родителя",
+                    status_code=409,
+                )
 
     venue_name = _clean_student_field(payload.venue_name)
     venue, _ = await get_or_create_venue(db, tenant=tenant, name=venue_name)
@@ -1225,10 +1403,13 @@ async def create_miniapp_student(
     student = Student(
         tenant_id=tenant.id,
         venue_id=venue.id if venue else None,
+        crm_deal_id=crm_deal_id,
+        crm_uuid=crm_uuid,
         lms_student_id=lms_student_id,
         student_access_code=f"manual-{uuid4().hex}",
         first_name=first_name,
         last_name=last_name,
+        birth_date=payload.birth_date,
         group_name=_clean_student_field(payload.group_name),
         course_name=_clean_student_field(payload.course_name),
         venue_name=venue.name if venue else None,
@@ -1240,6 +1421,65 @@ async def create_miniapp_student(
     db.add(student)
     await db.flush()
     await ensure_wallet(db, tenant=tenant, student=student)
+    wallet = await db.scalar(select(Wallet).where(Wallet.student_id == student.id))
+    if wallet is None:
+        raise MiniAppStoreError("Не удалось создать счет ученика", status_code=500)
+    if payload.initial_balance:
+        wallet.balance = payload.initial_balance
+        db.add(
+            AstrocoinLedgerEntry(
+                tenant_id=tenant.id,
+                wallet_id=wallet.id,
+                student_id=student.id,
+                actor_account_id=account.id,
+                idempotency_key=f"student_initial_balance:{student.id}",
+                direction=LedgerDirection.CREDIT,
+                amount=payload.initial_balance,
+                reason="Начальный баланс",
+                comment="Указан при создании ученика",
+            )
+        )
+
+    parent_contact: Contact | None = None
+    if parent_contact_id:
+        parent_contact, _ = await get_or_create_contact(
+            db,
+            tenant=tenant,
+            contact_id=parent_contact_id,
+            display_name=parent_name,
+        )
+        await ensure_contact_student_link(
+            db,
+            tenant=tenant,
+            contact=parent_contact,
+            student=student,
+        )
+
+    if payload.parent_max_user_id is not None:
+        if parent_account is None:
+            parent_account = MaxAccount(
+                max_user_id=payload.parent_max_user_id,
+                username=parent_username,
+                display_name=parent_name,
+            )
+            db.add(parent_account)
+            await db.flush()
+        else:
+            if parent_username:
+                parent_account.username = parent_username
+            if parent_name:
+                parent_account.display_name = parent_name
+        db.add(
+            StudentAccessLink(
+                tenant_id=tenant.id,
+                account_id=parent_account.id,
+                student_id=student.id,
+                role=StudentAccessRole.PARENT,
+                status=StudentAccessStatus.ACTIVE,
+                source=StudentAccessSource.ADMIN,
+            )
+        )
+
     db.add(
         StudentHistoryEvent(
             tenant_id=tenant.id,
@@ -1253,13 +1493,18 @@ async def create_miniapp_student(
                 for field, value in {
                     "first_name": first_name,
                     "last_name": last_name,
+                    "birth_date": payload.birth_date,
                     "lms_student_id": lms_student_id,
+                    "crm_deal_id": crm_deal_id,
+                    "crm_uuid": crm_uuid,
                     "group_name": student.group_name,
                     "course_name": student.course_name,
                     "venue_name": student.venue_name,
                     "teacher_name": student.teacher_name,
+                    "parent_contact_id": parent_contact_id,
+                    "initial_balance": payload.initial_balance,
                 }.items()
-                if value
+                if value not in (None, "", 0)
             ],
             source="manual",
         )
@@ -1276,6 +1521,79 @@ async def create_miniapp_student(
                 "status": payload.status.value,
                 "group_name": student.group_name,
                 "lms_student_id": lms_student_id,
+                "birth_date": payload.birth_date.isoformat() if payload.birth_date else None,
+                "crm_deal_id": crm_deal_id,
+                "parent_contact_id": parent_contact.external_contact_id
+                if parent_contact
+                else None,
+                "parent_max_user_id": payload.parent_max_user_id,
+                "initial_balance": payload.initial_balance,
+            },
+        )
+    )
+    await db.commit()
+    return await list_miniapp_student_registry(
+        db,
+        max_user_id=payload.max_user_id,
+        tenant_slug=tenant.slug,
+    )
+
+
+async def update_miniapp_student_birth_date(
+    db: AsyncSession,
+    *,
+    student_id: UUID,
+    payload: MiniAppStudentBirthDateUpdate,
+    default_tenant_slug: str,
+) -> MiniAppStudentRegistryRead:
+    tenant_slug = (payload.tenant_slug or default_tenant_slug).strip().lower()
+    tenant, account, _, student = await _admin_student_context(
+        db,
+        max_user_id=payload.max_user_id,
+        tenant_slug=tenant_slug,
+        student_id=student_id,
+    )
+    if payload.birth_date and payload.birth_date > date.today():
+        raise MiniAppStoreError("Дата рождения не может быть в будущем")
+    if student.birth_date == payload.birth_date:
+        await db.commit()
+        return await list_miniapp_student_registry(
+            db,
+            max_user_id=payload.max_user_id,
+            tenant_slug=tenant.slug,
+        )
+
+    previous_birth_date = student.birth_date
+    student.birth_date = payload.birth_date
+    db.add(
+        StudentHistoryEvent(
+            tenant_id=tenant.id,
+            student_id=student.id,
+            actor_account_id=account.id,
+            event_type="updated",
+            from_status=student.status.value,
+            to_status=student.status.value,
+            from_group_name=student.group_name,
+            to_group_name=student.group_name,
+            changed_fields=["birth_date"],
+            source="manual",
+        )
+    )
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_account_id=account.id,
+            action="student.birth_date_changed",
+            entity_type="student",
+            entity_id=str(student.id),
+            payload={
+                "student_name": student.display_name,
+                "from_birth_date": previous_birth_date.isoformat()
+                if previous_birth_date
+                else None,
+                "to_birth_date": payload.birth_date.isoformat()
+                if payload.birth_date
+                else None,
             },
         )
     )
@@ -2121,6 +2439,7 @@ async def get_miniapp_session(
                 ),
                 staff_visible=student.id in staff_student_ids,
                 display_name=student.display_name,
+                birth_date=student.birth_date,
                 group_name=student.group_name,
                 course_name=student.course_name,
                 venue_name=student.venue_name,
@@ -2147,6 +2466,7 @@ async def get_miniapp_session(
                     else StudentAccessRole.STUDENT
                 ),
                 display_name=student.display_name,
+                birth_date=student.birth_date,
                 group_name=student.group_name,
                 course_name=student.course_name,
                 venue_name=student.venue_name,

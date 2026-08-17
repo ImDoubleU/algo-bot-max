@@ -12,9 +12,12 @@ from app.models.enums import (
     StudentStatus,
 )
 from app.models.student import Student, StudentAccessLink, Wallet
-from app.models.tenant import City, Partner, Tenant
+from app.models.tenant import City, Partner, Tenant, Venue
 from app.schemas.broadcasts import BroadcastAudienceRequest
-from app.services.broadcasts import preview_school_broadcast
+from app.services.broadcasts import (
+    get_broadcast_target_options,
+    preview_school_broadcast,
+)
 
 
 @pytest.fixture
@@ -41,6 +44,14 @@ async def test_broadcast_preview_scopes_and_deduplicates_recipients(db_session) 
     )
     db_session.add(tenant)
     await db_session.flush()
+    configured_venue = Venue(
+        tenant_id=tenant.id,
+        slug="learning-center",
+        name="Учебная площадка",
+        broadcast_keywords=["Python"],
+        broadcast_group_names=["Scratch общ"],
+    )
+    db_session.add(configured_venue)
 
     admin = MaxAccount(max_user_id=1001, display_name="Администратор")
     parent = MaxAccount(max_user_id=1002, display_name="Родитель")
@@ -70,7 +81,7 @@ async def test_broadcast_preview_scopes_and_deduplicates_recipients(db_session) 
         student_access_code="student-b",
         first_name="Борис",
         last_name="Петров",
-        group_name="Scratch",
+        group_name="Scratch общ",
         venue_name="Сормово",
         status=StudentStatus.ACTIVE,
     )
@@ -130,6 +141,32 @@ async def test_broadcast_preview_scopes_and_deduplicates_recipients(db_session) 
     )
     assert targeted_preview.recipient_count == 2
     assert targeted_preview.matched_students == 1
+
+    combined_preview = await preview_school_broadcast(
+        db_session,
+        payload=BroadcastAudienceRequest(
+            max_user_id=admin.max_user_id,
+            tenant_slug=tenant.slug,
+            recipient_category="all",
+            venue_names=["Учебная площадка"],
+            lesson_modes=["offline"],
+        ),
+        default_tenant_slug=tenant.slug,
+    )
+    assert combined_preview.recipient_count == 2
+    assert combined_preview.matched_students == 1
+    assert combined_preview.selected_lesson_modes == ["offline"]
+
+    options = await get_broadcast_target_options(
+        db_session,
+        max_user_id=admin.max_user_id,
+        tenant_slug=tenant.slug,
+    )
+    configured_option = next(
+        item for item in options.venues if item.name == "Учебная площадка"
+    )
+    assert options.can_manage_venues is True
+    assert configured_option.matched_group_count == 2
 
     low_balance_parents = await preview_school_broadcast(
         db_session,

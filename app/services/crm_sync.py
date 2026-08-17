@@ -440,6 +440,7 @@ async def upsert_crm_student_rows(
                 else None,
                 student_access_code=access_code,
                 first_name=row.first_name,
+                birth_date=row.birth_date,
                 status=student_status,
                 status_updated_at=imported_at,
                 departed_at=(
@@ -465,6 +466,8 @@ async def upsert_crm_student_rows(
                 incoming_values["lms_student_id"] = normalize_student_code(
                     row.lms_student_id
                 )
+            if row.birth_date is not None:
+                incoming_values["birth_date"] = row.birth_date
             changed_fields = [
                 field
                 for field, incoming_value in incoming_values.items()
@@ -485,6 +488,8 @@ async def upsert_crm_student_rows(
             student.lms_student_id = normalize_student_code(row.lms_student_id)
         student.first_name = row.first_name
         student.last_name = row.last_name
+        if row.birth_date is not None:
+            student.birth_date = row.birth_date
         student.group_name = row.group_name
         student.course_name = row.course_name
         student.venue_name = row.venue_name

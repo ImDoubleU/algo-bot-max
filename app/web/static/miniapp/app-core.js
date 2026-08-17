@@ -163,6 +163,9 @@ const state = {
   adminStudentsLoaded: false,
   adminStudentsLoading: false,
   adminStudentsError: "",
+  studentLedgerById: new Map(),
+  studentLedgerLoading: new Set(),
+  studentLedgerErrors: new Map(),
   studentCreateOpen: false,
   studentMutationSaving: "",
   studentAccessPolicy: {
@@ -177,6 +180,7 @@ const state = {
   adminHistoryLoaded: false,
   adminHistoryLoading: false,
   adminHistoryError: "",
+  studentRegistrySearch: "",
   studentRegistryStatusFilter: "all",
   studentRegistryGroupFilter: "all",
   productStatusFilter: "all",
@@ -190,6 +194,15 @@ const state = {
   broadcastPreviewSignature: "",
   broadcastSelectedGroups: new Set(),
   broadcastAllGroups: true,
+  broadcastTargetOptions: null,
+  broadcastTargetOptionsLoaded: false,
+  broadcastTargetOptionsLoading: false,
+  broadcastTargetOptionsError: "",
+  broadcastSelectedVenues: new Set(),
+  broadcastSelectedLessonModes: new Set(),
+  broadcastVenueEditorOpen: false,
+  broadcastVenueDraft: null,
+  broadcastVenueSaving: false,
   broadcastPhotoFile: null,
   broadcastPhotoPreviewUrl: "",
   broadcastStep: 1,
@@ -1495,6 +1508,14 @@ function primaryStaffRole(staffRoles = state.staffRoles) {
   ) || "";
 }
 
+function isStaffStudentHistoryView() {
+  return ["teacher", "admin"].includes(state.role) && state.view === "wallet";
+}
+
+function canManageStudentRecords() {
+  return ["superadmin", "partner_director", "admin"].includes(primaryStaffRole());
+}
+
 function canUseAdminCatalog() {
   return Boolean(apiContext.maxUserId && state.role === "admin");
 }
@@ -1700,6 +1721,10 @@ function applySession(session) {
     state.adminStudents = [];
     state.adminStudentsLoaded = false;
     state.adminStudentsError = "";
+    state.studentLedgerById = new Map();
+    state.studentLedgerLoading = new Set();
+    state.studentLedgerErrors = new Map();
+    state.studentRegistrySearch = "";
     state.sessionLoaded = true;
     return;
   }

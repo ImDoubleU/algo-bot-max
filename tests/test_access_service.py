@@ -5,9 +5,12 @@ from app.services.access import build_rate_limit_key, hash_contact_id, normalize
 from app.services.deep_links import (
     build_max_bot_deeplink,
     build_max_bot_shop_deeplink,
+    build_max_bot_staff_deeplink,
     make_contact_payload,
+    make_staff_payload,
     parse_contact_payload,
     parse_shop_payload,
+    parse_staff_payload,
 )
 from app.services.student_invitations import (
     issue_student_invitation_token,
@@ -68,6 +71,19 @@ def test_build_tenant_aware_shop_deeplink() -> None:
 
     assert link == "https://max.ru/AlgoBot?start=shop_n-novgorod~681"
     assert parse_shop_payload("shop_n-novgorod~681") == ("n-novgorod", "681")
+
+
+def test_build_tenant_aware_staff_deeplink() -> None:
+    payload = make_staff_payload("n-novgorod", "curator")
+    link = build_max_bot_staff_deeplink(
+        "@AlgoBot",
+        tenant_slug="n-novgorod",
+        role="curator",
+    )
+
+    assert payload == "staff_n-novgorod~curator"
+    assert parse_staff_payload(payload) == ("n-novgorod", "curator")
+    assert link == "https://max.ru/AlgoBot?start=staff_n-novgorod~curator"
 
 
 def test_student_invitation_token_keeps_tenant_and_student_scope() -> None:

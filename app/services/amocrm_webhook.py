@@ -16,6 +16,7 @@ from app.services.crm_import import (
     CrmStudentRow,
     normalize_header,
     normalize_text,
+    parse_birth_date,
 )
 from app.services.crm_sync import (
     CrmSyncDefaults,
@@ -166,6 +167,15 @@ def _record_student_fields(record: dict[str, Any]) -> dict[str, str]:
     return fields
 
 
+def _amocrm_birth_date(value: str | None):
+    try:
+        return parse_birth_date(value)
+    except ValueError as exc:
+        raise AmoCrmWebhookError(
+            "Дата рождения из amoCRM должна быть в формате ДД.ММ.ГГГГ"
+        ) from exc
+
+
 def extract_amocrm_student_rows(payload: dict[str, Any]) -> list[CrmStudentRow]:
     records = [*_nested_lead_records(payload), *_flattened_lead_records(payload)]
     if not records and any(key in payload for key in ("lead_id", "deal_id", "id")):
@@ -199,6 +209,7 @@ def extract_amocrm_student_rows(payload: dict[str, Any]) -> list[CrmStudentRow]:
             status_name=fields.get("status_name"),
             contact_ids=fields.get("contact_ids"),
             contact_names=fields.get("contact_names"),
+            birth_date=_amocrm_birth_date(fields.get("birth_date")),
         )
         for index, (lead_id, fields) in enumerate(merged_fields.items(), start=1)
     ]
@@ -262,19 +273,27 @@ async def sync_students_from_amocrm(
         if existing_student is not None:
             existing_students += 1
             new_group_name = normalize_text(row.group_name)
-            if new_group_name and existing_student.group_name != new_group_name:
-                previous_group_name = existing_student.group_name
+            previous_group_name = existing_student.group_name
+            changed_fields: list[str] = []
+            if new_group_name and previous_group_name != new_group_name:
                 existing_student.group_name = new_group_name
+                changed_fields.append("group_name")
+            if row.birth_date is not None and existing_student.birth_date != row.birth_date:
+                existing_student.birth_date = row.birth_date
+                changed_fields.append("birth_date")
+            if changed_fields:
                 db.add(
                     StudentHistoryEvent(
                         tenant_id=tenant.id,
                         student_id=existing_student.id,
-                        event_type="group_changed",
+                        event_type=(
+                            "group_changed" if "group_name" in changed_fields else "updated"
+                        ),
                         from_status=existing_student.status.value,
                         to_status=existing_student.status.value,
                         from_group_name=previous_group_name,
-                        to_group_name=new_group_name,
-                        changed_fields=["group_name"],
+                        to_group_name=existing_student.group_name,
+                        changed_fields=changed_fields,
                         source="amocrm_webhook",
                     )
                 )

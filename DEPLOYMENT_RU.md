@@ -212,7 +212,7 @@ sudo -u algomax --preserve-env /opt/algo-max/.venv/bin/python -m app.cli.bootstr
 ## 8. Запустить API и получить HTTPS
 
 ```bash
-systemctl enable --now algo-max-api algo-max-backup.timer
+systemctl enable --now algo-max-api algo-max-backup.timer algo-max-birthday.timer
 systemctl status algo-max-api --no-pager
 curl http://127.0.0.1:8000/api/v1/health
 curl --fail http://127.0.0.1:8000/api/v1/ready
@@ -279,8 +279,9 @@ Backup запускается каждый день около 03:20 и хран
 товаров 14 дней:
 
 ```bash
-systemctl list-timers algo-max-backup.timer
+systemctl list-timers algo-max-backup.timer algo-max-birthday.timer
 systemctl start algo-max-backup.service
+systemctl start algo-max-birthday.service
 ls -lh /var/backups/algo-max
 ```
 
