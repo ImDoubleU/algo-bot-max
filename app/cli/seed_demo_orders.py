@@ -57,17 +57,48 @@ def _id(run_id: str, key: str) -> UUID:
 
 def _context_key(student: Student) -> tuple[str, str, str]:
     return (
-        (student.venue_name or "").strip().casefold(),
+        _student_venue_name(student).casefold(),
         (student.teacher_name or "").strip().casefold(),
         (student.group_name or "").strip().casefold(),
     )
 
 
+def _student_venue_name(student: Student) -> str:
+    explicit_name = (student.venue_name or "").strip()
+    if explicit_name:
+        return explicit_name
+
+    group_name = " ".join((student.group_name or "").strip().casefold().split())
+    if "индивид" in group_name:
+        return "Индивидуальные занятия"
+    if "общ" in group_name:
+        return "Онлайн"
+    if "бор" in group_name:
+        if "окт бор" in group_name:
+            return "Бор · Окт"
+        if "м бор" in group_name:
+            return "Бор · М"
+        if "л бор" in group_name:
+            return "Бор · Л"
+        return "Бор"
+
+    venue_markers = (
+        ("союзн", "Союзный 45"),
+        ("октябр", "Октября 13"),
+        ("ванеева", "Ванеева 133"),
+        ("гагарин", "Гагарина 64"),
+        ("горная", "Горная 56а"),
+        ("сормов", "Сормово"),
+    )
+    for marker, venue_name in venue_markers:
+        if marker in group_name:
+            return venue_name
+    return "Очные занятия · площадка не указана"
+
+
 def _usable_student_contexts(students: list[Student]) -> list[Student]:
     contexts: dict[tuple[str, str, str], Student] = {}
     for student in students:
-        if not (student.venue_name or "").strip():
-            continue
         if not (student.teacher_name or "").strip():
             continue
         key = _context_key(student)
@@ -84,12 +115,20 @@ def _usable_student_contexts(students: list[Student]) -> list[Student]:
     primary: dict[tuple[str, str], Student] = {}
     for student in ordered:
         pair = (
-            (student.venue_name or "").strip().casefold(),
+            _student_venue_name(student).casefold(),
             (student.teacher_name or "").strip().casefold(),
         )
         primary.setdefault(pair, student)
+    by_venue: defaultdict[str, list[Student]] = defaultdict(list)
+    for student in primary.values():
+        by_venue[_student_venue_name(student).casefold()].append(student)
+    spread: list[Student] = []
+    while any(by_venue.values()):
+        for venue_name in sorted(by_venue):
+            if by_venue[venue_name]:
+                spread.append(by_venue[venue_name].pop(0))
     selected_ids = {student.id for student in primary.values()}
-    return [*primary.values(), *(student for student in ordered if student.id not in selected_ids)]
+    return [*spread, *(student for student in ordered if student.id not in selected_ids)]
 
 
 def _inventory_priority(
@@ -221,7 +260,7 @@ async def seed_demo_orders(
                 last_name="Демо",
                 group_name=source.group_name,
                 course_name=source.course_name,
-                venue_name=source.venue_name,
+                venue_name=_student_venue_name(source),
                 teacher_name=source.teacher_name,
                 status=StudentStatus.ACTIVE,
             )
