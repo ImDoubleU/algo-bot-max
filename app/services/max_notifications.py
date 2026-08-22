@@ -33,10 +33,12 @@ _background_tasks: set[asyncio.Task[None]] = set()
 
 def _order_status_text(status: OrderStatus) -> str:
     return {
-        OrderStatus.RESERVED: "Зарезервировано",
-        OrderStatus.TRANSFERRED_TO_TEACHER: "Передан учителю",
+        OrderStatus.RESERVED: "Зарезервирован",
+        OrderStatus.AWAITING_DELIVERY: "Ожидает доставки",
+        OrderStatus.DELIVERED_TO_VENUE: "Доставлен на площадку",
+        OrderStatus.TRANSFERRED_TO_TEACHER: "Учитель получил заказ",
         OrderStatus.CANCELLED: "Заказ отменен",
-        OrderStatus.ISSUED_TO_STUDENT: "Заказ выдан ученику",
+        OrderStatus.ISSUED_TO_STUDENT: "Заказ передан ученику",
         OrderStatus.RETURNED: "Возврат оформлен",
     }.get(status, status.value)
 
@@ -72,12 +74,16 @@ def _order_message(
     message = None
     if order.status == OrderStatus.CANCELLED:
         message = "Заказ отменен, астрокоины возвращены на баланс."
+    if order.status == OrderStatus.AWAITING_DELIVERY:
+        message = "Склад выбран. Заказ собирают и доставят на площадку."
+    if order.status == OrderStatus.DELIVERED_TO_VENUE:
+        message = "Заказ уже на площадке. Следующий этап — передача преподавателю."
     if order.status == OrderStatus.TRANSFERRED_TO_TEACHER:
-        message = "Заказ передан преподавателю. Его можно получить на занятии."
+        message = "Преподаватель получил заказ. Его можно забрать на занятии."
     if is_digital_delivery:
         message = (
             "Код находится в приложении. Откройте раздел «Заказы», выберите "
-            "«Выполненные» и нажмите на заказ."
+            "«Переданы ученикам» и нажмите на заказ."
         )
     facts = [
         ("Ученик", student.display_name),

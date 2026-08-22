@@ -122,6 +122,8 @@ STUDENT_NAMES: tuple[tuple[str, str], ...] = (
 ORDER_STATES: tuple[OrderStatus, ...] = (
     OrderStatus.CREATED,
     OrderStatus.RESERVED,
+    OrderStatus.AWAITING_DELIVERY,
+    OrderStatus.DELIVERED_TO_VENUE,
     OrderStatus.TRANSFERRED_TO_TEACHER,
     OrderStatus.ISSUED_TO_STUDENT,
     OrderStatus.CANCELLED,
@@ -837,7 +839,11 @@ async def _seed_wallets_and_orders(
         if status == OrderStatus.RESERVED:
             reserved_warehouse_id = common.id
             order_inventory_changes["common_reserved"] += 1
-        elif status == OrderStatus.TRANSFERRED_TO_TEACHER:
+        elif status in {
+            OrderStatus.AWAITING_DELIVERY,
+            OrderStatus.DELIVERED_TO_VENUE,
+            OrderStatus.TRANSFERRED_TO_TEACHER,
+        }:
             warehouse_id = venue.id
             order_inventory_changes["venue_reserved"] += 1
         elif status in {OrderStatus.ISSUED_TO_STUDENT, OrderStatus.RETURNED}:
@@ -880,6 +886,8 @@ async def _seed_wallets_and_orders(
         )
         history_states: list[OrderStatus] = [status]
         if status in {
+            OrderStatus.AWAITING_DELIVERY,
+            OrderStatus.DELIVERED_TO_VENUE,
             OrderStatus.TRANSFERRED_TO_TEACHER,
             OrderStatus.ISSUED_TO_STUDENT,
             OrderStatus.CANCELLED,
@@ -887,9 +895,33 @@ async def _seed_wallets_and_orders(
             OrderStatus.COINS_REFUNDED,
         }:
             history_states = [OrderStatus.RESERVED, status]
+        if status == OrderStatus.DELIVERED_TO_VENUE:
+            history_states = [
+                OrderStatus.RESERVED,
+                OrderStatus.AWAITING_DELIVERY,
+                OrderStatus.DELIVERED_TO_VENUE,
+            ]
+        if status == OrderStatus.TRANSFERRED_TO_TEACHER:
+            history_states = [
+                OrderStatus.RESERVED,
+                OrderStatus.AWAITING_DELIVERY,
+                OrderStatus.DELIVERED_TO_VENUE,
+                OrderStatus.TRANSFERRED_TO_TEACHER,
+            ]
+        if status == OrderStatus.ISSUED_TO_STUDENT:
+            history_states = [
+                OrderStatus.RESERVED,
+                OrderStatus.AWAITING_DELIVERY,
+                OrderStatus.DELIVERED_TO_VENUE,
+                OrderStatus.TRANSFERRED_TO_TEACHER,
+                OrderStatus.ISSUED_TO_STUDENT,
+            ]
         if status == OrderStatus.RETURNED:
             history_states = [
                 OrderStatus.RESERVED,
+                OrderStatus.AWAITING_DELIVERY,
+                OrderStatus.DELIVERED_TO_VENUE,
+                OrderStatus.TRANSFERRED_TO_TEACHER,
                 OrderStatus.ISSUED_TO_STUDENT,
                 OrderStatus.RETURNED,
             ]

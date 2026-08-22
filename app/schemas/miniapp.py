@@ -338,6 +338,7 @@ class MiniAppCartRead(BaseModel):
 
 
 class MiniAppOrderItemRead(BaseModel):
+    id: UUID
     product_id: UUID
     product_name: str
     quantity: int
@@ -349,6 +350,7 @@ class MiniAppOrderItemRead(BaseModel):
     suggested_warehouse_name: str | None = None
     fulfillment_type: ProductFulfillmentType = ProductFulfillmentType.WAREHOUSE
     issued_codes: list[str] = Field(default_factory=list)
+    is_picked: bool = False
 
 
 class MiniAppOrderStatusHistoryRead(BaseModel):
@@ -397,6 +399,12 @@ class MiniAppOrderActionCreate(BaseModel):
     max_user_id: int = Field(gt=0)
     tenant_slug: str | None = None
     comment: str | None = Field(default=None, max_length=500)
+
+
+class MiniAppOrderItemPickUpdate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    is_picked: bool
 
 
 class MiniAppOrderCancelCreate(BaseModel):

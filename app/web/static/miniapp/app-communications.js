@@ -821,7 +821,7 @@ function demoBroadcastPreview(payload) {
   } else if (payload.audience_filter === "active_orders") {
     const studentIds = new Set(
       orders
-        .filter((order) => ["created", "reserved", "transferred_to_teacher", "problem"].includes(order.status))
+        .filter((order) => ["created", "reserved", "awaiting_delivery", "delivered_to_venue", "transferred_to_teacher", "problem"].includes(order.status))
         .map((order) => order.studentId),
     );
     matched = matched.filter((student) => studentIds.has(student.id));

@@ -554,16 +554,19 @@ function createDemoOrder() {
   const orderNumber = String(1400 + orders.length + 1);
   const createdAt = new Date().toISOString();
   const orderItems = Array.from(state.cart.values())
-    .map((item) => {
+    .map((item, index) => {
       const product = productById(item.productId);
       if (!product) return null;
       return {
+        id: `demo-order-item-${orderNumber}-${index + 1}`,
         productId: product.id,
         productName: product.name,
         quantity: item.quantity,
         totalPrice: product.price * item.quantity,
         warehouseId: "",
         warehouseName: "",
+        fulfillmentType: product.fulfillmentType || "warehouse",
+        isPicked: false,
       };
     })
     .filter(Boolean);
@@ -579,8 +582,8 @@ function createDemoOrder() {
     student: student.name,
     item: orderSummary || `Заказ на ${total} AC`,
     warehouse: "Назначается администратором",
-    status: "Зарезервировано",
-    tone: "ok",
+    status: orderStatusLabel("reserved"),
+    tone: orderStatusTone("reserved"),
     total,
     createdAt,
     items: orderItems,
@@ -734,7 +737,7 @@ function renderOrderDialog(order) {
     : `
         <div class="order-history-row">
           <span class="order-history-marker"><i data-lucide="circle-dot"></i></span>
-          <div><strong>${escapeHtml(order.status)}</strong><span>Текущий статус</span></div>
+          <div><strong>${escapeHtml(orderStatusLabel(order.rawStatus))}</strong><span>Текущий статус</span></div>
         </div>
       `;
 
@@ -742,7 +745,7 @@ function renderOrderDialog(order) {
   qs("#orderDialogContent").innerHTML = `
     <div class="order-dialog-summary ${isDigitalOrder ? "is-digital" : ""}">
       <div>
-        <span class="status-badge ${escapeHtml(order.tone)}">${isDigitalOrder ? "Выполнен" : escapeHtml(order.status)}</span>
+        <span class="status-badge ${escapeHtml(orderStatusTone(order.rawStatus))}">${isDigitalOrder ? "Заказ передан ученику" : escapeHtml(orderStatusLabel(order.rawStatus))}</span>
         <h3>${escapeHtml(order.student)}</h3>
         <div class="student-meta">
           ${
@@ -910,19 +913,17 @@ async function assignOrderWarehouses(orderId) {
         0,
       );
     });
-    if (previousStatus === "problem") {
-      order.rawStatus = "reserved";
-      order.status = orderStatusLabel(order.rawStatus);
-      order.tone = orderStatusTone(order.rawStatus);
-    }
+    order.rawStatus = "awaiting_delivery";
+    order.status = orderStatusLabel(order.rawStatus);
+    order.tone = orderStatusTone(order.rawStatus);
     order.warehouse = orderWarehouseSummary(order.items, "Склад назначен");
     order.statusHistory = order.statusHistory || [];
     order.statusHistory.push({
       fromStatus: previousStatus,
       toStatus: order.rawStatus,
       comment: previousStatus === "problem"
-        ? "Проблема устранена, склад назначен администратором"
-        : "Склад назначен администратором",
+        ? "Проблема устранена, заказ ожидает доставки"
+        : "Склад назначен, заказ ожидает доставки",
       createdAt: new Date().toISOString(),
     });
     showNotice(`Заказ №${order.id}: склады назначены`);
@@ -1003,11 +1004,9 @@ async function assignSummaryOrderWarehouses(rawOrderIds, button = null) {
           item.warehouseId = warehouse.id;
           item.warehouseName = warehouse.name;
         });
-        if (order.rawStatus === "problem") {
-          order.rawStatus = "reserved";
-          order.status = orderStatusLabel(order.rawStatus);
-          order.tone = orderStatusTone(order.rawStatus);
-        }
+        order.rawStatus = "awaiting_delivery";
+        order.status = orderStatusLabel(order.rawStatus);
+        order.tone = orderStatusTone(order.rawStatus);
         order.warehouse = orderWarehouseSummary(order.items, "Склад назначен");
         completed += 1;
       });
@@ -1057,6 +1056,7 @@ async function updateOrderAction(orderId, action, cancelData = null) {
   if (orderId.startsWith("demo-") || apiContext.demoMode || !apiContext.maxUserId) {
     const previousStatus = order.rawStatus;
     if (action === "issue") order.rawStatus = "issued_to_student";
+    else if (action === "deliver") order.rawStatus = "delivered_to_venue";
     else if (action === "transfer") order.rawStatus = "transferred_to_teacher";
     else if (action === "return") order.rawStatus = "returned";
     else order.rawStatus = "cancelled";
@@ -1068,7 +1068,8 @@ async function updateOrderAction(orderId, action, cancelData = null) {
       toStatus: order.rawStatus,
       comment: {
         issue: "Заказ выдан ученику",
-        transfer: "Заказ передан учителю",
+        deliver: "Заказ доставлен на площадку",
+        transfer: "Учитель получил заказ",
         return: "Заказ возвращен",
         cancel: cancelData?.customReason || cancelData?.reason || "Заказ отменен",
       }[action],
@@ -1077,7 +1078,8 @@ async function updateOrderAction(orderId, action, cancelData = null) {
     showNotice(
       {
         issue: `Заказ №${order.id} отмечен как выданный`,
-        transfer: `Заказ №${order.id} передан учителю`,
+        deliver: `Заказ №${order.id} доставлен на площадку`,
+        transfer: `Учитель получил заказ №${order.id}`,
         return: `Заказ №${order.id} возвращен`,
         cancel: `Заказ №${order.id} отменен`,
       }[action],
@@ -1090,6 +1092,8 @@ async function updateOrderAction(orderId, action, cancelData = null) {
   const endpoint =
     action === "issue"
       ? "issue"
+      : action === "deliver"
+        ? "delivered-to-venue"
       : action === "transfer"
         ? "transfer-to-teacher"
         : action === "return"
@@ -1115,7 +1119,8 @@ async function updateOrderAction(orderId, action, cancelData = null) {
                 tenant_slug: apiContext.tenantSlug || undefined,
                 comment: {
                   issue: "Выдано в приложении",
-                  transfer: "Передано учителю в приложении",
+                  deliver: "Доставлено на площадку",
+                  transfer: "Учитель получил заказ",
                   return: "Возврат оформлен в приложении",
                 }[action],
               },
@@ -1128,7 +1133,8 @@ async function updateOrderAction(orderId, action, cancelData = null) {
     showNotice(
       {
         issue: `Заказ №${result.order.order_number} выдан ученику`,
-        transfer: `Заказ №${result.order.order_number} передан учителю`,
+        deliver: `Заказ №${result.order.order_number} доставлен на площадку`,
+        transfer: `Учитель получил заказ №${result.order.order_number}`,
         return: `Заказ №${result.order.order_number} возвращен, астрокоины зачислены`,
         cancel: `Заказ №${result.order.order_number} отменен, астрокоины возвращены`,
       }[action],
@@ -1141,6 +1147,51 @@ async function updateOrderAction(orderId, action, cancelData = null) {
     }
   } catch (error) {
     showNotice(error.message || "Не удалось обновить заказ", "danger");
+  }
+}
+
+async function updateOrderItemPicked(orderId, orderItemId, isPicked, checkbox) {
+  const order = orders.find((item) => item.backendId === orderId || item.id === orderId);
+  const orderItem = order?.items?.find(
+    (item, index) =>
+      (item.id || `${order.backendId || order.id}-${index}`) === orderItemId,
+  );
+  if (!order || !orderItem || !canPickOrderItem(order)) {
+    if (checkbox) checkbox.checked = !isPicked;
+    return;
+  }
+
+  if (checkbox) checkbox.disabled = true;
+  if (orderId.startsWith("demo-") || apiContext.demoMode || !apiContext.maxUserId) {
+    orderItem.isPicked = isPicked;
+    renderOrderFulfillmentSummary();
+    refreshIcons();
+    return;
+  }
+
+  try {
+    const response = await apiFetch(
+      `/api/v1/miniapp/orders/${encodeURIComponent(order.backendId)}/items/${encodeURIComponent(orderItemId)}/picked`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          max_user_id: Number(apiContext.maxUserId),
+          tenant_slug: apiContext.tenantSlug || undefined,
+          is_picked: isPicked,
+        }),
+      },
+    );
+    if (!response.ok) throw new Error(await parseApiError(response));
+    orderItem.isPicked = isPicked;
+    renderOrderFulfillmentSummary();
+    refreshIcons();
+  } catch (error) {
+    if (checkbox) {
+      checkbox.checked = !isPicked;
+      checkbox.disabled = false;
+    }
+    showNotice(error.message || "Не удалось сохранить отметку комплектации", "danger");
   }
 }
 
@@ -2395,6 +2446,17 @@ document.addEventListener("change", (event) => {
   if (target.id === "orderCancelReason") {
     syncCancelOrderForm();
     if (target.value === "Другое") qs("#orderCancelCustomReason")?.focus();
+    return;
+  }
+
+  const orderItemPickId = target.dataset.orderItemPick;
+  if (orderItemPickId) {
+    void updateOrderItemPicked(
+      target.dataset.pickOrderId || "",
+      orderItemPickId,
+      target.checked,
+      target,
+    );
     return;
   }
 

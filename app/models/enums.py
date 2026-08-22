@@ -86,6 +86,8 @@ class StockMovementType(StrEnum):
 class OrderStatus(StrEnum):
     CREATED = "created"
     RESERVED = "reserved"
+    AWAITING_DELIVERY = "awaiting_delivery"
+    DELIVERED_TO_VENUE = "delivered_to_venue"
     TRANSFERRED_TO_TEACHER = "transferred_to_teacher"
     ISSUED_TO_STUDENT = "issued_to_student"
     CANCELLED = "cancelled"

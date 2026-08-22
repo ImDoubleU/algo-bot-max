@@ -86,6 +86,7 @@ from app.schemas.miniapp import (
     MiniAppOrderCancelCreate,
     MiniAppOrderCreate,
     MiniAppOrderCreatedRead,
+    MiniAppOrderItemPickUpdate,
     MiniAppOrderItemRead,
     MiniAppOrderRead,
     MiniAppOrderStatusHistoryRead,
@@ -214,6 +215,7 @@ COIN_ACCRUAL_ROLES = STORE_ADMIN_ROLES | {
 }
 
 ORDER_MANAGER_ROLES = COIN_ACCRUAL_ROLES
+FULFILLMENT_MANAGER_ROLES = STORE_ADMIN_ROLES | {StaffRole.CURATOR}
 ACCRUAL_REPORT_ROLES = STORE_ADMIN_ROLES | {StaffRole.CURATOR}
 STAFF_ROLE_PRIORITY = (
     StaffRole.SUPERADMIN,
@@ -621,6 +623,7 @@ def _order_to_read(
     if items is None:
         items = [
             MiniAppOrderItemRead(
+                id=UUID(str(item.id)),
                 product_id=UUID(str(item.product_id)),
                 product_name=item.product.name if item.product else str(item.product_id),
                 quantity=item.quantity,
@@ -644,6 +647,7 @@ def _order_to_read(
                     for code in item.__dict__.get("digital_codes", [])
                     if code.status == ProductCodeStatus.ISSUED
                 ],
+                is_picked=item.is_picked,
             )
             for item in order.__dict__.get("items", [])
         ]
@@ -1771,9 +1775,11 @@ AUDIT_ACTION_COPY = {
     "product.updated": ("Товар изменен", "Товары"),
     "miniapp_order.created": ("Заказ создан", "Заказы"),
     "miniapp_order.warehouses_assigned": ("Склад заказа назначен", "Заказы"),
+    "miniapp_order.item_pick_updated": ("Комплектация заказа изменена", "Заказы"),
+    "miniapp_order.delivered_to_venue": ("Заказ доставлен на площадку", "Заказы"),
     "miniapp_order.cancelled": ("Заказ отменен", "Заказы"),
     "miniapp_order.issued": ("Заказ выдан", "Заказы"),
-    "miniapp_order.transferred_to_teacher": ("Заказ передан преподавателю", "Заказы"),
+    "miniapp_order.transferred_to_teacher": ("Учитель получил заказ", "Заказы"),
     "miniapp_order.returned": ("Заказ возвращен", "Заказы"),
     "miniapp_astrocoins.accrued": ("Астрокоины начислены", "Астрокоины"),
     "miniapp_astrocoins.undone": ("Начисление отменено", "Астрокоины"),
@@ -2924,11 +2930,15 @@ async def get_miniapp_ops_summary(
     open_statuses = {
         OrderStatus.CREATED,
         OrderStatus.RESERVED,
+        OrderStatus.AWAITING_DELIVERY,
+        OrderStatus.DELIVERED_TO_VENUE,
         OrderStatus.TRANSFERRED_TO_TEACHER,
         OrderStatus.PROBLEM,
     }
     pending_issue_statuses = {
         OrderStatus.RESERVED,
+        OrderStatus.AWAITING_DELIVERY,
+        OrderStatus.DELIVERED_TO_VENUE,
         OrderStatus.TRANSFERRED_TO_TEACHER,
     }
     open_orders = sum(status_counts.get(status, 0) for status in open_statuses)
@@ -3475,6 +3485,7 @@ async def create_miniapp_order(
                 product.digital_codes_low_notified = False
         response_items.append(
             MiniAppOrderItemRead(
+                id=UUID(str(order_item.id)),
                 product_id=UUID(str(product.id)),
                 product_name=product.name,
                 quantity=quantity,
@@ -3494,6 +3505,7 @@ async def create_miniapp_order(
                 ),
                 fulfillment_type=product.fulfillment_type,
                 issued_codes=[code.code for code in selected_codes],
+                is_picked=False,
             )
         )
         sheets_items.append(
@@ -3797,6 +3809,7 @@ async def assign_miniapp_order_warehouses(
         warehouse_name = target_inventory.warehouse.name if target_inventory.warehouse else None
         response_items.append(
             MiniAppOrderItemRead(
+                id=UUID(str(item.id)),
                 product_id=UUID(str(item.product_id)),
                 product_name=product_name,
                 quantity=item.quantity,
@@ -3804,6 +3817,7 @@ async def assign_miniapp_order_warehouses(
                 total_price_astrocoins=item.total_price_astrocoins,
                 warehouse_id=UUID(str(target_inventory.warehouse_id)),
                 warehouse_name=warehouse_name,
+                is_picked=item.is_picked,
             )
         )
         sheets_items.append(
@@ -3818,8 +3832,7 @@ async def assign_miniapp_order_warehouses(
             )
         )
 
-    if previous_status == OrderStatus.PROBLEM:
-        order.status = OrderStatus.RESERVED
+    order.status = OrderStatus.AWAITING_DELIVERY
 
     db.add(
         OrderStatusHistory(
@@ -3830,9 +3843,9 @@ async def assign_miniapp_order_warehouses(
             to_status=order.status,
             comment=payload.comment
             or (
-                "Проблема устранена, склад назначен администратором"
+                "Проблема устранена, склад назначен. Заказ ожидает доставки"
                 if previous_status == OrderStatus.PROBLEM
-                else "Склад назначен администратором"
+                else "Склад назначен. Заказ ожидает доставки"
             ),
         )
     )
@@ -3896,6 +3909,152 @@ async def assign_miniapp_order_warehouses(
     )
 
 
+async def set_miniapp_order_item_picked(
+    db: AsyncSession,
+    *,
+    order_id: UUID,
+    order_item_id: UUID,
+    payload: MiniAppOrderItemPickUpdate,
+    default_tenant_slug: str,
+) -> MiniAppOrderActionRead:
+    tenant, account, order, student, staff_role = await _load_order_action_context(
+        db,
+        order_id=order_id,
+        payload=MiniAppOrderActionCreate(
+            max_user_id=payload.max_user_id,
+            tenant_slug=payload.tenant_slug,
+        ),
+        default_tenant_slug=default_tenant_slug,
+        require_manager=True,
+    )
+    if staff_role not in FULFILLMENT_MANAGER_ROLES:
+        raise MiniAppStoreError("Нет прав на комплектацию заказа", status_code=403)
+    if order.status not in {
+        OrderStatus.AWAITING_DELIVERY,
+        OrderStatus.DELIVERED_TO_VENUE,
+        OrderStatus.TRANSFERRED_TO_TEACHER,
+    }:
+        raise MiniAppStoreError(
+            "Комплектацию можно отмечать после назначения склада",
+            status_code=409,
+        )
+
+    order_item = next(
+        (item for item in order.items if UUID(str(item.id)) == order_item_id),
+        None,
+    )
+    if order_item is None:
+        raise MiniAppStoreError("Позиция заказа не найдена", status_code=404)
+    if (
+        order_item.product
+        and order_item.product.fulfillment_type == ProductFulfillmentType.DIGITAL_CODE
+    ):
+        raise MiniAppStoreError("Цифровой товар не требует комплектации", status_code=409)
+
+    order_item.is_picked = payload.is_picked
+    order_item.picked_at = datetime.now(UTC) if payload.is_picked else None
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_account_id=account.id,
+            action="miniapp_order.item_pick_updated",
+            entity_type="order_item",
+            entity_id=str(order_item.id),
+            payload={
+                "order_id": str(order.id),
+                "order_number": order.order_number,
+                "product_id": str(order_item.product_id),
+                "is_picked": payload.is_picked,
+                "actor_role": staff_role.value,
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(order_item)
+    return MiniAppOrderActionRead(
+        order=_order_to_read(order, student),
+        balance_after=None,
+    )
+
+
+async def mark_miniapp_order_delivered_to_venue(
+    db: AsyncSession,
+    *,
+    order_id: UUID,
+    payload: MiniAppOrderActionCreate,
+    default_tenant_slug: str,
+) -> MiniAppOrderActionRead:
+    tenant, account, order, student, staff_role = await _load_order_action_context(
+        db,
+        order_id=order_id,
+        payload=payload,
+        default_tenant_slug=default_tenant_slug,
+        require_manager=True,
+    )
+    if staff_role not in FULFILLMENT_MANAGER_ROLES:
+        raise MiniAppStoreError("Нет прав на доставку заказа", status_code=403)
+    if order.status != OrderStatus.AWAITING_DELIVERY:
+        raise MiniAppStoreError(
+            "Доставленным на площадку можно отметить только заказ в пути",
+            status_code=409,
+        )
+
+    order.status = OrderStatus.DELIVERED_TO_VENUE
+    comment = payload.comment or "Заказ доставлен на площадку"
+    db.add(
+        OrderStatusHistory(
+            tenant_id=tenant.id,
+            order_id=order.id,
+            actor_account_id=account.id,
+            from_status=OrderStatus.AWAITING_DELIVERY,
+            to_status=order.status,
+            comment=comment,
+        )
+    )
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_account_id=account.id,
+            action="miniapp_order.delivered_to_venue",
+            entity_type="order",
+            entity_id=str(order.id),
+            payload={
+                "order_number": order.order_number,
+                "student_id": str(order.student_id),
+                "venue_name": order.venue_name,
+                "actor_role": staff_role.value,
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(order)
+    status_history = await _order_status_history_for_order(
+        db,
+        tenant_id=tenant.id,
+        order_id=order.id,
+    )
+    await schedule_order_notification(
+        db,
+        tenant=tenant,
+        order=order,
+        student=student,
+    )
+    await schedule_staff_order_notification(
+        db,
+        tenant=tenant,
+        order=order,
+        student=student,
+        event_key="orders.delivered_to_venue",
+        title="Заказ доставлен на площадку",
+        actor_name=account.display_name,
+        extra_facts=[("Площадка", order.venue_name or "Не указана")],
+    )
+    return MiniAppOrderActionRead(
+        order=_order_to_read(order, student, status_history=status_history),
+        balance_after=None,
+    )
+
+
 async def cancel_miniapp_order(
     db: AsyncSession,
     *,
@@ -3924,17 +4083,22 @@ async def cancel_miniapp_order(
         require_manager=False,
     )
     if staff_role is None:
-        if order.status != OrderStatus.RESERVED:
-            raise MiniAppStoreError(
-                "Ученик или родитель может отменить только зарезервированный заказ",
-                status_code=409,
-            )
         if any(item.warehouse_id is not None for item in order.items):
             raise MiniAppStoreError(
                 "Склад уже подтвержден. Для отмены обратитесь к сотруднику школы",
                 status_code=409,
             )
-    elif order.status not in {OrderStatus.RESERVED, OrderStatus.TRANSFERRED_TO_TEACHER}:
+        if order.status != OrderStatus.RESERVED:
+            raise MiniAppStoreError(
+                "Ученик или родитель может отменить только зарезервированный заказ",
+                status_code=409,
+            )
+    elif order.status not in {
+        OrderStatus.RESERVED,
+        OrderStatus.AWAITING_DELIVERY,
+        OrderStatus.DELIVERED_TO_VENUE,
+        OrderStatus.TRANSFERRED_TO_TEACHER,
+    }:
         raise MiniAppStoreError("Отменить можно только заказ в работе", status_code=409)
 
     out_of_stock_product_ids: set[UUID] = set()
@@ -4128,8 +4292,11 @@ async def issue_miniapp_order(
         default_tenant_slug=default_tenant_slug,
         require_manager=True,
     )
-    if order.status not in {OrderStatus.RESERVED, OrderStatus.TRANSFERRED_TO_TEACHER}:
-        raise MiniAppStoreError("Выдать можно только зарезервированный заказ", status_code=409)
+    if order.status != OrderStatus.TRANSFERRED_TO_TEACHER:
+        raise MiniAppStoreError(
+            "Передать заказ ученику можно после получения учителем",
+            status_code=409,
+        )
 
     for item in order.items:
         inventory = await _inventory_for_order_item(db, tenant_id=tenant.id, item=item)
@@ -4237,22 +4404,22 @@ async def transfer_miniapp_order_to_teacher(
         default_tenant_slug=default_tenant_slug,
         require_manager=True,
     )
-    if order.status != OrderStatus.RESERVED:
+    if order.status != OrderStatus.DELIVERED_TO_VENUE:
         raise MiniAppStoreError(
-            "Передать учителю можно только зарезервированный заказ",
+            "Учитель может получить заказ после доставки на площадку",
             status_code=409,
         )
     if any(item.warehouse_id is None for item in order.items):
         raise MiniAppStoreError("Сначала подтвердите склад для каждой позиции", status_code=409)
 
     order.status = OrderStatus.TRANSFERRED_TO_TEACHER
-    comment = payload.comment or "Заказ передан учителю"
+    comment = payload.comment or "Учитель получил заказ"
     db.add(
         OrderStatusHistory(
             tenant_id=tenant.id,
             order_id=order.id,
             actor_account_id=account.id,
-            from_status=OrderStatus.RESERVED,
+            from_status=OrderStatus.DELIVERED_TO_VENUE,
             to_status=order.status,
             comment=comment,
         )
@@ -4290,7 +4457,7 @@ async def transfer_miniapp_order_to_teacher(
         order=order,
         student=student,
         event_key="orders.transferred",
-        title="Заказ передан преподавателю",
+        title="Учитель получил заказ",
         actor_name=account.display_name,
         extra_facts=[("Преподаватель", order.teacher_name or "Не указан")],
     )
