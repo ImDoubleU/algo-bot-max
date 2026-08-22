@@ -359,12 +359,13 @@ async def seed_demo_orders(
             reserve_inventory(inventory, 1)
             order_number = last_order_number + index
             mode = (index - 1) % 4
-            warehouse_confirmed = mode in {2, 3}
+            warehouse_confirmed = mode > 0
             status = (
-                OrderStatus.TRANSFERRED_TO_TEACHER
-                if mode == 3
-                else OrderStatus.RESERVED
-            )
+                OrderStatus.RESERVED,
+                OrderStatus.AWAITING_DELIVERY,
+                OrderStatus.DELIVERED_TO_VENUE,
+                OrderStatus.TRANSFERRED_TO_TEACHER,
+            )[mode]
             created_at = now - timedelta(days=(count - index) % 8, minutes=index * 7)
             order = Order(
                 id=_id(run_id, f"order:{index:03d}"),
@@ -395,6 +396,8 @@ async def seed_demo_orders(
                     ),
                     unit_price_astrocoins=product.price_astrocoins,
                     total_price_astrocoins=product.price_astrocoins,
+                    is_picked=mode >= 2,
+                    picked_at=(created_at + timedelta(minutes=18) if mode >= 2 else None),
                     created_at=created_at,
                     updated_at=created_at,
                 )
@@ -437,23 +440,41 @@ async def seed_demo_orders(
                         order_id=order.id,
                         actor_account_id=None,
                         from_status=OrderStatus.RESERVED,
-                        to_status=OrderStatus.RESERVED,
-                        comment=f"Склад подтвержден: {inventory.warehouse.name}",
+                        to_status=OrderStatus.AWAITING_DELIVERY,
+                        comment=(
+                            f"Склад подтвержден: {inventory.warehouse.name}. "
+                            "Заказ ожидает доставки"
+                        ),
                         created_at=assigned_at,
                         updated_at=assigned_at,
                     )
                 )
+            if status in {OrderStatus.DELIVERED_TO_VENUE, OrderStatus.TRANSFERRED_TO_TEACHER}:
+                delivered_at = created_at + timedelta(minutes=25)
+                db.add(
+                    OrderStatusHistory(
+                        id=_id(run_id, f"history:{index:03d}:delivered"),
+                        tenant_id=tenant.id,
+                        order_id=order.id,
+                        actor_account_id=None,
+                        from_status=OrderStatus.AWAITING_DELIVERY,
+                        to_status=OrderStatus.DELIVERED_TO_VENUE,
+                        comment="Заказ доставлен на площадку",
+                        created_at=delivered_at,
+                        updated_at=delivered_at,
+                    )
+                )
             if status == OrderStatus.TRANSFERRED_TO_TEACHER:
-                transferred_at = created_at + timedelta(minutes=25)
+                transferred_at = created_at + timedelta(minutes=35)
                 db.add(
                     OrderStatusHistory(
                         id=_id(run_id, f"history:{index:03d}:transferred"),
                         tenant_id=tenant.id,
                         order_id=order.id,
                         actor_account_id=None,
-                        from_status=OrderStatus.RESERVED,
+                        from_status=OrderStatus.DELIVERED_TO_VENUE,
                         to_status=OrderStatus.TRANSFERRED_TO_TEACHER,
-                        comment=f"Передан преподавателю {student.teacher_name}",
+                        comment=f"Учитель получил заказ: {student.teacher_name}",
                         created_at=transferred_at,
                         updated_at=transferred_at,
                     )

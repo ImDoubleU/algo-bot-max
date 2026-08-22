@@ -62,6 +62,7 @@ from app.schemas.miniapp import (
     MiniAppOrderCancelCreate,
     MiniAppOrderCreate,
     MiniAppOrderCreatedRead,
+    MiniAppOrderItemPickUpdate,
     MiniAppOrderWarehouseAssignmentCreate,
     MiniAppProductImportRead,
     MiniAppProductRead,
@@ -120,8 +121,10 @@ from app.services.miniapp import (
     list_miniapp_student_ledger,
     list_miniapp_student_registry,
     list_miniapp_teacher_invitations,
+    mark_miniapp_order_delivered_to_venue,
     replace_miniapp_cart,
     return_miniapp_order,
+    set_miniapp_order_item_picked,
     set_miniapp_student_balance,
     set_miniapp_warehouse_preference,
     transfer_miniapp_inventory,
@@ -1253,6 +1256,59 @@ async def miniapp_transfer_order_to_teacher(
         return await transfer_miniapp_order_to_teacher(
             db,
             order_id=order_id,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/orders/{order_id}/delivered-to-venue", response_model=MiniAppOrderActionRead)
+async def miniapp_mark_order_delivered_to_venue(
+    order_id: UUID,
+    payload: MiniAppOrderActionCreate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppOrderActionRead:
+    settings = get_settings()
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await mark_miniapp_order_delivered_to_venue(
+            db,
+            order_id=order_id,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post(
+    "/orders/{order_id}/items/{order_item_id}/picked",
+    response_model=MiniAppOrderActionRead,
+)
+async def miniapp_set_order_item_picked(
+    order_id: UUID,
+    order_item_id: UUID,
+    payload: MiniAppOrderItemPickUpdate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppOrderActionRead:
+    settings = get_settings()
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await set_miniapp_order_item_picked(
+            db,
+            order_id=order_id,
+            order_item_id=order_item_id,
             payload=payload,
             default_tenant_slug=settings.default_tenant_slug,
         )

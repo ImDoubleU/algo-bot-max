@@ -39,6 +39,7 @@ from app.schemas.miniapp import (
     MiniAppOrderCancelCreate,
     MiniAppOrderCreate,
     MiniAppOrderItemCreate,
+    MiniAppOrderItemPickUpdate,
     MiniAppOrderWarehouseAssignmentCreate,
     MiniAppOrderWarehouseAssignmentItem,
     MiniAppProductInventoryWrite,
@@ -60,7 +61,9 @@ from app.services.miniapp import (
     issue_miniapp_order,
     list_miniapp_admin_history,
     list_miniapp_catalog,
+    mark_miniapp_order_delivered_to_venue,
     return_miniapp_order,
+    set_miniapp_order_item_picked,
     set_miniapp_warehouse_preference,
     transfer_miniapp_inventory,
     upsert_miniapp_product,
@@ -591,7 +594,7 @@ async def test_admin_assigns_order_warehouse_after_checkout(
     )
 
     assert assigned.order.items[0].warehouse_name == "Общий склад"
-    assert assigned.order.status == OrderStatus.RESERVED
+    assert assigned.order.status == OrderStatus.AWAITING_DELIVERY
     await db_session.refresh(common_inventory)
     await db_session.refresh(venue_inventory)
     assert common_inventory.reserved_quantity == 3
@@ -696,7 +699,7 @@ async def test_parent_cannot_cancel_after_warehouse_is_confirmed(db_session) -> 
         )
 
 
-async def test_staff_can_issue_reserved_order(db_session) -> None:
+async def test_staff_completes_physical_order_workflow(db_session) -> None:
     student = await seed_linked_student(db_session)
     product, inventory = await seed_product(db_session, student)
     account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
@@ -731,7 +734,7 @@ async def test_staff_can_issue_reserved_order(db_session) -> None:
         )
     )
     await db_session.commit()
-    await assign_miniapp_order_warehouses(
+    assigned = await assign_miniapp_order_warehouses(
         db_session,
         order_id=created.order.id,
         payload=MiniAppOrderWarehouseAssignmentCreate(
@@ -746,6 +749,41 @@ async def test_staff_can_issue_reserved_order(db_session) -> None:
         ),
         default_tenant_slug="nizhniy-novgorod-partner-a",
     )
+
+    picked = await set_miniapp_order_item_picked(
+        db_session,
+        order_id=created.order.id,
+        order_item_id=assigned.order.items[0].id,
+        payload=MiniAppOrderItemPickUpdate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            is_picked=True,
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    assert picked.order.items[0].is_picked is True
+
+    delivered = await mark_miniapp_order_delivered_to_venue(
+        db_session,
+        order_id=created.order.id,
+        payload=MiniAppOrderActionCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    assert delivered.order.status == OrderStatus.DELIVERED_TO_VENUE
+
+    transferred = await miniapp_service.transfer_miniapp_order_to_teacher(
+        db_session,
+        order_id=created.order.id,
+        payload=MiniAppOrderActionCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    assert transferred.order.status == OrderStatus.TRANSFERRED_TO_TEACHER
 
     issued = await issue_miniapp_order(
         db_session,
@@ -815,6 +853,24 @@ async def test_staff_can_return_issued_order_and_refund_wallet(db_session) -> No
                     warehouse_id=inventory.warehouse_id,
                 )
             ],
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    await mark_miniapp_order_delivered_to_venue(
+        db_session,
+        order_id=created.order.id,
+        payload=MiniAppOrderActionCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    await miniapp_service.transfer_miniapp_order_to_teacher(
+        db_session,
+        order_id=created.order.id,
+        payload=MiniAppOrderActionCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
         ),
         default_tenant_slug="nizhniy-novgorod-partner-a",
     )

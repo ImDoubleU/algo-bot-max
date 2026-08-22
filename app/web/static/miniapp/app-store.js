@@ -255,7 +255,9 @@ function renderDashboardOrders() {
   const teacherView = primaryStaffRole() === "teacher";
   const roleOrders = ordersForCurrentRole();
   const visible = (teacherView
-    ? roleOrders.filter((order) => order.rawStatus === "transferred_to_teacher")
+    ? roleOrders.filter((order) =>
+        ["delivered_to_venue", "transferred_to_teacher"].includes(order.rawStatus),
+      )
     : roleOrders
   ).slice(0, 4);
   if (visible.length === 0) {
@@ -277,7 +279,7 @@ function renderDashboardOrders() {
             <div class="student-meta">${escapeHtml(order.item)}</div>
             ${teacherView && order.warehouse ? `<div class="compact-order-warehouse"><i data-lucide="warehouse"></i> Забрать: ${escapeHtml(order.warehouse)}</div>` : ""}
           </div>
-          <span class="status-badge ${order.tone}">${escapeHtml(order.status)}</span>
+          <span class="status-badge ${orderStatusTone(order.rawStatus)}">${escapeHtml(orderStatusLabel(order.rawStatus))}</span>
         </button>
       `,
     )
@@ -686,8 +688,8 @@ function renderCheckoutSummary() {
         <strong>${isDigitalCheckout ? "Где найти код после покупки" : "Что будет после оформления"}</strong>
         <span>${
           isDigitalCheckout
-            ? "Откройте «Заказы» → «Выполненные» и нажмите на заказ. Код и кнопка копирования будут внутри."
-            : "Заказ появится в разделе «В работе». Администратор выберет склад и подтвердит дальнейшую выдачу."
+            ? "Откройте «Заказы» → «Переданы ученикам» и нажмите на заказ. Код и кнопка копирования будут внутри."
+            : "Заказ появится в разделе «Зарезервированы». Затем сотрудник выберет склад и начнет комплектацию."
         }</span>
       </div>
     </div>
@@ -864,7 +866,14 @@ function closeProductDialog() {
 }
 
 function isOpenOrderStatus(status) {
-  return ["created", "reserved", "transferred_to_teacher", "problem"].includes(status);
+  return [
+    "created",
+    "reserved",
+    "awaiting_delivery",
+    "delivered_to_venue",
+    "transferred_to_teacher",
+    "problem",
+  ].includes(status);
 }
 
 function orderHasAssignedWarehouses(order) {
@@ -895,22 +904,37 @@ function canAssignOrderWarehouses(order) {
 function canIssueOrder(order) {
   return (
     ["teacher", "admin"].includes(state.role) &&
-    ["reserved", "transferred_to_teacher"].includes(order.rawStatus) &&
+    order.rawStatus === "transferred_to_teacher" &&
     orderHasAssignedWarehouses(order)
   );
 }
 
 function canTransferOrder(order) {
   return (
-    state.role === "admin" &&
-    order.rawStatus === "reserved" &&
+    ["teacher", "admin"].includes(state.role) &&
+    order.rawStatus === "delivered_to_venue" &&
     orderHasAssignedWarehouses(order)
+  );
+}
+
+function canMarkOrderDelivered(order) {
+  return (
+    ["superadmin", "partner_director", "admin", "curator"].includes(primaryStaffRole()) &&
+    order.rawStatus === "awaiting_delivery" &&
+    orderHasAssignedWarehouses(order)
+  );
+}
+
+function canPickOrderItem(order) {
+  return (
+    ["superadmin", "partner_director", "admin", "curator"].includes(primaryStaffRole()) &&
+    ["awaiting_delivery", "delivered_to_venue", "transferred_to_teacher"].includes(order.rawStatus)
   );
 }
 
 function canCancelOrder(order) {
   if (["teacher", "admin"].includes(state.role)) {
-    return ["reserved", "transferred_to_teacher"].includes(order.rawStatus);
+    return ["reserved", "awaiting_delivery", "delivered_to_venue", "transferred_to_teacher"].includes(order.rawStatus);
   }
   return order.rawStatus === "reserved" && !orderHasAssignedWarehouses(order);
 }
@@ -930,7 +954,8 @@ function orderMatchesStatusFilter(order) {
 function orderMatchesNamedFilter(order, filter) {
   if (filter === "all") return true;
   if (filter === "action") return ["created", "problem"].includes(order.rawStatus);
-  if (filter === "work") return ["reserved", "transferred_to_teacher"].includes(order.rawStatus);
+  if (filter === "reserved") return ["created", "reserved"].includes(order.rawStatus);
+  if (filter === "work") return isOpenOrderStatus(order.rawStatus);
   if (filter === "issued") return order.rawStatus === "issued_to_student";
   if (filter === "cancelled") return ["cancelled", "returned"].includes(order.rawStatus);
   if (filter === "open") return isOpenOrderStatus(order.rawStatus);
@@ -975,13 +1000,12 @@ function orderActionDescriptors(order) {
   const descriptors = [];
   if (canAssignOrderWarehouses(order)) {
     descriptors.push({ action: "open", label: "Назначить склад", icon: "warehouse" });
+  } else if (canMarkOrderDelivered(order)) {
+    descriptors.push({ action: "deliver", label: "Доставлен на площадку", icon: "map-pin-check" });
   } else if (canTransferOrder(order)) {
-    descriptors.push({ action: "transfer", label: "Передать педагогу", icon: "send" });
-    if (canIssueOrder(order)) {
-      descriptors.push({ action: "issue", label: "Выдать заказ", icon: "package-check" });
-    }
+    descriptors.push({ action: "transfer", label: "Учитель получил", icon: "handshake" });
   } else if (canIssueOrder(order)) {
-    descriptors.push({ action: "issue", label: "Выдать заказ", icon: "package-check" });
+    descriptors.push({ action: "issue", label: "Передать ученику", icon: "package-check" });
   } else {
     descriptors.push({ action: "open", label: "Подробнее", icon: "eye" });
   }
@@ -1033,6 +1057,20 @@ function formatOrderDate(value) {
   });
 }
 
+function orderCountText(count) {
+  const value = Math.abs(Number(count || 0));
+  const lastTwo = value % 100;
+  const last = value % 10;
+  const noun = lastTwo >= 11 && lastTwo <= 14
+    ? "заказов"
+    : last === 1
+      ? "заказ"
+      : last >= 2 && last <= 4
+        ? "заказа"
+        : "заказов";
+  return `${value} ${noun}`;
+}
+
 function orderTotalValue(order) {
   if (Number(order.total || 0) > 0) return Number(order.total);
   return (order.items || []).reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
@@ -1056,10 +1094,16 @@ function renderOrderStatusTabs() {
   const roleOrders = ordersForCurrentRole();
   const tabs = [
     ["all", "Все"],
-    ["work", "В работе"],
-    ["issued", "Выполненные"],
+    ["reserved", "Зарезервированы"],
+    ["awaiting_delivery", "Ожидают доставки"],
+    ["delivered_to_venue", "На площадке"],
+    ["transferred_to_teacher", "У учителя"],
+    ["issued_to_student", "Переданы ученикам"],
     ["cancelled", "Отменены"],
   ];
+  if (roleOrders.some((order) => order.rawStatus === "problem")) {
+    tabs.push(["problem", "Требуют внимания"]);
+  }
   container.innerHTML = tabs
     .map(([value, label]) => {
       const count = value === "all"
@@ -1112,22 +1156,66 @@ function orderFulfillmentSummaryOrders() {
   const physicalOrders = ordersForCurrentRole().filter(
     (order) => !orderIsDigital(order) && Array.isArray(order.items) && order.items.length > 0,
   );
-  if (["superadmin", "partner_director", "admin"].includes(staffRole)) {
-    return physicalOrders.filter((order) =>
-      ["created", "reserved", "transferred_to_teacher", "problem"].includes(order.rawStatus),
+  let result = [];
+  if (["superadmin", "partner_director", "admin", "curator"].includes(staffRole)) {
+    result = physicalOrders.filter((order) => isOpenOrderStatus(order.rawStatus));
+  } else if (staffRole === "teacher") {
+    result = physicalOrders.filter((order) =>
+      ["delivered_to_venue", "transferred_to_teacher"].includes(order.rawStatus),
     );
   }
-  if (staffRole === "teacher") {
-    return physicalOrders.filter((order) => order.rawStatus === "transferred_to_teacher");
+  if (["all", "work", "open"].includes(state.orderStatusFilter)) {
+    return result;
   }
-  return [];
+  return result.filter((order) => orderMatchesNamedFilter(order, state.orderStatusFilter));
+}
+
+function fulfillmentSummaryCopy(isTeacher) {
+  if (isTeacher) {
+    return {
+      eyebrow: "Получение и выдача",
+      title: "Заказы ваших учеников",
+      description: "Подтвердите получение заказа, затем отметьте передачу ученику.",
+    };
+  }
+  return {
+    reserved: {
+      eyebrow: "Шаг 1",
+      title: "Назначение складов",
+      description: "Проверьте резерв и назначьте склад для каждого заказа.",
+    },
+    awaiting_delivery: {
+      eyebrow: "Шаг 2",
+      title: "Комплектация и доставка",
+      description: "Отмечайте собранные позиции и доставляйте их на площадки.",
+    },
+    delivered_to_venue: {
+      eyebrow: "Шаг 3",
+      title: "Передача учителям",
+      description: "Товары уже на площадке и готовы к передаче преподавателям.",
+    },
+    transferred_to_teacher: {
+      eyebrow: "Шаг 4",
+      title: "Выдача ученикам",
+      description: "Учителя получили заказы и передают их ученикам.",
+    },
+    all: {
+      eyebrow: "Комплектация",
+      title: "Заказы по площадкам",
+      description: "Откройте площадку и используйте список как чек-лист сборки.",
+    },
+  }[state.orderStatusFilter] || {
+    eyebrow: "Комплектация",
+    title: "Заказы по площадкам",
+    description: "Откройте площадку и используйте список как чек-лист сборки.",
+  };
 }
 
 function renderOrderFulfillmentSummary() {
   const container = qs("#orderFulfillmentSummary");
   if (!container) return;
   const staffRole = primaryStaffRole();
-  const isManager = ["superadmin", "partner_director", "admin"].includes(staffRole);
+  const isManager = ["superadmin", "partner_director", "admin", "curator"].includes(staffRole);
   const isTeacher = staffRole === "teacher";
   const summaryOrders = orderFulfillmentSummaryOrders();
   const visible = (isManager || isTeacher) && summaryOrders.length > 0;
@@ -1149,27 +1237,32 @@ function renderOrderFulfillmentSummary() {
 
   const venueMarkup = [...venues.entries()]
     .sort(([left], [right]) => left.localeCompare(right, "ru"))
-    .map(([venueName, teachers]) => {
+    .map(([venueName, teachers], venueIndex) => {
       const venueOrderCount = [...teachers.values()].reduce((sum, rows) => sum + rows.length, 0);
+      const venueItems = [...teachers.values()].flatMap((rows) => rows.flatMap((order) => order.items || []));
+      const venuePicked = venueItems.filter((item) => item.isPicked).length;
       const teacherMarkup = [...teachers.entries()]
         .sort(([left], [right]) => left.localeCompare(right, "ru"))
         .map(([teacherName, teacherOrders]) => {
-          const productsByWarehouse = new Map();
+          const pickingRows = [];
           teacherOrders.forEach((order) => {
-            (order.items || []).forEach((item) => {
+            (order.items || []).forEach((item, itemIndex) => {
               if (item.fulfillmentType === "digital_code") return;
-              const warehouse = summaryWarehouseLabel(item);
-              const key = `${item.productId || item.productName}|${warehouse}`;
-              if (!productsByWarehouse.has(key)) {
-                productsByWarehouse.set(key, {
-                  name: item.productName || "Товар",
-                  quantity: 0,
-                  warehouse,
-                });
-              }
-              productsByWarehouse.get(key).quantity += Number(item.quantity || 0);
+              pickingRows.push({ order, item, itemIndex });
             });
           });
+          pickingRows.sort((left, right) => {
+            const warehouseCompare = summaryWarehouseLabel(left.item).localeCompare(
+              summaryWarehouseLabel(right.item),
+              "ru",
+            );
+            if (warehouseCompare) return warehouseCompare;
+            return String(left.item.productName || "").localeCompare(
+              String(right.item.productName || ""),
+              "ru",
+            );
+          });
+          const pickedCount = pickingRows.filter(({ item }) => item.isPicked).length;
           const assignableOrders = isManager
             ? teacherOrders.filter(
                 (order) =>
@@ -1177,36 +1270,43 @@ function renderOrderFulfillmentSummary() {
                   (order.items || []).every((item) => Boolean(orderPreferredWarehouseId(item))),
               )
             : [];
-          const orderButtons = teacherOrders
-            .map((order) => {
-              const needsWarehouse = canAssignOrderWarehouses(order);
-              const label = isTeacher
-                ? `№${order.id} · ${order.student}`
-                : `№${order.id} · ${needsWarehouse ? "назначить склад" : order.student}`;
-              return `<button class="fulfillment-order-link" type="button" data-open-order="${escapeHtml(order.backendId || order.id)}">${escapeHtml(label)}</button>`;
-            })
-            .join("");
           return `
             <article class="fulfillment-teacher-group">
               <div class="fulfillment-teacher-head">
                 <div><i data-lucide="user-round"></i><strong>${escapeHtml(teacherName)}</strong></div>
-                <span>Заказов: ${teacherOrders.length}</span>
+                <span>Собрано ${pickedCount} из ${pickingRows.length}</span>
               </div>
               <div class="fulfillment-product-list">
-                ${[...productsByWarehouse.values()]
-                  .sort((left, right) => left.name.localeCompare(right.name, "ru"))
-                  .map(
-                    (item) => `
-                      <div class="fulfillment-product-row">
-                        <strong>${escapeHtml(item.name)}</strong>
-                        <b>${item.quantity} шт.</b>
-                        <span><i data-lucide="warehouse"></i>${escapeHtml(item.warehouse)}</span>
-                      </div>`,
-                  )
+                ${pickingRows
+                  .map(({ order, item, itemIndex }) => {
+                    const itemId = item.id || `${order.backendId || order.id}-${itemIndex}`;
+                    const canPick = canPickOrderItem(order);
+                    return `
+                      <div class="fulfillment-product-row ${item.isPicked ? "is-picked" : ""}">
+                        <label class="fulfillment-pick-check" title="${item.isPicked ? "Снять отметку" : "Отметить как собранное"}">
+                          <input
+                            type="checkbox"
+                            data-order-item-pick="${escapeHtml(itemId)}"
+                            data-pick-order-id="${escapeHtml(order.backendId || order.id)}"
+                            ${item.isPicked ? "checked" : ""}
+                            ${canPick ? "" : "disabled"}
+                          />
+                          <span><i data-lucide="check"></i></span>
+                        </label>
+                        <span class="fulfillment-product-copy">
+                          <strong>${escapeHtml(item.productName || "Товар")}</strong>
+                          <small>№${escapeHtml(order.id)} · ${escapeHtml(order.student)}</small>
+                        </span>
+                        <b>${Number(item.quantity || 0)} шт.</b>
+                        <span class="fulfillment-warehouse"><i data-lucide="warehouse"></i>${escapeHtml(summaryWarehouseLabel(item))}</span>
+                        <span class="fulfillment-stage">${escapeHtml(orderStatusLabel(order.rawStatus))}</span>
+                        <button class="fulfillment-order-link" type="button" data-open-order="${escapeHtml(order.backendId || order.id)}" title="Открыть заказ" aria-label="Открыть заказ №${escapeHtml(order.id)}"><i data-lucide="arrow-up-right"></i></button>
+                      </div>`;
+                  })
                   .join("")}
               </div>
               <div class="fulfillment-group-actions">
-                <div class="fulfillment-order-links">${orderButtons}</div>
+                <span>${orderCountText(teacherOrders.length)}</span>
                 ${assignableOrders.length
                   ? `<button class="secondary-action" type="button" data-confirm-summary-warehouses="${escapeHtml(assignableOrders.map((order) => order.backendId || order.id).join(","))}"><i data-lucide="warehouse"></i>Подтвердить склады (${assignableOrders.length})</button>`
                   : ""}
@@ -1215,30 +1315,36 @@ function renderOrderFulfillmentSummary() {
         })
         .join("");
       return `
-        <details class="fulfillment-venue" open>
+        <details class="fulfillment-venue" ${venueIndex === 0 ? "open" : ""}>
           <summary>
             <span><i data-lucide="map-pin"></i><strong>${escapeHtml(venueName)}</strong></span>
-            <b>Заказов: ${venueOrderCount}</b>
+            <b>${orderCountText(venueOrderCount)} · ${venuePicked}/${venueItems.length} собрано</b>
           </summary>
           <div class="fulfillment-teachers">${teacherMarkup}</div>
         </details>`;
     })
     .join("");
 
+  const copy = fulfillmentSummaryCopy(isTeacher);
+  const allItems = summaryOrders.flatMap((order) => order.items || []);
+  const allPicked = allItems.filter((item) => item.isPicked).length;
   container.innerHTML = `
     <div class="fulfillment-summary-head">
       <div>
-        <span>${isTeacher ? "К выдаче" : "Комплектация"}</span>
-        <h3>${isTeacher ? "Передано вам" : "Заказы по площадкам"}</h3>
-        <p>${isTeacher ? "Проверьте товары и склады перед выдачей ученикам." : "Сначала площадка, затем преподаватель, товары и склады."}</p>
+        <span>${escapeHtml(copy.eyebrow)}</span>
+        <h3>${escapeHtml(copy.title)}</h3>
+        <p>${escapeHtml(copy.description)}</p>
       </div>
-      <strong>${summaryOrders.length}</strong>
+      <strong title="Собранные позиции">${allPicked}/${allItems.length}</strong>
     </div>
     <div class="fulfillment-venue-list">${venueMarkup}</div>`;
 }
 
 function renderOrders() {
-  if (state.orderStatusFilter === "action") state.orderStatusFilter = "all";
+  if (["action", "work", "open"].includes(state.orderStatusFilter)) {
+    state.orderStatusFilter = "all";
+  }
+  if (state.orderStatusFilter === "issued") state.orderStatusFilter = "issued_to_student";
   const searchInput = qs("#orderSearch");
   const statusFilter = qs("#orderStatusFilter");
   if (searchInput) searchInput.value = state.orderSearch;
@@ -1266,16 +1372,18 @@ function renderOrders() {
       const age = orderAgeLabel(order.createdAt);
       const total = orderTotalValue(order);
       const product = productById(order.items?.[0]?.productId || "");
-      const displayStatus = orderIsDigital(order) ? "Выполнен" : order.status;
+      const displayStatus = orderIsDigital(order)
+        ? "Заказ передан ученику"
+        : orderStatusLabel(order.rawStatus);
       return `
-        <article class="order-card" data-tone="${escapeHtml(order.tone)}">
+        <article class="order-card" data-tone="${escapeHtml(orderStatusTone(order.rawStatus))}">
           <button class="order-card-visual" type="button" data-open-order="${escapeHtml(order.backendId || order.id)}" aria-label="Открыть заказ №${escapeHtml(order.id)}">
             ${product?.photoUrl ? `<img src="${escapeHtml(product.photoUrl)}" alt="" loading="lazy" />` : `<i data-lucide="${product ? productFallbackIcon(product) : "package"}"></i>`}
           </button>
           <div class="order-card-main">
             <div class="order-card-head">
               <strong class="order-number">Заказ №${escapeHtml(order.id)}</strong>
-              <span class="status-badge ${order.tone}">${escapeHtml(displayStatus)}</span>
+              <span class="status-badge ${orderStatusTone(order.rawStatus)}">${escapeHtml(displayStatus)}</span>
             </div>
             <strong class="order-card-student">${escapeHtml(order.student)}</strong>
             <div class="order-card-items">${escapeHtml(order.item)}</div>

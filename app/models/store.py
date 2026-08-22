@@ -205,6 +205,8 @@ class OrderItem(TimestampMixin, Base):
     )
     unit_price_astrocoins: Mapped[int] = mapped_column(Integer, nullable=False)
     total_price_astrocoins: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_picked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    picked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     order = relationship("Order", back_populates="items")
     product = relationship("Product", back_populates="order_items")

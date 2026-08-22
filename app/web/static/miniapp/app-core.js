@@ -437,8 +437,8 @@ let orders = [
     student: "Васильева Алиса",
     item: "Ручка металл с лого",
     warehouse: "Назначается администратором",
-    status: "Зарезервировано",
-    tone: "ok",
+    status: "Зарезервирован",
+    tone: "warn",
     total: 120,
     createdAt: "2026-06-16T12:30:00Z",
     items: [
@@ -465,8 +465,8 @@ let orders = [
     student: "Петров Иван",
     item: "Кружка Python",
     warehouse: "Общий склад",
-    status: "Передан педагогу",
-    tone: "warn",
+    status: "Учитель получил заказ",
+    tone: "ok",
     total: 520,
     createdAt: "2026-06-15T16:10:00Z",
     items: [
@@ -480,7 +480,7 @@ let orders = [
       },
     ],
     statusHistory: [
-      { fromStatus: "reserved", toStatus: "transferred_to_teacher", comment: "Передано педагогу", createdAt: "2026-06-16T09:00:00Z" },
+      { fromStatus: "delivered_to_venue", toStatus: "transferred_to_teacher", comment: "Учитель получил заказ", createdAt: "2026-06-16T09:00:00Z" },
     ],
   },
   {
@@ -1123,9 +1123,14 @@ function restorePreferences() {
       ? preferences.recentProductSearches.map(String).filter(Boolean).slice(0, 5)
       : [];
     state.railCollapsed = Boolean(preferences.railCollapsed);
-    const storedOrderFilter = ["open", "action"].includes(preferences.orderStatusFilter)
-      ? "all"
-      : preferences.orderStatusFilter;
+    const legacyOrderFilters = {
+      open: "all",
+      action: "all",
+      work: "all",
+      issued: "issued_to_student",
+    };
+    const storedOrderFilter = legacyOrderFilters[preferences.orderStatusFilter]
+      || preferences.orderStatusFilter;
     if (
       [
         "work",
@@ -1134,6 +1139,8 @@ function restorePreferences() {
         "all",
         "created",
         "reserved",
+        "awaiting_delivery",
+        "delivered_to_venue",
         "transferred_to_teacher",
         "issued_to_student",
         "returned",
@@ -1456,10 +1463,12 @@ function parseDemoImport(text) {
 
 function orderStatusLabel(status) {
   return {
-    created: "Оформлен",
-    reserved: "Зарезервировано",
-    transferred_to_teacher: "Передан педагогу",
-    issued_to_student: "Выдан ученику",
+    created: "Зарезервирован",
+    reserved: "Зарезервирован",
+    awaiting_delivery: "Ожидает доставки",
+    delivered_to_venue: "Доставлен на площадку",
+    transferred_to_teacher: "Учитель получил заказ",
+    issued_to_student: "Заказ передан ученику",
     cancelled: "Отменен",
     returned: "Возвращен",
     coins_refunded: "Монеты возвращены",
@@ -1468,8 +1477,8 @@ function orderStatusLabel(status) {
 }
 
 function orderStatusTone(status) {
-  if (["issued_to_student", "reserved"].includes(status)) return "ok";
-  if (["transferred_to_teacher", "created"].includes(status)) return "warn";
+  if (["issued_to_student", "transferred_to_teacher", "delivered_to_venue"].includes(status)) return "ok";
+  if (["reserved", "awaiting_delivery", "created"].includes(status)) return "warn";
   return "danger";
 }
 
@@ -1557,7 +1566,7 @@ function buildLocalOpsSummary() {
     total_orders: orders.length,
     open_orders: orders.filter((order) => isOpenOrderStatus(order.rawStatus)).length,
     pending_issue_orders: orders.filter((order) =>
-      ["reserved", "transferred_to_teacher"].includes(order.rawStatus),
+      ["reserved", "awaiting_delivery", "delivered_to_venue", "transferred_to_teacher"].includes(order.rawStatus),
     ).length,
     order_statuses: Array.from(orderStatuses.entries()).map(([status, count]) => ({
       status,
@@ -1621,7 +1630,8 @@ function ledgerAmount(entry) {
 }
 
 function normalizeOrderItems(order) {
-  return (order.items || []).map((item) => ({
+  return (order.items || []).map((item, index) => ({
+    id: String(item.id || `${order.id || order.order_number || "order"}-${index}`),
     productId: String(item.product_id || ""),
     productName: item.product_name || item.name || "Товар",
     quantity: Number(item.quantity || 0),
@@ -1635,6 +1645,7 @@ function normalizeOrderItems(order) {
     suggestedWarehouseName: item.suggested_warehouse_name || "",
     fulfillmentType: item.fulfillment_type || "warehouse",
     issuedCodes: Array.isArray(item.issued_codes) ? item.issued_codes : [],
+    isPicked: Boolean(item.is_picked),
   }));
 }
 
