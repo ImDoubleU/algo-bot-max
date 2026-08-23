@@ -1444,6 +1444,14 @@ function fulfillmentChecklistWarehouses(rows) {
 function renderOrderFulfillmentSummary() {
   const container = qs("#orderFulfillmentSummary");
   if (!container) return;
+  const previousVenueElements = [...container.querySelectorAll(".fulfillment-venue")];
+  const hadRenderedVenues = previousVenueElements.length > 0;
+  const openVenueNames = new Set(
+    previousVenueElements
+      .filter((venue) => venue.open)
+      .map((venue) => venue.dataset.fulfillmentVenue)
+      .filter(Boolean),
+  );
   const staffRole = primaryStaffRole();
   const isManager = ["superadmin", "partner_director", "admin", "curator"].includes(staffRole);
   const isTeacher = staffRole === "teacher";
@@ -1674,7 +1682,8 @@ function renderOrderFulfillmentSummary() {
         <div class="fulfillment-route-list">
           ${[...routeVenues.entries()].sort(([left], [right]) => left.localeCompare(right, "ru")).map(([venueName, teachers], venueIndex) => {
             const venueOrders = [...teachers.values()].flat();
-            return `<details class="fulfillment-venue" ${venueIndex === 0 ? "open" : ""}>
+            const venueOpen = openVenueNames.has(venueName) || (!hadRenderedVenues && venueIndex === 0);
+            return `<details class="fulfillment-venue" data-fulfillment-venue="${escapeHtml(venueName)}" ${venueOpen ? "open" : ""}>
               <summary><span><i data-lucide="map-pin"></i><strong>${escapeHtml(venueName)}</strong></span><span class="fulfillment-venue-meta"><b>${orderCountText(venueOrders.length)}</b><i data-lucide="chevron-down"></i></span></summary>
               <div class="fulfillment-route-teachers">
                 ${[...teachers.entries()].sort(([left], [right]) => left.localeCompare(right, "ru")).map(([teacherName, teacherOrders]) => `
