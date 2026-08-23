@@ -75,8 +75,9 @@ const state = {
   studentGroupFilter: "all",
   orderStatusFilter: "all",
   orderSearch: "",
-  fulfillmentMode: "collect",
+  fulfillmentMode: "assign",
   fulfillmentFocus: "all",
+  fulfillmentStageSnapshot: null,
   selectedFulfillmentOrders: new Set(),
   fulfillmentSaving: false,
   accrualGroup: "",
@@ -684,8 +685,25 @@ function qsa(selector) {
   return Array.from(document.querySelectorAll(selector));
 }
 
+let refreshIconsTimer = null;
+let refreshIconsAttempts = 0;
+
 function refreshIcons() {
-  if (!window.lucide?.createIcons) return;
+  if (!window.lucide?.createIcons) {
+    if (!refreshIconsTimer && refreshIconsAttempts < 20) {
+      refreshIconsAttempts += 1;
+      refreshIconsTimer = window.setTimeout(() => {
+        refreshIconsTimer = null;
+        refreshIcons();
+      }, 75);
+    }
+    return;
+  }
+  refreshIconsAttempts = 0;
+  if (refreshIconsTimer) {
+    window.clearTimeout(refreshIconsTimer);
+    refreshIconsTimer = null;
+  }
   window.lucide.createIcons({
     attrs: {
       "aria-hidden": "true",
@@ -1250,7 +1268,7 @@ function restorePreferences() {
       ? preferences.recentProductSearches.map(String).filter(Boolean).slice(0, 5)
       : [];
     state.railCollapsed = Boolean(preferences.railCollapsed);
-    if (["collect", "route"].includes(preferences.fulfillmentMode)) {
+    if (["assign", "collect", "route"].includes(preferences.fulfillmentMode)) {
       state.fulfillmentMode = preferences.fulfillmentMode;
     }
     if (["all", "unpicked", "unassigned"].includes(preferences.fulfillmentFocus)) {
