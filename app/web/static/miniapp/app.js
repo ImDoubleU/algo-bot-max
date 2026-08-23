@@ -2103,6 +2103,14 @@ document.addEventListener("click", (event) => {
     savePreferences();
   }
 
+  const fulfillmentVenuesAction = target.dataset.fulfillmentVenues;
+  if (["open", "close"].includes(fulfillmentVenuesAction)) {
+    const shouldOpen = fulfillmentVenuesAction === "open";
+    qsa("#orderFulfillmentSummary .fulfillment-venue").forEach((venue) => {
+      venue.open = shouldOpen;
+    });
+  }
+
   const staffStatusFilter = target.dataset.staffStatusFilter;
   if (["active", "revoked", "all"].includes(staffStatusFilter)) {
     state.staffStatusFilter = staffStatusFilter;

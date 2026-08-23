@@ -1201,14 +1201,44 @@ function fulfillmentSummaryCopy(isTeacher) {
     },
     all: {
       eyebrow: "Комплектация",
-      title: "Заказы по площадкам",
-      description: "Откройте площадку и используйте список как чек-лист сборки.",
+      title: "Комплектация заказов",
+      description: "Сначала соберите товары по общему списку, затем распределите их по площадкам.",
     },
   }[state.orderStatusFilter] || {
     eyebrow: "Комплектация",
-    title: "Заказы по площадкам",
-    description: "Откройте площадку и используйте список как чек-лист сборки.",
+    title: "Комплектация заказов",
+    description: "Сначала соберите товары по общему списку, затем распределите их по площадкам.",
   };
+}
+
+function fulfillmentPickingRows(sourceOrders) {
+  const rows = [];
+  sourceOrders.forEach((order) => {
+    (order.items || []).forEach((item, itemIndex) => {
+      if (item.fulfillmentType === "digital_code") return;
+      rows.push({
+        order,
+        item,
+        itemIndex,
+        itemId: item.id || `${order.backendId || order.id}-${itemIndex}`,
+      });
+    });
+  });
+  return rows;
+}
+
+function fulfillmentPickingRowCompare(left, right) {
+  const productCompare = String(left.item.productName || "").localeCompare(
+    String(right.item.productName || ""),
+    "ru",
+  );
+  if (productCompare) return productCompare;
+  const warehouseCompare = summaryWarehouseLabel(left.item).localeCompare(
+    summaryWarehouseLabel(right.item),
+    "ru",
+  );
+  if (warehouseCompare) return warehouseCompare;
+  return Number(left.order.id || 0) - Number(right.order.id || 0);
 }
 
 function renderOrderFulfillmentSummary() {
@@ -1224,6 +1254,51 @@ function renderOrderFulfillmentSummary() {
     container.innerHTML = "";
     return;
   }
+
+  const allPickingRows = fulfillmentPickingRows(summaryOrders);
+  const checklistRows = isManager
+    ? allPickingRows.filter(({ order }) => canPickOrderItem(order)).sort(fulfillmentPickingRowCompare)
+    : [];
+  const checklistPicked = checklistRows.filter(({ item }) => item.isPicked).length;
+  const checklistUnits = checklistRows.reduce(
+    (total, { item }) => total + Number(item.quantity || 0),
+    0,
+  );
+  const checklistMarkup = checklistRows.length
+    ? `
+      <section class="fulfillment-checklist">
+        <div class="fulfillment-section-head">
+          <div>
+            <span>Общий чек-лист</span>
+            <h4>Что нужно собрать</h4>
+            <p>${checklistRows.length} поз. · ${checklistUnits} шт.</p>
+          </div>
+          <b>${checklistPicked}/${checklistRows.length}</b>
+        </div>
+        <div class="fulfillment-quick-list">
+          ${checklistRows
+            .map(({ order, item, itemId }) => `
+              <label class="fulfillment-quick-row ${item.isPicked ? "is-picked" : ""}">
+                <span class="fulfillment-pick-check" title="${item.isPicked ? "Снять отметку" : "Отметить как собранное"}">
+                  <input
+                    type="checkbox"
+                    data-order-item-pick="${escapeHtml(itemId)}"
+                    data-pick-order-id="${escapeHtml(order.backendId || order.id)}"
+                    aria-label="${escapeHtml(item.productName || "Товар")}, ${Number(item.quantity || 0)} шт."
+                    ${item.isPicked ? "checked" : ""}
+                  />
+                  <span><i data-lucide="check"></i></span>
+                </span>
+                <span class="fulfillment-quick-copy">
+                  <strong>${escapeHtml(item.productName || "Товар")}</strong>
+                  <small><i data-lucide="warehouse"></i>${escapeHtml(summaryWarehouseLabel(item))}</small>
+                </span>
+                <b>${Number(item.quantity || 0)} шт.</b>
+              </label>`)
+            .join("")}
+        </div>
+      </section>`
+    : "";
 
   const venues = new Map();
   summaryOrders.forEach((order) => {
@@ -1246,10 +1321,7 @@ function renderOrderFulfillmentSummary() {
         .map(([teacherName, teacherOrders]) => {
           const pickingRows = [];
           teacherOrders.forEach((order) => {
-            (order.items || []).forEach((item, itemIndex) => {
-              if (item.fulfillmentType === "digital_code") return;
-              pickingRows.push({ order, item, itemIndex });
-            });
+            pickingRows.push(...fulfillmentPickingRows([order]));
           });
           pickingRows.sort((left, right) => {
             const warehouseCompare = summaryWarehouseLabel(left.item).localeCompare(
@@ -1278,21 +1350,12 @@ function renderOrderFulfillmentSummary() {
               </div>
               <div class="fulfillment-product-list">
                 ${pickingRows
-                  .map(({ order, item, itemIndex }) => {
-                    const itemId = item.id || `${order.backendId || order.id}-${itemIndex}`;
-                    const canPick = canPickOrderItem(order);
+                  .map(({ order, item }) => {
                     return `
                       <div class="fulfillment-product-row ${item.isPicked ? "is-picked" : ""}">
-                        <label class="fulfillment-pick-check" title="${item.isPicked ? "Снять отметку" : "Отметить как собранное"}">
-                          <input
-                            type="checkbox"
-                            data-order-item-pick="${escapeHtml(itemId)}"
-                            data-pick-order-id="${escapeHtml(order.backendId || order.id)}"
-                            ${item.isPicked ? "checked" : ""}
-                            ${canPick ? "" : "disabled"}
-                          />
-                          <span><i data-lucide="check"></i></span>
-                        </label>
+                        <span class="fulfillment-route-state" title="${item.isPicked ? "Собрано" : "Еще не собрано"}">
+                          <i data-lucide="${item.isPicked ? "check" : "package"}"></i>
+                        </span>
                         <span class="fulfillment-product-copy">
                           <strong>${escapeHtml(item.productName || "Товар")}</strong>
                           <small>№${escapeHtml(order.id)} · ${escapeHtml(order.student)}</small>
@@ -1318,7 +1381,11 @@ function renderOrderFulfillmentSummary() {
         <details class="fulfillment-venue" ${venueIndex === 0 ? "open" : ""}>
           <summary>
             <span><i data-lucide="map-pin"></i><strong>${escapeHtml(venueName)}</strong></span>
-            <b>${orderCountText(venueOrderCount)} · ${venuePicked}/${venueItems.length} собрано</b>
+            <span class="fulfillment-venue-meta">
+              <b>${orderCountText(venueOrderCount)}</b>
+              <small>${venuePicked}/${venueItems.length} собрано</small>
+              <i data-lucide="chevron-down"></i>
+            </span>
           </summary>
           <div class="fulfillment-teachers">${teacherMarkup}</div>
         </details>`;
@@ -1326,8 +1393,8 @@ function renderOrderFulfillmentSummary() {
     .join("");
 
   const copy = fulfillmentSummaryCopy(isTeacher);
-  const allItems = summaryOrders.flatMap((order) => order.items || []);
-  const allPicked = allItems.filter((item) => item.isPicked).length;
+  const progressRows = checklistRows.length ? checklistRows : allPickingRows;
+  const allPicked = progressRows.filter(({ item }) => item.isPicked).length;
   container.innerHTML = `
     <div class="fulfillment-summary-head">
       <div>
@@ -1335,7 +1402,18 @@ function renderOrderFulfillmentSummary() {
         <h3>${escapeHtml(copy.title)}</h3>
         <p>${escapeHtml(copy.description)}</p>
       </div>
-      <strong title="Собранные позиции">${allPicked}/${allItems.length}</strong>
+      <strong title="Собранные позиции">${allPicked}/${progressRows.length}</strong>
+    </div>
+    ${checklistMarkup}
+    <div class="fulfillment-routing-head">
+      <div>
+        <span>Распределение</span>
+        <h4>По площадкам и преподавателям</h4>
+      </div>
+      <div class="fulfillment-routing-actions">
+        <button type="button" data-fulfillment-venues="open"><i data-lucide="chevron-down"></i>Развернуть все</button>
+        <button type="button" data-fulfillment-venues="close"><i data-lucide="chevron-up"></i>Свернуть все</button>
+      </div>
     </div>
     <div class="fulfillment-venue-list">${venueMarkup}</div>`;
 }
