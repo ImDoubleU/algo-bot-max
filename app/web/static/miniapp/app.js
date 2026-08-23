@@ -2277,25 +2277,6 @@ document.addEventListener("click", (event) => {
     });
   }
 
-  const fulfillmentMode = target.dataset.fulfillmentMode;
-  if (["assign", "collect", "route"].includes(fulfillmentMode)) {
-    state.fulfillmentMode = fulfillmentMode;
-    state.selectedFulfillmentOrders.clear();
-    renderOrders();
-    savePreferences();
-    return;
-  }
-
-  const fulfillmentFocus = target.dataset.fulfillmentFocus;
-  if (["all", "unpicked", "unassigned"].includes(fulfillmentFocus)) {
-    state.fulfillmentMode = "collect";
-    state.fulfillmentFocus = fulfillmentFocus;
-    state.selectedFulfillmentOrders.clear();
-    renderOrders();
-    savePreferences();
-    return;
-  }
-
   if ("fulfillmentAssignSelected" in target.dataset) {
     void assignSummaryOrderWarehouses(
       [...state.selectedFulfillmentOrders].join(","),
