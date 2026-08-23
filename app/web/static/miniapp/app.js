@@ -1195,6 +1195,77 @@ async function updateOrderItemPicked(orderId, orderItemId, isPicked, checkbox) {
   }
 }
 
+async function updateOrderItemGroupPicked(rows, isPicked, checkbox) {
+  const groupRows = Array.isArray(rows) ? rows : [];
+  const invalid = groupRows.some(
+    ({ order, item, itemId }) =>
+      !order ||
+      !item ||
+      !itemId ||
+      !canPickOrderItem(order) ||
+      !(order.items || []).includes(item),
+  );
+  if (groupRows.length === 0 || invalid) {
+    if (checkbox) checkbox.checked = !isPicked;
+    return;
+  }
+
+  const updates = groupRows.filter(({ item }) => item.isPicked !== isPicked);
+  if (updates.length === 0) {
+    renderOrderFulfillmentSummary();
+    refreshIcons();
+    return;
+  }
+
+  if (checkbox) checkbox.disabled = true;
+  const demoMode = apiContext.demoMode || !apiContext.maxUserId;
+  if (demoMode) {
+    updates.forEach(({ item }) => {
+      item.isPicked = isPicked;
+    });
+    renderOrderFulfillmentSummary();
+    refreshIcons();
+    return;
+  }
+
+  try {
+    for (let start = 0; start < updates.length; start += 6) {
+      const batch = updates.slice(start, start + 6);
+      await Promise.all(
+        batch.map(async ({ order, itemId }) => {
+          const response = await apiFetch(
+            `/api/v1/miniapp/orders/${encodeURIComponent(order.backendId)}/items/${encodeURIComponent(itemId)}/picked`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                max_user_id: Number(apiContext.maxUserId),
+                tenant_slug: apiContext.tenantSlug || undefined,
+                is_picked: isPicked,
+              }),
+            },
+          );
+          if (!response.ok) throw new Error(await parseApiError(response));
+        }),
+      );
+    }
+    updates.forEach(({ item }) => {
+      item.isPicked = isPicked;
+    });
+    renderOrderFulfillmentSummary();
+    refreshIcons();
+  } catch (error) {
+    try {
+      await refreshOrderAndInventoryState();
+    } catch {
+      // Keep the current screen available even if the refresh also fails.
+    }
+    renderOrderFulfillmentSummary();
+    refreshIcons();
+    showNotice(error.message || "Не удалось сохранить отметки комплектации", "danger");
+  }
+}
+
 async function accrueSelectedStudents() {
   const selectedReason = qs("#groupAccrualReason")?.value || "";
   const customReason = selectedReason === "__custom__";
@@ -2454,6 +2525,16 @@ document.addEventListener("change", (event) => {
   if (target.id === "orderCancelReason") {
     syncCancelOrderForm();
     if (target.value === "Другое") qs("#orderCancelCustomReason")?.focus();
+    return;
+  }
+
+  const orderPickGroup = target.dataset.orderPickGroup;
+  if (orderPickGroup) {
+    void updateOrderItemGroupPicked(
+      fulfillmentPickGroups.get(orderPickGroup) || [],
+      target.checked,
+      target,
+    );
     return;
   }
 
