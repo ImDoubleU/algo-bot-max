@@ -1392,6 +1392,25 @@ select:focus-visible {
   display: none;
 }
 
+.dialog-actions.order-dialog-actions {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.order-dialog-actions > .order-actions {
+  width: 100%;
+  min-width: 0;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+}
+
+.order-dialog-actions .primary-action {
+  min-width: 0;
+}
+
+.order-dialog-actions .order-more-menu {
+  flex: 0 0 auto;
+}
+
 body.dialog-open {
   overflow: hidden;
 }
