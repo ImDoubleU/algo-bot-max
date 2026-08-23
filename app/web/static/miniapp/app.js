@@ -2278,7 +2278,7 @@ document.addEventListener("click", (event) => {
   }
 
   const fulfillmentMode = target.dataset.fulfillmentMode;
-  if (["collect", "route"].includes(fulfillmentMode)) {
+  if (["assign", "collect", "route"].includes(fulfillmentMode)) {
     state.fulfillmentMode = fulfillmentMode;
     state.selectedFulfillmentOrders.clear();
     renderOrders();

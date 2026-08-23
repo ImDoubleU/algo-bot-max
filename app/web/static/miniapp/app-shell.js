@@ -584,6 +584,7 @@ async function refreshAllData() {
 
   state.lastSyncAt = new Date();
   state.refreshing = false;
+  refreshFulfillmentStageSnapshot();
   renderAll();
   renderSyncStatus();
   if (errors.length > 0) {
