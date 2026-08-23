@@ -1001,7 +1001,7 @@ function orderActionDescriptors(order) {
   if (canAssignOrderWarehouses(order)) {
     descriptors.push({ action: "open", label: "Назначить склад", icon: "warehouse" });
   } else if (canMarkOrderDelivered(order)) {
-    descriptors.push({ action: "deliver", label: "Доставлен на площадку", icon: "map-pin-check" });
+    descriptors.push({ action: "deliver", label: "Доставлено на площадку", icon: "map-pin-check" });
   } else if (canTransferOrder(order)) {
     descriptors.push({ action: "transfer", label: "Учитель получил", icon: "handshake" });
   } else if (canIssueOrder(order)) {
