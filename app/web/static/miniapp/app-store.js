@@ -1241,6 +1241,59 @@ function fulfillmentPickingRowCompare(left, right) {
   return Number(left.order.id || 0) - Number(right.order.id || 0);
 }
 
+const fulfillmentPickGroups = new Map();
+
+function fulfillmentChecklistWarehouses(rows) {
+  const warehouses = new Map();
+  rows.forEach((row) => {
+    const warehouseName = summaryWarehouseLabel(row.item);
+    const warehouseKey = String(
+      row.item.warehouseId || warehouseName.trim().toLocaleLowerCase("ru"),
+    );
+    if (!warehouses.has(warehouseKey)) {
+      warehouses.set(warehouseKey, {
+        name: warehouseName,
+        products: new Map(),
+      });
+    }
+
+    const warehouse = warehouses.get(warehouseKey);
+    const productName = row.item.productName || "Товар";
+    const productKey = String(
+      row.item.productId || productName.trim().toLocaleLowerCase("ru"),
+    );
+    if (!warehouse.products.has(productKey)) {
+      warehouse.products.set(productKey, {
+        name: productName,
+        rows: [],
+        quantity: 0,
+      });
+    }
+    const product = warehouse.products.get(productKey);
+    product.rows.push(row);
+    product.quantity += Number(row.item.quantity || 0);
+  });
+
+  return [...warehouses.values()]
+    .sort((left, right) => left.name.localeCompare(right.name, "ru"))
+    .map((warehouse) => ({
+      name: warehouse.name,
+      products: [...warehouse.products.values()]
+        .map((product) => {
+          const pickedCount = product.rows.filter(({ item }) => item.isPicked).length;
+          return {
+            ...product,
+            orderCount: new Set(
+              product.rows.map(({ order }) => String(order.backendId || order.id)),
+            ).size,
+            isPicked: pickedCount === product.rows.length,
+            isPartial: pickedCount > 0 && pickedCount < product.rows.length,
+          };
+        })
+        .sort((left, right) => left.name.localeCompare(right.name, "ru")),
+    }));
+}
+
 function renderOrderFulfillmentSummary() {
   const container = qs("#orderFulfillmentSummary");
   if (!container) return;
@@ -1255,46 +1308,80 @@ function renderOrderFulfillmentSummary() {
     return;
   }
 
+  fulfillmentPickGroups.clear();
   const allPickingRows = fulfillmentPickingRows(summaryOrders);
   const checklistRows = isManager
     ? allPickingRows.filter(({ order }) => canPickOrderItem(order)).sort(fulfillmentPickingRowCompare)
     : [];
-  const checklistPicked = checklistRows.filter(({ item }) => item.isPicked).length;
+  const checklistWarehouses = fulfillmentChecklistWarehouses(checklistRows);
+  const checklistProducts = checklistWarehouses.flatMap((warehouse) => warehouse.products);
+  const checklistPicked = checklistProducts.filter((product) => product.isPicked).length;
   const checklistUnits = checklistRows.reduce(
     (total, { item }) => total + Number(item.quantity || 0),
     0,
   );
-  const checklistMarkup = checklistRows.length
+  let pickGroupIndex = 0;
+  const checklistMarkup = checklistProducts.length
     ? `
       <section class="fulfillment-checklist">
         <div class="fulfillment-section-head">
           <div>
             <span>Общий чек-лист</span>
             <h4>Что нужно собрать</h4>
-            <p>${checklistRows.length} поз. · ${checklistUnits} шт.</p>
+            <p>${checklistProducts.length} поз. · ${checklistUnits} шт. · ${checklistWarehouses.length} скл.</p>
           </div>
-          <b>${checklistPicked}/${checklistRows.length}</b>
+          <b>${checklistPicked}/${checklistProducts.length}</b>
         </div>
-        <div class="fulfillment-quick-list">
-          ${checklistRows
-            .map(({ order, item, itemId }) => `
-              <label class="fulfillment-quick-row ${item.isPicked ? "is-picked" : ""}">
-                <span class="fulfillment-pick-check" title="${item.isPicked ? "Снять отметку" : "Отметить как собранное"}">
-                  <input
-                    type="checkbox"
-                    data-order-item-pick="${escapeHtml(itemId)}"
-                    data-pick-order-id="${escapeHtml(order.backendId || order.id)}"
-                    aria-label="${escapeHtml(item.productName || "Товар")}, ${Number(item.quantity || 0)} шт."
-                    ${item.isPicked ? "checked" : ""}
-                  />
-                  <span><i data-lucide="check"></i></span>
-                </span>
-                <span class="fulfillment-quick-copy">
-                  <strong>${escapeHtml(item.productName || "Товар")}</strong>
-                  <small><i data-lucide="warehouse"></i>${escapeHtml(summaryWarehouseLabel(item))}</small>
-                </span>
-                <b>${Number(item.quantity || 0)} шт.</b>
-              </label>`)
+        <div class="fulfillment-warehouse-list">
+          ${checklistWarehouses
+            .map((warehouse) => {
+              const warehousePicked = warehouse.products.filter((product) => product.isPicked).length;
+              const warehouseUnits = warehouse.products.reduce(
+                (total, product) => total + product.quantity,
+                0,
+              );
+              return `
+                <section class="fulfillment-warehouse-block">
+                  <div class="fulfillment-warehouse-head">
+                    <span><i data-lucide="warehouse"></i><strong>${escapeHtml(warehouse.name)}</strong></span>
+                    <span><b>${warehousePicked}/${warehouse.products.length}</b><small>${warehouseUnits} шт.</small></span>
+                  </div>
+                  <div class="fulfillment-quick-list">
+                    ${warehouse.products
+                      .map((product) => {
+                        const groupKey = `pick-group-${pickGroupIndex++}`;
+                        fulfillmentPickGroups.set(groupKey, product.rows);
+                        const stateClass = product.isPicked
+                          ? "is-picked"
+                          : product.isPartial
+                            ? "is-partial"
+                            : "";
+                        const title = product.isPicked
+                          ? "Снять отметку со всех заказов"
+                          : "Отметить товар собранным во всех заказах";
+                        return `
+                          <label class="fulfillment-quick-row ${stateClass}">
+                            <span class="fulfillment-pick-check" title="${title}">
+                              <input
+                                type="checkbox"
+                                data-order-pick-group="${groupKey}"
+                                data-pick-partial="${product.isPartial}"
+                                aria-label="${escapeHtml(product.name)}, ${product.quantity} шт."
+                                ${product.isPicked ? "checked" : ""}
+                              />
+                              <span><i data-lucide="check"></i></span>
+                            </span>
+                            <span class="fulfillment-quick-copy">
+                              <strong>${escapeHtml(product.name)}</strong>
+                              <small><i data-lucide="package"></i>${orderCountText(product.orderCount)}</small>
+                            </span>
+                            <b>${product.quantity} шт.</b>
+                          </label>`;
+                      })
+                      .join("")}
+                  </div>
+                </section>`;
+            })
             .join("")}
         </div>
       </section>`
@@ -1393,8 +1480,10 @@ function renderOrderFulfillmentSummary() {
     .join("");
 
   const copy = fulfillmentSummaryCopy(isTeacher);
-  const progressRows = checklistRows.length ? checklistRows : allPickingRows;
-  const allPicked = progressRows.filter(({ item }) => item.isPicked).length;
+  const progressRows = checklistProducts.length
+    ? checklistProducts
+    : allPickingRows.map(({ item }) => ({ isPicked: item.isPicked }));
+  const allPicked = progressRows.filter((item) => item.isPicked).length;
   container.innerHTML = `
     <div class="fulfillment-summary-head">
       <div>
@@ -1416,6 +1505,11 @@ function renderOrderFulfillmentSummary() {
       </div>
     </div>
     <div class="fulfillment-venue-list">${venueMarkup}</div>`;
+  container
+    .querySelectorAll('[data-order-pick-group][data-pick-partial="true"]')
+    .forEach((checkbox) => {
+      checkbox.indeterminate = true;
+    });
 }
 
 function renderOrders() {

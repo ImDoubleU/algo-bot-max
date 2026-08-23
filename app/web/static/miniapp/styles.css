@@ -11486,6 +11486,73 @@ details.report-row { display: block; padding: 0; }
   white-space: nowrap;
 }
 
+.fulfillment-warehouse-list {
+  display: grid;
+  gap: 12px;
+}
+
+.fulfillment-warehouse-block {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+}
+
+.fulfillment-warehouse-head {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  background: #f7f3fb;
+}
+
+.fulfillment-warehouse-head > span {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fulfillment-warehouse-head > span:first-child {
+  color: var(--brand-purple-dark);
+}
+
+.fulfillment-warehouse-head > span:last-child {
+  flex: 0 0 auto;
+  gap: 10px;
+}
+
+.fulfillment-warehouse-head svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+
+.fulfillment-warehouse-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.fulfillment-warehouse-head b {
+  color: var(--brand-purple-dark);
+  font-size: 12px;
+}
+
+.fulfillment-warehouse-head small {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.fulfillment-warehouse-block .fulfillment-quick-list {
+  padding: 8px;
+}
+
 .fulfillment-quick-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -11513,6 +11580,11 @@ details.report-row { display: block; padding: 0; }
 .fulfillment-quick-row.is-picked {
   border-color: #a9dac8;
   background: #f1faf6;
+}
+
+.fulfillment-quick-row.is-partial {
+  border-color: #e4c66d;
+  background: #fff9e8;
 }
 
 .fulfillment-quick-copy {
@@ -11753,10 +11825,29 @@ details.report-row { display: block; padding: 0; }
   color: transparent;
 }
 
+.fulfillment-pick-check > span > svg,
+.fulfillment-pick-check > span::after {
+  grid-area: 1 / 1;
+}
+
 .fulfillment-pick-check input:checked + span {
   border-color: #168a63;
   background: #168a63;
   color: #fff;
+}
+
+.fulfillment-pick-check input:indeterminate + span {
+  border-color: #c58b0d;
+  background: #d99a13;
+  color: transparent;
+}
+
+.fulfillment-pick-check input:indeterminate + span::after {
+  width: 11px;
+  height: 2px;
+  border-radius: 2px;
+  background: #fff;
+  content: "";
 }
 
 .fulfillment-pick-check input:focus-visible + span {
