@@ -11429,7 +11429,13 @@ details.report-row { display: block; padding: 0; }
   font-size: 13px;
 }
 
-.fulfillment-summary-head > strong {
+.fulfillment-summary-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fulfillment-summary-tools > strong {
   min-width: 52px;
   padding: 7px 9px;
   border: 1px solid #ded4ed;
@@ -11439,6 +11445,20 @@ details.report-row { display: block; padding: 0; }
   font-size: 14px;
   text-align: center;
   white-space: nowrap;
+}
+
+.fulfillment-refresh-button {
+  display: grid;
+  width: 38px;
+  min-height: 38px;
+  flex: 0 0 38px;
+  place-items: center;
+  padding: 0;
+}
+
+.fulfillment-refresh-button svg {
+  width: 18px;
+  height: 18px;
 }
 
 .fulfillment-checklist {

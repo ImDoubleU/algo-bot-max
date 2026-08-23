@@ -928,7 +928,7 @@ function canMarkOrderDelivered(order) {
 function canPickOrderItem(order) {
   return (
     ["superadmin", "partner_director", "admin", "curator"].includes(primaryStaffRole()) &&
-    ["awaiting_delivery", "delivered_to_venue", "transferred_to_teacher"].includes(order.rawStatus)
+    order.rawStatus === "awaiting_delivery"
   );
 }
 
@@ -1153,16 +1153,13 @@ function summaryWarehouseLabel(item) {
 
 function orderFulfillmentSummaryOrders() {
   const staffRole = primaryStaffRole();
+  const fulfillmentStatuses = new Set(["reserved", "problem", "awaiting_delivery"]);
   const physicalOrders = ordersForCurrentRole().filter(
     (order) => !orderIsDigital(order) && Array.isArray(order.items) && order.items.length > 0,
   );
   let result = [];
-  if (["superadmin", "partner_director", "admin", "curator"].includes(staffRole)) {
-    result = physicalOrders.filter((order) => isOpenOrderStatus(order.rawStatus));
-  } else if (staffRole === "teacher") {
-    result = physicalOrders.filter((order) =>
-      ["delivered_to_venue", "transferred_to_teacher"].includes(order.rawStatus),
-    );
+  if (["superadmin", "partner_director", "admin", "curator", "teacher"].includes(staffRole)) {
+    result = physicalOrders.filter((order) => fulfillmentStatuses.has(order.rawStatus));
   }
   if (["all", "work", "open"].includes(state.orderStatusFilter)) {
     return result;
@@ -1173,9 +1170,9 @@ function orderFulfillmentSummaryOrders() {
 function fulfillmentSummaryCopy(isTeacher) {
   if (isTeacher) {
     return {
-      eyebrow: "Получение и выдача",
-      title: "Заказы ваших учеников",
-      description: "Подтвердите получение заказа, затем отметьте передачу ученику.",
+      eyebrow: "Ожидаемые заказы",
+      title: "Готовится для ваших учеников",
+      description: "Здесь только заказы, которые еще не доставлены на площадку.",
     };
   }
   return {
@@ -1189,15 +1186,10 @@ function fulfillmentSummaryCopy(isTeacher) {
       title: "Комплектация и доставка",
       description: "Отмечайте собранные позиции и доставляйте их на площадки.",
     },
-    delivered_to_venue: {
-      eyebrow: "Шаг 3",
-      title: "Передача учителям",
-      description: "Товары уже на площадке и готовы к передаче преподавателям.",
-    },
-    transferred_to_teacher: {
-      eyebrow: "Шаг 4",
-      title: "Выдача ученикам",
-      description: "Учителя получили заказы и передают их ученикам.",
+    problem: {
+      eyebrow: "Требует внимания",
+      title: "Проблемные заказы",
+      description: "Уточните наличие и назначьте подходящий склад.",
     },
     all: {
       eyebrow: "Комплектация",
@@ -1502,7 +1494,12 @@ function renderOrderFulfillmentSummary() {
         <h3>${escapeHtml(copy.title)}</h3>
         <p>${escapeHtml(copy.description)}</p>
       </div>
-      <strong title="${isTeacher ? "Количество товаров" : "Собранные позиции"}">${summaryValue}</strong>
+      <div class="fulfillment-summary-tools">
+        <strong title="${isTeacher ? "Количество товаров" : "Собранные позиции"}">${summaryValue}</strong>
+        <button class="icon-button refresh-button fulfillment-refresh-button" type="button" data-refresh-fulfillment title="Обновить заказы" aria-label="Обновить заказы">
+          <i data-lucide="refresh-cw"></i>
+        </button>
+      </div>
     </div>
     ${checklistMarkup}
     <div class="fulfillment-routing-head">
