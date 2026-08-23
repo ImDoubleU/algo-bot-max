@@ -487,14 +487,14 @@ let orders = [
     id: "1360",
     backendId: "demo-order-1360",
     studentId: "demo-alisa",
-    rawStatus: "awaiting_delivery",
+    rawStatus: "delivered_to_venue",
     student: "Васильева Алиса",
     teacherName: "Смирнова Анна",
     venueName: "Гагарина 64",
     item: "Кружка Python ×2; Ручка металл с лого ×3",
     warehouse: "Общий склад",
-    status: "Ожидает доставки",
-    tone: "warn",
+    status: "Доставлено на площадку",
+    tone: "ok",
     total: 1400,
     createdAt: "2026-06-15T14:30:00Z",
     items: [
@@ -520,7 +520,7 @@ let orders = [
       },
     ],
     statusHistory: [
-      { fromStatus: "reserved", toStatus: "awaiting_delivery", comment: "Склад назначен", createdAt: "2026-06-15T14:35:00Z" },
+      { fromStatus: "awaiting_delivery", toStatus: "delivered_to_venue", comment: "Заказ доставлен на площадку", createdAt: "2026-06-15T15:35:00Z" },
     ],
   },
   {

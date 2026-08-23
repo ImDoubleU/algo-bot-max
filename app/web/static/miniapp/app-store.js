@@ -1310,8 +1310,10 @@ function renderOrderFulfillmentSummary() {
 
   fulfillmentPickGroups.clear();
   const allPickingRows = fulfillmentPickingRows(summaryOrders);
-  const checklistRows = isManager
-    ? allPickingRows.filter(({ order }) => canPickOrderItem(order)).sort(fulfillmentPickingRowCompare)
+  const checklistRows = (isManager || isTeacher)
+    ? allPickingRows
+        .filter(({ order }) => (isManager ? canPickOrderItem(order) : true))
+        .sort(fulfillmentPickingRowCompare)
     : [];
   const checklistWarehouses = fulfillmentChecklistWarehouses(checklistRows);
   const checklistProducts = checklistWarehouses.flatMap((warehouse) => warehouse.products);
@@ -1326,11 +1328,9 @@ function renderOrderFulfillmentSummary() {
       <section class="fulfillment-checklist">
         <div class="fulfillment-section-head">
           <div>
-            <span>Общий чек-лист</span>
-            <h4>Что нужно собрать</h4>
+            <h4>${isTeacher ? "Товары для ваших учеников" : "Список для сборки"}</h4>
             <p>${checklistProducts.length} поз. · ${checklistUnits} шт. · ${checklistWarehouses.length} скл.</p>
           </div>
-          <b>${checklistPicked}/${checklistProducts.length}</b>
         </div>
         <div class="fulfillment-warehouse-list">
           ${checklistWarehouses
@@ -1344,13 +1344,16 @@ function renderOrderFulfillmentSummary() {
                 <section class="fulfillment-warehouse-block">
                   <div class="fulfillment-warehouse-head">
                     <span><i data-lucide="warehouse"></i><strong>${escapeHtml(warehouse.name)}</strong></span>
-                    <span><b>${warehousePicked}/${warehouse.products.length}</b><small>${warehouseUnits} шт.</small></span>
+                    <span>
+                      <b>${isTeacher ? `${warehouse.products.length} поз.` : `${warehousePicked}/${warehouse.products.length} собрано`}</b>
+                      <small>${warehouseUnits} шт.</small>
+                    </span>
                   </div>
                   <div class="fulfillment-quick-list">
                     ${warehouse.products
                       .map((product) => {
                         const groupKey = `pick-group-${pickGroupIndex++}`;
-                        fulfillmentPickGroups.set(groupKey, product.rows);
+                        if (isManager) fulfillmentPickGroups.set(groupKey, product.rows);
                         const stateClass = product.isPicked
                           ? "is-picked"
                           : product.isPartial
@@ -1359,9 +1362,8 @@ function renderOrderFulfillmentSummary() {
                         const title = product.isPicked
                           ? "Снять отметку со всех заказов"
                           : "Отметить товар собранным во всех заказах";
-                        return `
-                          <label class="fulfillment-quick-row ${stateClass}">
-                            <span class="fulfillment-pick-check" title="${title}">
+                        const marker = isManager
+                          ? `<span class="fulfillment-pick-check" title="${title}">
                               <input
                                 type="checkbox"
                                 data-order-pick-group="${groupKey}"
@@ -1370,7 +1372,13 @@ function renderOrderFulfillmentSummary() {
                                 ${product.isPicked ? "checked" : ""}
                               />
                               <span><i data-lucide="check"></i></span>
-                            </span>
+                            </span>`
+                          : `<span class="fulfillment-readonly-mark ${product.isPicked ? "is-picked" : ""}" title="${product.isPicked ? "Собрано" : "К выдаче"}">
+                              <i data-lucide="${product.isPicked ? "check" : "package"}"></i>
+                            </span>`;
+                        return `
+                          <label class="fulfillment-quick-row ${stateClass} ${isTeacher ? "is-readonly" : ""}">
+                            ${marker}
                             <span class="fulfillment-quick-copy">
                               <strong>${escapeHtml(product.name)}</strong>
                               <small><i data-lucide="package"></i>${orderCountText(product.orderCount)}</small>
@@ -1484,6 +1492,9 @@ function renderOrderFulfillmentSummary() {
     ? checklistProducts
     : allPickingRows.map(({ item }) => ({ isPicked: item.isPicked }));
   const allPicked = progressRows.filter((item) => item.isPicked).length;
+  const summaryValue = isTeacher
+    ? `${checklistUnits} шт.`
+    : `${allPicked}/${progressRows.length}`;
   container.innerHTML = `
     <div class="fulfillment-summary-head">
       <div>
@@ -1491,13 +1502,13 @@ function renderOrderFulfillmentSummary() {
         <h3>${escapeHtml(copy.title)}</h3>
         <p>${escapeHtml(copy.description)}</p>
       </div>
-      <strong title="Собранные позиции">${allPicked}/${progressRows.length}</strong>
+      <strong title="${isTeacher ? "Количество товаров" : "Собранные позиции"}">${summaryValue}</strong>
     </div>
     ${checklistMarkup}
     <div class="fulfillment-routing-head">
       <div>
-        <span>Распределение</span>
-        <h4>По площадкам и преподавателям</h4>
+        <span>${isTeacher ? "Заказы" : "Распределение"}</span>
+        <h4>${isTeacher ? "По площадкам и ученикам" : "По площадкам и преподавателям"}</h4>
       </div>
       <div class="fulfillment-routing-actions">
         <button type="button" data-fulfillment-venues="open"><i data-lucide="chevron-down"></i>Развернуть все</button>
