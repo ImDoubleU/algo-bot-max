@@ -2182,6 +2182,11 @@ document.addEventListener("click", (event) => {
     });
   }
 
+  if ("refreshFulfillment" in target.dataset) {
+    void refreshAllData();
+    return;
+  }
+
   const staffStatusFilter = target.dataset.staffStatusFilter;
   if (["active", "revoked", "all"].includes(staffStatusFilter)) {
     state.staffStatusFilter = staffStatusFilter;

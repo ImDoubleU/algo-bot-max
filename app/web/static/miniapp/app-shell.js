@@ -515,8 +515,8 @@ async function createTenantFromForm(event) {
 
 function renderSyncStatus() {
   const label = qs("#lastSyncTime");
-  const button = qs("#refreshDataButton");
-  if (!label || !button) return;
+  const buttons = qsa("#refreshDataButton, [data-refresh-fulfillment]");
+  if (!label || buttons.length === 0) return;
   if (state.refreshing) {
     label.textContent = "Обновление";
   } else if (state.lastSyncAt) {
@@ -527,9 +527,11 @@ function renderSyncStatus() {
   } else {
     label.textContent = "Данные не обновлялись";
   }
-  button.disabled = state.refreshing;
-  button.classList.toggle("is-loading", state.refreshing);
-  button.setAttribute("aria-busy", String(state.refreshing));
+  buttons.forEach((button) => {
+    button.disabled = state.refreshing;
+    button.classList.toggle("is-loading", state.refreshing);
+    button.setAttribute("aria-busy", String(state.refreshing));
+  });
 }
 
 async function refreshAllData() {
