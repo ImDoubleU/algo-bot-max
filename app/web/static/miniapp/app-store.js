@@ -947,14 +947,6 @@ function canCancelOrder(order) {
   return order.rawStatus === "reserved" && !orderHasAssignedWarehouses(order);
 }
 
-function canReturnOrder(order) {
-  return (
-    ["teacher", "admin"].includes(state.role) &&
-    order.rawStatus === "issued_to_student" &&
-    !(order.items || []).some((item) => item.fulfillmentType === "digital_code")
-  );
-}
-
 function orderMatchesStatusFilter(order) {
   return orderMatchesNamedFilter(order, state.orderStatusFilter);
 }
@@ -1034,9 +1026,6 @@ function orderActionDescriptors(order) {
   }
   if (descriptors[0].action !== "open") {
     descriptors.push({ action: "open", label: "Открыть заказ", icon: "eye" });
-  }
-  if (canReturnOrder(order)) {
-    descriptors.push({ action: "return", label: "Оформить возврат", icon: "undo-2" });
   }
   if (canCancelOrder(order)) {
     descriptors.push({ action: "cancel", label: "Отменить заказ", icon: "circle-x", danger: true });
