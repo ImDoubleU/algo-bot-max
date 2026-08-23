@@ -75,8 +75,6 @@ const state = {
   studentGroupFilter: "all",
   orderStatusFilter: "all",
   orderSearch: "",
-  fulfillmentMode: "assign",
-  fulfillmentFocus: "all",
   fulfillmentStageSnapshot: null,
   selectedFulfillmentOrders: new Set(),
   fulfillmentSaving: false,
@@ -1239,8 +1237,6 @@ function savePreferences() {
         inStockOnly: state.inStockOnly,
         favoritesOnly: state.favoritesOnly,
         orderStatusFilter: state.orderStatusFilter,
-        fulfillmentMode: state.fulfillmentMode,
-        fulfillmentFocus: state.fulfillmentFocus,
         recentProductSearches: state.recentProductSearches.slice(0, 5),
         railCollapsed: state.railCollapsed,
       }),
@@ -1268,12 +1264,6 @@ function restorePreferences() {
       ? preferences.recentProductSearches.map(String).filter(Boolean).slice(0, 5)
       : [];
     state.railCollapsed = Boolean(preferences.railCollapsed);
-    if (["assign", "collect", "route"].includes(preferences.fulfillmentMode)) {
-      state.fulfillmentMode = preferences.fulfillmentMode;
-    }
-    if (["all", "unpicked", "unassigned"].includes(preferences.fulfillmentFocus)) {
-      state.fulfillmentFocus = preferences.fulfillmentFocus;
-    }
     const legacyOrderFilters = {
       open: "all",
       action: "all",
@@ -1291,6 +1281,9 @@ function restorePreferences() {
         "created",
         "reserved",
         "awaiting_delivery",
+        "fulfillment_assign",
+        "fulfillment_collect",
+        "fulfillment_route",
         "delivered_to_venue",
         "transferred_to_teacher",
         "issued_to_student",

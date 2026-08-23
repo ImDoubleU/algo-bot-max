@@ -959,6 +959,16 @@ function orderMatchesStatusFilter(order) {
   return orderMatchesNamedFilter(order, state.orderStatusFilter);
 }
 
+const FULFILLMENT_ORDER_FILTER_STAGES = Object.freeze({
+  fulfillment_assign: "assign",
+  fulfillment_collect: "collect",
+  fulfillment_route: "route",
+});
+
+function fulfillmentStageForOrderFilter(filter = state.orderStatusFilter) {
+  return FULFILLMENT_ORDER_FILTER_STAGES[filter] || "";
+}
+
 function orderMatchesNamedFilter(order, filter) {
   if (filter === "all") return true;
   if (filter === "action") return ["created", "problem"].includes(order.rawStatus);
@@ -992,7 +1002,12 @@ function orderSearchText(order) {
 
 function filteredOrders() {
   const query = state.orderSearch.trim().toLowerCase();
-  return ordersForCurrentRole().filter((order) => {
+  const fulfillmentStage = fulfillmentStageForOrderFilter();
+  const sourceOrders = fulfillmentStage
+    ? fulfillmentSnapshotOrdersForStage(fulfillmentStage)
+    : ordersForCurrentRole();
+  return sourceOrders.filter((order) => {
+    if (fulfillmentStage) return !query || orderSearchText(order).includes(query);
     if (!orderMatchesStatusFilter(order)) return false;
     return !query || orderSearchText(order).includes(query);
   });
@@ -1100,23 +1115,66 @@ function renderOrderStatusTabs() {
   if (!container) return;
   if (state.orderStatusFilter === "action") state.orderStatusFilter = "all";
   const roleOrders = ordersForCurrentRole();
-  const tabs = [
-    ["all", "Все"],
-    ["reserved", "Зарезервированы"],
-    ["awaiting_delivery", "Ожидают доставки"],
-    ["delivered_to_venue", "На площадке"],
-    ["transferred_to_teacher", "У учителя"],
-    ["issued_to_student", "Переданы ученикам"],
-    ["cancelled", "Отменены"],
-  ];
-  if (roleOrders.some((order) => order.rawStatus === "problem")) {
-    tabs.push(["problem", "Проблемы"]);
+  const isManager = ["superadmin", "partner_director", "admin", "curator"].includes(
+    primaryStaffRole(),
+  );
+  if (isManager) {
+    const legacyManagerFilters = {
+      created: "fulfillment_assign",
+      reserved: "fulfillment_assign",
+      problem: "fulfillment_assign",
+      awaiting_delivery: "fulfillment_collect",
+    };
+    state.orderStatusFilter = legacyManagerFilters[state.orderStatusFilter]
+      || state.orderStatusFilter;
+  } else {
+    const staffOrderFilters = {
+      fulfillment_assign: "reserved",
+      fulfillment_collect: "awaiting_delivery",
+      fulfillment_route: "awaiting_delivery",
+    };
+    state.orderStatusFilter = staffOrderFilters[state.orderStatusFilter]
+      || state.orderStatusFilter;
+  }
+
+  const countByStatus = (status) => roleOrders.filter(
+    (order) => orderMatchesNamedFilter(order, status),
+  ).length;
+  const tabs = isManager
+    ? [
+        ["all", "Все", roleOrders.length],
+        ["fulfillment_assign", "Назначить склад", fulfillmentSnapshotOrdersForStage("assign").length],
+        ["fulfillment_collect", "Собрать", fulfillmentSnapshotOrdersForStage("collect").length],
+        ["fulfillment_route", "Распределить", fulfillmentSnapshotOrdersForStage("route").length],
+        ["delivered_to_venue", "На площадке", countByStatus("delivered_to_venue")],
+        ["transferred_to_teacher", "У учителя", countByStatus("transferred_to_teacher")],
+        ["issued_to_student", "Переданы ученикам", countByStatus("issued_to_student")],
+        ["cancelled", "Отменены", countByStatus("cancelled")],
+      ]
+    : [
+        ["all", "Все"],
+        ["reserved", "Зарезервированы"],
+        ["awaiting_delivery", "Ожидают доставки"],
+        ["delivered_to_venue", "На площадке"],
+        ["transferred_to_teacher", "У учителя"],
+        ["issued_to_student", "Переданы ученикам"],
+        ["cancelled", "Отменены"],
+      ].map(([value, label]) => [
+        value,
+        label,
+        value === "all"
+          ? roleOrders.length
+          : countByStatus(value),
+      ]);
+  if (!isManager && roleOrders.some((order) => order.rawStatus === "problem")) {
+    tabs.push([
+      "problem",
+      "Проблемы",
+      countByStatus("problem"),
+    ]);
   }
   container.innerHTML = tabs
-    .map(([value, label]) => {
-      const count = value === "all"
-        ? roleOrders.length
-        : roleOrders.filter((order) => orderMatchesNamedFilter(order, value)).length;
+    .map(([value, label, count]) => {
       return `<button class="${state.orderStatusFilter === value ? "is-active" : ""}" type="button" data-order-status="${value}" role="tab" aria-selected="${state.orderStatusFilter === value}">
           <span>${label}</span><b>${count}</b>
         </button>`;
@@ -1228,6 +1286,8 @@ function ensureFulfillmentStageSnapshot() {
 
 function fulfillmentSnapshotMatchesOrderFilter(orderId, stage) {
   const filter = state.orderStatusFilter;
+  const selectedStage = fulfillmentStageForOrderFilter(filter);
+  if (selectedStage) return stage === selectedStage;
   if (["all", "work", "open"].includes(filter)) return true;
   const status = ensureFulfillmentStageSnapshot().statuses.get(orderId) || "";
   if (filter === "reserved") return stage === "assign" && status === "reserved";
@@ -1236,13 +1296,18 @@ function fulfillmentSnapshotMatchesOrderFilter(orderId, stage) {
   return false;
 }
 
-function fulfillmentOrdersForStage(stage) {
+function fulfillmentSnapshotOrdersForStage(stage) {
   const snapshot = ensureFulfillmentStageSnapshot();
   const orderIds = snapshot[stage] || new Set();
-  return fulfillmentSnapshotSourceOrders().filter((order) => {
-    const orderId = fulfillmentOrderId(order);
-    return orderIds.has(orderId) && fulfillmentSnapshotMatchesOrderFilter(orderId, stage);
-  });
+  return fulfillmentSnapshotSourceOrders().filter((order) =>
+    orderIds.has(fulfillmentOrderId(order)),
+  );
+}
+
+function fulfillmentOrdersForStage(stage) {
+  return fulfillmentSnapshotOrdersForStage(stage).filter((order) =>
+    fulfillmentSnapshotMatchesOrderFilter(fulfillmentOrderId(order), stage),
+  );
 }
 
 function fulfillmentOrderId(order) {
@@ -1383,10 +1448,11 @@ function renderOrderFulfillmentSummary() {
   const isManager = ["superadmin", "partner_director", "admin", "curator"].includes(staffRole);
   const isTeacher = staffRole === "teacher";
   const sourceOrders = orderFulfillmentSummaryOrders();
-  const workbenchFilter = ["all", "reserved", "awaiting_delivery", "problem"].includes(
+  const managerMode = fulfillmentStageForOrderFilter();
+  const teacherWorkbenchFilter = ["all", "reserved", "awaiting_delivery", "problem"].includes(
     state.orderStatusFilter,
   );
-  const visible = (isManager || isTeacher) && workbenchFilter;
+  const visible = (isManager && Boolean(managerMode)) || (isTeacher && teacherWorkbenchFilter);
   container.hidden = !visible;
   if (!visible) {
     container.innerHTML = "";
@@ -1470,9 +1536,7 @@ function renderOrderFulfillmentSummary() {
   const selectedRouteOrders = routeActionableOrders.filter((order) =>
     state.selectedFulfillmentOrders.has(fulfillmentOrderId(order)),
   );
-  const mode = ["assign", "collect", "route"].includes(state.fulfillmentMode)
-    ? state.fulfillmentMode
-    : "assign";
+  const mode = managerMode || "assign";
   const modeMeta = {
     assign: {
       title: "Назначение склада",
@@ -1487,19 +1551,6 @@ function renderOrderFulfillmentSummary() {
       description: "Полностью собранные заказы для отправки на площадки.",
     },
   }[mode];
-
-  const modeTabs = `
-    <div class="fulfillment-mode-switch" role="tablist" aria-label="Этап комплектации">
-      <button type="button" role="tab" data-fulfillment-mode="assign" class="${mode === "assign" ? "is-active" : ""}" aria-selected="${mode === "assign"}">
-        <i data-lucide="warehouse"></i><span>Назначить склад</span><b>${sourceAssign.length}</b>
-      </button>
-      <button type="button" role="tab" data-fulfillment-mode="collect" class="${mode === "collect" ? "is-active" : ""}" aria-selected="${mode === "collect"}">
-        <i data-lucide="list-checks"></i><span>Собрать</span><b>${sourceCollect.length}</b>
-      </button>
-      <button type="button" role="tab" data-fulfillment-mode="route" class="${mode === "route" ? "is-active" : ""}" aria-selected="${mode === "route"}">
-        <i data-lucide="truck"></i><span>Распределить</span><b>${sourceRoute.length}</b>
-      </button>
-    </div>`;
 
   const unassignedMarkup = mode === "assign" && visibleAssign.length
     ? `<section class="fulfillment-work-section">
@@ -1678,10 +1729,13 @@ function renderOrderFulfillmentSummary() {
   container.innerHTML = `
     <div class="fulfillment-workbench-head">
       <div><span>Работа с заказами</span><h3>${escapeHtml(modeMeta.title)}</h3><p>${escapeHtml(modeMeta.description)}</p></div>
-      <strong>${orderCountText(sourceAssign.length + sourceCollect.length + sourceRoute.length)}</strong>
+      <strong>${orderCountText({
+        assign: sourceAssign.length,
+        collect: sourceCollect.length,
+        route: sourceRoute.length,
+      }[mode])}</strong>
     </div>
     <div class="fulfillment-workbench-toolbar">
-      ${modeTabs}
       <label class="fulfillment-search-field">
         <i data-lucide="search"></i>
         <input id="fulfillmentOrderSearch" type="search" value="${escapeHtml(state.orderSearch)}" placeholder="Номер, ученик или товар" />
@@ -1721,20 +1775,27 @@ function renderOrders() {
     "has-fulfillment-workbench",
     Boolean(fulfillmentSummary && !fulfillmentSummary.hidden),
   );
+  const ordersTable = qs("#ordersTable");
+  const managerWorkflowStage = fulfillmentStageForOrderFilter();
+  if (ordersTable) ordersTable.hidden = Boolean(managerWorkflowStage);
+  if (managerWorkflowStage) {
+    if (ordersTable) ordersTable.innerHTML = "";
+    return;
+  }
 
   if (ordersForCurrentRole().length === 0) {
-    qs("#ordersTable").innerHTML = '<div class="empty-state">Заказов пока нет</div>';
+    ordersTable.innerHTML = '<div class="empty-state">Заказов пока нет</div>';
     return;
   }
 
   const visibleOrders = filteredOrders();
   if (visibleOrders.length === 0) {
-    qs("#ordersTable").innerHTML =
+    ordersTable.innerHTML =
       '<div class="empty-state">Заказов по выбранному фильтру не найдено</div>';
     return;
   }
 
-  qs("#ordersTable").innerHTML = visibleOrders
+  ordersTable.innerHTML = visibleOrders
     .map((order) => {
       const date = formatOrderDate(order.createdAt);
       const age = orderAgeLabel(order.createdAt);
