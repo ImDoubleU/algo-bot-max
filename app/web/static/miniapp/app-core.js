@@ -75,6 +75,10 @@ const state = {
   studentGroupFilter: "all",
   orderStatusFilter: "all",
   orderSearch: "",
+  fulfillmentMode: "collect",
+  fulfillmentFocus: "all",
+  selectedFulfillmentOrders: new Set(),
+  fulfillmentSaving: false,
   accrualGroup: "",
   accrualNameFilter: "",
   selectedAccrualStudents: new Set(),
@@ -211,6 +215,7 @@ const state = {
 
 let accrualSearchTimer = null;
 let adminSearchTimer = null;
+let orderSearchTimer = null;
 let noticeTimer = null;
 let noticeActionHandler = null;
 let broadcastDraftTimer = null;
@@ -546,7 +551,7 @@ let orders = [
         totalPrice: 520,
         warehouseId: "demo-warehouse-soyuznyy",
         warehouseName: "Союзный 45",
-        isPicked: false,
+        isPicked: true,
       },
       {
         id: "demo-order-item-1361-2",
@@ -571,6 +576,36 @@ let orders = [
     ],
     statusHistory: [
       { fromStatus: "reserved", toStatus: "awaiting_delivery", comment: "Склады назначены", createdAt: "2026-06-15T13:45:00Z" },
+    ],
+  },
+  {
+    id: "1362",
+    backendId: "demo-order-1362",
+    studentId: "demo-ivan",
+    rawStatus: "awaiting_delivery",
+    student: "Петров Иван",
+    teacherName: "Смирнова Анна",
+    venueName: "Союзный 45",
+    item: "Кружка Python",
+    warehouse: "Общий склад",
+    status: "Ожидает доставки",
+    tone: "warn",
+    total: 520,
+    createdAt: "2026-06-15T12:20:00Z",
+    items: [
+      {
+        id: "demo-order-item-1362-1",
+        productId: "demo-mug",
+        productName: "Кружка Python",
+        quantity: 1,
+        totalPrice: 520,
+        warehouseId: "demo-warehouse-common",
+        warehouseName: "Общий склад",
+        isPicked: true,
+      },
+    ],
+    statusHistory: [
+      { fromStatus: "reserved", toStatus: "awaiting_delivery", comment: "Склад назначен", createdAt: "2026-06-15T12:25:00Z" },
     ],
   },
   {
@@ -1186,6 +1221,8 @@ function savePreferences() {
         inStockOnly: state.inStockOnly,
         favoritesOnly: state.favoritesOnly,
         orderStatusFilter: state.orderStatusFilter,
+        fulfillmentMode: state.fulfillmentMode,
+        fulfillmentFocus: state.fulfillmentFocus,
         recentProductSearches: state.recentProductSearches.slice(0, 5),
         railCollapsed: state.railCollapsed,
       }),
@@ -1213,6 +1250,12 @@ function restorePreferences() {
       ? preferences.recentProductSearches.map(String).filter(Boolean).slice(0, 5)
       : [];
     state.railCollapsed = Boolean(preferences.railCollapsed);
+    if (["collect", "route"].includes(preferences.fulfillmentMode)) {
+      state.fulfillmentMode = preferences.fulfillmentMode;
+    }
+    if (["all", "unpicked", "unassigned"].includes(preferences.fulfillmentFocus)) {
+      state.fulfillmentFocus = preferences.fulfillmentFocus;
+    }
     const legacyOrderFilters = {
       open: "all",
       action: "all",

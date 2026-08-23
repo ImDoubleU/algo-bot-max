@@ -970,7 +970,7 @@ async function assignSummaryOrderWarehouses(rawOrderIds, button = null) {
     .map((value) => value.trim())
     .filter(Boolean);
   const targets = orderIds
-    .map((orderId) => orders.find((order) => (order.backendId || order.id) === orderId))
+    .map((orderId) => orders.find((order) => fulfillmentOrderId(order) === orderId))
     .filter(
       (order) =>
         order &&
@@ -1033,6 +1033,9 @@ async function assignSummaryOrderWarehouses(rawOrderIds, button = null) {
       }
       await refreshOrderAndInventoryState();
     }
+    targets.forEach((order) => {
+      state.selectedFulfillmentOrders.delete(String(order.backendId || order.id));
+    });
     renderAll();
     showNotice(`Склады подтверждены для заказов: ${completed}`);
   } catch (error) {
@@ -1046,6 +1049,92 @@ async function assignSummaryOrderWarehouses(rawOrderIds, button = null) {
     );
   } finally {
     if (button) button.disabled = false;
+  }
+}
+
+async function deliverSummaryOrders(rawOrderIds, button = null) {
+  const orderIds = String(rawOrderIds || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const targets = orderIds
+    .map((orderId) => orders.find((order) => fulfillmentOrderId(order) === orderId))
+    .filter((order) => order && canMarkOrderDelivered(order));
+  if (!targets.length) {
+    showNotice("Нет полностью собранных заказов для доставки", "danger");
+    return;
+  }
+
+  const confirmed = await requestConfirmation({
+    eyebrow: "Распределение",
+    title: "Подтвердить доставку",
+    message: `Заказы будут отмечены как доставленные на площадку: ${targets.length}.`,
+    confirmLabel: "Подтвердить доставку",
+    cancelLabel: "Отмена",
+  });
+  if (!confirmed) return;
+
+  if (button) {
+    button.disabled = true;
+    button.classList.add("is-loading");
+  }
+  state.fulfillmentSaving = true;
+  let completed = 0;
+  try {
+    if (apiContext.demoMode || !apiContext.maxUserId) {
+      targets.forEach((order) => {
+        const previousStatus = order.rawStatus;
+        order.rawStatus = "delivered_to_venue";
+        order.status = orderStatusLabel(order.rawStatus);
+        order.tone = orderStatusTone(order.rawStatus);
+        order.statusHistory = order.statusHistory || [];
+        order.statusHistory.push({
+          fromStatus: previousStatus,
+          toStatus: order.rawStatus,
+          comment: "Заказ доставлен на площадку",
+          createdAt: new Date().toISOString(),
+        });
+        completed += 1;
+      });
+    } else {
+      for (const order of targets) {
+        const response = await apiFetch(
+          `/api/v1/miniapp/orders/${encodeURIComponent(order.backendId)}/delivered-to-venue`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              max_user_id: Number(apiContext.maxUserId),
+              tenant_slug: apiContext.tenantSlug || undefined,
+              comment: "Доставлено на площадку из сводки распределения",
+            }),
+          },
+        );
+        if (!response.ok) throw new Error(await parseApiError(response));
+        completed += 1;
+      }
+      await refreshOrderAndInventoryState();
+    }
+    targets.forEach((order) => {
+      state.selectedFulfillmentOrders.delete(fulfillmentOrderId(order));
+    });
+    renderAll();
+    showNotice(`Доставлено на площадку: ${completed}`);
+  } catch (error) {
+    if (completed > 0 && !apiContext.demoMode) {
+      await refreshOrderAndInventoryState();
+      renderAll();
+    }
+    showNotice(
+      `${completed ? `Обновлено: ${completed}. ` : ""}${error.message || "Не удалось обновить доставку"}`,
+      "danger",
+    );
+  } finally {
+    state.fulfillmentSaving = false;
+    if (button?.isConnected) {
+      button.disabled = false;
+      button.classList.remove("is-loading");
+    }
   }
 }
 
@@ -2043,6 +2132,12 @@ document.addEventListener("click", (event) => {
     renderOrders();
     qs("#orderSearch")?.focus();
   }
+  if ("clearFulfillmentSearch" in target.dataset) {
+    state.orderSearch = "";
+    renderOrders();
+    qs("#fulfillmentOrderSearch")?.focus();
+    return;
+  }
 
   if (target.id === "mobileStoreFiltersButton") {
     state.storeFiltersOpen = !state.storeFiltersOpen;
@@ -2180,6 +2275,41 @@ document.addEventListener("click", (event) => {
     qsa("#orderFulfillmentSummary .fulfillment-venue").forEach((venue) => {
       venue.open = shouldOpen;
     });
+  }
+
+  const fulfillmentMode = target.dataset.fulfillmentMode;
+  if (["collect", "route"].includes(fulfillmentMode)) {
+    state.fulfillmentMode = fulfillmentMode;
+    state.selectedFulfillmentOrders.clear();
+    renderOrders();
+    savePreferences();
+    return;
+  }
+
+  const fulfillmentFocus = target.dataset.fulfillmentFocus;
+  if (["all", "unpicked", "unassigned"].includes(fulfillmentFocus)) {
+    state.fulfillmentMode = "collect";
+    state.fulfillmentFocus = fulfillmentFocus;
+    state.selectedFulfillmentOrders.clear();
+    renderOrders();
+    savePreferences();
+    return;
+  }
+
+  if ("fulfillmentAssignSelected" in target.dataset) {
+    void assignSummaryOrderWarehouses(
+      [...state.selectedFulfillmentOrders].join(","),
+      target,
+    );
+    return;
+  }
+
+  if ("fulfillmentDeliverSelected" in target.dataset) {
+    void deliverSummaryOrders(
+      [...state.selectedFulfillmentOrders].join(","),
+      target,
+    );
+    return;
   }
 
   if ("refreshFulfillment" in target.dataset) {
@@ -2554,6 +2684,27 @@ document.addEventListener("change", (event) => {
     return;
   }
 
+  const fulfillmentOrderIdValue = target.dataset.fulfillmentOrderSelect;
+  if (fulfillmentOrderIdValue) {
+    if (target.checked) state.selectedFulfillmentOrders.add(fulfillmentOrderIdValue);
+    else state.selectedFulfillmentOrders.delete(fulfillmentOrderIdValue);
+    renderOrderFulfillmentSummary();
+    refreshIcons();
+    return;
+  }
+
+  const fulfillmentSelectAll = target.dataset.fulfillmentSelectAll;
+  if (fulfillmentSelectAll) {
+    const orderIds = String(target.dataset.orderIds || "").split(",").filter(Boolean);
+    orderIds.forEach((orderId) => {
+      if (target.checked) state.selectedFulfillmentOrders.add(orderId);
+      else state.selectedFulfillmentOrders.delete(orderId);
+    });
+    renderOrderFulfillmentSummary();
+    refreshIcons();
+    return;
+  }
+
   if (target.dataset.staffNotificationKey) {
     syncStaffNotificationGroupCounts();
     return;
@@ -2790,6 +2941,18 @@ document.addEventListener("input", (event) => {
   if (target.id === "orderSearch") {
     state.orderSearch = target.value;
     renderOrders();
+  }
+
+  if (target.id === "fulfillmentOrderSearch") {
+    state.orderSearch = target.value;
+    const cursor = target.selectionStart ?? target.value.length;
+    window.clearTimeout(orderSearchTimer);
+    orderSearchTimer = window.setTimeout(() => {
+      renderOrders();
+      const input = qs("#fulfillmentOrderSearch");
+      input?.focus();
+      input?.setSelectionRange(cursor, cursor);
+    }, 120);
   }
 
   if (target.id === "adminEntitySearch") {
