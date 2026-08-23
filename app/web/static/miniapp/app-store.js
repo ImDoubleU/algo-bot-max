@@ -893,6 +893,13 @@ function orderIsDigital(order) {
   );
 }
 
+function orderIsFullyPicked(order) {
+  const physicalItems = (order.items || []).filter(
+    (item) => item.fulfillmentType !== "digital_code",
+  );
+  return physicalItems.length > 0 && physicalItems.every((item) => item.isPicked);
+}
+
 function canAssignOrderWarehouses(order) {
   return (
     state.role === "admin" &&
@@ -921,7 +928,8 @@ function canMarkOrderDelivered(order) {
   return (
     ["superadmin", "partner_director", "admin", "curator"].includes(primaryStaffRole()) &&
     order.rawStatus === "awaiting_delivery" &&
-    orderHasAssignedWarehouses(order)
+    orderHasAssignedWarehouses(order) &&
+    orderIsFullyPicked(order)
   );
 }
 
@@ -1102,7 +1110,7 @@ function renderOrderStatusTabs() {
     ["cancelled", "Отменены"],
   ];
   if (roleOrders.some((order) => order.rawStatus === "problem")) {
-    tabs.push(["problem", "Требуют внимания"]);
+    tabs.push(["problem", "Проблемы"]);
   }
   container.innerHTML = tabs
     .map(([value, label]) => {
@@ -1167,40 +1175,52 @@ function orderFulfillmentSummaryOrders() {
   return result.filter((order) => orderMatchesNamedFilter(order, state.orderStatusFilter));
 }
 
-function fulfillmentSummaryCopy(isTeacher) {
-  if (isTeacher) {
-    return {
-      eyebrow: "Ожидаемые заказы",
-      title: "Готовится для ваших учеников",
-      description: "Здесь только заказы, которые еще не доставлены на площадку.",
-    };
-  }
-  return {
-    reserved: {
-      eyebrow: "Шаг 1",
-      title: "Назначение складов",
-      description: "Проверьте резерв и назначьте склад для каждого заказа.",
-    },
-    awaiting_delivery: {
-      eyebrow: "Шаг 2",
-      title: "Комплектация и доставка",
-      description: "Отмечайте собранные позиции и доставляйте их на площадки.",
-    },
-    problem: {
-      eyebrow: "Требует внимания",
-      title: "Проблемные заказы",
-      description: "Уточните наличие и назначьте подходящий склад.",
-    },
-    all: {
-      eyebrow: "Комплектация",
-      title: "Комплектация заказов",
-      description: "Сначала соберите товары по общему списку, затем распределите их по площадкам.",
-    },
-  }[state.orderStatusFilter] || {
-    eyebrow: "Комплектация",
-    title: "Комплектация заказов",
-    description: "Сначала соберите товары по общему списку, затем распределите их по площадкам.",
-  };
+function fulfillmentOrderId(order) {
+  return String(order.backendId || order.id);
+}
+
+function fulfillmentOrderMatchesSearch(order) {
+  const query = state.orderSearch.trim().toLowerCase();
+  return !query || orderSearchText(order).includes(query);
+}
+
+function fulfillmentAutomaticWarehouseLabel(order) {
+  const labels = new Set();
+  (order.items || []).forEach((item) => {
+    const warehouseId = orderPreferredWarehouseId(item);
+    const product = productById(item.productId || "");
+    const warehouse = product && warehouseId ? warehouseById(product, warehouseId) : null;
+    labels.add(warehouse?.name || item.suggestedWarehouseName || "Склад не найден");
+  });
+  return [...labels].join(", ");
+}
+
+function fulfillmentCanAssignAutomatically(order) {
+  return (
+    canAssignOrderWarehouses(order) &&
+    (order.items || []).every((item) => Boolean(orderPreferredWarehouseId(item)))
+  );
+}
+
+function fulfillmentPruneSelection(ordersToKeep) {
+  const allowedIds = new Set(ordersToKeep.map(fulfillmentOrderId));
+  [...state.selectedFulfillmentOrders].forEach((orderId) => {
+    if (!allowedIds.has(orderId)) state.selectedFulfillmentOrders.delete(orderId);
+  });
+}
+
+function fulfillmentOrderProductsLabel(order) {
+  if (order.item) return order.item;
+  return (order.items || [])
+    .map((item) => `${item.productName || "Товар"}${Number(item.quantity || 0) > 1 ? ` ×${item.quantity}` : ""}`)
+    .join("; ");
+}
+
+function fulfillmentOrderWarehousesLabel(order) {
+  const labels = new Set(
+    (order.items || []).map((item) => summaryWarehouseLabel(item)),
+  );
+  return [...labels].join(", ");
 }
 
 function fulfillmentPickingRows(sourceOrders) {
@@ -1292,232 +1312,309 @@ function renderOrderFulfillmentSummary() {
   const staffRole = primaryStaffRole();
   const isManager = ["superadmin", "partner_director", "admin", "curator"].includes(staffRole);
   const isTeacher = staffRole === "teacher";
-  const summaryOrders = orderFulfillmentSummaryOrders();
-  const visible = (isManager || isTeacher) && summaryOrders.length > 0;
+  const sourceOrders = orderFulfillmentSummaryOrders();
+  const workbenchFilter = ["all", "reserved", "awaiting_delivery", "problem"].includes(
+    state.orderStatusFilter,
+  );
+  const visible = (isManager || isTeacher) && workbenchFilter;
   container.hidden = !visible;
   if (!visible) {
     container.innerHTML = "";
+    state.selectedFulfillmentOrders.clear();
     return;
   }
 
   fulfillmentPickGroups.clear();
-  const allPickingRows = fulfillmentPickingRows(summaryOrders);
-  const checklistRows = (isManager || isTeacher)
-    ? allPickingRows
-        .filter(({ order }) => (isManager ? canPickOrderItem(order) : true))
-        .sort(fulfillmentPickingRowCompare)
-    : [];
+  const searchedOrders = sourceOrders.filter(fulfillmentOrderMatchesSearch);
+
+  if (isTeacher) {
+    const venues = new Map();
+    searchedOrders.forEach((order) => {
+      const venueName = orderVenueName(order);
+      if (!venues.has(venueName)) venues.set(venueName, []);
+      venues.get(venueName).push(order);
+    });
+    const teacherRows = [...venues.entries()]
+      .sort(([left], [right]) => left.localeCompare(right, "ru"))
+      .map(([venueName, venueOrders]) => `
+        <section class="fulfillment-awaiting-group">
+          <div class="fulfillment-awaiting-group-head">
+            <span><i data-lucide="map-pin"></i><strong>${escapeHtml(venueName)}</strong></span>
+            <small>${orderCountText(venueOrders.length)}</small>
+          </div>
+          <div class="fulfillment-awaiting-list">
+            ${venueOrders
+              .sort((left, right) => String(left.student).localeCompare(String(right.student), "ru"))
+              .map((order) => `
+                <div class="fulfillment-awaiting-row">
+                  <span class="fulfillment-awaiting-icon"><i data-lucide="package"></i></span>
+                  <span class="fulfillment-awaiting-copy">
+                    <strong>${escapeHtml(order.student)}</strong>
+                    <small>№${escapeHtml(order.id)} · ${escapeHtml(fulfillmentOrderProductsLabel(order))}</small>
+                  </span>
+                  <span class="status-badge ${escapeHtml(orderStatusTone(order.rawStatus))}">${escapeHtml(orderStatusLabel(order.rawStatus))}</span>
+                  <button class="fulfillment-order-link" type="button" data-open-order="${escapeHtml(fulfillmentOrderId(order))}" title="Открыть заказ" aria-label="Открыть заказ №${escapeHtml(order.id)}"><i data-lucide="arrow-up-right"></i></button>
+                </div>`)
+              .join("")}
+          </div>
+        </section>`)
+      .join("");
+    container.innerHTML = `
+      <div class="fulfillment-workbench-head">
+        <div>
+          <span>Ожидаемые заказы</span>
+          <h3>Готовится для ваших учеников</h3>
+          <p>После доставки заказ появится в обычном списке ниже.</p>
+        </div>
+        <strong>${orderCountText(sourceOrders.length)}</strong>
+      </div>
+      <div class="fulfillment-workbench-toolbar is-teacher">
+        <label class="fulfillment-search-field">
+          <i data-lucide="search"></i>
+          <input id="fulfillmentOrderSearch" type="search" value="${escapeHtml(state.orderSearch)}" placeholder="Ученик, заказ или товар" />
+          ${state.orderSearch ? '<button type="button" data-clear-fulfillment-search title="Очистить поиск" aria-label="Очистить поиск"><i data-lucide="x"></i></button>' : ""}
+        </label>
+        <button class="icon-button refresh-button fulfillment-refresh-button" type="button" data-refresh-fulfillment title="Обновить заказы" aria-label="Обновить заказы"><i data-lucide="refresh-cw"></i></button>
+      </div>
+      <div class="fulfillment-awaiting-content">
+        ${teacherRows || (state.orderSearch
+          ? '<div class="fulfillment-workbench-empty"><i data-lucide="search-x"></i><strong>Ничего не найдено</strong><span>Измените строку поиска.</span></div>'
+          : '<div class="fulfillment-workbench-empty"><i data-lucide="package-check"></i><strong>Ожидаемых заказов нет</strong><span>Новые заказы ваших учеников появятся здесь.</span></div>')}
+      </div>`;
+    return;
+  }
+
+  const sourceUnassigned = sourceOrders.filter((order) => canAssignOrderWarehouses(order));
+  const sourceAwaiting = sourceOrders.filter((order) => order.rawStatus === "awaiting_delivery");
+  const sourceUnpicked = sourceAwaiting.filter((order) => !orderIsFullyPicked(order));
+  const sourceReady = sourceAwaiting.filter(orderIsFullyPicked);
+  const visibleUnassigned = searchedOrders.filter((order) => canAssignOrderWarehouses(order));
+  const visibleUnpicked = searchedOrders.filter(
+    (order) => order.rawStatus === "awaiting_delivery" && !orderIsFullyPicked(order),
+  );
+  const visibleReady = searchedOrders.filter(
+    (order) => order.rawStatus === "awaiting_delivery" && orderIsFullyPicked(order),
+  );
+  const assignableOrders = visibleUnassigned.filter(fulfillmentCanAssignAutomatically);
+  fulfillmentPruneSelection([...assignableOrders, ...visibleReady]);
+  const selectedAssignOrders = assignableOrders.filter((order) =>
+    state.selectedFulfillmentOrders.has(fulfillmentOrderId(order)),
+  );
+  const selectedRouteOrders = visibleReady.filter((order) =>
+    state.selectedFulfillmentOrders.has(fulfillmentOrderId(order)),
+  );
+  const mode = state.fulfillmentMode === "route" ? "route" : "collect";
+  const focus = ["all", "unpicked", "unassigned"].includes(state.fulfillmentFocus)
+    ? state.fulfillmentFocus
+    : "all";
+  const modeDescription = mode === "collect"
+    ? "Назначьте склады и отметьте собранные товары."
+    : "Здесь только полностью собранные заказы для отправки на площадки.";
+
+  const modeTabs = `
+    <div class="fulfillment-mode-switch" role="tablist" aria-label="Этап комплектации">
+      <button type="button" role="tab" data-fulfillment-mode="collect" class="${mode === "collect" ? "is-active" : ""}" aria-selected="${mode === "collect"}">
+        <i data-lucide="list-checks"></i><span>Собрать</span><b>${sourceUnassigned.length + sourceUnpicked.length}</b>
+      </button>
+      <button type="button" role="tab" data-fulfillment-mode="route" class="${mode === "route" ? "is-active" : ""}" aria-selected="${mode === "route"}">
+        <i data-lucide="truck"></i><span>Распределить</span><b>${sourceReady.length}</b>
+      </button>
+    </div>`;
+
+  const focusTabs = mode === "collect"
+    ? `<div class="fulfillment-focus-switch" role="group" aria-label="Фильтр комплектации">
+        <button type="button" data-fulfillment-focus="all" class="${focus === "all" ? "is-active" : ""}">Все <b>${sourceUnassigned.length + sourceUnpicked.length}</b></button>
+        <button type="button" data-fulfillment-focus="unpicked" class="${focus === "unpicked" ? "is-active" : ""}">Не собрано <b>${sourceUnpicked.length}</b></button>
+        <button type="button" data-fulfillment-focus="unassigned" class="${focus === "unassigned" ? "is-active" : ""}">Без склада <b>${sourceUnassigned.length}</b></button>
+      </div>`
+    : `<span class="fulfillment-ready-note">Готово к отправке: <b>${sourceReady.length}</b></span>`;
+
+  const unassignedMarkup = mode === "collect" && focus !== "unpicked" && visibleUnassigned.length
+    ? `<section class="fulfillment-work-section">
+        <div class="fulfillment-work-section-head">
+          <div>
+            <span>Сначала</span>
+            <h4>Назначить склады</h4>
+            <p>Будет выбран главный склад сотрудника или склад текущего резерва.</p>
+          </div>
+          ${assignableOrders.length
+            ? `<label class="fulfillment-select-all">
+                <input type="checkbox" data-fulfillment-select-all="assign" data-order-ids="${escapeHtml(assignableOrders.map(fulfillmentOrderId).join(","))}" ${selectedAssignOrders.length === assignableOrders.length ? "checked" : ""} />
+                <span><i data-lucide="check"></i></span>Выбрать все
+              </label>`
+            : ""}
+        </div>
+        <div class="fulfillment-work-list">
+          ${visibleUnassigned.map((order) => {
+            const orderId = fulfillmentOrderId(order);
+            const canAssign = fulfillmentCanAssignAutomatically(order);
+            const selected = state.selectedFulfillmentOrders.has(orderId);
+            return `<div class="fulfillment-work-row ${selected ? "is-selected" : ""} ${order.rawStatus === "problem" ? "has-problem" : ""}">
+              ${canAssign
+                ? `<label class="fulfillment-select-control" title="Выбрать заказ №${escapeHtml(order.id)}">
+                    <input type="checkbox" data-fulfillment-order-select="${escapeHtml(orderId)}" ${selected ? "checked" : ""} />
+                    <span><i data-lucide="check"></i></span>
+                  </label>`
+                : '<span class="fulfillment-select-warning" title="Нет подходящего склада"><i data-lucide="triangle-alert"></i></span>'}
+              <span class="fulfillment-work-copy">
+                <strong>№${escapeHtml(order.id)} · ${escapeHtml(order.student)}</strong>
+                <small>${escapeHtml(fulfillmentOrderProductsLabel(order))}</small>
+              </span>
+              <span class="fulfillment-work-warehouse"><i data-lucide="warehouse"></i>${escapeHtml(fulfillmentAutomaticWarehouseLabel(order))}</span>
+              <span class="status-badge ${escapeHtml(orderStatusTone(order.rawStatus))}">${escapeHtml(orderStatusLabel(order.rawStatus))}</span>
+              <button class="fulfillment-order-link" type="button" data-open-order="${escapeHtml(orderId)}" title="Открыть заказ" aria-label="Открыть заказ №${escapeHtml(order.id)}"><i data-lucide="arrow-up-right"></i></button>
+            </div>`;
+          }).join("")}
+        </div>
+        ${selectedAssignOrders.length ? `<div class="fulfillment-selection-bar">
+          <span>Выбрано: <b>${selectedAssignOrders.length}</b></span>
+          <button class="primary-action" type="button" data-fulfillment-assign-selected><i data-lucide="warehouse"></i>Подтвердить склады</button>
+        </div>` : ""}
+      </section>`
+    : "";
+
+  const checklistOrders = mode === "collect" && focus !== "unassigned" ? visibleUnpicked : [];
+  const checklistRows = fulfillmentPickingRows(checklistOrders).sort(fulfillmentPickingRowCompare);
   const checklistWarehouses = fulfillmentChecklistWarehouses(checklistRows);
   const checklistProducts = checklistWarehouses.flatMap((warehouse) => warehouse.products);
-  const checklistPicked = checklistProducts.filter((product) => product.isPicked).length;
   const checklistUnits = checklistRows.reduce(
     (total, { item }) => total + Number(item.quantity || 0),
     0,
   );
   let pickGroupIndex = 0;
   const checklistMarkup = checklistProducts.length
-    ? `
-      <section class="fulfillment-checklist">
-        <div class="fulfillment-section-head">
+    ? `<section class="fulfillment-work-section fulfillment-collect-section">
+        <div class="fulfillment-work-section-head">
           <div>
-            <h4>${isTeacher ? "Товары для ваших учеников" : "Список для сборки"}</h4>
+            <span>По складам</span>
+            <h4>Список для сборки</h4>
             <p>${checklistProducts.length} поз. · ${checklistUnits} шт. · ${checklistWarehouses.length} скл.</p>
           </div>
         </div>
         <div class="fulfillment-warehouse-list">
-          ${checklistWarehouses
-            .map((warehouse) => {
-              const warehousePicked = warehouse.products.filter((product) => product.isPicked).length;
-              const warehouseUnits = warehouse.products.reduce(
-                (total, product) => total + product.quantity,
-                0,
-              );
-              return `
-                <section class="fulfillment-warehouse-block">
-                  <div class="fulfillment-warehouse-head">
-                    <span><i data-lucide="warehouse"></i><strong>${escapeHtml(warehouse.name)}</strong></span>
-                    <span>
-                      <b>${isTeacher ? `${warehouse.products.length} поз.` : `${warehousePicked}/${warehouse.products.length} собрано`}</b>
-                      <small>${warehouseUnits} шт.</small>
+          ${checklistWarehouses.map((warehouse) => {
+            const warehousePicked = warehouse.products.filter((product) => product.isPicked).length;
+            const warehouseUnits = warehouse.products.reduce((total, product) => total + product.quantity, 0);
+            return `<section class="fulfillment-warehouse-block">
+              <div class="fulfillment-warehouse-head">
+                <span><i data-lucide="warehouse"></i><strong>${escapeHtml(warehouse.name)}</strong></span>
+                <span><b>${warehousePicked}/${warehouse.products.length}</b><small>${warehouseUnits} шт.</small></span>
+              </div>
+              <div class="fulfillment-quick-list">
+                ${warehouse.products.map((product) => {
+                  const groupKey = `pick-group-${pickGroupIndex++}`;
+                  fulfillmentPickGroups.set(groupKey, product.rows);
+                  const stateClass = product.isPicked ? "is-picked" : product.isPartial ? "is-partial" : "";
+                  return `<label class="fulfillment-quick-row ${stateClass}">
+                    <span class="fulfillment-pick-check" title="${product.isPicked ? "Снять отметку" : "Отметить собранным"}">
+                      <input type="checkbox" data-order-pick-group="${groupKey}" data-pick-partial="${product.isPartial}" aria-label="${escapeHtml(product.name)}, ${product.quantity} шт." ${product.isPicked ? "checked" : ""} />
+                      <span><i data-lucide="check"></i></span>
                     </span>
-                  </div>
-                  <div class="fulfillment-quick-list">
-                    ${warehouse.products
-                      .map((product) => {
-                        const groupKey = `pick-group-${pickGroupIndex++}`;
-                        if (isManager) fulfillmentPickGroups.set(groupKey, product.rows);
-                        const stateClass = product.isPicked
-                          ? "is-picked"
-                          : product.isPartial
-                            ? "is-partial"
-                            : "";
-                        const title = product.isPicked
-                          ? "Снять отметку со всех заказов"
-                          : "Отметить товар собранным во всех заказах";
-                        const marker = isManager
-                          ? `<span class="fulfillment-pick-check" title="${title}">
-                              <input
-                                type="checkbox"
-                                data-order-pick-group="${groupKey}"
-                                data-pick-partial="${product.isPartial}"
-                                aria-label="${escapeHtml(product.name)}, ${product.quantity} шт."
-                                ${product.isPicked ? "checked" : ""}
-                              />
-                              <span><i data-lucide="check"></i></span>
-                            </span>`
-                          : `<span class="fulfillment-readonly-mark ${product.isPicked ? "is-picked" : ""}" title="${product.isPicked ? "Собрано" : "К выдаче"}">
-                              <i data-lucide="${product.isPicked ? "check" : "package"}"></i>
-                            </span>`;
-                        return `
-                          <label class="fulfillment-quick-row ${stateClass} ${isTeacher ? "is-readonly" : ""}">
-                            ${marker}
-                            <span class="fulfillment-quick-copy">
-                              <strong>${escapeHtml(product.name)}</strong>
-                              <small><i data-lucide="package"></i>${orderCountText(product.orderCount)}</small>
-                            </span>
-                            <b>${product.quantity} шт.</b>
-                          </label>`;
-                      })
-                      .join("")}
-                  </div>
-                </section>`;
-            })
-            .join("")}
+                    <span class="fulfillment-quick-copy"><strong>${escapeHtml(product.name)}</strong><small><i data-lucide="package"></i>${orderCountText(product.orderCount)}</small></span>
+                    <b>${product.quantity} шт.</b>
+                  </label>`;
+                }).join("")}
+              </div>
+            </section>`;
+          }).join("")}
         </div>
       </section>`
     : "";
 
-  const venues = new Map();
-  summaryOrders.forEach((order) => {
+  const routeVenues = new Map();
+  visibleReady.forEach((order) => {
     const venueName = orderVenueName(order);
     const teacherName = orderTeacherName(order);
-    if (!venues.has(venueName)) venues.set(venueName, new Map());
-    const teachers = venues.get(venueName);
+    if (!routeVenues.has(venueName)) routeVenues.set(venueName, new Map());
+    const teachers = routeVenues.get(venueName);
     if (!teachers.has(teacherName)) teachers.set(teacherName, []);
     teachers.get(teacherName).push(order);
   });
+  const routeMarkup = mode === "route" && visibleReady.length
+    ? `<section class="fulfillment-work-section fulfillment-route-section">
+        <div class="fulfillment-work-section-head">
+          <div>
+            <span>Маршрут</span>
+            <h4>Площадки и преподаватели</h4>
+            <p>Отметьте доставленные заказы одной операцией.</p>
+          </div>
+          <label class="fulfillment-select-all">
+            <input type="checkbox" data-fulfillment-select-all="route" data-order-ids="${escapeHtml(visibleReady.map(fulfillmentOrderId).join(","))}" ${selectedRouteOrders.length === visibleReady.length ? "checked" : ""} />
+            <span><i data-lucide="check"></i></span>Выбрать все
+          </label>
+        </div>
+        <div class="fulfillment-route-list">
+          ${[...routeVenues.entries()].sort(([left], [right]) => left.localeCompare(right, "ru")).map(([venueName, teachers], venueIndex) => {
+            const venueOrders = [...teachers.values()].flat();
+            return `<details class="fulfillment-venue" ${venueIndex === 0 ? "open" : ""}>
+              <summary><span><i data-lucide="map-pin"></i><strong>${escapeHtml(venueName)}</strong></span><span class="fulfillment-venue-meta"><b>${orderCountText(venueOrders.length)}</b><i data-lucide="chevron-down"></i></span></summary>
+              <div class="fulfillment-route-teachers">
+                ${[...teachers.entries()].sort(([left], [right]) => left.localeCompare(right, "ru")).map(([teacherName, teacherOrders]) => `
+                  <section class="fulfillment-route-teacher">
+                    <div class="fulfillment-route-teacher-head"><span><i data-lucide="user-round"></i><strong>${escapeHtml(teacherName)}</strong></span><small>${orderCountText(teacherOrders.length)}</small></div>
+                    <div class="fulfillment-route-orders">
+                      ${teacherOrders.sort((left, right) => String(left.student).localeCompare(String(right.student), "ru")).map((order) => {
+                        const orderId = fulfillmentOrderId(order);
+                        const selected = state.selectedFulfillmentOrders.has(orderId);
+                        return `<div class="fulfillment-route-order ${selected ? "is-selected" : ""}">
+                          <label class="fulfillment-select-control" title="Выбрать заказ №${escapeHtml(order.id)}"><input type="checkbox" data-fulfillment-order-select="${escapeHtml(orderId)}" ${selected ? "checked" : ""} /><span><i data-lucide="check"></i></span></label>
+                          <span class="fulfillment-work-copy"><strong>№${escapeHtml(order.id)} · ${escapeHtml(order.student)}</strong><small>${escapeHtml(fulfillmentOrderProductsLabel(order))}</small></span>
+                          <span class="fulfillment-work-warehouse"><i data-lucide="warehouse"></i>${escapeHtml(fulfillmentOrderWarehousesLabel(order))}</span>
+                          <button class="fulfillment-order-link" type="button" data-open-order="${escapeHtml(orderId)}" title="Открыть заказ" aria-label="Открыть заказ №${escapeHtml(order.id)}"><i data-lucide="arrow-up-right"></i></button>
+                        </div>`;
+                      }).join("")}
+                    </div>
+                  </section>`).join("")}
+              </div>
+            </details>`;
+          }).join("")}
+        </div>
+        ${selectedRouteOrders.length ? `<div class="fulfillment-selection-bar">
+          <span>Выбрано: <b>${selectedRouteOrders.length}</b></span>
+          <button class="primary-action" type="button" data-fulfillment-deliver-selected><i data-lucide="map-pin-check"></i>Доставлено на площадку</button>
+        </div>` : ""}
+      </section>`
+    : "";
 
-  const venueMarkup = [...venues.entries()]
-    .sort(([left], [right]) => left.localeCompare(right, "ru"))
-    .map(([venueName, teachers], venueIndex) => {
-      const venueOrderCount = [...teachers.values()].reduce((sum, rows) => sum + rows.length, 0);
-      const venueItems = [...teachers.values()].flatMap((rows) => rows.flatMap((order) => order.items || []));
-      const venuePicked = venueItems.filter((item) => item.isPicked).length;
-      const teacherMarkup = [...teachers.entries()]
-        .sort(([left], [right]) => left.localeCompare(right, "ru"))
-        .map(([teacherName, teacherOrders]) => {
-          const pickingRows = [];
-          teacherOrders.forEach((order) => {
-            pickingRows.push(...fulfillmentPickingRows([order]));
-          });
-          pickingRows.sort((left, right) => {
-            const warehouseCompare = summaryWarehouseLabel(left.item).localeCompare(
-              summaryWarehouseLabel(right.item),
-              "ru",
-            );
-            if (warehouseCompare) return warehouseCompare;
-            return String(left.item.productName || "").localeCompare(
-              String(right.item.productName || ""),
-              "ru",
-            );
-          });
-          const pickedCount = pickingRows.filter(({ item }) => item.isPicked).length;
-          const assignableOrders = isManager
-            ? teacherOrders.filter(
-                (order) =>
-                  canAssignOrderWarehouses(order) &&
-                  (order.items || []).every((item) => Boolean(orderPreferredWarehouseId(item))),
-              )
-            : [];
-          return `
-            <article class="fulfillment-teacher-group">
-              <div class="fulfillment-teacher-head">
-                <div><i data-lucide="user-round"></i><strong>${escapeHtml(teacherName)}</strong></div>
-                <span>Собрано ${pickedCount} из ${pickingRows.length}</span>
-              </div>
-              <div class="fulfillment-product-list">
-                ${pickingRows
-                  .map(({ order, item }) => {
-                    return `
-                      <div class="fulfillment-product-row ${item.isPicked ? "is-picked" : ""}">
-                        <span class="fulfillment-route-state" title="${item.isPicked ? "Собрано" : "Еще не собрано"}">
-                          <i data-lucide="${item.isPicked ? "check" : "package"}"></i>
-                        </span>
-                        <span class="fulfillment-product-copy">
-                          <strong>${escapeHtml(item.productName || "Товар")}</strong>
-                          <small>№${escapeHtml(order.id)} · ${escapeHtml(order.student)}</small>
-                        </span>
-                        <b>${Number(item.quantity || 0)} шт.</b>
-                        <span class="fulfillment-warehouse"><i data-lucide="warehouse"></i>${escapeHtml(summaryWarehouseLabel(item))}</span>
-                        <span class="fulfillment-stage">${escapeHtml(orderStatusLabel(order.rawStatus))}</span>
-                        <button class="fulfillment-order-link" type="button" data-open-order="${escapeHtml(order.backendId || order.id)}" title="Открыть заказ" aria-label="Открыть заказ №${escapeHtml(order.id)}"><i data-lucide="arrow-up-right"></i></button>
-                      </div>`;
-                  })
-                  .join("")}
-              </div>
-              <div class="fulfillment-group-actions">
-                <span>${orderCountText(teacherOrders.length)}</span>
-                ${assignableOrders.length
-                  ? `<button class="secondary-action" type="button" data-confirm-summary-warehouses="${escapeHtml(assignableOrders.map((order) => order.backendId || order.id).join(","))}"><i data-lucide="warehouse"></i>Подтвердить склады (${assignableOrders.length})</button>`
-                  : ""}
-              </div>
-            </article>`;
-        })
-        .join("");
-      return `
-        <details class="fulfillment-venue" ${venueIndex === 0 ? "open" : ""}>
-          <summary>
-            <span><i data-lucide="map-pin"></i><strong>${escapeHtml(venueName)}</strong></span>
-            <span class="fulfillment-venue-meta">
-              <b>${orderCountText(venueOrderCount)}</b>
-              <small>${venuePicked}/${venueItems.length} собрано</small>
-              <i data-lucide="chevron-down"></i>
-            </span>
-          </summary>
-          <div class="fulfillment-teachers">${teacherMarkup}</div>
-        </details>`;
-    })
-    .join("");
+  const collectContent = `${unassignedMarkup}${checklistMarkup}` || `
+    <div class="fulfillment-workbench-empty">
+      <i data-lucide="circle-check-big"></i>
+      <strong>${state.orderSearch ? "Ничего не найдено" : "Сборка завершена"}</strong>
+      <span>${state.orderSearch ? "Измените поиск или фильтр." : sourceReady.length ? "Готовые заказы находятся в разделе «Распределить»." : "Новых заказов для сборки нет."}</span>
+    </div>`;
+  const routeContent = routeMarkup || `
+    <div class="fulfillment-workbench-empty">
+      <i data-lucide="truck"></i>
+      <strong>${state.orderSearch ? "Ничего не найдено" : "Нет заказов для отправки"}</strong>
+      <span>${state.orderSearch ? "Измените строку поиска." : "Заказы появятся здесь после полной сборки."}</span>
+    </div>`;
 
-  const copy = fulfillmentSummaryCopy(isTeacher);
-  const progressRows = checklistProducts.length
-    ? checklistProducts
-    : allPickingRows.map(({ item }) => ({ isPicked: item.isPicked }));
-  const allPicked = progressRows.filter((item) => item.isPicked).length;
-  const summaryValue = isTeacher
-    ? `${checklistUnits} шт.`
-    : `${allPicked}/${progressRows.length}`;
   container.innerHTML = `
-    <div class="fulfillment-summary-head">
-      <div>
-        <span>${escapeHtml(copy.eyebrow)}</span>
-        <h3>${escapeHtml(copy.title)}</h3>
-        <p>${escapeHtml(copy.description)}</p>
-      </div>
-      <div class="fulfillment-summary-tools">
-        <strong title="${isTeacher ? "Количество товаров" : "Собранные позиции"}">${summaryValue}</strong>
-        <button class="icon-button refresh-button fulfillment-refresh-button" type="button" data-refresh-fulfillment title="Обновить заказы" aria-label="Обновить заказы">
-          <i data-lucide="refresh-cw"></i>
-        </button>
-      </div>
+    <div class="fulfillment-workbench-head">
+      <div><span>Работа с заказами</span><h3>${mode === "collect" ? "Комплектация" : "Распределение"}</h3><p>${escapeHtml(modeDescription)}</p></div>
+      <strong>${orderCountText(sourceOrders.length)}</strong>
     </div>
-    ${checklistMarkup}
-    <div class="fulfillment-routing-head">
-      <div>
-        <span>${isTeacher ? "Заказы" : "Распределение"}</span>
-        <h4>${isTeacher ? "По площадкам и ученикам" : "По площадкам и преподавателям"}</h4>
-      </div>
-      <div class="fulfillment-routing-actions">
-        <button type="button" data-fulfillment-venues="open"><i data-lucide="chevron-down"></i>Развернуть все</button>
-        <button type="button" data-fulfillment-venues="close"><i data-lucide="chevron-up"></i>Свернуть все</button>
-      </div>
+    <div class="fulfillment-workbench-toolbar">
+      ${modeTabs}
+      <label class="fulfillment-search-field">
+        <i data-lucide="search"></i>
+        <input id="fulfillmentOrderSearch" type="search" value="${escapeHtml(state.orderSearch)}" placeholder="Номер, ученик или товар" />
+        ${state.orderSearch ? '<button type="button" data-clear-fulfillment-search title="Очистить поиск" aria-label="Очистить поиск"><i data-lucide="x"></i></button>' : ""}
+      </label>
+      ${focusTabs}
+      <button class="icon-button refresh-button fulfillment-refresh-button" type="button" data-refresh-fulfillment title="Обновить заказы" aria-label="Обновить заказы"><i data-lucide="refresh-cw"></i></button>
     </div>
-    <div class="fulfillment-venue-list">${venueMarkup}</div>`;
+    <div class="fulfillment-workbench-content">${mode === "collect" ? collectContent : routeContent}</div>`;
   container
     .querySelectorAll('[data-order-pick-group][data-pick-partial="true"]')
     .forEach((checkbox) => {
       checkbox.indeterminate = true;
     });
+  container.querySelectorAll("[data-fulfillment-select-all]").forEach((checkbox) => {
+    const orderIds = String(checkbox.dataset.orderIds || "").split(",").filter(Boolean);
+    const selectedCount = orderIds.filter((orderId) => state.selectedFulfillmentOrders.has(orderId)).length;
+    checkbox.indeterminate = selectedCount > 0 && selectedCount < orderIds.length;
+  });
 }
 
 function renderOrders() {
@@ -1533,6 +1630,11 @@ function renderOrders() {
   if (clearSearchButton) clearSearchButton.hidden = !state.orderSearch;
   renderOrderStatusTabs();
   renderOrderFulfillmentSummary();
+  const fulfillmentSummary = qs("#orderFulfillmentSummary");
+  qs("#ordersView")?.classList.toggle(
+    "has-fulfillment-workbench",
+    Boolean(fulfillmentSummary && !fulfillmentSummary.hidden),
+  );
 
   if (ordersForCurrentRole().length === 0) {
     qs("#ordersTable").innerHTML = '<div class="empty-state">Заказов пока нет</div>';
