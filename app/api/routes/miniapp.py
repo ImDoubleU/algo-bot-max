@@ -62,7 +62,8 @@ from app.schemas.miniapp import (
     MiniAppOrderCancelCreate,
     MiniAppOrderCreate,
     MiniAppOrderCreatedRead,
-    MiniAppOrderItemPickUpdate,
+    MiniAppOrderItemPickBatchRead,
+    MiniAppOrderItemPickBatchUpdate,
     MiniAppOrderWarehouseAssignmentCreate,
     MiniAppProductImportRead,
     MiniAppProductRead,
@@ -123,7 +124,7 @@ from app.services.miniapp import (
     list_miniapp_teacher_invitations,
     mark_miniapp_order_delivered_to_venue,
     replace_miniapp_cart,
-    set_miniapp_order_item_picked,
+    set_miniapp_order_items_picked,
     set_miniapp_student_balance,
     set_miniapp_warehouse_preference,
     transfer_miniapp_inventory,
@@ -1286,17 +1287,12 @@ async def miniapp_mark_order_delivered_to_venue(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
-@router.post(
-    "/orders/{order_id}/items/{order_item_id}/picked",
-    response_model=MiniAppOrderActionRead,
-)
-async def miniapp_set_order_item_picked(
-    order_id: UUID,
-    order_item_id: UUID,
-    payload: MiniAppOrderItemPickUpdate,
+@router.post("/orders/picks", response_model=MiniAppOrderItemPickBatchRead)
+async def miniapp_set_order_items_picked(
+    payload: MiniAppOrderItemPickBatchUpdate,
     db: DbSession,
     identity: MiniAppIdentityDep,
-) -> MiniAppOrderActionRead:
+) -> MiniAppOrderItemPickBatchRead:
     settings = get_settings()
     _authorized_tenant_slug(
         identity,
@@ -1304,10 +1300,8 @@ async def miniapp_set_order_item_picked(
         tenant_slug=payload.tenant_slug,
     )
     try:
-        return await set_miniapp_order_item_picked(
+        return await set_miniapp_order_items_picked(
             db,
-            order_id=order_id,
-            order_item_id=order_item_id,
             payload=payload,
             default_tenant_slug=settings.default_tenant_slug,
         )

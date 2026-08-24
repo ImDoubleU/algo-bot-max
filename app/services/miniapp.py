@@ -86,7 +86,8 @@ from app.schemas.miniapp import (
     MiniAppOrderCancelCreate,
     MiniAppOrderCreate,
     MiniAppOrderCreatedRead,
-    MiniAppOrderItemPickUpdate,
+    MiniAppOrderItemPickBatchRead,
+    MiniAppOrderItemPickBatchUpdate,
     MiniAppOrderItemRead,
     MiniAppOrderRead,
     MiniAppOrderStatusHistoryRead,
@@ -216,6 +217,16 @@ COIN_ACCRUAL_ROLES = STORE_ADMIN_ROLES | {
 ORDER_MANAGER_ROLES = COIN_ACCRUAL_ROLES
 FULFILLMENT_MANAGER_ROLES = STORE_ADMIN_ROLES | {StaffRole.CURATOR}
 ACCRUAL_REPORT_ROLES = STORE_ADMIN_ROLES | {StaffRole.CURATOR}
+OPEN_ORDER_STATUSES = frozenset(
+    {
+        OrderStatus.CREATED,
+        OrderStatus.RESERVED,
+        OrderStatus.AWAITING_DELIVERY,
+        OrderStatus.DELIVERED_TO_VENUE,
+        OrderStatus.TRANSFERRED_TO_TEACHER,
+        OrderStatus.PROBLEM,
+    }
+)
 STAFF_ROLE_PRIORITY = (
     StaffRole.SUPERADMIN,
     StaffRole.PARTNER_DIRECTOR,
@@ -444,25 +455,39 @@ def _teacher_owns_student(account: MaxAccount, student: Student) -> bool:
     return staff_names_match(account.display_name, student.teacher_name)
 
 
-async def _teacher_student_ids(
+def _teacher_owns_order(account: MaxAccount, order: Order, student: Student) -> bool:
+    return staff_names_match(account.display_name, order.teacher_name or student.teacher_name)
+
+
+async def _teacher_order_scope(
     db: AsyncSession,
     *,
     tenant_id: UUID,
     account: MaxAccount,
-) -> list[UUID]:
+) -> tuple[set[UUID], set[UUID]]:
     if not normalize_staff_name(account.display_name):
-        return []
+        return set(), set()
     rows = (
         await db.execute(
-            select(Student.id, Student.teacher_name).where(
+            select(Order.id, Order.student_id, Order.teacher_name, Student.teacher_name)
+            .join(Student, Student.id == Order.student_id)
+            .where(
+                Order.tenant_id == tenant_id,
                 Student.tenant_id == tenant_id,
-                Student.status == StudentStatus.ACTIVE,
             )
         )
     ).all()
-    return [
-        student_id for student_id, name in rows if staff_names_match(account.display_name, name)
-    ]
+    order_ids: set[UUID] = set()
+    student_ids: set[UUID] = set()
+    for order_id, student_id, order_teacher_name, current_teacher_name in rows:
+        if not staff_names_match(
+            account.display_name,
+            order_teacher_name or current_teacher_name,
+        ):
+            continue
+        order_ids.add(UUID(str(order_id)))
+        student_ids.add(UUID(str(student_id)))
+    return order_ids, student_ids
 
 
 def _slugify(value: str) -> str:
@@ -550,7 +575,10 @@ def _product_to_read(product: Product, *, include_codes: bool = False) -> MiniAp
             if inventory.warehouse is None:
                 continue
 
-            available_total += available
+            # A single order item is reserved from one warehouse, so the shop
+            # must not advertise a quantity that only exists across several
+            # warehouses combined.
+            available_total = max(available_total, available)
             warehouses.append(
                 MiniAppProductWarehouseRead(
                     warehouse_id=UUID(str(inventory.warehouse_id)),
@@ -618,6 +646,7 @@ def _order_to_read(
     *,
     items: list[MiniAppOrderItemRead] | None = None,
     status_history: list[MiniAppOrderStatusHistoryRead] | None = None,
+    include_issued_codes: bool = True,
 ) -> MiniAppOrderRead:
     if items is None:
         items = [
@@ -641,11 +670,15 @@ def _order_to_read(
                     if item.product
                     else ProductFulfillmentType.WAREHOUSE
                 ),
-                issued_codes=[
-                    code.code
-                    for code in item.__dict__.get("digital_codes", [])
-                    if code.status == ProductCodeStatus.ISSUED
-                ],
+                issued_codes=(
+                    [
+                        code.code
+                        for code in item.__dict__.get("digital_codes", [])
+                        if code.status == ProductCodeStatus.ISSUED
+                    ]
+                    if include_issued_codes
+                    else []
+                ),
                 is_picked=item.is_picked,
             )
             for item in order.__dict__.get("items", [])
@@ -2392,11 +2425,19 @@ async def get_miniapp_session(
             ledger=[],
         )
 
+    visible_order_ids: set[UUID] | None = None
+    access_link_student_ids: set[UUID] | None = None
+    ledger_student_ids: list[UUID]
     if staff_roles:
+        ordered_student_ids = select(Order.student_id).where(Order.tenant_id == tenant.id)
         tenant_students = (
             await db.scalars(
                 select(Student)
-                .where(Student.tenant_id == tenant.id, Student.status == StudentStatus.ACTIVE)
+                .where(
+                    Student.tenant_id == tenant.id,
+                    (Student.status == StudentStatus.ACTIVE)
+                    | Student.id.in_(ordered_student_ids),
+                )
                 .order_by(Student.group_name, Student.first_name, Student.last_name)
             )
         ).all()
@@ -2416,12 +2457,27 @@ async def get_miniapp_session(
             ]
         teacher_scoped = effective_staff_role == StaffRole.TEACHER
         if teacher_scoped:
-            tenant_students = [
+            current_teacher_students = [
                 student
                 for student in tenant_students
                 if staff_names_match(account.display_name, student.teacher_name)
             ]
-        staff_student_ids = {student.id for student in tenant_students}
+            visible_order_ids, order_student_ids = await _teacher_order_scope(
+                db,
+                tenant_id=tenant.id,
+                account=account,
+            )
+            current_teacher_student_ids = {student.id for student in current_teacher_students}
+            tenant_students = [
+                student
+                for student in tenant_students
+                if student.id in current_teacher_student_ids or student.id in order_student_ids
+            ]
+            staff_student_ids = current_teacher_student_ids
+            staff_order_student_ids = order_student_ids
+        else:
+            staff_student_ids = {student.id for student in tenant_students}
+            staff_order_student_ids = set(staff_student_ids)
         visible_students_by_id = {student.id: student for student in tenant_students}
         visible_students_by_id.update(linked_students_by_id)
         tenant_students = sorted(
@@ -2433,6 +2489,9 @@ async def get_miniapp_session(
             ),
         )
         student_ids = [student.id for student in tenant_students]
+        ledger_student_ids = list(staff_student_ids | set(linked_students_by_id))
+        if director_venue_ids is not None:
+            access_link_student_ids = staff_student_ids | set(linked_students_by_id)
         balances = await _wallet_balances(db, student_ids)
         students = [
             MiniAppStudentRead(
@@ -2444,6 +2503,7 @@ async def get_miniapp_session(
                     else StudentAccessRole.STUDENT
                 ),
                 staff_visible=student.id in staff_student_ids,
+                staff_order_visible=student.id in staff_order_student_ids,
                 display_name=student.display_name,
                 birth_date=student.birth_date,
                 group_name=student.group_name,
@@ -2461,6 +2521,7 @@ async def get_miniapp_session(
     else:
         linked_students = list(linked_students_by_id.values())
         student_ids = [student.id for student in linked_students]
+        ledger_student_ids = list(student_ids)
         balances = await _wallet_balances(db, student_ids)
         students = [
             MiniAppStudentRead(
@@ -2486,13 +2547,25 @@ async def get_miniapp_session(
             for student in linked_students
         ]
 
-    orders = await _orders_for_students(db, tenant_id=tenant.id, student_ids=student_ids)
-    ledger = await _ledger_for_students(db, tenant_id=tenant.id, student_ids=student_ids)
+    orders = await _orders_for_students(
+        db,
+        tenant_id=tenant.id,
+        student_ids=student_ids,
+        visible_order_ids=visible_order_ids,
+        unrestricted_student_ids=set(linked_students_by_id),
+        issued_code_student_ids=(set(linked_students_by_id) if staff_roles else None),
+    )
+    ledger = await _ledger_for_students(
+        db,
+        tenant_id=tenant.id,
+        student_ids=ledger_student_ids,
+    )
     access_links = await _access_links_for_session(
         db,
         tenant_id=tenant.id,
         account_id=account.id,
         include_all=bool(set(staff_roles) & ELEVATED_STAFF_ROLES),
+        student_ids=access_link_student_ids,
     )
     staff_assignments = await _staff_assignments_for_session(
         db,
@@ -2906,13 +2979,25 @@ async def get_miniapp_ops_summary(
         raise MiniAppStoreError("Нет прав на операционную сводку", status_code=403)
 
     order_filters = [Order.tenant_id == tenant.id]
+    venue_scope_ids = await staff_venue_scope_ids(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        role=staff_role,
+    )
+    if venue_scope_ids is not None:
+        scoped_student_ids = select(Student.id).where(
+            Student.tenant_id == tenant.id,
+            Student.venue_id.in_(venue_scope_ids),
+        )
+        order_filters.append(Order.student_id.in_(scoped_student_ids))
     if staff_role == StaffRole.TEACHER:
-        teacher_student_ids = await _teacher_student_ids(
+        teacher_order_ids, _teacher_student_ids = await _teacher_order_scope(
             db,
             tenant_id=tenant.id,
             account=account,
         )
-        order_filters.append(Order.student_id.in_(teacher_student_ids))
+        order_filters.append(Order.id.in_(teacher_order_ids))
 
     status_rows = (
         await db.execute(
@@ -2926,15 +3011,9 @@ async def get_miniapp_ops_summary(
     ]
     total_orders = sum(status_counts.values())
 
-    open_statuses = {
-        OrderStatus.CREATED,
-        OrderStatus.RESERVED,
-        OrderStatus.AWAITING_DELIVERY,
-        OrderStatus.DELIVERED_TO_VENUE,
-        OrderStatus.TRANSFERRED_TO_TEACHER,
-        OrderStatus.PROBLEM,
-    }
+    open_statuses = OPEN_ORDER_STATUSES
     pending_issue_statuses = {
+        OrderStatus.CREATED,
         OrderStatus.RESERVED,
         OrderStatus.AWAITING_DELIVERY,
         OrderStatus.DELIVERED_TO_VENUE,
@@ -3107,7 +3186,7 @@ async def _load_order_action_context(
         )
         if venue_scope_ids is not None and student.venue_id not in venue_scope_ids:
             raise MiniAppStoreError("Нет доступа к заказу другой площадки", status_code=403)
-        if staff_role != StaffRole.TEACHER or _teacher_owns_student(account, student):
+        if staff_role != StaffRole.TEACHER or _teacher_owns_order(account, order, student):
             return tenant, account, order, student, staff_role
         if require_manager:
             raise MiniAppStoreError("Нет доступа к заказу чужой группы", status_code=403)
@@ -3181,7 +3260,7 @@ async def create_miniapp_order(
         select(Student).where(
             Student.tenant_id == tenant.id,
             Student.id == payload.student_id,
-        )
+        ).with_for_update()
     )
     if student is None:
         raise MiniAppStoreError("Ученик не найден у выбранного партнера", status_code=404)
@@ -3247,6 +3326,14 @@ async def create_miniapp_order(
             )
             if existing_wallet is None:
                 raise MiniAppStoreError("Кошелек ученика не найден", status_code=409)
+            await db.execute(
+                delete(StudentCartItem).where(
+                    StudentCartItem.tenant_id == tenant.id,
+                    StudentCartItem.student_id == student.id,
+                    StudentCartItem.product_id.in_(quantities),
+                )
+            )
+            await db.commit()
             order_read = _order_to_read(existing_order, existing_student)
             return MiniAppOrderCreatedRead(
                 order=order_read,
@@ -3574,6 +3661,13 @@ async def create_miniapp_order(
             },
         )
     )
+    await db.execute(
+        delete(StudentCartItem).where(
+            StudentCartItem.tenant_id == tenant.id,
+            StudentCartItem.student_id == student.id,
+            StudentCartItem.product_id.in_(requested_product_ids),
+        )
+    )
 
     await db.commit()
     await db.refresh(order)
@@ -3664,7 +3758,11 @@ async def assign_miniapp_order_warehouses(
             status_code=403,
         )
     previous_status = order.status
-    if previous_status not in {OrderStatus.RESERVED, OrderStatus.PROBLEM}:
+    if previous_status not in {
+        OrderStatus.CREATED,
+        OrderStatus.RESERVED,
+        OrderStatus.PROBLEM,
+    }:
         raise MiniAppStoreError(
             "Склад можно назначить зарезервированному или проблемному заказу",
             status_code=409,
@@ -3748,6 +3846,7 @@ async def assign_miniapp_order_warehouses(
     sheets_items: list[dict[str, object]] = []
     low_stock_events: list[tuple[Product, WarehouseInventory]] = []
     for item, source_inventory, target_inventory in reservation_plan:
+        product_name = item.product.name if item.product else str(item.product_id)
         moved_reservation = (
             source_inventory is None
             or source_inventory.warehouse_id != target_inventory.warehouse_id
@@ -3804,7 +3903,6 @@ async def assign_miniapp_order_warehouses(
             target_inventory.low_stock_notified = False
         item.warehouse_id = target_inventory.warehouse_id
         item.reserved_warehouse_id = None
-        product_name = item.product.name if item.product else str(item.product_id)
         warehouse_name = target_inventory.warehouse.name if target_inventory.warehouse else None
         response_items.append(
             MiniAppOrderItemRead(
@@ -3908,68 +4006,110 @@ async def assign_miniapp_order_warehouses(
     )
 
 
-async def set_miniapp_order_item_picked(
+async def set_miniapp_order_items_picked(
     db: AsyncSession,
     *,
-    order_id: UUID,
-    order_item_id: UUID,
-    payload: MiniAppOrderItemPickUpdate,
+    payload: MiniAppOrderItemPickBatchUpdate,
     default_tenant_slug: str,
-) -> MiniAppOrderActionRead:
-    tenant, account, order, student, staff_role = await _load_order_action_context(
+) -> MiniAppOrderItemPickBatchRead:
+    tenant_slug = (payload.tenant_slug or default_tenant_slug).strip().lower()
+    tenant = await get_tenant_by_slug(db, tenant_slug)
+    if tenant is None:
+        raise MiniAppStoreError("Город или партнер не найден", status_code=404)
+    account = await db.scalar(
+        select(MaxAccount).where(MaxAccount.max_user_id == payload.max_user_id)
+    )
+    if account is None:
+        raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
+    staff_role = await _active_staff_role(
         db,
-        order_id=order_id,
-        payload=MiniAppOrderActionCreate(
-            max_user_id=payload.max_user_id,
-            tenant_slug=payload.tenant_slug,
-        ),
-        default_tenant_slug=default_tenant_slug,
-        require_manager=True,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        allowed_roles=FULFILLMENT_MANAGER_ROLES,
     )
-    if staff_role not in FULFILLMENT_MANAGER_ROLES:
+    if staff_role is None:
         raise MiniAppStoreError("Нет прав на комплектацию заказа", status_code=403)
-    if order.status != OrderStatus.AWAITING_DELIVERY:
-        raise MiniAppStoreError(
-            "Комплектацию можно менять только до доставки на площадку",
-            status_code=409,
-        )
 
-    order_item = next(
-        (item for item in order.items if UUID(str(item.id)) == order_item_id),
-        None,
-    )
-    if order_item is None:
-        raise MiniAppStoreError("Позиция заказа не найдена", status_code=404)
-    if (
-        order_item.product
-        and order_item.product.fulfillment_type == ProductFulfillmentType.DIGITAL_CODE
-    ):
-        raise MiniAppStoreError("Цифровой товар не требует комплектации", status_code=409)
-
-    order_item.is_picked = payload.is_picked
-    order_item.picked_at = datetime.now(UTC) if payload.is_picked else None
-    db.add(
-        AuditLog(
-            tenant_id=tenant.id,
-            actor_account_id=account.id,
-            action="miniapp_order.item_pick_updated",
-            entity_type="order_item",
-            entity_id=str(order_item.id),
-            payload={
-                "order_id": str(order.id),
-                "order_number": order.order_number,
-                "product_id": str(order_item.product_id),
-                "is_picked": payload.is_picked,
-                "actor_role": staff_role.value,
-            },
+    update_keys = [
+        (UUID(str(item.order_id)), UUID(str(item.order_item_id)))
+        for item in payload.items
+    ]
+    if len(set(update_keys)) != len(update_keys):
+        raise MiniAppStoreError("Позиция заказа указана несколько раз")
+    order_ids = {order_id for order_id, _item_id in update_keys}
+    order_rows = (
+        await db.execute(
+            select(Order, Student)
+            .join(Student, Student.id == Order.student_id)
+            .where(Order.tenant_id == tenant.id, Order.id.in_(order_ids))
+            .order_by(Order.id)
+            .with_for_update()
+            .options(
+                selectinload(Order.items).selectinload(OrderItem.product),
+            )
         )
+    ).all()
+    orders_by_id = {UUID(str(order.id)): (order, student) for order, student in order_rows}
+    if set(orders_by_id) != order_ids:
+        raise MiniAppStoreError("Один или несколько заказов не найдены", status_code=404)
+
+    venue_scope_ids = await staff_venue_scope_ids(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        role=staff_role,
     )
+    pending_updates: list[tuple[Order, OrderItem, bool]] = []
+    for item_update, (order_id, order_item_id) in zip(payload.items, update_keys, strict=True):
+        order, student = orders_by_id[order_id]
+        if venue_scope_ids is not None and student.venue_id not in venue_scope_ids:
+            raise MiniAppStoreError("Нет доступа к заказу другой площадки", status_code=403)
+        if order.status != OrderStatus.AWAITING_DELIVERY:
+            raise MiniAppStoreError(
+                "Комплектацию можно менять только до доставки на площадку",
+                status_code=409,
+            )
+        order_item = next(
+            (item for item in order.items if UUID(str(item.id)) == order_item_id),
+            None,
+        )
+        if order_item is None:
+            raise MiniAppStoreError("Позиция заказа не найдена", status_code=404)
+        if (
+            order_item.product
+            and order_item.product.fulfillment_type == ProductFulfillmentType.DIGITAL_CODE
+        ):
+            raise MiniAppStoreError("Цифровой товар не требует комплектации", status_code=409)
+        if order_item.warehouse_id is None:
+            raise MiniAppStoreError(
+                "Сначала подтвердите склад для каждой позиции заказа",
+                status_code=409,
+            )
+        pending_updates.append((order, order_item, item_update.is_picked))
+
+    picked_at = datetime.now(UTC)
+    for order, order_item, is_picked in pending_updates:
+        order_item.is_picked = is_picked
+        order_item.picked_at = picked_at if is_picked else None
+        db.add(
+            AuditLog(
+                tenant_id=tenant.id,
+                actor_account_id=account.id,
+                action="miniapp_order.item_pick_updated",
+                entity_type="order_item",
+                entity_id=str(order_item.id),
+                payload={
+                    "order_id": str(order.id),
+                    "order_number": order.order_number,
+                    "product_id": str(order_item.product_id),
+                    "is_picked": is_picked,
+                    "actor_role": staff_role.value,
+                    "batch": True,
+                },
+            )
+        )
     await db.commit()
-    await db.refresh(order_item)
-    return MiniAppOrderActionRead(
-        order=_order_to_read(order, student),
-        balance_after=None,
-    )
+    return MiniAppOrderItemPickBatchRead(updated_items=len(pending_updates))
 
 
 async def mark_miniapp_order_delivered_to_venue(
@@ -3991,6 +4131,16 @@ async def mark_miniapp_order_delivered_to_venue(
     if order.status != OrderStatus.AWAITING_DELIVERY:
         raise MiniAppStoreError(
             "Доставленным на площадку можно отметить только заказ в пути",
+            status_code=409,
+        )
+    if any(
+        item.product
+        and item.product.fulfillment_type == ProductFulfillmentType.WAREHOUSE
+        and item.warehouse_id is None
+        for item in order.items
+    ):
+        raise MiniAppStoreError(
+            "Сначала подтвердите склад для каждой позиции заказа",
             status_code=409,
         )
     if any(
@@ -4093,12 +4243,13 @@ async def cancel_miniapp_order(
                 "Склад уже подтвержден. Для отмены обратитесь к сотруднику школы",
                 status_code=409,
             )
-        if order.status != OrderStatus.RESERVED:
+        if order.status not in {OrderStatus.CREATED, OrderStatus.RESERVED}:
             raise MiniAppStoreError(
                 "Ученик или родитель может отменить только зарезервированный заказ",
                 status_code=409,
             )
     elif order.status not in {
+        OrderStatus.CREATED,
         OrderStatus.RESERVED,
         OrderStatus.AWAITING_DELIVERY,
         OrderStatus.DELIVERED_TO_VENUE,
@@ -4305,7 +4456,6 @@ async def issue_miniapp_order(
 
     for item in order.items:
         inventory = await _inventory_for_order_item(db, tenant_id=tenant.id, item=item)
-        inventory.is_active = True
         try:
             issue_reserved_inventory(inventory, item.quantity)
         except WarehouseServiceError as exc:
@@ -4968,6 +5118,24 @@ async def update_miniapp_access_link_status(
     )
     if link is None:
         raise MiniAppStoreError("Связь доступа не найдена", status_code=404)
+    venue_scope_ids = await staff_venue_scope_ids(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        role=staff_role,
+    )
+    if venue_scope_ids is not None:
+        student_venue_id = await db.scalar(
+            select(Student.venue_id).where(
+                Student.tenant_id == tenant.id,
+                Student.id == link.student_id,
+            )
+        )
+        if student_venue_id not in venue_scope_ids:
+            raise MiniAppStoreError(
+                "Нет доступа к связи ученика другой площадки",
+                status_code=403,
+            )
 
     if payload.status == StudentAccessStatus.ACTIVE and link.role == StudentAccessRole.STUDENT:
         parent_conditions = [
@@ -5900,10 +6068,13 @@ async def _access_links_for_session(
     tenant_id: UUID,
     account_id: UUID,
     include_all: bool,
+    student_ids: set[UUID] | None = None,
 ) -> list[MiniAppAccessLinkRead]:
     conditions = [StudentAccessLink.tenant_id == tenant_id]
     if not include_all:
         conditions.append(StudentAccessLink.account_id == account_id)
+    if student_ids is not None:
+        conditions.append(StudentAccessLink.student_id.in_(student_ids))
 
     rows = (
         await db.execute(
@@ -5912,7 +6083,6 @@ async def _access_links_for_session(
             .join(Student, Student.id == StudentAccessLink.student_id)
             .where(*conditions)
             .order_by(Student.group_name, Student.first_name, MaxAccount.max_user_id)
-            .limit(200)
         )
     ).all()
     return [
@@ -5951,7 +6121,6 @@ async def _staff_assignments_for_session(
                 StaffRoleAssignment.role,
                 MaxAccount.max_user_id,
             )
-            .limit(200)
         )
     ).all()
     return [
@@ -5973,27 +6142,59 @@ async def _orders_for_students(
     *,
     tenant_id: UUID,
     student_ids: list[UUID],
+    visible_order_ids: set[UUID] | None = None,
+    unrestricted_student_ids: set[UUID] | None = None,
+    issued_code_student_ids: set[UUID] | None = None,
 ) -> list[MiniAppOrderRead]:
     if not student_ids:
         return []
 
-    rows = (
+    order_filters = [Order.tenant_id == tenant_id, Order.student_id.in_(student_ids)]
+    if visible_order_ids is not None:
+        order_scope = Order.id.in_(visible_order_ids)
+        if unrestricted_student_ids:
+            order_scope = order_scope | Order.student_id.in_(unrestricted_student_ids)
+        order_filters.append(order_scope)
+
+    query = (
+        select(Order, Student)
+        .join(Student, Student.id == Order.student_id)
+        .options(
+            selectinload(Order.items).selectinload(OrderItem.product),
+            selectinload(Order.items).selectinload(OrderItem.digital_codes),
+            selectinload(Order.items).selectinload(OrderItem.warehouse),
+            selectinload(Order.items).selectinload(OrderItem.reserved_warehouse),
+            selectinload(Order.status_history),
+        )
+        .where(*order_filters)
+    )
+    open_rows = (
         await db.execute(
-            select(Order, Student)
-            .join(Student, Student.id == Order.student_id)
-            .options(
-                selectinload(Order.items).selectinload(OrderItem.product),
-                selectinload(Order.items).selectinload(OrderItem.digital_codes),
-                selectinload(Order.items).selectinload(OrderItem.warehouse),
-                selectinload(Order.items).selectinload(OrderItem.reserved_warehouse),
-                selectinload(Order.status_history),
-            )
-            .where(Order.tenant_id == tenant_id, Order.student_id.in_(student_ids))
-            .order_by(Order.created_at.desc())
-            .limit(50)
+            query.where(Order.status.in_(OPEN_ORDER_STATUSES)).order_by(Order.created_at.desc())
         )
     ).all()
-    return [_order_to_read(order, student) for order, student in rows]
+    archive_rows = (
+        await db.execute(
+            query.where(Order.status.not_in(OPEN_ORDER_STATUSES))
+            .order_by(Order.created_at.desc())
+            .limit(100)
+        )
+    ).all()
+    rows = sorted(
+        [*open_rows, *archive_rows],
+        key=lambda row: row[0].created_at,
+        reverse=True,
+    )
+    return [
+        _order_to_read(
+            order,
+            student,
+            include_issued_codes=(
+                issued_code_student_ids is None or student.id in issued_code_student_ids
+            ),
+        )
+        for order, student in rows
+    ]
 
 
 async def _ledger_for_students(

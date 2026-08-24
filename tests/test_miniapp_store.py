@@ -1,10 +1,12 @@
+from uuid import uuid4
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.db.base  # noqa: F401
 import app.services.miniapp as miniapp_service
-from app.models.account import MaxAccount, StaffRoleAssignment
+from app.models.account import MaxAccount, StaffRoleAssignment, StaffVenueScope
 from app.models.audit import AuditLog
 from app.models.base import Base
 from app.models.enums import (
@@ -26,10 +28,12 @@ from app.models.store import (
     ProductCategory,
     ProductCode,
     StockMovement,
+    StudentCartItem,
     Warehouse,
     WarehouseInventory,
 )
 from app.models.student import AstrocoinLedgerEntry, Student, Wallet
+from app.models.tenant import Venue
 from app.schemas.access import AccessLinkCreate
 from app.schemas.miniapp import (
     MiniAppAccrualCreate,
@@ -39,7 +43,8 @@ from app.schemas.miniapp import (
     MiniAppOrderCancelCreate,
     MiniAppOrderCreate,
     MiniAppOrderItemCreate,
-    MiniAppOrderItemPickUpdate,
+    MiniAppOrderItemPickBatchItem,
+    MiniAppOrderItemPickBatchUpdate,
     MiniAppOrderWarehouseAssignmentCreate,
     MiniAppOrderWarehouseAssignmentItem,
     MiniAppProductInventoryWrite,
@@ -62,7 +67,7 @@ from app.services.miniapp import (
     list_miniapp_admin_history,
     list_miniapp_catalog,
     mark_miniapp_order_delivered_to_venue,
-    set_miniapp_order_item_picked,
+    set_miniapp_order_items_picked,
     set_miniapp_warehouse_preference,
     transfer_miniapp_inventory,
     upsert_miniapp_product,
@@ -166,6 +171,31 @@ async def seed_product(db_session, student: Student) -> tuple[Product, Warehouse
 async def test_order_waits_for_admin_warehouse_and_debits_wallet(db_session) -> None:
     student = await seed_linked_student(db_session)
     product, inventory = await seed_product(db_session, student)
+    secondary_warehouse = Warehouse(
+        tenant_id=student.tenant_id,
+        slug="secondary-stock",
+        name="Дополнительный склад",
+        warehouse_type=WarehouseType.COMMON,
+    )
+    db_session.add(secondary_warehouse)
+    await db_session.flush()
+    db_session.add(
+        WarehouseInventory(
+            tenant_id=student.tenant_id,
+            warehouse_id=secondary_warehouse.id,
+            product_id=product.id,
+            available_quantity=4,
+        )
+    )
+    db_session.add(
+        StudentCartItem(
+            tenant_id=student.tenant_id,
+            student_id=student.id,
+            product_id=product.id,
+            quantity=2,
+        )
+    )
+    await db_session.commit()
 
     catalog = await list_miniapp_catalog(
         db_session,
@@ -174,6 +204,8 @@ async def test_order_waits_for_admin_warehouse_and_debits_wallet(db_session) -> 
     )
 
     assert len(catalog.products) == 1
+    # One item cannot be assembled from several warehouses, so 5 + 4 must not
+    # be exposed as 9 purchasable units.
     assert catalog.products[0].available_quantity == 5
 
     created = await create_miniapp_order(
@@ -202,6 +234,9 @@ async def test_order_waits_for_admin_warehouse_and_debits_wallet(db_session) -> 
     assert wallet is not None
     assert inventory.reserved_quantity == 2
     assert wallet.balance == 760
+    assert await db_session.scalar(
+        select(StudentCartItem.id).where(StudentCartItem.student_id == student.id)
+    ) is None
 
     order_items = (await db_session.scalars(select(OrderItem))).all()
     ledger_entries = (await db_session.scalars(select(AstrocoinLedgerEntry))).all()
@@ -261,6 +296,15 @@ async def test_digital_product_issues_one_retained_code_and_is_idempotent(
         payload=payload,
         default_tenant_slug="nizhniy-novgorod-partner-a",
     )
+    db_session.add(
+        StudentCartItem(
+            tenant_id=student.tenant_id,
+            student_id=student.id,
+            product_id=product.id,
+            quantity=1,
+        )
+    )
+    await db_session.commit()
     repeated = await create_miniapp_order(
         db_session,
         payload=payload,
@@ -280,6 +324,9 @@ async def test_digital_product_issues_one_retained_code_and_is_idempotent(
     wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
     assert wallet is not None
     assert wallet.balance == 800
+    assert await db_session.scalar(
+        select(StudentCartItem.id).where(StudentCartItem.student_id == student.id)
+    ) is None
 
 
 async def test_digital_and_warehouse_products_require_separate_orders(db_session) -> None:
@@ -513,7 +560,74 @@ async def test_ops_summary_reports_open_orders_and_low_stock(db_session) -> None
     assert summary.total_reserved_quantity == 2
 
 
-@pytest.mark.parametrize("initial_status", [OrderStatus.RESERVED, OrderStatus.PROBLEM])
+async def test_director_ops_summary_excludes_orders_from_other_venues(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, _inventory = await seed_product(db_session, student)
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
+    assert account is not None
+    assignment = StaffRoleAssignment(
+        tenant_id=student.tenant_id,
+        account_id=account.id,
+        role=StaffRole.PARTNER_DIRECTOR,
+        status=AssignmentStatus.ACTIVE,
+    )
+    other_venue = Venue(
+        tenant_id=student.tenant_id,
+        slug="other-venue",
+        name="Другая площадка",
+    )
+    db_session.add_all([assignment, other_venue])
+    await db_session.flush()
+    db_session.add(StaffVenueScope(assignment_id=assignment.id, venue_id=student.venue_id))
+    other_student = Student(
+        tenant_id=student.tenant_id,
+        venue_id=other_venue.id,
+        student_access_code="other-venue-student",
+        first_name="Чужой",
+        last_name="Ученик",
+        venue_name=other_venue.name,
+    )
+    db_session.add(other_student)
+    await db_session.flush()
+    db_session.add(
+        Order(
+            tenant_id=student.tenant_id,
+            student_id=other_student.id,
+            order_number=999,
+            status=OrderStatus.RESERVED,
+            total_astrocoins=product.price_astrocoins,
+            venue_name=other_venue.name,
+        )
+    )
+    await db_session.commit()
+
+    await create_miniapp_order(
+        db_session,
+        payload=MiniAppOrderCreate(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            student_id=student.id,
+            items=[MiniAppOrderItemCreate(product_id=product.id, quantity=1)],
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    summary = await get_miniapp_ops_summary(
+        db_session,
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    assert summary.staff_role == StaffRole.PARTNER_DIRECTOR
+    assert summary.total_orders == 1
+    assert len(summary.recent_open_orders) == 1
+    assert summary.recent_open_orders[0].student_id == student.id
+
+
+@pytest.mark.parametrize(
+    "initial_status",
+    [OrderStatus.CREATED, OrderStatus.RESERVED, OrderStatus.PROBLEM],
+)
 async def test_admin_assigns_order_warehouse_after_checkout(
     db_session,
     initial_status: OrderStatus,
@@ -760,18 +874,74 @@ async def test_staff_completes_physical_order_workflow(db_session) -> None:
             default_tenant_slug="nizhniy-novgorod-partner-a",
         )
 
-    picked = await set_miniapp_order_item_picked(
+    assigned_item = await db_session.get(OrderItem, assigned.order.items[0].id)
+    assert assigned_item is not None
+    assigned_warehouse_id = assigned_item.warehouse_id
+    assigned_item.warehouse_id = None
+    await db_session.commit()
+    with pytest.raises(MiniAppStoreError, match="подтвердите склад"):
+        await set_miniapp_order_items_picked(
+            db_session,
+            payload=MiniAppOrderItemPickBatchUpdate(
+                max_user_id=53364725,
+                tenant_slug="nizhniy-novgorod-partner-a",
+                items=[
+                    MiniAppOrderItemPickBatchItem(
+                        order_id=created.order.id,
+                        order_item_id=assigned.order.items[0].id,
+                        is_picked=True,
+                    )
+                ],
+            ),
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
+    assigned_item.warehouse_id = assigned_warehouse_id
+    await db_session.commit()
+
+    with pytest.raises(MiniAppStoreError, match="Позиция заказа не найдена"):
+        await set_miniapp_order_items_picked(
+            db_session,
+            payload=MiniAppOrderItemPickBatchUpdate(
+                max_user_id=53364725,
+                tenant_slug="nizhniy-novgorod-partner-a",
+                items=[
+                    MiniAppOrderItemPickBatchItem(
+                        order_id=created.order.id,
+                        order_item_id=assigned.order.items[0].id,
+                        is_picked=True,
+                    ),
+                    MiniAppOrderItemPickBatchItem(
+                        order_id=created.order.id,
+                        order_item_id=uuid4(),
+                        is_picked=True,
+                    ),
+                ],
+            ),
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
+    unchanged_item = await db_session.get(OrderItem, assigned.order.items[0].id)
+    assert unchanged_item is not None
+    assert unchanged_item.is_picked is False
+
+    picked = await set_miniapp_order_items_picked(
         db_session,
-        order_id=created.order.id,
-        order_item_id=assigned.order.items[0].id,
-        payload=MiniAppOrderItemPickUpdate(
+        payload=MiniAppOrderItemPickBatchUpdate(
             max_user_id=53364725,
             tenant_slug="nizhniy-novgorod-partner-a",
-            is_picked=True,
+            items=[
+                MiniAppOrderItemPickBatchItem(
+                    order_id=created.order.id,
+                    order_item_id=assigned.order.items[0].id,
+                    is_picked=True,
+                )
+            ],
         ),
         default_tenant_slug="nizhniy-novgorod-partner-a",
     )
-    assert picked.order.items[0].is_picked is True
+    assert picked.updated_items == 1
+    picked_item = await db_session.get(OrderItem, assigned.order.items[0].id)
+    assert picked_item is not None
+    assert picked_item.is_picked is True
 
     delivered = await mark_miniapp_order_delivered_to_venue(
         db_session,
@@ -785,14 +955,18 @@ async def test_staff_completes_physical_order_workflow(db_session) -> None:
     assert delivered.order.status == OrderStatus.DELIVERED_TO_VENUE
 
     with pytest.raises(MiniAppStoreError, match="только до доставки"):
-        await set_miniapp_order_item_picked(
+        await set_miniapp_order_items_picked(
             db_session,
-            order_id=created.order.id,
-            order_item_id=assigned.order.items[0].id,
-            payload=MiniAppOrderItemPickUpdate(
+            payload=MiniAppOrderItemPickBatchUpdate(
                 max_user_id=53364725,
                 tenant_slug="nizhniy-novgorod-partner-a",
-                is_picked=False,
+                items=[
+                    MiniAppOrderItemPickBatchItem(
+                        order_id=created.order.id,
+                        order_item_id=assigned.order.items[0].id,
+                        is_picked=False,
+                    )
+                ],
             ),
             default_tenant_slug="nizhniy-novgorod-partner-a",
         )

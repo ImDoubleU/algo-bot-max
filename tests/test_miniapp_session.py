@@ -6,19 +6,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.db.base  # noqa: F401
-from app.models.account import MaxAccount, StaffRoleAssignment
+from app.models.account import MaxAccount, StaffRoleAssignment, StaffVenueScope
 from app.models.base import Base
 from app.models.enums import (
     AssignmentStatus,
     LedgerDirection,
     OrderStatus,
+    ProductCodeStatus,
+    ProductFulfillmentType,
     StaffRole,
     StudentAccessRole,
     StudentAccessSource,
     StudentAccessStatus,
     StudentStatus,
 )
-from app.models.store import Order, OrderItem, OrderStatusHistory, Product
+from app.models.store import Order, OrderItem, OrderStatusHistory, Product, ProductCode
 from app.models.student import (
     AstrocoinLedgerEntry,
     Contact,
@@ -28,6 +30,7 @@ from app.models.student import (
     StudentHistoryEvent,
     Wallet,
 )
+from app.models.tenant import Tenant
 from app.schemas.access import AccessLinkCreate
 from app.schemas.miniapp import (
     MiniAppAccessStatusUpdate,
@@ -40,6 +43,10 @@ from app.services.access import create_contact_access_links
 from app.services.birthday_rewards import grant_birthday_rewards
 from app.services.crm_import import CrmStudentRow
 from app.services.crm_sync import CrmSyncDefaults, upsert_crm_student_rows
+from app.services.max_notifications import (
+    _recipient_user_ids,
+    _tenant_customer_user_ids,
+)
 from app.services.miniapp import (
     MiniAppStoreError,
     create_miniapp_student,
@@ -301,6 +308,250 @@ async def test_staff_session_returns_tenant_students_sorted_by_group(db_session)
     }
 
 
+async def test_scoped_director_sees_access_links_only_for_own_venue(db_session) -> None:
+    defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+    second_row = replace(
+        crm_row(),
+        row_number=3,
+        deal_id="2468",
+        uuid="uuid-2",
+        lms_student_id="ST-002",
+        first_name="Борис",
+        last_name="Петров",
+        group_name="Scratch, сб 12:00",
+        course_name="Scratch",
+        venue_name="Гагарина 64",
+        teacher_name="Другой Педагог",
+        contact_ids="682",
+    )
+    await upsert_crm_student_rows(db_session, [crm_row(), second_row], defaults=defaults)
+    await create_contact_access_links(
+        db_session,
+        AccessLinkCreate(
+            tenant_slug="nizhniy-novgorod-partner-a",
+            contact_id="681",
+            max_user_id=7001,
+            role=StudentAccessRole.PARENT,
+        ),
+    )
+    await create_contact_access_links(
+        db_session,
+        AccessLinkCreate(
+            tenant_slug="nizhniy-novgorod-partner-a",
+            contact_id="682",
+            max_user_id=7002,
+            role=StudentAccessRole.PARENT,
+        ),
+    )
+    first_student = await db_session.scalar(
+        select(Student).where(Student.lms_student_id == "ST-001")
+    )
+    assert first_student is not None
+    director = MaxAccount(max_user_id=7003, display_name="Директор площадки")
+    assignment = StaffRoleAssignment(
+        tenant_id=first_student.tenant_id,
+        account=director,
+        role=StaffRole.PARTNER_DIRECTOR,
+        status=AssignmentStatus.ACTIVE,
+    )
+    db_session.add_all([director, assignment])
+    await db_session.flush()
+    db_session.add(
+        StaffVenueScope(assignment_id=assignment.id, venue_id=first_student.venue_id)
+    )
+    await db_session.commit()
+
+    session = await get_miniapp_session(
+        db_session,
+        max_user_id=7003,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    assert {student.student_id for student in session.students} == {first_student.id}
+    assert {link.max_user_id for link in session.access_links} == {7001}
+    foreign_link = await db_session.scalar(
+        select(StudentAccessLink)
+        .join(MaxAccount, MaxAccount.id == StudentAccessLink.account_id)
+        .where(MaxAccount.max_user_id == 7002)
+    )
+    assert foreign_link is not None
+    with pytest.raises(MiniAppStoreError, match="другой площадки"):
+        await update_miniapp_access_link_status(
+            db_session,
+            link_id=foreign_link.id,
+            payload=MiniAppAccessStatusUpdate(
+                max_user_id=7003,
+                tenant_slug="nizhniy-novgorod-partner-a",
+                status=StudentAccessStatus.REVOKED,
+            ),
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
+
+
+async def test_staff_session_keeps_departed_student_with_order_visible(db_session) -> None:
+    defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+    await upsert_crm_student_rows(db_session, [crm_row()], defaults=defaults)
+    student = await db_session.scalar(select(Student).where(Student.lms_student_id == "ST-001"))
+    assert student is not None
+    student.status = StudentStatus.DEPARTED
+
+    teacher = MaxAccount(max_user_id=53364727, display_name="Олейник Д")
+    db_session.add(teacher)
+    await db_session.flush()
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=teacher.id,
+            role=StaffRole.TEACHER,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    product = Product(
+        tenant_id=student.tenant_id,
+        sku="OLD-ORDER",
+        name="Товар старого заказа",
+        price_astrocoins=50,
+    )
+    db_session.add(product)
+    await db_session.flush()
+    order = Order(
+        tenant_id=student.tenant_id,
+        student_id=student.id,
+        order_number=7,
+        status=OrderStatus.TRANSFERRED_TO_TEACHER,
+        total_astrocoins=50,
+        teacher_name=student.teacher_name,
+        venue_name=student.venue_name,
+    )
+    db_session.add(order)
+    await db_session.flush()
+    student.teacher_name = "Новый Педагог"
+    db_session.add(
+        OrderItem(
+            tenant_id=student.tenant_id,
+            order_id=order.id,
+            product_id=product.id,
+            quantity=1,
+            unit_price_astrocoins=50,
+            total_price_astrocoins=50,
+        )
+    )
+    await db_session.commit()
+
+    session = await get_miniapp_session(
+        db_session,
+        max_user_id=53364727,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    assert len(session.students) == 1
+    assert session.students[0].student_status == StudentStatus.DEPARTED
+    assert session.students[0].staff_visible is False
+    assert session.students[0].staff_order_visible is True
+    assert [item.order_number for item in session.orders] == [7]
+
+    new_teacher = MaxAccount(max_user_id=53364728, display_name="Новый Педагог")
+    db_session.add(new_teacher)
+    await db_session.flush()
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=new_teacher.id,
+            role=StaffRole.TEACHER,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+    new_teacher_session = await get_miniapp_session(
+        db_session,
+        max_user_id=53364728,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    assert new_teacher_session.students[0].staff_visible is True
+    assert new_teacher_session.students[0].staff_order_visible is False
+    assert new_teacher_session.orders == []
+
+
+async def test_digital_code_is_visible_to_family_but_hidden_from_teacher(db_session) -> None:
+    defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+    await upsert_crm_student_rows(db_session, [crm_row()], defaults=defaults)
+    links = await create_contact_access_links(
+        db_session,
+        AccessLinkCreate(
+            tenant_slug="nizhniy-novgorod-partner-a",
+            contact_id="681",
+            max_user_id=7101,
+            role=StudentAccessRole.PARENT,
+        ),
+    )
+    student = await db_session.scalar(select(Student).where(Student.id == links[0].student_id))
+    assert student is not None
+    teacher = MaxAccount(max_user_id=7102, display_name=student.teacher_name)
+    product = Product(
+        tenant_id=student.tenant_id,
+        sku="DIGITAL-SECRET",
+        name="Цифровой подарок",
+        price_astrocoins=100,
+        fulfillment_type=ProductFulfillmentType.DIGITAL_CODE,
+    )
+    db_session.add_all([teacher, product])
+    await db_session.flush()
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=teacher.id,
+            role=StaffRole.TEACHER,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    order = Order(
+        tenant_id=student.tenant_id,
+        student_id=student.id,
+        order_number=8,
+        status=OrderStatus.ISSUED_TO_STUDENT,
+        total_astrocoins=100,
+        teacher_name=student.teacher_name,
+        venue_name=student.venue_name,
+    )
+    db_session.add(order)
+    await db_session.flush()
+    order_item = OrderItem(
+        tenant_id=student.tenant_id,
+        order_id=order.id,
+        product_id=product.id,
+        quantity=1,
+        unit_price_astrocoins=100,
+        total_price_astrocoins=100,
+    )
+    db_session.add(order_item)
+    await db_session.flush()
+    db_session.add(
+        ProductCode(
+            tenant_id=student.tenant_id,
+            product_id=product.id,
+            code="SECRET-CODE",
+            status=ProductCodeStatus.ISSUED,
+            order_item_id=order_item.id,
+            issued_to_student_id=student.id,
+        )
+    )
+    await db_session.commit()
+
+    parent_session = await get_miniapp_session(
+        db_session,
+        max_user_id=7101,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    teacher_session = await get_miniapp_session(
+        db_session,
+        max_user_id=7102,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    assert parent_session.orders[0].items[0].issued_codes == ["SECRET-CODE"]
+    assert teacher_session.orders[0].items[0].issued_codes == []
+
+
 async def test_admin_can_revoke_student_access_link(db_session) -> None:
     defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
     await upsert_crm_student_rows(db_session, [crm_row()], defaults=defaults)
@@ -358,6 +609,14 @@ async def test_admin_can_revoke_student_access_link(db_session) -> None:
         tenant_slug="nizhniy-novgorod-partner-a",
     )
     assert result.status == StudentAccessStatus.REVOKED
+    tenant = await db_session.scalar(select(Tenant).where(Tenant.id == student.tenant_id))
+    assert tenant is not None
+    assert await _recipient_user_ids(
+        db_session,
+        tenant=tenant,
+        student=student,
+    ) == set()
+    assert await _tenant_customer_user_ids(db_session, tenant_id=tenant.id) == set()
     assert session.access_links[0].status == StudentAccessStatus.REVOKED
     await db_session.refresh(child_link)
     assert child_link.status == StudentAccessStatus.REVOKED

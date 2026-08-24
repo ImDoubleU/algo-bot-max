@@ -52,6 +52,7 @@ class MiniAppStudentRead(BaseModel):
     role: StudentAccessRole
     access_status: StudentAccessStatus = StudentAccessStatus.ACTIVE
     staff_visible: bool = False
+    staff_order_visible: bool = False
     display_name: str
     birth_date: date | None = None
     group_name: str | None = None
@@ -401,10 +402,20 @@ class MiniAppOrderActionCreate(BaseModel):
     comment: str | None = Field(default=None, max_length=500)
 
 
-class MiniAppOrderItemPickUpdate(BaseModel):
+class MiniAppOrderItemPickBatchItem(BaseModel):
+    order_id: UUID
+    order_item_id: UUID
+    is_picked: bool
+
+
+class MiniAppOrderItemPickBatchUpdate(BaseModel):
     max_user_id: int = Field(gt=0)
     tenant_slug: str | None = None
-    is_picked: bool
+    items: list[MiniAppOrderItemPickBatchItem] = Field(min_length=1, max_length=200)
+
+
+class MiniAppOrderItemPickBatchRead(BaseModel):
+    updated_items: int
 
 
 class MiniAppOrderCancelCreate(BaseModel):

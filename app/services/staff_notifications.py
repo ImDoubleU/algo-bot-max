@@ -120,14 +120,6 @@ STAFF_NOTIFICATION_CATALOG = (
     ),
     _item("orders.issued", "orders", "Заказ выдан", "Заказ получен учеником.", admin=True),
     _item(
-        "orders.returned",
-        "orders",
-        "Возврат заказа",
-        "Оформлен возврат товара или астрокоинов.",
-        admin=True,
-        curator=True,
-    ),
-    _item(
         "orders.daily_summary",
         "orders",
         "Сводка по заказам",
@@ -421,7 +413,6 @@ CONFIGURABLE_STAFF_NOTIFICATION_KEYS = frozenset(
         "orders.delivered_to_venue",
         "orders.transferred",
         "orders.issued",
-        "orders.returned",
         "inventory.low_stock",
         "inventory.digital_codes_low",
         "broadcasts.completed",

@@ -387,7 +387,7 @@ function renderProducts() {
     .map((product) => {
       const available = productAvailable(product);
       const availableLeft = canUseStoreCart()
-        ? Math.max(available - cartQuantityFor(product.id), 0)
+        ? cartAddableQuantity(product)
         : available;
       const disabled = availableLeft <= 0;
       const favorite = state.favorites.has(product.id);
@@ -551,7 +551,10 @@ function renderCart() {
       .map(([key, item]) => {
         const product = productById(item.productId);
         if (!product) return "";
-        const maxQuantity = Math.max(productAvailable(product), item.quantity);
+        const maxQuantity = Math.min(
+          Math.max(productAvailable(product), item.quantity),
+          MAX_CART_PRODUCT_QUANTITY,
+        );
         return `
           <div class="cart-row ${product.fulfillmentType === "digital_code" ? "is-digital" : ""}">
             <div class="cart-product">
@@ -609,7 +612,8 @@ function renderCart() {
       : "Открыть корзину";
   const balance = Number(student?.balance || 0);
   const remaining = balance - total;
-  const canCheckout = state.cart.size > 0 && Boolean(student) && remaining >= 0;
+  const canCheckout =
+    canUseStoreCart() && state.cart.size > 0 && Boolean(student) && remaining >= 0;
   qs("#cartCounter").textContent = count;
   qsa("[data-cart-count]").forEach((counter) => {
     counter.textContent = count;
@@ -708,6 +712,7 @@ function renderCheckoutSummary() {
 }
 
 function openCheckoutDialog() {
+  if (!canUseStoreCart()) return;
   const student = selectedStudent();
   const total = cartTotal();
   if (!student || state.cart.size === 0) return;
@@ -794,7 +799,7 @@ function syncProductDialogControls() {
     stock.classList.toggle("is-empty", available <= 0);
     return;
   }
-  const availableLeft = Math.max(productAvailable(product) - cartQuantityFor(product.id), 0);
+  const availableLeft = cartAddableQuantity(product);
   quantityInput.max = String(availableLeft);
   quantityInput.disabled = availableLeft <= 0;
   quantityInput.value = availableLeft <= 0
@@ -903,7 +908,7 @@ function orderIsFullyPicked(order) {
 function canAssignOrderWarehouses(order) {
   return (
     state.role === "admin" &&
-    ["reserved", "problem"].includes(order.rawStatus) &&
+    ["created", "reserved", "problem"].includes(order.rawStatus) &&
     !orderHasAssignedWarehouses(order)
   );
 }
@@ -942,9 +947,9 @@ function canPickOrderItem(order) {
 
 function canCancelOrder(order) {
   if (["teacher", "admin"].includes(state.role)) {
-    return ["reserved", "awaiting_delivery", "delivered_to_venue", "transferred_to_teacher"].includes(order.rawStatus);
+    return ["created", "reserved", "awaiting_delivery", "delivered_to_venue", "transferred_to_teacher"].includes(order.rawStatus);
   }
-  return order.rawStatus === "reserved" && !orderHasAssignedWarehouses(order);
+  return ["created", "reserved"].includes(order.rawStatus) && !orderHasAssignedWarehouses(order);
 }
 
 function orderMatchesStatusFilter(order) {
@@ -1006,6 +1011,12 @@ function filteredOrders() {
 }
 
 function ordersForCurrentRole() {
+  if (["admin", "teacher"].includes(state.role) && !apiContext.demoMode) {
+    const staffStudentIds = new Set(
+      students.filter((student) => student.staffOrderVisible).map((student) => student.id),
+    );
+    return orders.filter((order) => staffStudentIds.has(order.studentId));
+  }
   if (state.role === "admin") return orders;
   const roleStudentIds = new Set(studentsForCurrentRole().map((student) => student.id));
   return orders.filter((order) => roleStudentIds.has(order.studentId));
@@ -1208,7 +1219,7 @@ function summaryWarehouseLabel(item) {
 
 function orderFulfillmentSummaryOrders() {
   const staffRole = primaryStaffRole();
-  const fulfillmentStatuses = new Set(["reserved", "problem", "awaiting_delivery"]);
+  const fulfillmentStatuses = new Set(["created", "reserved", "problem", "awaiting_delivery"]);
   const physicalOrders = ordersForCurrentRole().filter(
     (order) => !orderIsDigital(order) && Array.isArray(order.items) && order.items.length > 0,
   );
@@ -1246,7 +1257,7 @@ function refreshFulfillmentStageSnapshot() {
   sourceOrders.forEach((order) => {
     const orderId = fulfillmentOrderId(order);
     statuses.set(orderId, order.rawStatus);
-    if (["reserved", "problem"].includes(order.rawStatus)) {
+    if (["created", "reserved", "problem"].includes(order.rawStatus)) {
       assign.add(orderId);
     } else if (order.rawStatus === "awaiting_delivery") {
       (orderIsFullyPicked(order) ? route : collect).add(orderId);
@@ -1545,8 +1556,8 @@ function renderOrderFulfillmentSummary() {
       </div>
       <div class="fulfillment-awaiting-content">
         ${teacherRows || (state.orderSearch
-          ? '<div class="fulfillment-workbench-empty"><i data-lucide="search-x"></i><strong>Ничего не найдено</strong><span>Измените строку поиска.</span></div>'
-          : '<div class="fulfillment-workbench-empty"><i data-lucide="package-check"></i><strong>Ожидаемых заказов нет</strong><span>Новые заказы ваших учеников появятся здесь.</span></div>')}
+          ? '<div class="fulfillment-workbench-empty"><i data-lucide="search-x"></i><strong>Ничего не найдено</strong></div>'
+          : '<div class="fulfillment-workbench-empty"><i data-lucide="package-check"></i><strong>Ожидаемых заказов нет</strong></div>')}
       </div>`;
     window.requestAnimationFrame(refreshIcons);
     return;
@@ -1735,19 +1746,16 @@ function renderOrderFulfillmentSummary() {
     <div class="fulfillment-workbench-empty">
       <i data-lucide="warehouse"></i>
       <strong>${state.orderSearch ? "Ничего не найдено" : "Все склады назначены"}</strong>
-      <span>${state.orderSearch ? "Измените строку поиска." : "Новые заказы появятся здесь после обновления."}</span>
     </div>`;
   const collectContent = checklistMarkup || `
     <div class="fulfillment-workbench-empty">
       <i data-lucide="circle-check-big"></i>
       <strong>${state.orderSearch ? "Ничего не найдено" : "Сборка завершена"}</strong>
-      <span>${state.orderSearch ? "Измените строку поиска." : sourceRoute.length ? "Собранные заказы находятся в разделе «Распределить»." : "Новых товаров для сборки нет."}</span>
     </div>`;
   const routeContent = routeMarkup || `
     <div class="fulfillment-workbench-empty">
       <i data-lucide="truck"></i>
       <strong>${state.orderSearch ? "Ничего не найдено" : "Нет заказов для отправки"}</strong>
-      <span>${state.orderSearch ? "Измените строку поиска." : "Заказы появятся здесь после полной сборки."}</span>
     </div>`;
 
   container.innerHTML = `

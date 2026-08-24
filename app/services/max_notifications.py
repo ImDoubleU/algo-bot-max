@@ -26,6 +26,7 @@ from app.models.student import Student, StudentAccessLink
 from app.models.tenant import Tenant
 from app.services.staff import staff_names_match
 from app.services.staff_notifications import staff_notification_user_ids
+from app.services.student_access_policy import student_access_window
 
 logger = logging.getLogger(__name__)
 _background_tasks: set[asyncio.Task[None]] = set()
@@ -99,23 +100,22 @@ def _order_message(
 async def _recipient_user_ids(
     db: AsyncSession,
     *,
-    tenant_id: UUID,
-    student_id: UUID,
-    creator_account_id: UUID | None,
+    tenant: Tenant,
+    student: Student,
 ) -> set[int]:
+    if not student_access_window(student, tenant).allowed:
+        return set()
     account_ids = set(
         (
             await db.scalars(
                 select(StudentAccessLink.account_id).where(
-                    StudentAccessLink.tenant_id == tenant_id,
-                    StudentAccessLink.student_id == student_id,
+                    StudentAccessLink.tenant_id == tenant.id,
+                    StudentAccessLink.student_id == student.id,
                     StudentAccessLink.status == StudentAccessStatus.ACTIVE,
                 )
             )
         ).all()
     )
-    if creator_account_id is not None:
-        account_ids.add(creator_account_id)
     if not account_ids:
         return set()
     return set(
@@ -166,19 +166,26 @@ async def _deliver_order_notification(
 
 
 async def _tenant_customer_user_ids(db: AsyncSession, *, tenant_id: UUID) -> set[int]:
-    return set(
-        (
-            await db.scalars(
-                select(MaxAccount.max_user_id)
-                .join(StudentAccessLink, StudentAccessLink.account_id == MaxAccount.id)
-                .where(
-                    StudentAccessLink.tenant_id == tenant_id,
-                    StudentAccessLink.status == StudentAccessStatus.ACTIVE,
-                )
-                .distinct()
+    tenant = await db.scalar(select(Tenant).where(Tenant.id == tenant_id))
+    if tenant is None:
+        return set()
+    rows = (
+        await db.execute(
+            select(MaxAccount.max_user_id, Student)
+            .join(StudentAccessLink, StudentAccessLink.account_id == MaxAccount.id)
+            .join(Student, Student.id == StudentAccessLink.student_id)
+            .where(
+                StudentAccessLink.tenant_id == tenant_id,
+                StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+                Student.tenant_id == tenant_id,
             )
-        ).all()
-    )
+        )
+    ).all()
+    return {
+        max_user_id
+        for max_user_id, student in rows
+        if student_access_window(student, tenant).allowed
+    }
 
 
 def _schedule_direct_notification(
@@ -457,7 +464,6 @@ async def schedule_low_digital_codes_notification(
         title="Заканчиваются коды для автовыдачи",
         message=product.name,
         facts=[
-            ("SKU", product.sku),
             ("Осталось кодов", str(max(available_codes, 0))),
         ],
         view="admin",
@@ -481,11 +487,8 @@ async def schedule_order_notification(
     try:
         user_ids = await _recipient_user_ids(
             db,
-            tenant_id=UUID(str(tenant.id)),
-            student_id=UUID(str(student.id)),
-            creator_account_id=(
-                UUID(str(order.created_by_account_id)) if order.created_by_account_id else None
-            ),
+            tenant=tenant,
+            student=student,
         )
     except Exception as exc:
         logger.warning("Не удалось определить получателей MAX-уведомления: %s", exc)

@@ -860,12 +860,19 @@ function studentWelcome(firstName) {
 }
 
 function studentsForCurrentRole() {
-  if (state.role === "admin") return students;
+  const activeStudents = (items) => items.filter((student) => student.status === "active");
+  if (state.role === "admin") {
+    return activeStudents(
+      apiContext.demoMode ? students : students.filter((student) => student.staffVisible),
+    );
+  }
   if (state.role === "teacher") {
-    if (apiContext.demoMode && primaryStaffRole() === "curator") return students;
-    if (!apiContext.demoMode) return students.filter((student) => student.staffVisible);
+    if (apiContext.demoMode && primaryStaffRole() === "curator") return activeStudents(students);
+    if (!apiContext.demoMode) {
+      return activeStudents(students.filter((student) => student.staffVisible));
+    }
     const teacherName = students[0]?.teacher;
-    return students.filter((student) => student.teacher === teacherName);
+    return activeStudents(students.filter((student) => student.teacher === teacherName));
   }
   if (apiContext.demoMode) {
     return state.role === "student" ? students.slice(0, 1) : students;
@@ -1006,6 +1013,14 @@ function warehouseCountLabel(count) {
 
 function cartKey(productId) {
   return `${productId}::auto`;
+}
+
+const MAX_CART_PRODUCT_QUANTITY = 20;
+
+function cartAddableQuantity(product) {
+  if (!product) return 0;
+  const allowed = Math.min(productAvailable(product), MAX_CART_PRODUCT_QUANTITY);
+  return Math.max(allowed - cartQuantityFor(product.id), 0);
 }
 
 function legacyCartStorageKey() {
@@ -1393,7 +1408,10 @@ function warehouseById(product, warehouseId) {
 function clampQuantity(value, max) {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed)) return 1;
-  return Math.min(Math.max(parsed, 1), Math.max(max, 1));
+  return Math.min(
+    Math.max(parsed, 1),
+    Math.max(Math.min(max, MAX_CART_PRODUCT_QUANTITY), 1),
+  );
 }
 
 function syncProductCardControls(card) {
@@ -1402,7 +1420,7 @@ function syncProductCardControls(card) {
   if (!product) return;
   const button = card.querySelector("[data-add]");
   if (!button) return;
-  const availableLeft = Math.max(productAvailable(product) - cartQuantityFor(product.id), 0);
+  const availableLeft = cartAddableQuantity(product);
   button.disabled = availableLeft <= 0;
   const label = button.querySelector("span");
   if (label) label.textContent = availableLeft <= 0 ? "Недоступно" : "В корзину";
@@ -1894,6 +1912,7 @@ function applySession(session) {
     lmsId: student.lms_student_id || "",
     role: student.role,
     staffVisible: Boolean(student.staff_visible),
+    staffOrderVisible: Boolean(student.staff_order_visible),
     accessStatus: student.access_status || "active",
     name: student.display_name,
     group: student.group_name || student.course_name || "Группа не указана",
