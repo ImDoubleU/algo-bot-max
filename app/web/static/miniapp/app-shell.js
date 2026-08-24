@@ -767,6 +767,9 @@ function setRole(role) {
     state.studentGroupFilter = "all";
     state.accrualGroup = "";
     state.accrualNameFilter = "";
+    state.fulfillmentStageSnapshot = null;
+    state.selectedFulfillmentOrders.clear();
+    state.fulfillmentPickDraft.clear();
   }
   const roleStudents = studentsForCurrentRole();
   const nextStudentId = roleStudents.some(

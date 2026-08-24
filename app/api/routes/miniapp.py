@@ -123,7 +123,6 @@ from app.services.miniapp import (
     list_miniapp_teacher_invitations,
     mark_miniapp_order_delivered_to_venue,
     replace_miniapp_cart,
-    return_miniapp_order,
     set_miniapp_order_item_picked,
     set_miniapp_student_balance,
     set_miniapp_warehouse_preference,
@@ -1355,30 +1354,6 @@ async def miniapp_issue_order(
     )
     try:
         return await issue_miniapp_order(
-            db,
-            order_id=order_id,
-            payload=payload,
-            default_tenant_slug=settings.default_tenant_slug,
-        )
-    except MiniAppStoreError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-
-
-@router.post("/orders/{order_id}/return", response_model=MiniAppOrderActionRead)
-async def miniapp_return_order(
-    order_id: UUID,
-    payload: MiniAppOrderActionCreate,
-    db: DbSession,
-    identity: MiniAppIdentityDep,
-) -> MiniAppOrderActionRead:
-    settings = get_settings()
-    _authorized_tenant_slug(
-        identity,
-        max_user_id=payload.max_user_id,
-        tenant_slug=payload.tenant_slug,
-    )
-    try:
-        return await return_miniapp_order(
             db,
             order_id=order_id,
             payload=payload,

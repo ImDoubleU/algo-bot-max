@@ -1261,6 +1261,7 @@ function refreshFulfillmentStageSnapshot() {
     statuses,
   };
   state.selectedFulfillmentOrders.clear();
+  state.fulfillmentPickDraft.clear();
 }
 
 function ensureFulfillmentStageSnapshot() {
@@ -1363,6 +1364,39 @@ function fulfillmentPickingRows(sourceOrders) {
   return rows;
 }
 
+function fulfillmentPickRowKey({ order, itemId }) {
+  return `${fulfillmentOrderId(order)}:${String(itemId)}`;
+}
+
+function fulfillmentPickRowIsPicked(row) {
+  const draft = state.fulfillmentPickDraft.get(fulfillmentPickRowKey(row));
+  return draft ? draft.isPicked : Boolean(row.item.isPicked);
+}
+
+function stageFulfillmentPickRows(rows, isPicked) {
+  if (state.fulfillmentSaving) return;
+  const desiredState = Boolean(isPicked);
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const key = fulfillmentPickRowKey(row);
+    if (Boolean(row.item.isPicked) === desiredState) {
+      state.fulfillmentPickDraft.delete(key);
+    } else {
+      state.fulfillmentPickDraft.set(key, { ...row, isPicked: desiredState });
+    }
+  });
+  renderOrderFulfillmentSummary();
+  refreshIcons();
+}
+
+function pruneFulfillmentPickDraft(sourceOrders) {
+  const allowedKeys = new Set(
+    fulfillmentPickingRows(sourceOrders).map(fulfillmentPickRowKey),
+  );
+  [...state.fulfillmentPickDraft.keys()].forEach((key) => {
+    if (!allowedKeys.has(key)) state.fulfillmentPickDraft.delete(key);
+  });
+}
+
 function fulfillmentPickingRowCompare(left, right) {
   const productCompare = String(left.item.productName || "").localeCompare(
     String(right.item.productName || ""),
@@ -1416,7 +1450,7 @@ function fulfillmentChecklistWarehouses(rows) {
       name: warehouse.name,
       products: [...warehouse.products.values()]
         .map((product) => {
-          const pickedCount = product.rows.filter(({ item }) => item.isPicked).length;
+          const pickedCount = product.rows.filter(fulfillmentPickRowIsPicked).length;
           return {
             ...product,
             orderCount: new Set(
@@ -1521,6 +1555,7 @@ function renderOrderFulfillmentSummary() {
   const sourceAssign = fulfillmentOrdersForStage("assign");
   const sourceCollect = fulfillmentOrdersForStage("collect");
   const sourceRoute = fulfillmentOrdersForStage("route");
+  pruneFulfillmentPickDraft(sourceCollect);
   const visibleAssign = sourceAssign.filter(fulfillmentOrderMatchesSearch);
   const visibleCollect = sourceCollect.filter(fulfillmentOrderMatchesSearch);
   const visibleRoute = sourceRoute.filter(fulfillmentOrderMatchesSearch);
@@ -1534,28 +1569,17 @@ function renderOrderFulfillmentSummary() {
     state.selectedFulfillmentOrders.has(fulfillmentOrderId(order)),
   );
   const mode = managerMode || "assign";
-  const modeMeta = {
-    assign: {
-      title: "Назначение склада",
-      description: "Проверьте склад списания для новых заказов.",
-    },
-    collect: {
-      title: "Сборка товаров",
-      description: "Общий список товаров по складам без лишних данных о заказах.",
-    },
-    route: {
-      title: "Распределение",
-      description: "Полностью собранные заказы для отправки на площадки.",
-    },
+  const modeTitle = {
+    assign: "Назначение склада",
+    collect: "Сборка товаров",
+    route: "Распределение",
   }[mode];
 
   const unassignedMarkup = mode === "assign" && visibleAssign.length
     ? `<section class="fulfillment-work-section">
         <div class="fulfillment-work-section-head">
           <div>
-            <span>Новые заказы</span>
             <h4>Выберите склад списания</h4>
-            <p>После подтверждения заказ останется здесь до обновления списка.</p>
           </div>
           ${assignableOrders.length
             ? `<label class="fulfillment-select-all">
@@ -1600,6 +1624,7 @@ function renderOrderFulfillmentSummary() {
   const checklistRows = fulfillmentPickingRows(checklistOrders).sort(fulfillmentPickingRowCompare);
   const checklistWarehouses = fulfillmentChecklistWarehouses(checklistRows);
   const checklistProducts = checklistWarehouses.flatMap((warehouse) => warehouse.products);
+  const pendingPickCount = state.fulfillmentPickDraft.size;
   const checklistUnits = checklistRows.reduce(
     (total, { item }) => total + Number(item.quantity || 0),
     0,
@@ -1609,7 +1634,6 @@ function renderOrderFulfillmentSummary() {
     ? `<section class="fulfillment-work-section fulfillment-collect-section">
         <div class="fulfillment-work-section-head">
           <div>
-            <span>По складам</span>
             <h4>Список для сборки</h4>
             <p>${checklistProducts.length} поз. · ${checklistUnits} шт. · ${checklistWarehouses.length} скл.</p>
           </div>
@@ -1630,7 +1654,7 @@ function renderOrderFulfillmentSummary() {
                   const stateClass = product.isPicked ? "is-picked" : product.isPartial ? "is-partial" : "";
                   return `<label class="fulfillment-quick-row ${stateClass}">
                     <span class="fulfillment-pick-check" title="${product.isPicked ? "Снять отметку" : "Отметить собранным"}">
-                      <input type="checkbox" data-order-pick-group="${groupKey}" data-pick-partial="${product.isPartial}" aria-label="${escapeHtml(product.name)}, ${product.quantity} шт." ${product.isPicked ? "checked" : ""} />
+                      <input type="checkbox" data-order-pick-group="${groupKey}" data-pick-partial="${product.isPartial}" aria-label="${escapeHtml(product.name)}, ${product.quantity} шт." ${product.isPicked ? "checked" : ""} ${state.fulfillmentSaving ? "disabled" : ""} />
                       <span><i data-lucide="check"></i></span>
                     </span>
                     <span class="fulfillment-quick-copy"><strong>${escapeHtml(product.name)}</strong><small><i data-lucide="package"></i>${orderCountText(product.orderCount)}</small></span>
@@ -1641,6 +1665,10 @@ function renderOrderFulfillmentSummary() {
             </section>`;
           }).join("")}
         </div>
+        ${pendingPickCount ? `<div class="fulfillment-selection-bar">
+          <span>Изменений: <b>${pendingPickCount}</b></span>
+          <button class="primary-action" type="button" data-fulfillment-confirm-picks ${state.fulfillmentSaving ? "disabled" : ""}><i data-lucide="check-check"></i>${state.fulfillmentSaving ? "Сохраняем..." : "Подтвердить сборку"}</button>
+        </div>` : ""}
       </section>`
     : "";
 
@@ -1657,9 +1685,7 @@ function renderOrderFulfillmentSummary() {
     ? `<section class="fulfillment-work-section fulfillment-route-section">
         <div class="fulfillment-work-section-head">
           <div>
-            <span>Маршрут</span>
             <h4>Площадки и преподаватели</h4>
-            <p>Отметьте доставленные заказы одной операцией.</p>
           </div>
           ${routeActionableOrders.length
             ? `<label class="fulfillment-select-all">
@@ -1726,7 +1752,7 @@ function renderOrderFulfillmentSummary() {
 
   container.innerHTML = `
     <div class="fulfillment-workbench-head">
-      <div><span>Работа с заказами</span><h3>${escapeHtml(modeMeta.title)}</h3><p>${escapeHtml(modeMeta.description)}</p></div>
+      <div><h3>${escapeHtml(modeTitle)}</h3></div>
       <strong>${orderCountText({
         assign: sourceAssign.length,
         collect: sourceCollect.length,

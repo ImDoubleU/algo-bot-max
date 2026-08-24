@@ -1147,7 +1147,6 @@ async function updateOrderAction(orderId, action, cancelData = null) {
     if (action === "issue") order.rawStatus = "issued_to_student";
     else if (action === "deliver") order.rawStatus = "delivered_to_venue";
     else if (action === "transfer") order.rawStatus = "transferred_to_teacher";
-    else if (action === "return") order.rawStatus = "returned";
     else order.rawStatus = "cancelled";
     order.status = orderStatusLabel(order.rawStatus);
     order.tone = orderStatusTone(order.rawStatus);
@@ -1159,7 +1158,6 @@ async function updateOrderAction(orderId, action, cancelData = null) {
         issue: "Заказ выдан ученику",
         deliver: "Заказ доставлен на площадку",
         transfer: "Учитель получил заказ",
-        return: "Заказ возвращен",
         cancel: cancelData?.customReason || cancelData?.reason || "Заказ отменен",
       }[action],
       createdAt: new Date().toISOString(),
@@ -1169,7 +1167,6 @@ async function updateOrderAction(orderId, action, cancelData = null) {
         issue: `Заказ №${order.id} отмечен как выданный`,
         deliver: `Заказ №${order.id} доставлен на площадку`,
         transfer: `Учитель получил заказ №${order.id}`,
-        return: `Заказ №${order.id} возвращен`,
         cancel: `Заказ №${order.id} отменен`,
       }[action],
     );
@@ -1178,16 +1175,13 @@ async function updateOrderAction(orderId, action, cancelData = null) {
     return;
   }
 
-  const endpoint =
-    action === "issue"
-      ? "issue"
-      : action === "deliver"
-        ? "delivered-to-venue"
-      : action === "transfer"
-        ? "transfer-to-teacher"
-        : action === "return"
-          ? "return"
-          : "cancel";
+  const endpoint = {
+    issue: "issue",
+    deliver: "delivered-to-venue",
+    transfer: "transfer-to-teacher",
+    cancel: "cancel",
+  }[action];
+  if (!endpoint) return;
   try {
     const response = await apiFetch(
       `/api/v1/miniapp/orders/${encodeURIComponent(order.backendId)}/${endpoint}`,
@@ -1210,7 +1204,6 @@ async function updateOrderAction(orderId, action, cancelData = null) {
                   issue: "Выдано в приложении",
                   deliver: "Доставлено на площадку",
                   transfer: "Учитель получил заказ",
-                  return: "Возврат оформлен в приложении",
                 }[action],
               },
         ),
@@ -1224,7 +1217,6 @@ async function updateOrderAction(orderId, action, cancelData = null) {
         issue: `Заказ №${result.order.order_number} выдан ученику`,
         deliver: `Заказ №${result.order.order_number} доставлен на площадку`,
         transfer: `Учитель получил заказ №${result.order.order_number}`,
-        return: `Заказ №${result.order.order_number} возвращен, астрокоины зачислены`,
         cancel: `Заказ №${result.order.order_number} отменен, астрокоины возвращены`,
       }[action],
     );
@@ -1284,9 +1276,12 @@ async function updateOrderItemPicked(orderId, orderItemId, isPicked, checkbox) {
   }
 }
 
-async function updateOrderItemGroupPicked(rows, isPicked, checkbox) {
-  const groupRows = Array.isArray(rows) ? rows : [];
-  const invalid = groupRows.some(
+async function confirmFulfillmentPickDraft() {
+  if (state.fulfillmentSaving) return;
+  const updates = [...state.fulfillmentPickDraft.values()];
+  if (updates.length === 0) return;
+
+  const invalid = updates.some(
     ({ order, item, itemId }) =>
       !order ||
       !item ||
@@ -1294,64 +1289,54 @@ async function updateOrderItemGroupPicked(rows, isPicked, checkbox) {
       !canPickOrderItem(order) ||
       !(order.items || []).includes(item),
   );
-  if (groupRows.length === 0 || invalid) {
-    if (checkbox) checkbox.checked = !isPicked;
+  if (invalid) {
+    showNotice("Заказы изменились. Обновите список и повторите сборку", "danger");
     return;
   }
 
-  const updates = groupRows.filter(({ item }) => item.isPicked !== isPicked);
-  if (updates.length === 0) {
-    renderOrderFulfillmentSummary();
-    refreshIcons();
-    return;
-  }
-
-  if (checkbox) checkbox.disabled = true;
-  const demoMode = apiContext.demoMode || !apiContext.maxUserId;
-  if (demoMode) {
-    updates.forEach(({ item }) => {
-      item.isPicked = isPicked;
-    });
-    renderOrderFulfillmentSummary();
-    refreshIcons();
-    return;
-  }
-
+  state.fulfillmentSaving = true;
+  renderOrderFulfillmentSummary();
+  refreshIcons();
   try {
-    for (let start = 0; start < updates.length; start += 6) {
-      const batch = updates.slice(start, start + 6);
-      await Promise.all(
-        batch.map(async ({ order, itemId }) => {
-          const response = await apiFetch(
-            `/api/v1/miniapp/orders/${encodeURIComponent(order.backendId)}/items/${encodeURIComponent(itemId)}/picked`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                max_user_id: Number(apiContext.maxUserId),
-                tenant_slug: apiContext.tenantSlug || undefined,
-                is_picked: isPicked,
-              }),
-            },
-          );
-          if (!response.ok) throw new Error(await parseApiError(response));
-        }),
-      );
+    if (!apiContext.demoMode && apiContext.maxUserId) {
+      for (let start = 0; start < updates.length; start += 6) {
+        const batch = updates.slice(start, start + 6);
+        await Promise.all(
+          batch.map(async ({ order, itemId, isPicked }) => {
+            const response = await apiFetch(
+              `/api/v1/miniapp/orders/${encodeURIComponent(order.backendId)}/items/${encodeURIComponent(itemId)}/picked`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  max_user_id: Number(apiContext.maxUserId),
+                  tenant_slug: apiContext.tenantSlug || undefined,
+                  is_picked: isPicked,
+                }),
+              },
+            );
+            if (!response.ok) throw new Error(await parseApiError(response));
+          }),
+        );
+      }
     }
-    updates.forEach(({ item }) => {
+    updates.forEach(({ item, isPicked }) => {
       item.isPicked = isPicked;
     });
-    renderOrderFulfillmentSummary();
-    refreshIcons();
+    state.fulfillmentPickDraft.clear();
+    showNotice("Сборка подтверждена");
   } catch (error) {
     try {
       await refreshOrderAndInventoryState();
+      refreshFulfillmentStageSnapshot();
     } catch {
-      // Keep the current screen available even if the refresh also fails.
+      state.fulfillmentPickDraft.clear();
     }
+    showNotice(error.message || "Не удалось подтвердить сборку", "danger");
+  } finally {
+    state.fulfillmentSaving = false;
     renderOrderFulfillmentSummary();
     refreshIcons();
-    showNotice(error.message || "Не удалось сохранить отметки комплектации", "danger");
   }
 }
 
@@ -2285,6 +2270,11 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  if ("fulfillmentConfirmPicks" in target.dataset) {
+    void confirmFulfillmentPickDraft();
+    return;
+  }
+
   if ("fulfillmentDeliverSelected" in target.dataset) {
     void deliverSummaryOrders(
       [...state.selectedFulfillmentOrders].join(","),
@@ -2646,10 +2636,9 @@ document.addEventListener("change", (event) => {
 
   const orderPickGroup = target.dataset.orderPickGroup;
   if (orderPickGroup) {
-    void updateOrderItemGroupPicked(
+    stageFulfillmentPickRows(
       fulfillmentPickGroups.get(orderPickGroup) || [],
       target.checked,
-      target,
     );
     return;
   }

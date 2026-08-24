@@ -62,7 +62,6 @@ from app.services.miniapp import (
     list_miniapp_admin_history,
     list_miniapp_catalog,
     mark_miniapp_order_delivered_to_venue,
-    return_miniapp_order,
     set_miniapp_order_item_picked,
     set_miniapp_warehouse_preference,
     transfer_miniapp_inventory,
@@ -750,6 +749,17 @@ async def test_staff_completes_physical_order_workflow(db_session) -> None:
         default_tenant_slug="nizhniy-novgorod-partner-a",
     )
 
+    with pytest.raises(MiniAppStoreError, match="подтвердите сборку"):
+        await mark_miniapp_order_delivered_to_venue(
+            db_session,
+            order_id=created.order.id,
+            payload=MiniAppOrderActionCreate(
+                max_user_id=53364725,
+                tenant_slug="nizhniy-novgorod-partner-a",
+            ),
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
+
     picked = await set_miniapp_order_item_picked(
         db_session,
         order_id=created.order.id,
@@ -773,6 +783,19 @@ async def test_staff_completes_physical_order_workflow(db_session) -> None:
         default_tenant_slug="nizhniy-novgorod-partner-a",
     )
     assert delivered.order.status == OrderStatus.DELIVERED_TO_VENUE
+
+    with pytest.raises(MiniAppStoreError, match="только до доставки"):
+        await set_miniapp_order_item_picked(
+            db_session,
+            order_id=created.order.id,
+            order_item_id=assigned.order.items[0].id,
+            payload=MiniAppOrderItemPickUpdate(
+                max_user_id=53364725,
+                tenant_slug="nizhniy-novgorod-partner-a",
+                is_picked=False,
+            ),
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
 
     transferred = await miniapp_service.transfer_miniapp_order_to_teacher(
         db_session,
@@ -805,111 +828,6 @@ async def test_staff_completes_physical_order_workflow(db_session) -> None:
     assert inventory.reserved_quantity == 0
     assert inventory.available_quantity == 3
     assert inventory.issued_quantity == 2
-
-
-async def test_staff_can_return_issued_order_and_refund_wallet(db_session) -> None:
-    student = await seed_linked_student(db_session)
-    product, inventory = await seed_product(db_session, student)
-    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
-    assert account is not None
-    account.display_name = "Олейник Д"
-    db_session.add(
-        StaffRoleAssignment(
-            tenant_id=student.tenant_id,
-            account_id=account.id,
-            role=StaffRole.TEACHER,
-            status=AssignmentStatus.ACTIVE,
-        )
-    )
-    await db_session.commit()
-    created = await create_miniapp_order(
-        db_session,
-        payload=MiniAppOrderCreate(
-            max_user_id=53364725,
-            tenant_slug="nizhniy-novgorod-partner-a",
-            student_id=student.id,
-            items=[MiniAppOrderItemCreate(product_id=product.id, quantity=2)],
-        ),
-        default_tenant_slug="nizhniy-novgorod-partner-a",
-    )
-    db_session.add(
-        StaffRoleAssignment(
-            tenant_id=student.tenant_id,
-            account_id=account.id,
-            role=StaffRole.ADMIN,
-            status=AssignmentStatus.ACTIVE,
-        )
-    )
-    await db_session.commit()
-    await assign_miniapp_order_warehouses(
-        db_session,
-        order_id=created.order.id,
-        payload=MiniAppOrderWarehouseAssignmentCreate(
-            max_user_id=53364725,
-            tenant_slug="nizhniy-novgorod-partner-a",
-            items=[
-                MiniAppOrderWarehouseAssignmentItem(
-                    product_id=product.id,
-                    warehouse_id=inventory.warehouse_id,
-                )
-            ],
-        ),
-        default_tenant_slug="nizhniy-novgorod-partner-a",
-    )
-    await mark_miniapp_order_delivered_to_venue(
-        db_session,
-        order_id=created.order.id,
-        payload=MiniAppOrderActionCreate(
-            max_user_id=53364725,
-            tenant_slug="nizhniy-novgorod-partner-a",
-        ),
-        default_tenant_slug="nizhniy-novgorod-partner-a",
-    )
-    await miniapp_service.transfer_miniapp_order_to_teacher(
-        db_session,
-        order_id=created.order.id,
-        payload=MiniAppOrderActionCreate(
-            max_user_id=53364725,
-            tenant_slug="nizhniy-novgorod-partner-a",
-        ),
-        default_tenant_slug="nizhniy-novgorod-partner-a",
-    )
-    await issue_miniapp_order(
-        db_session,
-        order_id=created.order.id,
-        payload=MiniAppOrderActionCreate(
-            max_user_id=53364725,
-            tenant_slug="nizhniy-novgorod-partner-a",
-        ),
-        default_tenant_slug="nizhniy-novgorod-partner-a",
-    )
-
-    returned = await return_miniapp_order(
-        db_session,
-        order_id=created.order.id,
-        payload=MiniAppOrderActionCreate(
-            max_user_id=53364725,
-            tenant_slug="nizhniy-novgorod-partner-a",
-            comment="Вернули товар",
-        ),
-        default_tenant_slug="nizhniy-novgorod-partner-a",
-    )
-
-    await db_session.refresh(inventory)
-    wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
-    entries = (await db_session.scalars(select(AstrocoinLedgerEntry))).all()
-    assert returned.order.status == OrderStatus.RETURNED
-    assert returned.balance_after == 1000
-    assert wallet is not None
-    assert wallet.balance == 1000
-    assert inventory.reserved_quantity == 0
-    assert inventory.available_quantity == 5
-    assert inventory.issued_quantity == 2
-    assert inventory.returned_quantity == 2
-    assert [entry.direction for entry in entries] == [
-        LedgerDirection.DEBIT,
-        LedgerDirection.REVERSAL,
-    ]
 
 
 async def test_staff_can_accrue_astrocoins_from_miniapp(db_session) -> None:

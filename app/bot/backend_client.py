@@ -286,7 +286,7 @@ class AccessBackendClient:
         max_user_id: int,
         comment: str | None = None,
     ) -> dict[str, Any]:
-        if action not in {"cancel", "issue", "return"}:
+        if action not in {"cancel", "issue"}:
             raise ValueError(f"Unsupported order action: {action}")
         return self._request(
             "POST",
