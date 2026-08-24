@@ -1112,7 +1112,6 @@ async def _seed_broadcasts_and_preferences(
         "orders.cancelled",
         "orders.transferred",
         "orders.issued",
-        "orders.returned",
         "inventory.low_stock",
         "broadcasts.completed",
         "broadcasts.partial",

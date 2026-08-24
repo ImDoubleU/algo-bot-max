@@ -189,13 +189,6 @@ def build_cases(
             tenant_slug=tenant_slug,
             cancellation_reason="Товар закончился",
         ),
-        _order_case(
-            key="order_returned",
-            label="Возврат заказа",
-            status=OrderStatus.RETURNED,
-            user_id=user_id,
-            tenant_slug=tenant_slug,
-        ),
         NotificationCase(
             key="staff_request",
             label="Новая заявка сотрудника",

@@ -503,6 +503,7 @@ async function toggleProductStatus(productId) {
 }
 
 function addCartItem(product, quantityValue) {
+  if (!canUseStoreCart()) return false;
   const existingType = Array.from(state.cart.values())
     .map((item) => productById(item.productId)?.fulfillmentType || "warehouse")
     .find(Boolean);
@@ -511,7 +512,7 @@ function addCartItem(product, quantityValue) {
     return false;
   }
   const current = cartQuantityFor(product.id);
-  const availableLeft = Math.max(productAvailable(product) - current, 0);
+  const availableLeft = cartAddableQuantity(product);
   const quantity = clampQuantity(quantityValue || "1", availableLeft);
   if (availableLeft <= 0) return false;
 
@@ -527,6 +528,7 @@ function addCartItem(product, quantityValue) {
 }
 
 function addToCart(productId) {
+  if (!canUseStoreCart()) return;
   const product = productById(productId);
   if (!product || (product.status || "active") !== "active") return;
   addCartItem(product, "1");
@@ -1231,51 +1233,6 @@ async function updateOrderAction(orderId, action, cancelData = null) {
   }
 }
 
-async function updateOrderItemPicked(orderId, orderItemId, isPicked, checkbox) {
-  const order = orders.find((item) => item.backendId === orderId || item.id === orderId);
-  const orderItem = order?.items?.find(
-    (item, index) =>
-      (item.id || `${order.backendId || order.id}-${index}`) === orderItemId,
-  );
-  if (!order || !orderItem || !canPickOrderItem(order)) {
-    if (checkbox) checkbox.checked = !isPicked;
-    return;
-  }
-
-  if (checkbox) checkbox.disabled = true;
-  if (orderId.startsWith("demo-") || apiContext.demoMode || !apiContext.maxUserId) {
-    orderItem.isPicked = isPicked;
-    renderOrderFulfillmentSummary();
-    refreshIcons();
-    return;
-  }
-
-  try {
-    const response = await apiFetch(
-      `/api/v1/miniapp/orders/${encodeURIComponent(order.backendId)}/items/${encodeURIComponent(orderItemId)}/picked`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          max_user_id: Number(apiContext.maxUserId),
-          tenant_slug: apiContext.tenantSlug || undefined,
-          is_picked: isPicked,
-        }),
-      },
-    );
-    if (!response.ok) throw new Error(await parseApiError(response));
-    orderItem.isPicked = isPicked;
-    renderOrderFulfillmentSummary();
-    refreshIcons();
-  } catch (error) {
-    if (checkbox) {
-      checkbox.checked = !isPicked;
-      checkbox.disabled = false;
-    }
-    showNotice(error.message || "Не удалось сохранить отметку комплектации", "danger");
-  }
-}
-
 async function confirmFulfillmentPickDraft() {
   if (state.fulfillmentSaving) return;
   const updates = [...state.fulfillmentPickDraft.values()];
@@ -1299,26 +1256,20 @@ async function confirmFulfillmentPickDraft() {
   refreshIcons();
   try {
     if (!apiContext.demoMode && apiContext.maxUserId) {
-      for (let start = 0; start < updates.length; start += 6) {
-        const batch = updates.slice(start, start + 6);
-        await Promise.all(
-          batch.map(async ({ order, itemId, isPicked }) => {
-            const response = await apiFetch(
-              `/api/v1/miniapp/orders/${encodeURIComponent(order.backendId)}/items/${encodeURIComponent(itemId)}/picked`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  max_user_id: Number(apiContext.maxUserId),
-                  tenant_slug: apiContext.tenantSlug || undefined,
-                  is_picked: isPicked,
-                }),
-              },
-            );
-            if (!response.ok) throw new Error(await parseApiError(response));
-          }),
-        );
-      }
+      const response = await apiFetch("/api/v1/miniapp/orders/picks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          max_user_id: Number(apiContext.maxUserId),
+          tenant_slug: apiContext.tenantSlug || undefined,
+          items: updates.map(({ order, itemId, isPicked }) => ({
+            order_id: order.backendId,
+            order_item_id: itemId,
+            is_picked: isPicked,
+          })),
+        }),
+      });
+      if (!response.ok) throw new Error(await parseApiError(response));
     }
     updates.forEach(({ item, isPicked }) => {
       item.isPicked = isPicked;
@@ -1759,12 +1710,16 @@ async function toggleStaffAssignment(maxUserId, role) {
 }
 
 function updateCartQuantity(key, value) {
+  if (!canUseStoreCart()) return;
   const item = state.cart.get(key);
   if (!item) return;
   const product = productById(item.productId);
   if (!product) return;
 
-  const maxQuantity = Math.max(productAvailable(product), item.quantity);
+  const maxQuantity = Math.min(
+    Math.max(productAvailable(product), item.quantity),
+    MAX_CART_PRODUCT_QUANTITY,
+  );
   item.quantity = clampQuantity(value, maxQuantity);
   state.cart.set(key, item);
   saveCart();
@@ -1877,7 +1832,7 @@ async function accrueStudents(targets, amount, reason, groupLabel = "", customRe
 }
 
 async function placeOrder() {
-  if (state.cart.size === 0 || state.orderSaving) return;
+  if (!canUseStoreCart() || state.cart.size === 0 || state.orderSaving) return;
 
   const student = selectedStudent();
   const canUseBackend =
@@ -2639,17 +2594,6 @@ document.addEventListener("change", (event) => {
     stageFulfillmentPickRows(
       fulfillmentPickGroups.get(orderPickGroup) || [],
       target.checked,
-    );
-    return;
-  }
-
-  const orderItemPickId = target.dataset.orderItemPick;
-  if (orderItemPickId) {
-    void updateOrderItemPicked(
-      target.dataset.pickOrderId || "",
-      orderItemPickId,
-      target.checked,
-      target,
     );
     return;
   }

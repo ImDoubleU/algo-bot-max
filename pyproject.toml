@@ -1,6 +1,6 @@
 [project]
 name = "algo-bot-max"
-version = "0.74.4"
+version = "0.74.5"
 description = "MAX bot and mini app backend for Algoritmika city-partner tenants."
 requires-python = ">=3.11"
 
