@@ -77,6 +77,7 @@ const state = {
   orderSearch: "",
   fulfillmentStageSnapshot: null,
   selectedFulfillmentOrders: new Set(),
+  fulfillmentPickDraft: new Map(),
   fulfillmentSaving: false,
   accrualGroup: "",
   accrualNameFilter: "",

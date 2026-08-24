@@ -184,7 +184,6 @@ from app.services.warehouse import (
     issue_reserved_inventory,
     release_reservation,
     reserve_inventory,
-    return_inventory,
     transfer_inventory,
 )
 
@@ -3929,13 +3928,9 @@ async def set_miniapp_order_item_picked(
     )
     if staff_role not in FULFILLMENT_MANAGER_ROLES:
         raise MiniAppStoreError("Нет прав на комплектацию заказа", status_code=403)
-    if order.status not in {
-        OrderStatus.AWAITING_DELIVERY,
-        OrderStatus.DELIVERED_TO_VENUE,
-        OrderStatus.TRANSFERRED_TO_TEACHER,
-    }:
+    if order.status != OrderStatus.AWAITING_DELIVERY:
         raise MiniAppStoreError(
-            "Комплектацию можно отмечать после назначения склада",
+            "Комплектацию можно менять только до доставки на площадку",
             status_code=409,
         )
 
@@ -3996,6 +3991,16 @@ async def mark_miniapp_order_delivered_to_venue(
     if order.status != OrderStatus.AWAITING_DELIVERY:
         raise MiniAppStoreError(
             "Доставленным на площадку можно отметить только заказ в пути",
+            status_code=409,
+        )
+    if any(
+        item.product
+        and item.product.fulfillment_type == ProductFulfillmentType.WAREHOUSE
+        and not item.is_picked
+        for item in order.items
+    ):
+        raise MiniAppStoreError(
+            "Сначала подтвердите сборку всех товаров",
             status_code=409,
         )
 
@@ -4470,151 +4475,6 @@ async def transfer_miniapp_order_to_teacher(
     return MiniAppOrderActionRead(
         order=_order_to_read(order, student, status_history=status_history),
         balance_after=None,
-    )
-
-
-async def return_miniapp_order(
-    db: AsyncSession,
-    *,
-    order_id: UUID,
-    payload: MiniAppOrderActionCreate,
-    default_tenant_slug: str,
-) -> MiniAppOrderActionRead:
-    tenant, account, order, student, staff_role = await _load_order_action_context(
-        db,
-        order_id=order_id,
-        payload=payload,
-        default_tenant_slug=default_tenant_slug,
-        require_manager=True,
-    )
-    if order.status != OrderStatus.ISSUED_TO_STUDENT:
-        raise MiniAppStoreError("Вернуть можно только выданный заказ", status_code=409)
-    if any(
-        item.product
-        and item.product.fulfillment_type == ProductFulfillmentType.DIGITAL_CODE
-        for item in order.items
-    ):
-        raise MiniAppStoreError(
-            "Выданный цифровой код нельзя вернуть в магазин",
-            status_code=409,
-        )
-
-    for item in order.items:
-        inventory = await _inventory_for_order_item(db, tenant_id=tenant.id, item=item)
-        inventory.is_active = True
-        try:
-            return_inventory(inventory, item.quantity)
-        except WarehouseServiceError as exc:
-            await schedule_staff_order_notification(
-                db,
-                tenant=tenant,
-                order=order,
-                student=student,
-                event_key="orders.problem",
-                title="Не удалось оформить возврат",
-                actor_name=account.display_name,
-                message=str(exc),
-            )
-            raise MiniAppStoreError(str(exc), status_code=409) from exc
-        if available_for_reservation(inventory) > 5:
-            inventory.low_stock_notified = False
-        db.add(
-            build_stock_movement(
-                inventory=inventory,
-                movement_type=StockMovementType.RETURN,
-                quantity=item.quantity,
-                actor_account_id=account.id,
-                order_id=order.id,
-                to_warehouse_id=inventory.warehouse_id,
-                comment=payload.comment or f"Возврат заказа №{order.order_number}",
-            )
-        )
-
-    wallet = await db.scalar(
-        select(Wallet)
-        .where(Wallet.tenant_id == tenant.id, Wallet.student_id == order.student_id)
-        .with_for_update()
-    )
-    if wallet is None:
-        raise MiniAppStoreError("Кошелек ученика не найден", status_code=409)
-
-    wallet.balance += order.total_astrocoins
-    db.add(
-        AstrocoinLedgerEntry(
-            tenant_id=tenant.id,
-            wallet_id=wallet.id,
-            student_id=order.student_id,
-            actor_account_id=account.id,
-            idempotency_key=f"order:{order.id}:return_refund",
-            direction=LedgerDirection.REVERSAL,
-            amount=order.total_astrocoins,
-            reason=f"Возврат за заказ №{order.order_number}",
-            comment=payload.comment,
-        )
-    )
-
-    previous_status = order.status
-    order.status = OrderStatus.RETURNED
-    db.add(
-        OrderStatusHistory(
-            tenant_id=tenant.id,
-            order_id=order.id,
-            actor_account_id=account.id,
-            from_status=previous_status,
-            to_status=order.status,
-            comment=payload.comment,
-        )
-    )
-    db.add(
-        AuditLog(
-            tenant_id=tenant.id,
-            actor_account_id=account.id,
-            action="miniapp_order.returned",
-            entity_type="order",
-            entity_id=str(order.id),
-            payload={
-                "order_number": order.order_number,
-                "student_id": str(order.student_id),
-                "refund_astrocoins": order.total_astrocoins,
-                "actor_role": staff_role.value if staff_role else None,
-            },
-        )
-    )
-    await db.commit()
-    await db.refresh(order)
-    await db.refresh(wallet)
-    status_history = await _order_status_history_for_order(
-        db,
-        tenant_id=tenant.id,
-        order_id=order.id,
-    )
-    _sync_order_to_sheets(
-        tenant_slug=tenant.slug,
-        order=order,
-        student=student,
-        account=account,
-        comment=payload.comment,
-    )
-    await schedule_order_notification(
-        db,
-        tenant=tenant,
-        order=order,
-        student=student,
-        balance_after=wallet.balance,
-    )
-    await schedule_staff_order_notification(
-        db,
-        tenant=tenant,
-        order=order,
-        student=student,
-        event_key="orders.returned",
-        title="Оформлен возврат заказа",
-        actor_name=account.display_name,
-        extra_facts=[("Комментарий", payload.comment or "Без комментария")],
-    )
-    return MiniAppOrderActionRead(
-        order=_order_to_read(order, student, status_history=status_history),
-        balance_after=wallet.balance,
     )
 
 
