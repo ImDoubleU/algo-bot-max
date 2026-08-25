@@ -420,6 +420,7 @@ async function switchTenant(tenantSlug) {
   state.studentRegistrySearch = "";
   state.studentRegistryStatusFilter = "all";
   state.studentRegistryGroupFilter = "all";
+  state.studentRegistryVisibleCount = STUDENT_REGISTRY_PAGE_SIZE;
   state.teacherInvitations = new Map();
   state.teacherInvitationsLoaded = false;
   state.teacherInvitationGroup = "all";

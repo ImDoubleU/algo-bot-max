@@ -519,7 +519,7 @@ function renderStudentRegistry() {
   const groups = [...new Set(allStudents.map((student) => student.group).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right, "ru"));
   const query = state.studentRegistrySearch.trim().toLowerCase();
-  const visibleStudents = allStudents
+  const filteredStudents = allStudents
     .filter((student) => {
       const matchesStatus =
         state.studentRegistryStatusFilter === "all" ||
@@ -544,6 +544,11 @@ function renderStudentRegistry() {
       const groupCompare = (left.group || "").localeCompare(right.group || "", "ru");
       return groupCompare || left.name.localeCompare(right.name, "ru");
     });
+  const visibleStudents = filteredStudents.slice(
+    0,
+    Math.max(STUDENT_REGISTRY_PAGE_SIZE, state.studentRegistryVisibleCount),
+  );
+  const remainingStudents = Math.max(0, filteredStudents.length - visibleStudents.length);
   const statusFilters = [
     ["all", "Все ученики", "users"],
     ["active", "Обучаются", "user-check"],
@@ -602,7 +607,7 @@ function renderStudentRegistry() {
         <option value="all">Все группы</option>
         ${groups.map((group) => `<option value="${escapeHtml(group)}" ${state.studentRegistryGroupFilter === group ? "selected" : ""}>${escapeHtml(group)}</option>`).join("")}
       </select>
-      <span>Показано: ${visibleStudents.length} из ${allStudents.length}</span>
+      <span>Показано: ${visibleStudents.length} из ${filteredStudents.length}${filteredStudents.length !== allStudents.length ? ` · всего ${allStudents.length}` : ""}</span>
     </div>
     <div class="student-registry-list">
       ${visibleStudents.length ? visibleStudents.map((student) => {
@@ -685,6 +690,15 @@ function renderStudentRegistry() {
         </div>
       `}
     </div>
+    ${remainingStudents ? `
+      <div class="student-registry-pagination">
+        <span>Осталось ${remainingStudents}</span>
+        <button class="secondary-action" type="button" data-show-more-students>
+          <i data-lucide="chevrons-down"></i>
+          <span>Показать ещё ${Math.min(STUDENT_REGISTRY_PAGE_SIZE, remainingStudents)}</span>
+        </button>
+      </div>
+    ` : ""}
   `;
   refreshIcons();
 }

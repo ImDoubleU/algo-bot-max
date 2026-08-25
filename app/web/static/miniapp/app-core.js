@@ -52,6 +52,8 @@ const DEFAULT_ACCRUAL_RULES = Object.freeze([
   { reason: "Бонус", amount: 50, isActive: true },
 ]);
 
+const STUDENT_REGISTRY_PAGE_SIZE = 50;
+
 const state = {
   hasAccess: apiContext.demoMode,
   accessMessage: "",
@@ -186,6 +188,7 @@ const state = {
   studentRegistrySearch: "",
   studentRegistryStatusFilter: "all",
   studentRegistryGroupFilter: "all",
+  studentRegistryVisibleCount: STUDENT_REGISTRY_PAGE_SIZE,
   productStatusFilter: "all",
   productCategoryFilter: "all",
   broadcastHistory: [],
@@ -1918,6 +1921,7 @@ function applySession(session) {
     state.studentLedgerLoading = new Set();
     state.studentLedgerErrors = new Map();
     state.studentRegistrySearch = "";
+    state.studentRegistryVisibleCount = STUDENT_REGISTRY_PAGE_SIZE;
     state.sessionLoaded = true;
     return;
   }

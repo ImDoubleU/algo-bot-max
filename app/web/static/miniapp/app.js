@@ -2171,6 +2171,12 @@ document.addEventListener("click", (event) => {
   const studentRegistryStatusFilter = target.dataset.studentRegistryStatus;
   if (["all", "active", "departed", "archived"].includes(studentRegistryStatusFilter)) {
     state.studentRegistryStatusFilter = studentRegistryStatusFilter;
+    state.studentRegistryVisibleCount = STUDENT_REGISTRY_PAGE_SIZE;
+    renderStudentRegistry();
+  }
+
+  if ("showMoreStudents" in target.dataset) {
+    state.studentRegistryVisibleCount += STUDENT_REGISTRY_PAGE_SIZE;
     renderStudentRegistry();
   }
 
@@ -2206,6 +2212,7 @@ document.addEventListener("click", (event) => {
     state.studentRegistrySearch = "";
     state.studentRegistryStatusFilter = "all";
     state.studentRegistryGroupFilter = "all";
+    state.studentRegistryVisibleCount = STUDENT_REGISTRY_PAGE_SIZE;
     renderStudentRegistry();
   }
 
@@ -2482,6 +2489,7 @@ document.addEventListener("click", (event) => {
   }
   if ("clearStudentRegistrySearch" in target.dataset) {
     state.studentRegistrySearch = "";
+    state.studentRegistryVisibleCount = STUDENT_REGISTRY_PAGE_SIZE;
     renderStudentRegistry();
   }
   const productStatusId = target.dataset.toggleProductStatus;
@@ -2715,6 +2723,7 @@ document.addEventListener("change", (event) => {
   }
   if (target.id === "studentRegistryGroupFilter") {
     state.studentRegistryGroupFilter = target.value;
+    state.studentRegistryVisibleCount = STUDENT_REGISTRY_PAGE_SIZE;
     renderStudentRegistry();
   }
   if (target.id === "teacherQrGroupFilter") {
@@ -2890,6 +2899,7 @@ document.addEventListener("input", (event) => {
 
   if (target.id === "studentRegistrySearch") {
     state.studentRegistrySearch = target.value;
+    state.studentRegistryVisibleCount = STUDENT_REGISTRY_PAGE_SIZE;
     const cursor = target.selectionStart ?? target.value.length;
     window.clearTimeout(adminSearchTimer);
     adminSearchTimer = window.setTimeout(() => {
