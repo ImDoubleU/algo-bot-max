@@ -54,6 +54,7 @@ class MiniAppStudentRead(BaseModel):
     staff_visible: bool = False
     staff_order_visible: bool = False
     display_name: str
+    first_name: str
     birth_date: date | None = None
     group_name: str | None = None
     course_name: str | None = None

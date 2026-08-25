@@ -179,7 +179,6 @@ const state = {
   },
   studentAccessPolicySaving: false,
   adminHistory: [],
-  adminHistoryKind: "actions",
   adminHistoryPeriod: 30,
   adminHistoryLoaded: false,
   adminHistoryLoading: false,
@@ -1631,12 +1630,28 @@ function orderStatusLabel(status) {
     awaiting_delivery: "Ожидает доставки",
     delivered_to_venue: "Доставлен на площадку",
     transferred_to_teacher: "Учитель получил заказ",
-    issued_to_student: "Заказ передан ученику",
+    issued_to_student: ["student", "parent"].includes(state.role)
+      ? "Заказ получен"
+      : "Заказ передан ученику",
     cancelled: "Отменен",
     returned: "Возвращен",
     coins_refunded: "Монеты возвращены",
     problem: "Проблема",
   }[status] || status;
+}
+
+function orderHistoryComment(value) {
+  const comment = String(value || "").trim();
+  if (!comment) return "";
+  const knownInternalComments = new Map([
+    ["склады подтверждены из сводки комплектации", "Склад выбран"],
+    ["доставлено на площадку из сводки распределения", ""],
+  ]);
+  const known = knownInternalComments.get(comment.toLocaleLowerCase("ru"));
+  if (known !== undefined) return known;
+  return comment
+    .replace(/\s+из\s+(?:сводки|раздела)\s+(?:комплектации|распределения)\.?$/iu, "")
+    .trim();
 }
 
 function orderStatusTone(status) {
@@ -1729,7 +1744,7 @@ function buildLocalOpsSummary() {
     total_orders: orders.length,
     open_orders: orders.filter((order) => isOpenOrderStatus(order.rawStatus)).length,
     pending_issue_orders: orders.filter((order) =>
-      ["reserved", "awaiting_delivery", "delivered_to_venue", "transferred_to_teacher"].includes(order.rawStatus),
+      ["delivered_to_venue", "transferred_to_teacher"].includes(order.rawStatus),
     ).length,
     order_statuses: Array.from(orderStatuses.entries()).map(([status, count]) => ({
       status,
@@ -1915,6 +1930,7 @@ function applySession(session) {
     staffOrderVisible: Boolean(student.staff_order_visible),
     accessStatus: student.access_status || "active",
     name: student.display_name,
+    firstName: student.first_name || "",
     group: student.group_name || student.course_name || "Группа не указана",
     course: student.course_name || "",
     venue: student.venue_name || "",
@@ -2041,7 +2057,7 @@ async function loadParentInvitations() {
           data: {
             qr_data_url: `/miniapp/static/assets/${student.id}-qr.svg`,
             qr_download_url: `/miniapp/static/assets/${student.id}-qr.svg`,
-            bot_url: "",
+            bot_url: `https://max.ru/id525601030904_3_bot?start=student_demo-${student.id}`,
           },
           demo: true,
           error: "",

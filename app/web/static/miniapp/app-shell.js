@@ -286,7 +286,7 @@ async function loadAdminHistory(force = false) {
       apiUrl("/api/v1/miniapp/admin/history", {
         max_user_id: apiContext.maxUserId,
         tenant_slug: apiContext.tenantSlug,
-        kind: state.adminHistoryKind,
+        kind: "actions",
         period_days: state.adminHistoryPeriod,
         limit: 150,
       }),
@@ -877,7 +877,14 @@ function renderStatus() {
   const balancePanel = qs(".status-balance");
   if (balancePanel) balancePanel.hidden = isStaff;
   const profileLabel = qs(".status-profile-label");
-  if (profileLabel) profileLabel.textContent = isStaff ? "Рабочий профиль" : "Личный профиль";
+  if (profileLabel) {
+    profileLabel.textContent = {
+      student: "Профиль ученика",
+      parent: "Профиль родителя",
+      teacher: "Рабочий профиль",
+      admin: "Рабочий профиль",
+    }[state.role] || "Профиль";
+  }
   const statusTenant = qs("#statusTenantTitle");
   if (statusTenant) {
     statusTenant.hidden = !isStaff;
@@ -922,14 +929,8 @@ function renderStatus() {
         : "Выберите ученика, чтобы оформить заказ";
   }
 
-  const dashboardTitle = {
-    student: "Мои результаты",
-    parent: "Дети и заказы",
-    teacher: "Рабочий день",
-    admin: "Филиал сегодня",
-  }[state.role] || "Мои результаты";
   const nameParts = student?.name?.trim().split(/\s+/).filter(Boolean) || [];
-  const firstName = nameParts.length > 1 ? nameParts[1] : nameParts[0] || "";
+  const firstName = student?.firstName || (nameParts.length > 1 ? nameParts[1] : nameParts[0] || "");
   const welcome = studentWelcome(firstName);
   const spotlightByRole = {
     student: {
@@ -943,7 +944,7 @@ function renderStatus() {
       text: "Переключайтесь между детьми и следите за заказами.",
     },
     teacher: {
-      kicker: "Рабочий день",
+      kicker: "",
       title: primaryRole === "curator" ? "Ученики филиала" : "Мои ученики",
       text:
         primaryRole === "curator"
@@ -962,8 +963,11 @@ function renderStatus() {
   } else if (state.role === "admin" && primaryRole === "superadmin") {
     spotlight.kicker = "Кабинет суперадминистратора";
   }
-  qs("#dashboardTitle").textContent = dashboardTitle;
-  qs("#dashboardRoleKicker").textContent = spotlight.kicker;
+  const dashboardRoleKicker = qs("#dashboardRoleKicker");
+  if (dashboardRoleKicker) {
+    dashboardRoleKicker.textContent = spotlight.kicker;
+    dashboardRoleKicker.hidden = !spotlight.kicker;
+  }
   qs("#dashboardSpotlightTitle").textContent = spotlight.title;
   qs("#dashboardSpotlightText").textContent = spotlight.text;
   const accessNotice = qs("#studentAccessNotice");
