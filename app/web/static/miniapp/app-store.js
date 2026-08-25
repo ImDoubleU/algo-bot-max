@@ -1909,7 +1909,7 @@ function renderLedger() {
   if (personalWalletContent) personalWalletContent.hidden = showStudentRegistry;
   if (staffStudentHistory) staffStudentHistory.hidden = !showStudentRegistry;
   if (showStudentRegistry) {
-    renderStudentRegistry();
+    if (isStaffStudentHistoryView()) renderStudentRegistry();
     return;
   }
 
