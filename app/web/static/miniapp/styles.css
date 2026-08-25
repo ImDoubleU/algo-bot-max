@@ -8023,13 +8023,11 @@ body.rail-collapsed .rail-collapse-button {
 
 .dashboard-task-actions svg { width: 18px; height: 18px; }
 
-body[data-active-role="teacher"] .dashboard-spotlight img,
-body[data-active-role="admin"] .dashboard-spotlight img {
+body[data-active-role="teacher"] .dashboard-spotlight img {
   display: none;
 }
 
-body[data-active-role="teacher"] .dashboard-spotlight,
-body[data-active-role="admin"] .dashboard-spotlight {
+body[data-active-role="teacher"] .dashboard-spotlight {
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -9325,14 +9323,12 @@ details.report-row { display: block; padding: 0; }
   .dashboard-task-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .dashboard-task-actions button { width: 100%; justify-content: center; min-width: 0; padding-inline: 8px; }
 
-  body[data-active-role="teacher"] .dashboard-spotlight,
-  body[data-active-role="admin"] .dashboard-spotlight {
+  body[data-active-role="teacher"] .dashboard-spotlight {
     min-height: 0;
     grid-template-rows: auto;
   }
 
-  body[data-active-role="teacher"] .dashboard-spotlight-copy,
-  body[data-active-role="admin"] .dashboard-spotlight-copy {
+  body[data-active-role="teacher"] .dashboard-spotlight-copy {
     padding-bottom: 16px;
   }
 

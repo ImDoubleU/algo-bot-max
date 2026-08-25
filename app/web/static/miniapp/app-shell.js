@@ -932,6 +932,8 @@ function renderStatus() {
   const nameParts = student?.name?.trim().split(/\s+/).filter(Boolean) || [];
   const firstName = student?.firstName || (nameParts.length > 1 ? nameParts[1] : nameParts[0] || "");
   const welcome = studentWelcome(firstName);
+  const dashboardSpotlight = qs("#dashboardSpotlight");
+  if (dashboardSpotlight) dashboardSpotlight.hidden = state.role === "admin";
   const spotlightByRole = {
     student: {
       kicker: "Личный кабинет",
@@ -951,25 +953,17 @@ function renderStatus() {
           ? "Ученики, начисления, заказы и рассылки по филиалу."
           : "Ученики, начисления, заказы и QR-коды ваших групп.",
     },
-    admin: {
-      kicker: "Управление филиалом",
-      title: "Сводка по филиалу",
-      text: "Импорт, сотрудники, склады и заказы.",
-    },
   };
-  const spotlight = spotlightByRole[state.role] || spotlightByRole.student;
-  if (state.role === "admin" && primaryRole === "partner_director") {
-    spotlight.kicker = "Кабинет директора";
-  } else if (state.role === "admin" && primaryRole === "superadmin") {
-    spotlight.kicker = "Кабинет суперадминистратора";
-  }
+  const spotlight = spotlightByRole[state.role];
   const dashboardRoleKicker = qs("#dashboardRoleKicker");
-  if (dashboardRoleKicker) {
+  if (dashboardRoleKicker && spotlight) {
     dashboardRoleKicker.textContent = spotlight.kicker;
     dashboardRoleKicker.hidden = !spotlight.kicker;
   }
-  qs("#dashboardSpotlightTitle").textContent = spotlight.title;
-  qs("#dashboardSpotlightText").textContent = spotlight.text;
+  if (spotlight) {
+    qs("#dashboardSpotlightTitle").textContent = spotlight.title;
+    qs("#dashboardSpotlightText").textContent = spotlight.text;
+  }
   const accessNotice = qs("#studentAccessNotice");
   if (accessNotice) {
     const showAccessNotice = !isStaff && student?.status === "departed" && student.accessUntil;
@@ -998,12 +992,7 @@ function renderStatus() {
           ["accrual", "circle-plus", "Начислить AC"],
           ["orders", "package-check", "Заказы учеников"],
         ]
-      : state.role === "admin"
-        ? [
-            ["orders", "package-check", "Заказы к выдаче"],
-            ["products", "boxes", "Товары и остатки", "ops"],
-          ]
-        : [];
+      : [];
     taskActions.hidden = actions.length === 0;
     taskActions.innerHTML = actions
       .map(
