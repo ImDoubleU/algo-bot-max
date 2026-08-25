@@ -549,7 +549,7 @@ async def test_ops_summary_reports_open_orders_and_low_stock(db_session) -> None
     assert summary.staff_role == StaffRole.ADMIN
     assert summary.total_orders == 1
     assert summary.open_orders == 1
-    assert summary.pending_issue_orders == 1
+    assert summary.pending_issue_orders == 0
     assert summary.order_statuses[0].status == OrderStatus.RESERVED
     assert summary.order_statuses[0].count == 1
     assert summary.recent_open_orders[0].id == created.order.id
@@ -717,6 +717,17 @@ async def test_admin_assigns_order_warehouse_after_checkout(
 async def test_cancel_order_releases_stock_and_refunds_wallet(db_session) -> None:
     student = await seed_linked_student(db_session)
     product, inventory = await seed_product(db_session, student)
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
+    assert account is not None
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
     created = await create_miniapp_order(
         db_session,
         payload=MiniAppOrderCreate(
@@ -799,7 +810,7 @@ async def test_parent_cannot_cancel_after_warehouse_is_confirmed(db_session) -> 
         default_tenant_slug="nizhniy-novgorod-partner-a",
     )
 
-    with pytest.raises(MiniAppStoreError, match="Склад уже подтвержден"):
+    with pytest.raises(MiniAppStoreError, match="только администратор или директор"):
         await cancel_miniapp_order(
             db_session,
             order_id=created.order.id,

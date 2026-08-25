@@ -14,8 +14,8 @@ function formatStudentBirthDate(value) {
 
 function studentHistoryChangedFields(fields) {
   const labels = {
-    crm_deal_id: "данные CRM",
-    crm_uuid: "данные CRM",
+    crm_deal_id: "данные импорта",
+    crm_uuid: "данные импорта",
     lms_student_id: "ID ученика",
     first_name: "имя",
     last_name: "фамилия",
@@ -87,11 +87,9 @@ function studentCreateEditor() {
           </div>
         </fieldset>
         <fieldset class="student-create-section">
-          <legend>Обучение и CRM</legend>
+          <legend>Обучение</legend>
           <div class="student-create-fields">
             <label><span>ID ученика</span><input name="lms_student_id" maxlength="120" /></label>
-            <label><span>ID сделки amoCRM</span><input name="crm_deal_id" maxlength="120" inputmode="numeric" /></label>
-            <label><span>UUID CRM</span><input name="crm_uuid" maxlength="180" /></label>
             <label><span>Группа</span><input name="group_name" maxlength="160" /></label>
             <label><span>Курс</span><input name="course_name" maxlength="160" /></label>
             <label><span>Площадка</span><input name="venue_name" maxlength="160" /></label>
@@ -102,7 +100,7 @@ function studentCreateEditor() {
           <legend>Родитель</legend>
           <div class="student-create-fields">
             <label><span>ФИО родителя</span><input name="parent_name" maxlength="160" autocomplete="name" /></label>
-            <label><span>Contact ID из CRM</span><input name="parent_contact_id" maxlength="120" inputmode="numeric" /></label>
+            <label><span>ID родителя</span><input name="parent_contact_id" maxlength="120" inputmode="numeric" /></label>
             <label><span>MAX ID, необязательно</span><input name="parent_max_user_id" type="number" min="1" inputmode="numeric" /></label>
             <label><span>Имя в MAX, необязательно</span><input name="parent_max_username" maxlength="120" placeholder="без @" /></label>
           </div>
@@ -224,7 +222,7 @@ async function createAdminStudent(event) {
   const parentMaxIdRaw = String(data.get("parent_max_user_id") || "").trim();
   const parentMaxUserId = parentMaxIdRaw ? Number(parentMaxIdRaw) : null;
   if ((parentName || parentMaxUserId) && !parentContactId) {
-    showNotice("Для связи с родителем укажите Contact ID из CRM", "danger");
+    showNotice("Для связи с родителем укажите ID родителя", "danger");
     return;
   }
   if (parentMaxIdRaw && (!Number.isInteger(parentMaxUserId) || parentMaxUserId <= 0)) {
@@ -736,9 +734,7 @@ function renderAdminHistory() {
   const query = state.adminEntitySearch.trim().toLowerCase();
   const entries = state.adminHistory.filter((entry) => {
     const isAmoCrmEvent = entry.action.startsWith("amocrm.");
-    if (apiContext.demoMode && (state.adminHistoryKind === "amocrm") !== isAmoCrmEvent) {
-      return false;
-    }
+    if (isAmoCrmEvent) return false;
     const text = [
       entry.title,
       entry.category,
@@ -749,25 +745,15 @@ function renderAdminHistory() {
     return !query || text.includes(query);
   });
   const issueCount = entries.filter((entry) => entry.status !== "success").length;
-  const title = state.adminHistoryKind === "amocrm"
-    ? "Синхронизация amoCRM"
-    : "Действия сотрудников";
-  const description = state.adminHistoryKind === "amocrm"
-    ? "Создание учеников, смена статусов и ошибки входящих данных"
-    : "Изменения товаров, заказов, складов, доступов и настроек";
 
   panel.innerHTML = `
     <div class="admin-section-toolbar admin-history-heading">
-      <div><h3>${title}</h3><span>${description}</span></div>
+      <div><h3>Действия сотрудников</h3><span>Изменения товаров, заказов, складов, доступов и настроек</span></div>
       <button class="secondary-action" type="button" data-retry-admin-history ${state.adminHistoryLoading ? "disabled" : ""}>
         <i data-lucide="refresh-cw"></i><span>Обновить</span>
       </button>
     </div>
     <div class="admin-history-controls">
-      <div class="segmented-control" aria-label="Вид истории">
-        <button type="button" class="${state.adminHistoryKind === "actions" ? "is-active" : ""}" data-admin-history-kind="actions">Действия</button>
-        <button type="button" class="${state.adminHistoryKind === "amocrm" ? "is-active" : ""}" data-admin-history-kind="amocrm">amoCRM</button>
-      </div>
       <label class="search-field"><i data-lucide="search"></i><input id="adminEntitySearch" type="search" value="${escapeHtml(state.adminEntitySearch)}" placeholder="Событие или сотрудник" /><button class="search-clear" type="button" data-clear-admin-search ${state.adminEntitySearch ? "" : "hidden"}><i data-lucide="x"></i></button></label>
       <select id="adminHistoryPeriod" aria-label="Период истории">
         ${[[7, "7 дней"], [30, "30 дней"], [90, "3 месяца"], [365, "Год"]].map(([days, label]) => `<option value="${days}" ${state.adminHistoryPeriod === days ? "selected" : ""}>${label}</option>`).join("")}
@@ -825,31 +811,6 @@ if (apiContext.demoMode && !state.adminHistory.length) {
       actor_name: "Директор",
       payload: { order_number: 184 },
       created_at: new Date(now.getTime() - 45 * 60 * 1000).toISOString(),
-    }),
-    normalizeAdminHistoryEntry({
-      id: "demo-history-amocrm-sync",
-      action: "amocrm.students_synced",
-      title: "Ученики синхронизированы",
-      category: "amoCRM",
-      status: "partial",
-      actor_name: "amoCRM",
-      payload: {
-        lead_ids: [41001, 41002, 41003],
-        created_students: 2,
-        existing_students: 0,
-        incomplete_leads: { 41003: ["Группа"] },
-      },
-      created_at: new Date(now.getTime() - 12 * 60 * 1000).toISOString(),
-    }),
-    normalizeAdminHistoryEntry({
-      id: "demo-history-amocrm-status",
-      action: "amocrm.student_status_updated",
-      title: "Статус ученика обновлен",
-      category: "amoCRM",
-      status: "success",
-      actor_name: "amoCRM",
-      payload: { matched_students: 1, updated_students: 1, unmatched_lead_ids: [] },
-      created_at: new Date(now.getTime() - 70 * 60 * 1000).toISOString(),
     }),
   ];
   state.adminHistoryLoaded = true;
@@ -919,7 +880,7 @@ function renderAdminPanel() {
             <small>Заказы в работе</small>
           </span>
         </button>
-        <button class="ops-metric ops-metric-issue" type="button" data-ops-jump="orders" data-order-filter="open">
+        <button class="ops-metric ops-metric-issue" type="button" data-ops-jump="orders">
           <span class="ops-metric-icon"><i data-lucide="hand-platter"></i></span>
           <span class="ops-metric-copy">
             <strong class="ops-metric-value">${Number(summary.pending_issue_orders || 0)}</strong>
@@ -1385,7 +1346,7 @@ function renderAdminPanel() {
     qs("#adminPanel").innerHTML = `
       <div class="admin-section-toolbar">
         <div>
-          <h3>Данные CRM</h3>
+          <h3>Данные для импорта</h3>
           <span>${escapeHtml(apiContext.tenantSlug || "Текущий филиал")}</span>
         </div>
         <a
@@ -1631,6 +1592,26 @@ function renderAdminPanel() {
   const canManageStaffNotifications = ["superadmin", "partner_director"].includes(
     primaryStaffRole(),
   );
+  const protectedStaffAccountIds = new Set(
+    staffAssignments
+      .filter(
+        (item) =>
+          item.status === "active" && ["superadmin", "partner_director"].includes(item.role),
+      )
+      .map((item) => item.accountId),
+  );
+  const canToggleStaffAssignment = (assignment) => {
+    const actorRole = primaryStaffRole();
+    if (assignment.role === "superadmin") return false;
+    if (actorRole === "superadmin") return true;
+    if (actorRole === "partner_director") {
+      return (
+        !protectedStaffAccountIds.has(assignment.accountId) &&
+        ["admin", "curator", "teacher"].includes(assignment.role)
+      );
+    }
+    return actorRole === "admin" && ["curator", "teacher"].includes(assignment.role);
+  };
   const rows =
     visibleStaffAssignments.length === 0
       ? `<div class="empty-state">${
@@ -1675,9 +1656,7 @@ function renderAdminPanel() {
                       : ""
                   }
                   ${
-                    assignment.role !== "superadmin" &&
-                    (primaryStaffRole() === "superadmin" ||
-                      ["teacher", "curator"].includes(assignment.role))
+                    canToggleStaffAssignment(assignment)
                       ? `<details class="admin-row-menu">
                           <summary class="icon-button" title="Действия" aria-label="Действия с сотрудником"><i data-lucide="ellipsis-vertical"></i></summary>
                           <div class="admin-row-menu-popover">
@@ -1768,4 +1747,5 @@ function renderAdminPanel() {
       ${rows}
     </div>
   `;
+  refreshIcons();
 }

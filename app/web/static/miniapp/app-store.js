@@ -118,9 +118,10 @@ function renderParentInvitations() {
             </button>
             <div class="parent-invite-help">
               <strong>Вход ребенка</strong>
-              <span>Покажите QR-код ребенку или сохраните его как изображение.</span>
+              <span>Покажите QR-код ребенку, сохраните картинку или отправьте ссылку.</span>
               <div class="parent-invite-actions">
                 <button class="secondary-action parent-invite-save" type="button" data-save-student-qr="${escapeHtml(student.id)}"><i data-lucide="download"></i> Сохранить картинку</button>
+                ${invitation.data.bot_url ? `<button class="secondary-action parent-invite-copy" type="button" data-copy-student-link="${escapeHtml(student.id)}"><i data-lucide="copy"></i> Скопировать ссылку</button>` : ""}
               </div>
             </div>
           </div>
@@ -132,6 +133,20 @@ function renderParentInvitations() {
 }
 function studentInvitationData(studentId) {
   return state.teacherInvitations.get(studentId)?.data || state.studentInvitations.get(studentId)?.data;
+}
+
+async function copyStudentInvitationLink(studentId) {
+  const invitation = studentInvitationData(studentId);
+  const link = String(invitation?.bot_url || "").trim();
+  if (!link) {
+    showNotice("Ссылка для входа недоступна", "danger");
+    return;
+  }
+  const copied = await copyTextToClipboard(link);
+  showNotice(
+    copied ? "Ссылка скопирована" : "Не удалось скопировать ссылку",
+    copied ? "ok" : "danger",
+  );
 }
 
 function openStudentQrPreview(studentId) {
@@ -147,6 +162,11 @@ function openStudentQrPreview(studentId) {
   image.alt = `QR-код для входа: ${student.name}`;
   qs("#saveStudentQrPreviewButton").dataset.saveStudentQr = studentId;
   qs("#openStudentQrFileButton").dataset.openStudentQrFile = studentId;
+  const copyButton = qs("#copyStudentQrLinkButton");
+  if (copyButton) {
+    copyButton.hidden = !invitation.bot_url;
+    copyButton.dataset.copyStudentLink = invitation.bot_url ? studentId : "";
+  }
   dialog.hidden = false;
   document.body.classList.add("dialog-open");
   if (window.WebApp?.requestScreenMaxBrightness) {
@@ -165,6 +185,11 @@ function closeStudentQrPreview() {
   state.qrPreviewStudentId = "";
   qs("#saveStudentQrPreviewButton").dataset.saveStudentQr = "";
   qs("#openStudentQrFileButton").dataset.openStudentQrFile = "";
+  const copyButton = qs("#copyStudentQrLinkButton");
+  if (copyButton) {
+    copyButton.hidden = true;
+    copyButton.dataset.copyStudentLink = "";
+  }
   if (state.qrBrightnessRequested && window.WebApp?.restoreScreenBrightness) {
     Promise.resolve(window.WebApp.restoreScreenBrightness()).catch((error) => {
       console.warn("MAX brightness restore failed", error);
@@ -692,7 +717,7 @@ function renderCheckoutSummary() {
         <strong>${isDigitalCheckout ? "Где найти код после покупки" : "Что будет после оформления"}</strong>
         <span>${
           isDigitalCheckout
-            ? "Откройте «Заказы» → «Переданы ученикам» и нажмите на заказ. Код и кнопка копирования будут внутри."
+            ? `Откройте «Заказы» → «${["student", "parent"].includes(state.role) ? "Получены" : "Переданы ученикам"}» и нажмите на заказ. Код и кнопка копирования будут внутри.`
             : "Заказ появится в разделе «Зарезервированы». Затем сотрудник выберет склад и начнет комплектацию."
         }</span>
       </div>
@@ -946,10 +971,17 @@ function canPickOrderItem(order) {
 }
 
 function canCancelOrder(order) {
-  if (["teacher", "admin"].includes(state.role)) {
-    return ["created", "reserved", "awaiting_delivery", "delivered_to_venue", "transferred_to_teacher"].includes(order.rawStatus);
-  }
-  return ["created", "reserved"].includes(order.rawStatus) && !orderHasAssignedWarehouses(order);
+  return (
+    ["superadmin", "partner_director", "admin"].includes(primaryStaffRole()) &&
+    [
+      "created",
+      "reserved",
+      "awaiting_delivery",
+      "delivered_to_venue",
+      "transferred_to_teacher",
+      "problem",
+    ].includes(order.rawStatus)
+  );
 }
 
 function orderMatchesStatusFilter(order) {
@@ -1157,7 +1189,10 @@ function renderOrderStatusTabs() {
         ["awaiting_delivery", "Ожидают доставки"],
         ["delivered_to_venue", "На площадке"],
         ["transferred_to_teacher", "У учителя"],
-        ["issued_to_student", "Переданы ученикам"],
+        [
+          "issued_to_student",
+          ["student", "parent"].includes(state.role) ? "Получены" : "Переданы ученикам",
+        ],
         ["cancelled", "Отменены"],
       ].map(([value, label]) => [
         value,
@@ -1795,9 +1830,7 @@ function renderOrders() {
   }
   if (state.orderStatusFilter === "issued") state.orderStatusFilter = "issued_to_student";
   const searchInput = qs("#orderSearch");
-  const statusFilter = qs("#orderStatusFilter");
   if (searchInput) searchInput.value = state.orderSearch;
-  if (statusFilter) statusFilter.value = state.orderStatusFilter;
   const clearSearchButton = qs("#clearOrderSearch");
   if (clearSearchButton) clearSearchButton.hidden = !state.orderSearch;
   renderOrderStatusTabs();

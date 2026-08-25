@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.74.5" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.75.0" />
   </head>
   <body class="is-booting">
     <main id="accessGate" class="access-gate" hidden>
@@ -93,7 +93,7 @@
               <select id="studentSelect" aria-label="Ученик для заказа"></select>
             </div>
             <div class="status-balance">
-              <span class="status-balance-label">Остаток на счете</span>
+              <span class="status-balance-label">Баланс</span>
               <div class="status-balance-value">
                 <button id="openWalletButton" class="balance-link" type="button" title="Открыть историю астрокоинов">
                   <strong><span id="balanceValue">1240</span> <small>AC</small></strong>
@@ -122,13 +122,6 @@
           </div>
 
           <section id="dashboardView" class="view is-active" data-view-panel="dashboard">
-            <div class="section-heading">
-              <div>
-                <p class="eyebrow">Сегодня</p>
-                <h2 id="dashboardTitle">Рабочий обзор</h2>
-              </div>
-            </div>
-
             <div class="dashboard-spotlight">
               <div class="dashboard-spotlight-copy">
                 <p id="dashboardRoleKicker" class="eyebrow">Личный кабинет</p>
@@ -313,24 +306,12 @@
                 <p class="eyebrow">Заказы</p>
                 <h2>Статусы и выдача</h2>
               </div>
-              <div class="toolbar">
+              <div class="toolbar orders-search-toolbar">
                 <label class="search-field">
                   <i data-lucide="search"></i>
                   <input id="orderSearch" type="search" placeholder="Номер, ученик или товар" />
                   <button id="clearOrderSearch" class="search-clear" type="button" title="Очистить поиск" aria-label="Очистить поиск" hidden><i data-lucide="x"></i></button>
                 </label>
-                <select id="orderStatusFilter" aria-label="Статус заказа">
-                  <option value="all">Все заказы</option>
-                  <option value="reserved">Зарезервированы</option>
-                  <option value="awaiting_delivery">Ожидают доставки</option>
-                  <option value="fulfillment_assign">Назначить склад</option>
-                  <option value="fulfillment_collect">Собрать</option>
-                  <option value="fulfillment_route">Распределить</option>
-                  <option value="delivered_to_venue">На площадке</option>
-                  <option value="transferred_to_teacher">У учителя</option>
-                  <option value="issued_to_student">Переданы ученикам</option>
-                  <option value="cancelled">Отменены</option>
-                </select>
               </div>
             </div>
             <div id="orderStatusTabs" class="order-status-tabs" role="tablist" aria-label="Статусы заказов"></div>
@@ -593,11 +574,43 @@
                   </section>
                 </div>
 
-                <label class="broadcast-message-field broadcast-stage broadcast-stage-2">
-                  <span>Текст новости</span>
-                  <textarea id="broadcastMessage" maxlength="3500" rows="7" placeholder="Напишите сообщение" required></textarea>
+                <div class="broadcast-message-field broadcast-stage broadcast-stage-2">
+                  <label for="broadcastMessage">Текст новости</label>
+                  <div class="broadcast-message-control">
+                    <textarea id="broadcastMessage" maxlength="3500" rows="7" placeholder="Напишите сообщение" required></textarea>
+                    <button
+                      id="broadcastEmojiButton"
+                      class="icon-button broadcast-emoji-button"
+                      type="button"
+                      title="Добавить эмодзи"
+                      aria-label="Добавить эмодзи"
+                      aria-expanded="false"
+                      aria-controls="broadcastEmojiPicker"
+                    ><i data-lucide="smile-plus"></i></button>
+                    <div id="broadcastEmojiPicker" class="broadcast-emoji-picker" role="dialog" aria-label="Выбор эмодзи" hidden>
+                      <strong>Эмодзи</strong>
+                      <div class="broadcast-emoji-grid">
+                        <button type="button" data-broadcast-emoji="🙂" aria-label="Улыбка">🙂</button>
+                        <button type="button" data-broadcast-emoji="😊" aria-label="Радость">😊</button>
+                        <button type="button" data-broadcast-emoji="👏" aria-label="Аплодисменты">👏</button>
+                        <button type="button" data-broadcast-emoji="👍" aria-label="Отлично">👍</button>
+                        <button type="button" data-broadcast-emoji="🎉" aria-label="Праздник">🎉</button>
+                        <button type="button" data-broadcast-emoji="⭐" aria-label="Звезда">⭐</button>
+                        <button type="button" data-broadcast-emoji="🚀" aria-label="Ракета">🚀</button>
+                        <button type="button" data-broadcast-emoji="💜" aria-label="Сердце">💜</button>
+                        <button type="button" data-broadcast-emoji="🏆" aria-label="Награда">🏆</button>
+                        <button type="button" data-broadcast-emoji="🎁" aria-label="Подарок">🎁</button>
+                        <button type="button" data-broadcast-emoji="📚" aria-label="Учеба">📚</button>
+                        <button type="button" data-broadcast-emoji="💡" aria-label="Идея">💡</button>
+                        <button type="button" data-broadcast-emoji="📣" aria-label="Объявление">📣</button>
+                        <button type="button" data-broadcast-emoji="⏰" aria-label="Время">⏰</button>
+                        <button type="button" data-broadcast-emoji="✅" aria-label="Готово">✅</button>
+                        <button type="button" data-broadcast-emoji="❗" aria-label="Важно">❗</button>
+                      </div>
+                    </div>
+                  </div>
                   <small><span id="broadcastMessageCount">0</span> / 3500</small>
-                </label>
+                </div>
 
                 <div class="broadcast-photo-row broadcast-stage broadcast-stage-2">
                   <label class="file-picker broadcast-photo-picker">
@@ -708,7 +721,7 @@
                 <i data-lucide="warehouse"></i><span>Склады</span>
               </button>
               <button class="admin-tab" type="button" data-admin-tab="crm">
-                <i data-lucide="file-up"></i><span>Импорт CRM</span>
+                <i data-lucide="file-up"></i><span>Импорт данных</span>
               </button>
               <button class="admin-tab" type="button" data-admin-tab="contacts">
                 <i data-lucide="link-2"></i><span>Связи</span>
@@ -884,6 +897,13 @@
           </div>
           <div class="qr-preview-actions">
             <button
+              id="copyStudentQrLinkButton"
+              class="secondary-action qr-preview-link"
+              type="button"
+              data-copy-student-link=""
+              hidden
+            ><i data-lucide="copy"></i> Скопировать ссылку</button>
+            <button
               id="openStudentQrFileButton"
               class="secondary-action qr-preview-open"
               type="button"
@@ -1010,11 +1030,11 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app-core.js?v=0.74.5"></script>
-    <script src="/miniapp/static/app-shell.js?v=0.74.5"></script>
-    <script src="/miniapp/static/app-store.js?v=0.74.5"></script>
-    <script src="/miniapp/static/app-admin.js?v=0.74.5"></script>
-    <script src="/miniapp/static/app-communications.js?v=0.74.5"></script>
-    <script src="/miniapp/static/app.js?v=0.74.5"></script>
+    <script src="/miniapp/static/app-core.js?v=0.75.0"></script>
+    <script src="/miniapp/static/app-shell.js?v=0.75.0"></script>
+    <script src="/miniapp/static/app-store.js?v=0.75.0"></script>
+    <script src="/miniapp/static/app-admin.js?v=0.75.0"></script>
+    <script src="/miniapp/static/app-communications.js?v=0.75.0"></script>
+    <script src="/miniapp/static/app.js?v=0.75.0"></script>
   </body>
 </html>

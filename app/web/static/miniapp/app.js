@@ -66,11 +66,11 @@ async function importCrmStudents(dryRun) {
   const input = qs("#crmImportFile");
   const file = state.crmImportFile || input?.files?.[0] || null;
   if (!file) {
-    showNotice("Выберите CRM-файл XLSX", "danger");
+    showNotice("Выберите файл XLSX", "danger");
     return;
   }
   if (apiContext.demoMode || !apiContext.maxUserId) {
-    showNotice("Импорт CRM доступен после входа администратора", "danger");
+    showNotice("Импорт доступен после входа администратора", "danger");
     return;
   }
   if (!dryRun && !state.crmImportPreview) {
@@ -111,7 +111,7 @@ async function importCrmStudents(dryRun) {
       );
     }
   } catch (error) {
-    showNotice(error.message || "Не удалось импортировать CRM", "danger");
+    showNotice(error.message || "Не удалось импортировать файл", "danger");
   } finally {
     state.crmImporting = false;
     renderAll();
@@ -719,8 +719,9 @@ function renderOrderDialog(order) {
     ? order.statusHistory
         .slice()
         .reverse()
-        .map(
-          (event, index) => `
+        .map((event, index) => {
+          const comment = orderHistoryComment(event.comment);
+          return `
             <div class="order-history-row ${index === 0 ? "is-current" : "is-complete"}">
               <span class="order-history-marker"><i data-lucide="${index === 0 ? "circle-dot" : "check"}"></i></span>
               <div>
@@ -730,11 +731,11 @@ function renderOrderDialog(order) {
                     : orderStatusLabel(event.toStatus),
                 )}</strong>
                 <span>${escapeHtml(formatOrderDate(event.createdAt))}</span>
-                ${event.comment ? `<div>${escapeHtml(event.comment)}</div>` : ""}
+                ${comment ? `<div>${escapeHtml(comment)}</div>` : ""}
               </div>
             </div>
-          `,
-        )
+          `;
+        })
         .join("")
     : `
         <div class="order-history-row">
@@ -747,7 +748,7 @@ function renderOrderDialog(order) {
   qs("#orderDialogContent").innerHTML = `
     <div class="order-dialog-summary ${isDigitalOrder ? "is-digital" : ""}">
       <div>
-        <span class="status-badge ${escapeHtml(orderStatusTone(order.rawStatus))}">${isDigitalOrder ? "Заказ передан ученику" : escapeHtml(orderStatusLabel(order.rawStatus))}</span>
+        <span class="status-badge ${escapeHtml(orderStatusTone(order.rawStatus))}">${escapeHtml(orderStatusLabel(order.rawStatus))}</span>
         <h3>${escapeHtml(order.student)}</h3>
         <div class="student-meta">
           ${
@@ -1026,7 +1027,7 @@ async function assignSummaryOrderWarehouses(rawOrderIds, button = null) {
                 product_id: item.productId,
                 warehouse_id: orderPreferredWarehouseId(item),
               })),
-              comment: "Склады подтверждены из сводки комплектации",
+              comment: "Склад выбран",
             }),
           },
         );
@@ -1108,7 +1109,7 @@ async function deliverSummaryOrders(rawOrderIds, button = null) {
             body: JSON.stringify({
               max_user_id: Number(apiContext.maxUserId),
               tenant_slug: apiContext.tenantSlug || undefined,
-              comment: "Доставлено на площадку из сводки распределения",
+              comment: "",
             }),
           },
         );
@@ -1909,6 +1910,9 @@ async function placeOrder() {
 
 document.addEventListener("click", (event) => {
   const clickedElement = event.target instanceof Element ? event.target : null;
+  if (!clickedElement?.closest(".broadcast-message-control")) {
+    closeBroadcastEmojiPicker();
+  }
   const target = clickedElement?.closest("button") || null;
   if (!target) {
     const productCard = clickedElement?.closest("[data-product-card]");
@@ -1974,6 +1978,12 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const copiedStudentLinkId = target.dataset.copyStudentLink;
+  if (copiedStudentLinkId) {
+    void copyStudentInvitationLink(copiedStudentLinkId);
+    return;
+  }
+
   const openedQrFileStudentId = target.dataset.openStudentQrFile;
   if (openedQrFileStudentId) {
     openStudentQrFile(openedQrFileStudentId);
@@ -2006,6 +2016,15 @@ document.addEventListener("click", (event) => {
 
   if (target.id === "previewBroadcastButton") {
     previewBroadcastAudience();
+  }
+  if (target.id === "broadcastEmojiButton") {
+    toggleBroadcastEmojiPicker();
+    return;
+  }
+  const broadcastEmoji = target.dataset.broadcastEmoji;
+  if (broadcastEmoji) {
+    insertBroadcastEmoji(broadcastEmoji);
+    return;
   }
   if (target.id === "saveBroadcastDraftButton") saveBroadcastDraft();
   const broadcastStep = target.dataset.broadcastStep;
@@ -2145,15 +2164,6 @@ document.addEventListener("click", (event) => {
     if (adminTab === "history") void loadAdminHistory();
   }
 
-  const adminHistoryKind = target.dataset.adminHistoryKind;
-  if (["actions", "amocrm"].includes(adminHistoryKind)) {
-    state.adminHistoryKind = adminHistoryKind;
-    state.adminHistoryLoaded = false;
-    state.adminEntitySearch = "";
-    renderAdminPanel();
-    void loadAdminHistory(true);
-  }
-
   if ("retryAdminHistory" in target.dataset) {
     void loadAdminHistory(true);
   }
@@ -2202,8 +2212,6 @@ document.addEventListener("click", (event) => {
   const orderStatus = target.dataset.orderStatus;
   if (orderStatus) {
     state.orderStatusFilter = orderStatus;
-    const select = qs("#orderStatusFilter");
-    if (select && [...select.options].some((option) => option.value === orderStatus)) select.value = orderStatus;
     if (state.view !== "orders") setView("orders");
     renderOrders();
     savePreferences();
@@ -2552,6 +2560,11 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   if (event.key !== "Escape") return;
+  if (!qs("#broadcastEmojiPicker")?.hidden) {
+    closeBroadcastEmojiPicker();
+    qs("#broadcastEmojiButton")?.focus();
+    return;
+  }
   if (!qs("#confirmationDialog").hidden) {
     settleConfirmation(false);
     return;
@@ -2694,12 +2707,6 @@ document.addEventListener("change", (event) => {
     if (target.checked) state.selectedAccrualStudents.add(accrualStudentId);
     else state.selectedAccrualStudents.delete(accrualStudentId);
     renderAccrual();
-  }
-
-  if (target.id === "orderStatusFilter") {
-    state.orderStatusFilter = target.value;
-    renderOrders();
-    savePreferences();
   }
 
   if (target.id === "productStatusFilter") {

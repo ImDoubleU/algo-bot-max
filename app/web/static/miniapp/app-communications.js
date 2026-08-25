@@ -698,6 +698,34 @@ function renderBroadcastLivePreview() {
     </div>`;
 }
 
+function closeBroadcastEmojiPicker() {
+  const picker = qs("#broadcastEmojiPicker");
+  const button = qs("#broadcastEmojiButton");
+  if (picker) picker.hidden = true;
+  if (button) button.setAttribute("aria-expanded", "false");
+}
+
+function toggleBroadcastEmojiPicker() {
+  const picker = qs("#broadcastEmojiPicker");
+  const button = qs("#broadcastEmojiButton");
+  if (!picker || !button) return;
+  const willOpen = picker.hidden;
+  picker.hidden = !willOpen;
+  button.setAttribute("aria-expanded", String(willOpen));
+  if (willOpen) picker.querySelector("button")?.focus();
+}
+
+function insertBroadcastEmoji(emoji) {
+  const message = qs("#broadcastMessage");
+  if (!message || !emoji) return;
+  const start = message.selectionStart ?? message.value.length;
+  const end = message.selectionEnd ?? start;
+  message.setRangeText(emoji, start, end, "end");
+  message.dispatchEvent(new Event("input", { bubbles: true }));
+  closeBroadcastEmojiPicker();
+  message.focus();
+}
+
 function duplicateBroadcast(itemId) {
   const item = state.broadcastHistory.find((entry) => String(entry.id || "") === String(itemId));
   if (!item) return;
@@ -766,6 +794,7 @@ function renderBroadcasts() {
   }
   const form = qs("#broadcastForm");
   if (form) form.dataset.currentStep = String(state.broadcastStep);
+  if (state.broadcastStep !== 2) closeBroadcastEmojiPicker();
   qsa("[data-broadcast-step]").forEach((button) => {
     const active = Number(button.dataset.broadcastStep) === state.broadcastStep;
     button.classList.toggle("is-active", active);

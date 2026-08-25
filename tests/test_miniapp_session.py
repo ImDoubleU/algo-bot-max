@@ -683,7 +683,7 @@ async def test_admin_cannot_assign_elevated_staff_role(db_session) -> None:
     )
     await db_session.commit()
 
-    with pytest.raises(MiniAppStoreError, match="superadmin"):
+    with pytest.raises(MiniAppStoreError, match="суперадминистратор"):
         await update_miniapp_staff_assignment(
             db_session,
             payload=MiniAppStaffAssignmentUpdate(
@@ -694,6 +694,60 @@ async def test_admin_cannot_assign_elevated_staff_role(db_session) -> None:
             ),
             default_tenant_slug="nizhniy-novgorod-partner-a",
         )
+
+
+async def test_director_can_revoke_and_restore_existing_admin(db_session) -> None:
+    defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+    await upsert_crm_student_rows(db_session, [crm_row()], defaults=defaults)
+    student = await db_session.scalar(select(Student))
+    assert student is not None
+    director = MaxAccount(max_user_id=2001, username="director")
+    admin = MaxAccount(max_user_id=2002, username="admin")
+    db_session.add_all([director, admin])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            StaffRoleAssignment(
+                tenant_id=student.tenant_id,
+                account_id=director.id,
+                role=StaffRole.PARTNER_DIRECTOR,
+                status=AssignmentStatus.ACTIVE,
+            ),
+            StaffRoleAssignment(
+                tenant_id=student.tenant_id,
+                account_id=admin.id,
+                role=StaffRole.ADMIN,
+                status=AssignmentStatus.ACTIVE,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    revoked = await update_miniapp_staff_assignment(
+        db_session,
+        payload=MiniAppStaffAssignmentUpdate(
+            max_user_id=director.max_user_id,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            target_max_user_id=admin.max_user_id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.REVOKED,
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    restored = await update_miniapp_staff_assignment(
+        db_session,
+        payload=MiniAppStaffAssignmentUpdate(
+            max_user_id=director.max_user_id,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            target_max_user_id=admin.max_user_id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    assert revoked.status == AssignmentStatus.REVOKED
+    assert restored.status == AssignmentStatus.ACTIVE
 
 
 async def test_superadmin_cannot_revoke_own_last_manager_role(db_session) -> None:

@@ -1232,6 +1232,7 @@ async def list_miniapp_student_registry(
                 student_id=UUID(str(student.id)),
                 lms_student_id=student.lms_student_id,
                 display_name=student.display_name,
+                first_name=student.first_name,
                 birth_date=student.birth_date,
                 group_name=student.group_name,
                 course_name=student.course_name,
@@ -2505,6 +2506,7 @@ async def get_miniapp_session(
                 staff_visible=student.id in staff_student_ids,
                 staff_order_visible=student.id in staff_order_student_ids,
                 display_name=student.display_name,
+                first_name=student.first_name,
                 birth_date=student.birth_date,
                 group_name=student.group_name,
                 course_name=student.course_name,
@@ -2533,6 +2535,7 @@ async def get_miniapp_session(
                     else StudentAccessRole.STUDENT
                 ),
                 display_name=student.display_name,
+                first_name=student.first_name,
                 birth_date=student.birth_date,
                 group_name=student.group_name,
                 course_name=student.course_name,
@@ -3013,9 +3016,6 @@ async def get_miniapp_ops_summary(
 
     open_statuses = OPEN_ORDER_STATUSES
     pending_issue_statuses = {
-        OrderStatus.CREATED,
-        OrderStatus.RESERVED,
-        OrderStatus.AWAITING_DELIVERY,
         OrderStatus.DELIVERED_TO_VENUE,
         OrderStatus.TRANSFERRED_TO_TEACHER,
     }
@@ -4237,24 +4237,12 @@ async def cancel_miniapp_order(
         default_tenant_slug=default_tenant_slug,
         require_manager=False,
     )
-    if staff_role is None:
-        if any(item.warehouse_id is not None for item in order.items):
-            raise MiniAppStoreError(
-                "Склад уже подтвержден. Для отмены обратитесь к сотруднику школы",
-                status_code=409,
-            )
-        if order.status not in {OrderStatus.CREATED, OrderStatus.RESERVED}:
-            raise MiniAppStoreError(
-                "Ученик или родитель может отменить только зарезервированный заказ",
-                status_code=409,
-            )
-    elif order.status not in {
-        OrderStatus.CREATED,
-        OrderStatus.RESERVED,
-        OrderStatus.AWAITING_DELIVERY,
-        OrderStatus.DELIVERED_TO_VENUE,
-        OrderStatus.TRANSFERRED_TO_TEACHER,
-    }:
+    if staff_role not in STORE_ADMIN_ROLES:
+        raise MiniAppStoreError(
+            "Отменить заказ может только администратор или директор",
+            status_code=403,
+        )
+    if order.status not in OPEN_ORDER_STATUSES:
         raise MiniAppStoreError("Отменить можно только заказ в работе", status_code=409)
 
     out_of_stock_product_ids: set[UUID] = set()
@@ -5218,11 +5206,19 @@ async def update_miniapp_staff_assignment(
         account_id=actor.id,
     )
     is_global_superadmin = StaffRole.SUPERADMIN in actor_roles
+    is_partner_director = StaffRole.PARTNER_DIRECTOR in actor_roles
     if not actor_roles.intersection(STORE_ADMIN_ROLES) and not is_global_superadmin:
         raise MiniAppStoreError("Нет прав на управление сотрудниками", status_code=403)
-    if payload.role in ELEVATED_STAFF_ROLES and not is_global_superadmin:
+    director_updates_existing_admin = (
+        is_partner_director and payload.role == StaffRole.ADMIN
+    )
+    if (
+        payload.role in ELEVATED_STAFF_ROLES
+        and not is_global_superadmin
+        and not director_updates_existing_admin
+    ):
         raise MiniAppStoreError(
-            "Управляющие роли может менять только superadmin",
+            "Управляющие роли может менять только суперадминистратор",
             status_code=403,
         )
     if payload.role == StaffRole.SUPERADMIN and not superadmin_identity_is_allowed(
@@ -5245,6 +5241,11 @@ async def update_miniapp_staff_assignment(
     target = await db.scalar(
         select(MaxAccount).where(MaxAccount.max_user_id == payload.target_max_user_id)
     )
+    if director_updates_existing_admin and target is None:
+        raise MiniAppStoreError(
+            "Директор может только отзывать и восстанавливать существующих администраторов",
+            status_code=403,
+        )
     account_created = False
     if target is None:
         target = MaxAccount(
@@ -5268,6 +5269,28 @@ async def update_miniapp_staff_assignment(
             StaffRoleAssignment.role == payload.role,
         )
     )
+
+    if director_updates_existing_admin:
+        if assignment is None:
+            raise MiniAppStoreError(
+                "Директор может только отзывать и восстанавливать существующих администраторов",
+                status_code=403,
+            )
+        protected_target_role = await db.scalar(
+            select(StaffRoleAssignment.role).where(
+                StaffRoleAssignment.tenant_id == tenant.id,
+                StaffRoleAssignment.account_id == target.id,
+                StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+                StaffRoleAssignment.role.in_(
+                    {StaffRole.SUPERADMIN, StaffRole.PARTNER_DIRECTOR}
+                ),
+            )
+        )
+        if protected_target_role is not None:
+            raise MiniAppStoreError(
+                "Директор не может управлять ролями другого директора или суперадминистратора",
+                status_code=403,
+            )
 
     if (
         target.id == actor.id

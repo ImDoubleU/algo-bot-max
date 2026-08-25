@@ -149,9 +149,9 @@ async def test_upsert_crm_student_rows_updates_existing_student(db_session) -> N
     history = (await db_session.scalars(select(StudentHistoryEvent))).all()
     assert result.updated_students == 1
     assert len(students) == 1
-    assert {event.event_type for event in history} == {"imported", "updated"}
-    updated_event = next(event for event in history if event.event_type == "updated")
-    assert updated_event.changed_fields == ["group_name"]
+    assert {event.event_type for event in history} == {"imported", "group_changed"}
+    group_event = next(event for event in history if event.event_type == "group_changed")
+    assert group_event.changed_fields == ["group_name"]
 
     await upsert_crm_student_rows(
         db_session,
