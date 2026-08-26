@@ -4944,18 +4944,6 @@ svg.lucide {
 }
 
 /* Profile bar v4 */
-.status-avatar {
-  width: 54px;
-  height: 54px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  color: #ffffff;
-  background: var(--brand-purple);
-  font-size: 22px;
-  font-weight: 900;
-}
-
 .status-profile-copy {
   min-width: 0;
 }
@@ -5034,7 +5022,7 @@ body[data-active-role="student"] #studentContext {
 
   .status-profile {
     display: grid;
-    grid-template-columns: 54px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: 13px;
     align-items: center;
     min-height: 76px;
@@ -5090,7 +5078,6 @@ body[data-active-role="student"] #studentContext {
 }
 
 @media (max-width: 640px) {
-  .status-avatar,
   .status-profile-label,
   .status-balance-caption {
     display: none;
@@ -9329,7 +9316,6 @@ details.report-row { display: block; padding: 0; }
     margin-inline: 0;
     padding: 9px 10px;
   }
-  .status-avatar { width: 38px; height: 38px; }
   .status-profile-label { display: none; }
   .status-profile-copy strong { max-width: 38vw; font-size: 13px; }
   .status-tenant { max-width: 48vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -12835,13 +12821,6 @@ svg + .icon-fallback {
   gap: 12px;
 }
 
-.status-avatar {
-  width: 46px;
-  height: 46px;
-  flex: 0 0 46px;
-  font-size: 19px;
-}
-
 .status-profile-copy {
   display: grid;
   gap: 3px;
@@ -13068,13 +13047,6 @@ svg + .icon-fallback {
 
   .status-profile {
     gap: 8px;
-  }
-
-  .status-avatar {
-    width: 38px;
-    height: 38px;
-    flex-basis: 38px;
-    font-size: 16px;
   }
 
   .status-profile-copy strong {

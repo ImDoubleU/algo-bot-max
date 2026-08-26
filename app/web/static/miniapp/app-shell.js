@@ -904,11 +904,6 @@ function renderStatus() {
 
   state.balance = student?.balance || 0;
   qs("#profileTitle").textContent = labels[state.role] || "Профиль";
-  const profileInitial = qs("#profileInitial");
-  if (profileInitial) {
-    const profileName = student?.name || accountName || labels[state.role] || "А";
-    profileInitial.textContent = profileName.trim().charAt(0).toUpperCase() || "А";
-  }
   const contextLabel = qs("#studentContextLabel");
   if (contextLabel) {
     contextLabel.textContent = {
