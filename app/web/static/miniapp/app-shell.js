@@ -618,7 +618,7 @@ function setView(view) {
   const mobileMoreButton = qs("#mobileMoreButton");
   mobileMoreButton?.classList.toggle(
     "is-active",
-    ["wallet", "report", "accrual", "broadcasts", "admin"].includes(nextView),
+    ["wallet", "report", "accrual", "broadcasts", "admin", "help"].includes(nextView),
   );
   closeMobileMorePanel();
   renderMobileNavigation();

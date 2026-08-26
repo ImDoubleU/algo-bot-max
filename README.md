@@ -4,6 +4,8 @@
 
 Production-развертывание на российском VPS: [DEPLOYMENT_RU.md](DEPLOYMENT_RU.md).
 
+Редактируемое руководство по всем ролям: [Algo_MAX_Руководство_по_ролям.pptx](docs/Algo_MAX_Руководство_по_ролям.pptx).
+
 ## Что уже работает
 
 - MAX-бот с inline-кнопками: long polling локально, webhook в production.
