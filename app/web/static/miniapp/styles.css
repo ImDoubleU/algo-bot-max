@@ -487,6 +487,41 @@ select:focus-visible {
   gap: 16px;
 }
 
+.help-placeholder {
+  min-height: min(620px, 64vh);
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.help-placeholder-content {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+}
+
+.help-placeholder-icon {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--brand-purple);
+  background: #ffffff;
+  box-shadow: var(--shadow-soft);
+}
+
+.help-placeholder-icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.help-placeholder h2 {
+  color: var(--brand-purple-dark);
+  font-size: 36px;
+}
+
 .section-heading {
   display: flex;
   justify-content: space-between;

@@ -19,10 +19,10 @@ if (queryParam("miniapp_token")) {
 const sessionStartedAt = new Date();
 
 const ROLE_VIEWS = Object.freeze({
-  student: ["dashboard", "store", "cart", "orders", "wallet"],
-  parent: ["dashboard", "store", "cart", "orders", "wallet"],
-  teacher: ["dashboard", "store", "orders", "wallet", "report", "accrual", "broadcasts"],
-  admin: ["dashboard", "store", "orders", "wallet", "report", "accrual", "broadcasts", "admin"],
+  student: ["dashboard", "store", "cart", "orders", "wallet", "help"],
+  parent: ["dashboard", "store", "cart", "orders", "wallet", "help"],
+  teacher: ["dashboard", "store", "orders", "wallet", "report", "accrual", "broadcasts", "help"],
+  admin: ["dashboard", "store", "orders", "wallet", "report", "accrual", "broadcasts", "admin", "help"],
 });
 
 const VIEW_META = Object.freeze({
@@ -35,6 +35,7 @@ const VIEW_META = Object.freeze({
   accrual: { label: "Начисления", icon: "circle-plus" },
   broadcasts: { label: "Рассылки", icon: "megaphone" },
   admin: { label: "Управление", icon: "settings-2" },
+  help: { label: "Помощь", icon: "circle-help" },
 });
 
 const ROLE_MOBILE_PRIMARY = Object.freeze({
@@ -68,7 +69,7 @@ const state = {
   tenantSaving: false,
   tenantSearch: "",
   availableRoles: ["student", "parent", "teacher", "admin"],
-  view: ["dashboard", "store", "cart", "orders", "wallet", "report", "accrual", "broadcasts", "admin"].includes(
+  view: ["dashboard", "store", "cart", "orders", "wallet", "report", "accrual", "broadcasts", "admin", "help"].includes(
     queryParam("view"),
   )
     ? queryParam("view")
