@@ -1,6 +1,7 @@
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, uuid_pk
@@ -128,3 +129,35 @@ class StaffNotificationPreference(TimestampMixin, Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
 
     account = relationship("MaxAccount")
+
+
+class StaffInvitation(TimestampMixin, Base):
+    __tablename__ = "staff_invitations"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_staff_invitations_token_hash"),
+    )
+
+    id: Mapped[UUID] = uuid_pk()
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), index=True, nullable=False)
+    role: Mapped[StaffRole] = mapped_column(nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by_account_id: Mapped[UUID] = mapped_column(
+        ForeignKey("max_accounts.id"),
+        index=True,
+        nullable=False,
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        index=True,
+        nullable=False,
+    )
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    redeemed_by_account_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("max_accounts.id"),
+        index=True,
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    tenant = relationship("Tenant")
+    created_by = relationship("MaxAccount", foreign_keys=[created_by_account_id])
+    redeemed_by = relationship("MaxAccount", foreign_keys=[redeemed_by_account_id])

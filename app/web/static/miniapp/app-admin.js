@@ -1603,9 +1603,13 @@ function renderAdminPanel() {
     const matchesQuery = !staffQuery || `${item.displayName} ${item.username} ${item.maxUserId} ${staffRoleLabel(item.role)}`.toLowerCase().includes(staffQuery);
     return matchesStatus && matchesRole && matchesQuery;
   });
-  const canManageStaffNotifications = ["superadmin", "partner_director"].includes(
-    primaryStaffRole(),
-  );
+  const actorRole = primaryStaffRole();
+  const canManageStaffNotifications = ["superadmin", "partner_director"].includes(actorRole);
+  const invitableRoles = {
+    superadmin: ["partner_director", "admin", "curator", "teacher"],
+    partner_director: ["admin", "curator", "teacher"],
+    admin: ["curator", "teacher"],
+  }[actorRole] || [];
   const protectedStaffAccountIds = new Set(
     staffAssignments
       .filter(
@@ -1615,7 +1619,6 @@ function renderAdminPanel() {
       .map((item) => item.accountId),
   );
   const canToggleStaffAssignment = (assignment) => {
-    const actorRole = primaryStaffRole();
     if (assignment.role === "superadmin") return false;
     if (actorRole === "superadmin") return true;
     if (actorRole === "partner_director") {
@@ -1690,12 +1693,19 @@ function renderAdminPanel() {
           )
           .join("");
 
-  const elevatedRoleOptions = primaryStaffRole() === "superadmin"
+  const elevatedRoleOptions = actorRole === "superadmin"
     ? `
           <option value="admin">Администратор</option>
           <option value="partner_director">Директор партнера</option>
         `
     : "";
+  const invitationRoleOptions = invitableRoles
+    .map(
+      (role) => `<option value="${escapeHtml(role)}" ${
+        state.staffInvitationRole === role ? "selected" : ""
+      }>${escapeHtml(staffRoleLabel(role))}</option>`,
+    )
+    .join("");
 
   qs("#adminPanel").innerHTML = `
     <div class="admin-section-toolbar">
@@ -1704,11 +1714,62 @@ function renderAdminPanel() {
         <span>${activeStaff} активных назначений из ${staffAssignments.length}</span>
       </div>
       ${
-        state.staffEditorOpen
+        state.staffEditorOpen || state.staffInvitationOpen
           ? ""
-          : '<button id="staffCreateButton" class="primary-action" type="button">Выдать роль</button>'
+          : `<div class="admin-section-actions">
+              <button id="staffInviteButton" class="primary-action" type="button">
+                <i data-lucide="user-plus"></i><span>Пригласить сотрудника</span>
+              </button>
+              <button id="staffCreateButton" class="secondary-action" type="button">
+                Выдать по MAX ID
+              </button>
+            </div>`
       }
     </div>
+    ${state.staffInvitationOpen ? `
+      <section class="staff-invitation-panel admin-editor">
+        <div class="staff-invitation-heading">
+          <span class="staff-invitation-icon"><i data-lucide="link"></i></span>
+          <div>
+            <strong>Ссылка для нового сотрудника</strong>
+            <span>Выберите роль. Ссылка действует 7 дней и сработает один раз.</span>
+          </div>
+        </div>
+        <div class="staff-invitation-controls">
+          <label>
+            <span>Роль сотрудника</span>
+            <select id="staffInvitationRoleSelect">${invitationRoleOptions}</select>
+          </label>
+          <button id="staffInvitationCreateButton" class="primary-action" type="button" ${
+            state.staffInvitationSaving ? "disabled" : ""
+          }>
+            <i data-lucide="link-2"></i><span>${
+              state.staffInvitationSaving
+                ? "Создание..."
+                : state.staffInvitationLink
+                  ? "Создать новую ссылку"
+                  : "Создать ссылку"
+            }</span>
+          </button>
+          <button id="staffInvitationCancelButton" class="secondary-action" type="button">Закрыть</button>
+        </div>
+        ${state.staffInvitationLink ? `
+          <div class="staff-invitation-result" aria-live="polite">
+            <div>
+              <strong>${escapeHtml(staffRoleLabel(state.staffInvitationRole))}</strong>
+              <span>Действует до ${escapeHtml(formatRegistryDate(state.staffInvitationExpiresAt))}</span>
+            </div>
+            <div class="staff-invitation-link-row">
+              <input type="text" readonly value="${escapeHtml(state.staffInvitationLink)}" aria-label="Ссылка приглашения" />
+              <button id="staffInvitationCopyButton" class="secondary-action" type="button">
+                <i data-lucide="copy"></i><span>Скопировать</span>
+              </button>
+            </div>
+            <small>Отправьте ссылку сотруднику лично. После первого перехода она станет недействительной.</small>
+          </div>
+        ` : ""}
+      </section>
+    ` : ""}
     <div class="staff-status-filter" role="group" aria-label="Фильтр сотрудников">
       <button
         class="staff-filter-button ${state.staffStatusFilter === "active" ? "is-active" : ""}"

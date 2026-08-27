@@ -12,6 +12,11 @@ from app.services.deep_links import (
     parse_shop_payload,
     parse_staff_payload,
 )
+from app.services.staff_invitations import (
+    build_max_bot_staff_invitation_deeplink,
+    make_staff_invitation_payload,
+    parse_staff_invitation_payload,
+)
 from app.services.student_invitations import (
     issue_student_invitation_token,
     verify_student_invitation_token,
@@ -84,6 +89,18 @@ def test_build_tenant_aware_staff_deeplink() -> None:
     assert payload == "staff_n-novgorod~curator"
     assert parse_staff_payload(payload) == ("n-novgorod", "curator")
     assert link == "https://max.ru/AlgoBot?start=staff_n-novgorod~curator"
+
+
+def test_one_time_staff_invitation_payload_roundtrip() -> None:
+    token = "AbCdEfGhIjKlMnOpQrStUvWxYz_12345"
+    payload = make_staff_invitation_payload(token)
+
+    assert payload == f"staffi_{token}"
+    assert parse_staff_invitation_payload(payload) == token
+    assert parse_staff_invitation_payload("staffi_short") is None
+    assert build_max_bot_staff_invitation_deeplink("@AlgoBot", token) == (
+        f"https://max.ru/AlgoBot?start=staffi_{token}"
+    )
 
 
 def test_student_invitation_token_keeps_tenant_and_student_scope() -> None:

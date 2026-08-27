@@ -50,6 +50,7 @@ class FakeBackendClient:
         self.resolve_calls: list[dict[str, Any]] = []
         self.link_calls: list[dict[str, Any]] = []
         self.revoke_calls: list[dict[str, Any]] = []
+        self.staff_invitation_calls: list[dict[str, Any]] = []
 
     def get_session(self, *, tenant_slug: str, max_user_id: int) -> dict[str, Any]:
         if not self.linked:
@@ -170,6 +171,32 @@ class FakeBackendClient:
                 }
             ],
             "roles": ["partner_director", "admin", "curator", "teacher"],
+        }
+
+    def redeem_staff_invitation(
+        self,
+        *,
+        token: str,
+        max_user_id: int,
+        auth_tenant_slug: str,
+        username: str | None = None,
+        display_name: str | None = None,
+    ) -> dict[str, Any]:
+        self.staff_invitation_calls.append(
+            {
+                "token": token,
+                "max_user_id": max_user_id,
+                "auth_tenant_slug": auth_tenant_slug,
+                "username": username,
+                "display_name": display_name,
+            }
+        )
+        return {
+            "tenant_slug": "n-novgorod",
+            "tenant_name": "Нижний Новгород",
+            "city_name": "Нижний Новгород",
+            "role": "teacher",
+            "assignment": {"role": "teacher"},
         }
 
 
@@ -404,6 +431,30 @@ def test_staff_deeplink_submits_preselected_role_request() -> None:
     assert request.tenant_slug == "n-novgorod"
     assert request.role == "curator"
     assert client.sent_messages[-1]["user_id"] == 53364725
+
+
+def test_unique_staff_invitation_is_activated_immediately() -> None:
+    client = FakeMaxClient()
+    backend = FakeBackendClient(linked=False)
+    bot = LongPollingBot(
+        client,
+        backend_client=backend,
+        default_tenant_slug="n-novgorod",
+    )
+    token = "AbCdEfGhIjKlMnOpQrStUvWxYz_12345"
+
+    response = bot.handle_contact_payload_response(
+        payload=f"staffi_{token}",
+        user_id=902,
+        username="teacher_demo",
+        display_name="Преподаватель Демо",
+    )
+
+    assert response is not None
+    assert "Доступ сотрудника подключен" in response.text
+    assert "Роль: Преподаватель" in response.text
+    assert bot.user_menu_roles[(902, "n-novgorod")] == "teacher"
+    assert backend.staff_invitation_calls[0]["token"] == token
 
 
 def test_bot_ignores_its_own_messages() -> None:

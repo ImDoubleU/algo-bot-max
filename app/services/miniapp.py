@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings, is_placeholder
 from app.models.account import (
     MaxAccount,
+    StaffInvitation,
     StaffNotificationPreference,
     StaffRoleAssignment,
     StaffWarehousePreference,
@@ -100,6 +101,10 @@ from app.schemas.miniapp import (
     MiniAppSessionRead,
     MiniAppStaffAssignmentRead,
     MiniAppStaffAssignmentUpdate,
+    MiniAppStaffInvitationCreate,
+    MiniAppStaffInvitationRead,
+    MiniAppStaffInvitationRedeem,
+    MiniAppStaffInvitationRedeemedRead,
     MiniAppStaffNotificationItemRead,
     MiniAppStaffNotificationSettingsRead,
     MiniAppStaffNotificationSettingsUpdate,
@@ -162,6 +167,12 @@ from app.services.staff import (
     staff_names_match,
     staff_venue_scope_ids,
     superadmin_identity_is_allowed,
+)
+from app.services.staff_invitations import (
+    build_max_bot_staff_invitation_deeplink,
+    generate_staff_invitation_token,
+    invitable_staff_roles,
+    staff_invitation_token_hash,
 )
 from app.services.staff_notifications import (
     CATEGORY_LABELS,
@@ -1821,6 +1832,8 @@ AUDIT_ACTION_COPY = {
     "student.status_changed": ("Статус ученика изменен", "Ученики"),
     "student.balance_adjusted": ("Баланс ученика скорректирован", "Астрокоины"),
     "staff_role_assignment.updated": ("Роль сотрудника изменена", "Сотрудники"),
+    "staff_invitation.created": ("Приглашение сотрудника создано", "Сотрудники"),
+    "staff_invitation.redeemed": ("Сотрудник подключен по приглашению", "Сотрудники"),
     "staff_notifications.updated": ("Уведомления сотрудника настроены", "Сотрудники"),
     "tenant.created": ("Партнер создан", "Партнеры"),
     "tenant.reopened": ("Партнер восстановлен", "Партнеры"),
@@ -5355,6 +5368,196 @@ async def update_miniapp_staff_assignment(
         display_name=target.display_name,
         role=assignment.role,
         status=assignment.status,
+    )
+
+
+async def create_miniapp_staff_invitation(
+    db: AsyncSession,
+    *,
+    payload: MiniAppStaffInvitationCreate,
+    default_tenant_slug: str,
+) -> MiniAppStaffInvitationRead:
+    tenant_slug = (payload.tenant_slug or default_tenant_slug).strip().lower()
+    tenant = await db.scalar(
+        select(Tenant)
+        .options(selectinload(Tenant.city))
+        .where(Tenant.slug == tenant_slug)
+    )
+    if tenant is None:
+        raise MiniAppStoreError("Город или партнер не найден", status_code=404)
+
+    actor = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == payload.max_user_id))
+    if actor is None:
+        raise MiniAppStoreError("MAX-аккаунт сотрудника не найден", status_code=403)
+    actor_roles = await active_staff_roles_for_tenant(
+        db,
+        tenant_id=tenant.id,
+        account_id=actor.id,
+    )
+    allowed_roles = invitable_staff_roles(actor_roles)
+    if payload.role not in allowed_roles:
+        raise MiniAppStoreError("Нет прав на приглашение сотрудника с этой ролью", status_code=403)
+
+    settings = get_settings()
+    if not settings.max_bot_username or is_placeholder(settings.max_bot_username):
+        raise MiniAppStoreError("В настройках сервера не указан MAX_BOT_USERNAME", status_code=503)
+
+    raw_token = ""
+    token_hash = ""
+    for _ in range(5):
+        raw_token = generate_staff_invitation_token()
+        token_hash = staff_invitation_token_hash(raw_token)
+        exists = await db.scalar(
+            select(StaffInvitation.id).where(StaffInvitation.token_hash == token_hash)
+        )
+        if exists is None:
+            break
+    else:
+        raise MiniAppStoreError(
+            "Не удалось создать приглашение. Повторите попытку",
+            status_code=503,
+        )
+
+    expires_at = datetime.now(UTC) + timedelta(days=payload.expires_in_days)
+    invitation = StaffInvitation(
+        tenant_id=tenant.id,
+        role=payload.role,
+        token_hash=token_hash,
+        created_by_account_id=actor.id,
+        expires_at=expires_at,
+    )
+    db.add(invitation)
+    await db.flush()
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_account_id=actor.id,
+            action="staff_invitation.created",
+            entity_type="staff_invitation",
+            entity_id=str(invitation.id),
+            payload={
+                "role": payload.role.value,
+                "expires_at": expires_at.isoformat(),
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(invitation)
+    return MiniAppStaffInvitationRead(
+        id=UUID(str(invitation.id)),
+        tenant_slug=tenant.slug,
+        tenant_name=tenant.name,
+        city_name=tenant.city.name if tenant.city else tenant.name,
+        role=invitation.role,
+        invite_url=build_max_bot_staff_invitation_deeplink(
+            settings.max_bot_username,
+            raw_token,
+        ),
+        expires_at=invitation.expires_at,
+    )
+
+
+async def redeem_miniapp_staff_invitation(
+    db: AsyncSession,
+    *,
+    payload: MiniAppStaffInvitationRedeem,
+) -> MiniAppStaffInvitationRedeemedRead:
+    now = datetime.now(UTC)
+    token_hash = staff_invitation_token_hash(payload.token.strip())
+    invitation = await db.scalar(
+        select(StaffInvitation)
+        .options(selectinload(StaffInvitation.tenant).selectinload(Tenant.city))
+        .where(StaffInvitation.token_hash == token_hash)
+        .with_for_update()
+    )
+    if invitation is None:
+        raise MiniAppStoreError("Приглашение не найдено или ссылка повреждена", status_code=404)
+    if invitation.revoked_at is not None:
+        raise MiniAppStoreError("Это приглашение отозвано", status_code=410)
+    if invitation.redeemed_at is not None:
+        raise MiniAppStoreError("Это приглашение уже использовано", status_code=409)
+    expires_at = invitation.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if expires_at <= now:
+        raise MiniAppStoreError("Срок действия приглашения истек", status_code=410)
+
+    creator_roles = await active_staff_roles_for_tenant(
+        db,
+        tenant_id=invitation.tenant_id,
+        account_id=invitation.created_by_account_id,
+    )
+    if invitation.role not in invitable_staff_roles(creator_roles):
+        raise MiniAppStoreError(
+            "Автор приглашения больше не может выдавать эту роль",
+            status_code=409,
+        )
+
+    target, account_created = await get_or_create_max_account(
+        db,
+        max_user_id=payload.max_user_id,
+        username=payload.username,
+        display_name=payload.display_name,
+    )
+    assignment = await db.scalar(
+        select(StaffRoleAssignment).where(
+            StaffRoleAssignment.tenant_id == invitation.tenant_id,
+            StaffRoleAssignment.account_id == target.id,
+            StaffRoleAssignment.role == invitation.role,
+        )
+    )
+    previous_status = assignment.status if assignment else None
+    assignment_created = assignment is None
+    if assignment is None:
+        assignment = StaffRoleAssignment(
+            tenant_id=invitation.tenant_id,
+            account_id=target.id,
+            role=invitation.role,
+            status=AssignmentStatus.ACTIVE,
+        )
+        db.add(assignment)
+        await db.flush()
+    else:
+        assignment.status = AssignmentStatus.ACTIVE
+
+    invitation.redeemed_at = now
+    invitation.redeemed_by_account_id = target.id
+    db.add(
+        AuditLog(
+            tenant_id=invitation.tenant_id,
+            actor_account_id=target.id,
+            action="staff_invitation.redeemed",
+            entity_type="staff_invitation",
+            entity_id=str(invitation.id),
+            payload={
+                "created_by_account_id": str(invitation.created_by_account_id),
+                "target_max_user_id": target.max_user_id,
+                "role": invitation.role.value,
+                "previous_status": previous_status.value if previous_status else None,
+                "account_created": account_created,
+                "assignment_created": assignment_created,
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(target)
+    await db.refresh(assignment)
+    tenant = invitation.tenant
+    assignment_read = MiniAppStaffAssignmentRead(
+        id=UUID(str(assignment.id)),
+        account_id=UUID(str(target.id)),
+        max_user_id=target.max_user_id,
+        username=target.username,
+        display_name=target.display_name,
+        role=assignment.role,
+        status=assignment.status,
+    )
+    return MiniAppStaffInvitationRedeemedRead(
+        tenant_slug=tenant.slug,
+        tenant_name=tenant.name,
+        city_name=tenant.city.name if tenant.city else tenant.name,
+        role=assignment.role,
+        assignment=assignment_read,
     )
 
 

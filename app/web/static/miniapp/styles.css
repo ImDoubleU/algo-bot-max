@@ -317,6 +317,123 @@ select:focus-visible {
   cursor: progress;
 }
 
+.admin-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.staff-invitation-panel {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.staff-invitation-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.staff-invitation-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.staff-invitation-heading span,
+.staff-invitation-result span,
+.staff-invitation-result small {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.staff-invitation-icon {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 40px;
+  border-radius: 8px;
+  color: var(--brand-purple);
+  background: var(--brand-purple-soft);
+}
+
+.staff-invitation-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.staff-invitation-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) auto auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.staff-invitation-controls label,
+.staff-invitation-result > div:first-child {
+  display: grid;
+  gap: 6px;
+}
+
+.staff-invitation-controls label > span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.staff-invitation-controls select,
+.staff-invitation-link-row input {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: #ffffff;
+}
+
+.staff-invitation-result {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-left: 3px solid var(--brand-purple);
+  background: #f8f5ff;
+}
+
+.staff-invitation-link-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.staff-invitation-link-row input {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .admin-section-actions,
+  .admin-section-actions > button,
+  .staff-invitation-controls,
+  .staff-invitation-link-row {
+    width: 100%;
+  }
+
+  .staff-invitation-controls,
+  .staff-invitation-link-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .staff-invitation-panel {
+    padding: 13px 12px;
+  }
+}
+
 .refresh-button.is-loading svg {
   animation: refresh-spin 800ms linear infinite;
 }

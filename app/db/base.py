@@ -1,5 +1,6 @@
 from app.models.account import (
     MaxAccount,
+    StaffInvitation,
     StaffNotificationPreference,
     StaffRoleAssignment,
     StaffVenueScope,
@@ -60,6 +61,7 @@ __all__ = [
     "ProductCategory",
     "ProductCode",
     "SchoolBroadcast",
+    "StaffInvitation",
     "StaffNotificationPreference",
     "StudentCartItem",
     "StaffRoleAssignment",
