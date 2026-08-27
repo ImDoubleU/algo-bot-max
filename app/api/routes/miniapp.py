@@ -71,6 +71,10 @@ from app.schemas.miniapp import (
     MiniAppSessionRead,
     MiniAppStaffAssignmentRead,
     MiniAppStaffAssignmentUpdate,
+    MiniAppStaffInvitationCreate,
+    MiniAppStaffInvitationRead,
+    MiniAppStaffInvitationRedeem,
+    MiniAppStaffInvitationRedeemedRead,
     MiniAppStaffNotificationSettingsRead,
     MiniAppStaffNotificationSettingsUpdate,
     MiniAppStaffOnboardingOptionsRead,
@@ -105,6 +109,7 @@ from app.services.miniapp import (
     assign_miniapp_order_warehouses,
     cancel_miniapp_order,
     create_miniapp_order,
+    create_miniapp_staff_invitation,
     create_miniapp_student,
     create_miniapp_tenant,
     get_miniapp_accrual_report,
@@ -123,6 +128,7 @@ from app.services.miniapp import (
     list_miniapp_student_registry,
     list_miniapp_teacher_invitations,
     mark_miniapp_order_delivered_to_venue,
+    redeem_miniapp_staff_invitation,
     replace_miniapp_cart,
     set_miniapp_order_items_picked,
     set_miniapp_student_balance,
@@ -990,6 +996,45 @@ async def miniapp_update_staff_assignment(
             payload=payload,
             default_tenant_slug=settings.default_tenant_slug,
         )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/staff/invitations", response_model=MiniAppStaffInvitationRead)
+async def miniapp_create_staff_invitation(
+    payload: MiniAppStaffInvitationCreate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppStaffInvitationRead:
+    settings = get_settings()
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await create_miniapp_staff_invitation(
+            db,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post(
+    "/staff/invitations/redeem",
+    response_model=MiniAppStaffInvitationRedeemedRead,
+)
+async def miniapp_redeem_staff_invitation(
+    payload: MiniAppStaffInvitationRedeem,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppStaffInvitationRedeemedRead:
+    if identity is not None and identity.max_user_id != payload.max_user_id:
+        raise HTTPException(status_code=403, detail="MAX-профиль не совпадает с приглашением")
+    try:
+        return await redeem_miniapp_staff_invitation(db, payload=payload)
     except MiniAppStoreError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 

@@ -594,6 +594,38 @@ class MiniAppStaffAssignmentUpdate(BaseModel):
     display_name: str | None = Field(default=None, max_length=160)
 
 
+class MiniAppStaffInvitationCreate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    role: StaffRole
+    expires_in_days: int = Field(default=7, ge=1, le=30)
+
+
+class MiniAppStaffInvitationRead(BaseModel):
+    id: UUID
+    tenant_slug: str
+    tenant_name: str
+    city_name: str
+    role: StaffRole
+    invite_url: str
+    expires_at: datetime
+
+
+class MiniAppStaffInvitationRedeem(BaseModel):
+    max_user_id: int = Field(gt=0)
+    token: str = Field(min_length=20, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
+    username: str | None = Field(default=None, max_length=120)
+    display_name: str | None = Field(default=None, max_length=160)
+
+
+class MiniAppStaffInvitationRedeemedRead(BaseModel):
+    tenant_slug: str
+    tenant_name: str
+    city_name: str
+    role: StaffRole
+    assignment: MiniAppStaffAssignmentRead
+
+
 class MiniAppStaffNotificationItemRead(BaseModel):
     event_key: str
     category: str

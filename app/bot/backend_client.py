@@ -197,6 +197,27 @@ class AccessBackendClient:
             },
         )
 
+    def redeem_staff_invitation(
+        self,
+        *,
+        token: str,
+        max_user_id: int,
+        auth_tenant_slug: str,
+        username: str | None = None,
+        display_name: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/miniapp/staff/invitations/redeem",
+            body={
+                "token": token,
+                "max_user_id": max_user_id,
+                "username": username,
+                "display_name": display_name,
+            },
+            auth_tenant_slug=auth_tenant_slug,
+        )
+
     def get_staff_onboarding_options(
         self,
         *,

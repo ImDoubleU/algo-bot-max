@@ -1697,6 +1697,46 @@ async function saveStaffAssignmentFromForm() {
   }
 }
 
+async function createStaffInvitation() {
+  const role = qs("#staffInvitationRoleSelect")?.value || state.staffInvitationRole || "teacher";
+  state.staffInvitationRole = role;
+  if (apiContext.demoMode || !apiContext.maxUserId) {
+    showNotice("Создание приглашений доступно после входа через MAX", "danger");
+    return;
+  }
+
+  state.staffInvitationSaving = true;
+  renderAdminPanel();
+  try {
+    const response = await apiFetch("/api/v1/miniapp/staff/invitations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        max_user_id: Number(apiContext.maxUserId),
+        tenant_slug: apiContext.tenantSlug || undefined,
+        role,
+        expires_in_days: 7,
+      }),
+    });
+    if (!response.ok) throw new Error(await parseApiError(response));
+    const result = await response.json();
+    state.staffInvitationRole = result.role || role;
+    state.staffInvitationLink = result.invite_url || "";
+    state.staffInvitationExpiresAt = result.expires_at || "";
+    showNotice("Ссылка приглашения создана");
+  } catch (error) {
+    showNotice(error.message || "Не удалось создать приглашение", "danger");
+  } finally {
+    state.staffInvitationSaving = false;
+    renderAdminPanel();
+  }
+}
+
+async function copyStaffInvitation() {
+  const copied = await copyTextToClipboard(state.staffInvitationLink);
+  showNotice(copied ? "Ссылка скопирована" : "Не удалось скопировать ссылку", copied ? "ok" : "danger");
+}
+
 async function toggleStaffAssignment(maxUserId, role) {
   const assignment = staffAssignments.find(
     (item) => item.maxUserId === maxUserId && item.role === role,
@@ -2506,7 +2546,32 @@ document.addEventListener("click", (event) => {
   }
 
   if (target.id === "staffCreateButton") {
+    state.staffInvitationOpen = false;
     state.staffEditorOpen = true;
+    renderAdminPanel();
+  }
+
+  if (target.id === "staffInviteButton") {
+    state.staffEditorOpen = false;
+    state.staffInvitationOpen = true;
+    state.staffInvitationRole = "teacher";
+    state.staffInvitationLink = "";
+    state.staffInvitationExpiresAt = "";
+    renderAdminPanel();
+  }
+
+  if (target.id === "staffInvitationCreateButton") {
+    void createStaffInvitation();
+  }
+
+  if (target.id === "staffInvitationCopyButton") {
+    void copyStaffInvitation();
+  }
+
+  if (target.id === "staffInvitationCancelButton") {
+    state.staffInvitationOpen = false;
+    state.staffInvitationLink = "";
+    state.staffInvitationExpiresAt = "";
     renderAdminPanel();
   }
 
@@ -2744,6 +2809,12 @@ document.addEventListener("change", (event) => {
   }
   if (target.id === "staffRoleFilter") {
     state.staffRoleFilter = target.value;
+    renderAdminPanel();
+  }
+  if (target.id === "staffInvitationRoleSelect") {
+    state.staffInvitationRole = target.value;
+    state.staffInvitationLink = "";
+    state.staffInvitationExpiresAt = "";
     renderAdminPanel();
   }
   if (target.id === "adminHistoryPeriod") {

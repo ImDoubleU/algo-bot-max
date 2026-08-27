@@ -57,6 +57,10 @@ from app.services.knowledge_base import (
     KnowledgeBaseService,
     clean_knowledge_label,
 )
+from app.services.staff_invitations import (
+    STAFF_INVITATION_PAYLOAD_PREFIX,
+    parse_staff_invitation_payload,
+)
 
 logger = logging.getLogger("algo_bot_max.bot")
 POLL_RETRY_INITIAL_SECONDS = 1.0
@@ -531,6 +535,58 @@ class LongPollingBot:
             user_id=user_id,
             invite=invite,
             role=role,
+        )
+
+    def handle_unique_staff_invitation_response(
+        self,
+        *,
+        token: str,
+        user_id: int | None,
+        username: str | None,
+        display_name: str | None,
+    ) -> BotResponse:
+        if user_id is None or self.backend_client is None:
+            return BotResponse(
+                "Не удалось определить MAX-профиль. Откройте ссылку в личном чате с ботом.",
+                self.main_menu_attachments(user_id),
+            )
+        try:
+            result = self.backend_client.redeem_staff_invitation(
+                token=token,
+                max_user_id=user_id,
+                auth_tenant_slug=self.default_tenant_slug,
+                username=username,
+                display_name=display_name,
+            )
+        except BackendApiError as exc:
+            return BotResponse(
+                (
+                    "Не удалось активировать приглашение сотрудника.\n\n"
+                    f"Причина: {format_backend_error(exc)}"
+                ),
+                self.main_menu_attachments(user_id),
+            )
+
+        tenant_slug = str(result.get("tenant_slug") or self.default_tenant_slug)
+        city_name = str(result.get("city_name") or result.get("tenant_name") or tenant_slug)
+        role = str(result.get("role") or (result.get("assignment") or {}).get("role") or "teacher")
+        self.user_tenant_slugs[user_id] = tenant_slug
+        self.user_menu_roles = {
+            key: value for key, value in self.user_menu_roles.items() if key[0] != user_id
+        }
+        self.user_menu_roles[(user_id, tenant_slug)] = role
+        return BotResponse(
+            (
+                "Доступ сотрудника подключен.\n\n"
+                f"Город: {city_name}\n"
+                f"Роль: {staff_role_label(role)}\n\n"
+                "Рабочий кабинет доступен в главном меню."
+            ),
+            cabinet_keyboard(
+                user_id=user_id,
+                tenant_slug=tenant_slug,
+                role=role,
+            ),
         )
 
     @staticmethod
@@ -1101,6 +1157,20 @@ class LongPollingBot:
         display_name: str | None = None,
     ) -> BotResponse | None:
         raw_payload = (payload or "").strip()
+        is_unique_staff_payload = raw_payload.startswith(STAFF_INVITATION_PAYLOAD_PREFIX)
+        staff_invitation_token = parse_staff_invitation_payload(raw_payload)
+        if is_unique_staff_payload:
+            if not staff_invitation_token:
+                return BotResponse(
+                    "Ссылка приглашения повреждена. Попросите руководителя создать новую.",
+                    self.main_menu_attachments(user_id),
+                )
+            return self.handle_unique_staff_invitation_response(
+                token=staff_invitation_token,
+                user_id=user_id,
+                username=username,
+                display_name=display_name,
+            )
         is_staff_payload = raw_payload.casefold().startswith("staff_")
         staff_tenant_slug, staff_role = parse_staff_payload(raw_payload)
         if is_staff_payload:
