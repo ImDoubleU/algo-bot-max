@@ -46,6 +46,13 @@ CRM_TEMPLATE_COLUMNS: tuple[tuple[str, str, bool, str, str], ...] = (
         "15.04.2015",
     ),
     (
+        "city",
+        "Город",
+        True,
+        "Город ученика. Он должен быть заранее создан в Algo MAX",
+        "Нижний Новгород",
+    ),
+    (
         "group_name",
         "Группа",
         True,
@@ -287,6 +294,14 @@ def build_crm_import_template() -> bytes:
     instruction["A4"].alignment = Alignment(wrap_text=True, vertical="top")
     instruction.row_dimensions[4].height = 34
 
+    instruction.merge_cells("A5:D5")
+    instruction["A5"] = (
+        "По колонке «Город» строки автоматически распределяются между доступными вам "
+        "городами. Все города должны быть заранее созданы в системе."
+    )
+    instruction["A5"].alignment = Alignment(wrap_text=True, vertical="top")
+    instruction.row_dimensions[5].height = 34
+
     instruction_headers = (
         "Колонка",
         "Обязательно",
@@ -334,7 +349,7 @@ def build_crm_import_template() -> bytes:
         column=len(CRM_TEMPLATE_COLUMNS),
     ).column_letter
     template.auto_filter.ref = f"A1:{last_column}1"
-    template_widths = (18, 22, 24, 22, 18, 38, 22, 28, 34, 20, 34)
+    template_widths = (18, 22, 24, 22, 18, 24, 38, 22, 28, 34, 20, 34)
     for column_index, width in enumerate(template_widths, start=1):
         template.column_dimensions[
             template.cell(row=1, column=column_index).column_letter

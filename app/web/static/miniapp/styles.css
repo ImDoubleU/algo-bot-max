@@ -2182,6 +2182,37 @@ body.dialog-open {
   grid-template-columns: repeat(6, minmax(110px, 1fr));
 }
 
+.crm-city-distribution {
+  display: grid;
+  gap: 8px;
+}
+
+.crm-city-distribution > strong {
+  font-size: 14px;
+}
+
+.crm-city-distribution-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.crm-city-distribution-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--brand-purple-soft);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.crm-city-distribution-item b {
+  color: var(--ink);
+}
+
 .crm-import-actions {
   display: flex;
   align-items: center;

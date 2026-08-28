@@ -73,6 +73,7 @@ from app.schemas.miniapp import (
     MiniAppCartRead,
     MiniAppCartWrite,
     MiniAppCatalogRead,
+    MiniAppCrmCityDistributionRead,
     MiniAppCrmImportRead,
     MiniAppInventoryAdjustmentCreate,
     MiniAppInventoryAdjustmentRead,
@@ -129,9 +130,10 @@ from app.schemas.miniapp import (
     MiniAppWarehouseUpsert,
 )
 from app.services.access import normalize_student_code, revoke_dependent_student_links
-from app.services.crm_import import CrmImportError, parse_crm_students_content
+from app.services.crm_import import CrmImportError, CrmStudentRow, parse_crm_students_content
 from app.services.crm_sync import (
     CrmSyncDefaults,
+    CrmSyncResult,
     ensure_contact_student_link,
     ensure_wallet,
     get_or_create_city,
@@ -139,6 +141,7 @@ from app.services.crm_sync import (
     get_or_create_partner,
     get_or_create_tenant,
     get_or_create_venue,
+    slugify,
     upsert_crm_student_rows,
 )
 from app.services.google_sheets import GoogleSheetsClient, GoogleSheetsError
@@ -1013,6 +1016,131 @@ async def _student_registry_context(
     return tenant, account, staff_role
 
 
+def _crm_city_aliases(value: str | None) -> set[str]:
+    if not value:
+        return set()
+    return {slugify(part) for part in re.split(r"[,;/]+", value) if part.strip()}
+
+
+async def _crm_import_city_buckets(
+    db: AsyncSession,
+    *,
+    selected_tenant: Tenant,
+    account: MaxAccount,
+    rows: list[CrmStudentRow],
+) -> list[tuple[Tenant, StaffRole, list[CrmStudentRow]]]:
+    partner_tenants = list(
+        (
+            await db.scalars(
+                select(Tenant)
+                .options(selectinload(Tenant.city))
+                .where(
+                    Tenant.partner_id == selected_tenant.partner_id,
+                    Tenant.status == TenantStatus.ACTIVE,
+                )
+                .order_by(Tenant.name)
+            )
+        ).all()
+    )
+    roles_by_tenant_id: dict[UUID, StaffRole] = {}
+    aliases: dict[str, dict[UUID, Tenant]] = {}
+    for tenant in partner_tenants:
+        role = await _active_staff_role(
+            db,
+            tenant_id=tenant.id,
+            account_id=account.id,
+            allowed_roles=STORE_ADMIN_ROLES,
+        )
+        if role is not None:
+            roles_by_tenant_id[tenant.id] = role
+        city_aliases = {
+            slugify(tenant.slug),
+            slugify(tenant.city.slug),
+            slugify(tenant.city.name),
+        }
+        for alias in city_aliases:
+            aliases.setdefault(alias, {})[tenant.id] = tenant
+
+    buckets: dict[UUID, list[CrmStudentRow]] = {}
+    destinations: dict[UUID, Tenant] = {}
+    errors: list[str] = []
+    for row in rows:
+        row_aliases = _crm_city_aliases(row.city)
+        if not row_aliases:
+            errors.append(f"строка {row.row_number}: город не указан")
+            continue
+
+        matched_tenants: dict[UUID, Tenant] = {}
+        unknown_aliases: list[str] = []
+        for alias in row_aliases:
+            matches = aliases.get(alias)
+            if not matches:
+                unknown_aliases.append(alias)
+                continue
+            matched_tenants.update(matches)
+
+        if unknown_aliases:
+            errors.append(f"строка {row.row_number}: неизвестный город «{row.city}»")
+            continue
+        if len(matched_tenants) != 1:
+            errors.append(f"строка {row.row_number}: укажите один город вместо «{row.city}»")
+            continue
+
+        destination = next(iter(matched_tenants.values()))
+        if destination.id not in roles_by_tenant_id:
+            errors.append(
+                f"строка {row.row_number}: нет прав на импорт в город «{destination.city.name}»"
+            )
+            continue
+        destinations[destination.id] = destination
+        buckets.setdefault(destination.id, []).append(row)
+
+    if errors:
+        accessible_cities = (
+            ", ".join(
+                tenant.city.name for tenant in partner_tenants if tenant.id in roles_by_tenant_id
+            )
+            or "нет доступных городов"
+        )
+        shown_errors = errors[:8]
+        if len(errors) > len(shown_errors):
+            shown_errors.append(f"и еще {len(errors) - len(shown_errors)} строк")
+        raise MiniAppStoreError(
+            "Не удалось распределить учеников по городам: "
+            + "; ".join(shown_errors)
+            + f". Доступные города: {accessible_cities}",
+            status_code=400,
+        )
+
+    return [
+        (tenant, roles_by_tenant_id[tenant.id], buckets[tenant.id])
+        for tenant in sorted(
+            destinations.values(),
+            key=lambda item: item.city.name.casefold(),
+        )
+    ]
+
+
+def _merge_crm_sync_results(
+    total: CrmSyncResult,
+    current: CrmSyncResult,
+) -> CrmSyncResult:
+    return CrmSyncResult(
+        created_cities=total.created_cities + current.created_cities,
+        created_partners=total.created_partners + current.created_partners,
+        created_tenants=total.created_tenants + current.created_tenants,
+        created_venues=total.created_venues + current.created_venues,
+        created_students=total.created_students + current.created_students,
+        updated_students=total.updated_students + current.updated_students,
+        created_wallets=total.created_wallets + current.created_wallets,
+        created_contacts=total.created_contacts + current.created_contacts,
+        created_contact_student_links=(
+            total.created_contact_student_links + current.created_contact_student_links
+        ),
+        skipped_rows=total.skipped_rows + current.skipped_rows,
+    )
+
+
 async def import_miniapp_crm_students(
     db: AsyncSession,
     *,
@@ -1024,7 +1152,7 @@ async def import_miniapp_crm_students(
     dry_run: bool,
     student_status: StudentStatus = StudentStatus.ACTIVE,
 ) -> MiniAppCrmImportRead:
-    tenant, account, admin_role = await _store_admin_context(
+    tenant, account, _admin_role = await _store_admin_context(
         db,
         max_user_id=max_user_id,
         tenant_slug=tenant_slug,
@@ -1038,11 +1166,18 @@ async def import_miniapp_crm_students(
     if not rows:
         raise MiniAppStoreError("Файл не содержит учеников", status_code=400)
 
+    city_buckets = await _crm_import_city_buckets(
+        db,
+        selected_tenant=tenant,
+        account=account,
+        rows=rows,
+    )
     summary = {
         "parsed_rows": len(rows),
         "distinct_groups": len({row.group_name for row in rows if row.group_name}),
         "distinct_courses": len({row.course_name for row in rows if row.course_name}),
         "distinct_teachers": len({row.teacher_name for row in rows if row.teacher_name}),
+        "distinct_cities": len(city_buckets),
         "rows_without_group": sum(not row.group_name for row in rows),
         "rows_without_student_name": sum(not row.first_name for row in rows),
         "rows_with_contacts": sum(bool(row.contact_ids) for row in rows),
@@ -1053,38 +1188,62 @@ async def import_miniapp_crm_students(
             filename=filename,
             dry_run=True,
             student_status=student_status,
+            city_distribution=[
+                MiniAppCrmCityDistributionRead(
+                    tenant_slug=destination.slug,
+                    city_name=destination.city.name,
+                    rows=len(city_rows),
+                )
+                for destination, _role, city_rows in city_buckets
+            ],
             **summary,
         )
 
-    result = await upsert_crm_student_rows(
-        db,
-        rows,
-        defaults=CrmSyncDefaults(
-            partner_slug=tenant.slug,
-            partner_name=tenant.name,
-        ),
-        commit=False,
-        target_tenant=tenant,
-        student_status=student_status,
-        actor_account_id=account.id,
-    )
-    db.add(
-        AuditLog(
-            tenant_id=tenant.id,
+    result = CrmSyncResult()
+    city_distribution: list[MiniAppCrmCityDistributionRead] = []
+    for destination, destination_role, city_rows in city_buckets:
+        city_result = await upsert_crm_student_rows(
+            db,
+            city_rows,
+            defaults=CrmSyncDefaults(
+                partner_slug=destination.slug,
+                partner_name=destination.name,
+            ),
+            commit=False,
+            target_tenant=destination,
+            student_status=student_status,
             actor_account_id=account.id,
-            action="miniapp_crm.imported",
-            entity_type="crm_import",
-            entity_id=None,
-            payload={
-                "filename": filename,
-                "parsed_rows": len(rows),
-                "created_students": result.created_students,
-                "updated_students": result.updated_students,
-                "admin_role": admin_role.value,
-                "student_status": student_status.value,
-            },
         )
-    )
+        result = _merge_crm_sync_results(result, city_result)
+        city_distribution.append(
+            MiniAppCrmCityDistributionRead(
+                tenant_slug=destination.slug,
+                city_name=destination.city.name,
+                rows=len(city_rows),
+                created_students=city_result.created_students,
+                updated_students=city_result.updated_students,
+                skipped_rows=city_result.skipped_rows,
+            )
+        )
+        db.add(
+            AuditLog(
+                tenant_id=destination.id,
+                actor_account_id=account.id,
+                action="miniapp_crm.imported",
+                entity_type="crm_import",
+                entity_id=None,
+                payload={
+                    "filename": filename,
+                    "selected_tenant_slug": tenant.slug,
+                    "parsed_rows": len(city_rows),
+                    "created_students": city_result.created_students,
+                    "updated_students": city_result.updated_students,
+                    "admin_role": destination_role.value,
+                    "student_status": student_status.value,
+                    "city_auto_routed": True,
+                },
+            )
+        )
     await db.commit()
 
     return MiniAppCrmImportRead(
@@ -1092,6 +1251,7 @@ async def import_miniapp_crm_students(
         filename=filename,
         dry_run=False,
         student_status=student_status,
+        city_distribution=city_distribution,
         **summary,
         created_venues=result.created_venues,
         created_students=result.created_students,

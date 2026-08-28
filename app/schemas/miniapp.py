@@ -266,6 +266,15 @@ class MiniAppProductImportRead(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class MiniAppCrmCityDistributionRead(BaseModel):
+    tenant_slug: str
+    city_name: str
+    rows: int
+    created_students: int = 0
+    updated_students: int = 0
+    skipped_rows: int = 0
+
+
 class MiniAppCrmImportRead(BaseModel):
     tenant_slug: str
     filename: str
@@ -275,6 +284,7 @@ class MiniAppCrmImportRead(BaseModel):
     distinct_groups: int
     distinct_courses: int
     distinct_teachers: int
+    distinct_cities: int = 0
     rows_without_group: int
     rows_without_student_name: int
     rows_with_contacts: int
@@ -285,6 +295,7 @@ class MiniAppCrmImportRead(BaseModel):
     created_contacts: int = 0
     created_contact_student_links: int = 0
     skipped_rows: int = 0
+    city_distribution: list[MiniAppCrmCityDistributionRead] = Field(default_factory=list)
 
 
 class MiniAppProductInventoryWrite(BaseModel):

@@ -1355,6 +1355,9 @@ function renderAdminPanel() {
 
   if (state.adminTab === "crm") {
     const preview = state.crmImportPreview;
+    const cityDistribution = Array.isArray(preview?.city_distribution)
+      ? preview.city_distribution
+      : [];
     const busy = state.crmImporting ? "disabled" : "";
     const importStep = preview ? 3 : state.crmImportFile ? 2 : 1;
     qs("#adminPanel").innerHTML = `
@@ -1393,7 +1396,7 @@ function renderAdminPanel() {
           ${state.crmImporting ? "Обработка..." : "Проверить файл"}
         </button>
       </div>
-      ${state.crmImportFile ? `<div class="import-mapping-note"><i data-lucide="table-properties"></i><div><strong>Читаем только лист «Шаблон»</strong><span>Дополнительные листы и колонки не попадут в импорт.</span></div></div>` : ""}
+      ${state.crmImportFile ? `<div class="import-mapping-note"><i data-lucide="table-properties"></i><div><strong>Поддерживаются листы «Шаблон» и «Сделки»</strong><span>Строки распределяются по колонке «Город», дополнительные колонки игнорируются.</span></div></div>` : ""}
       ${
         preview
           ? `
@@ -1404,8 +1407,25 @@ function renderAdminPanel() {
                 <article><span>${Number(preview.distinct_courses || 0)}</span><strong>Курсов</strong></article>
                 <article><span>${Number(preview.distinct_teachers || 0)}</span><strong>Преподавателей</strong></article>
                 <article><span>${Number(preview.rows_with_contacts || 0)}</span><strong>С Contact ID</strong></article>
-                <article><span>${Number(preview.rows_without_group || 0)}</span><strong>Без группы</strong></article>
+                <article><span>${Number(preview.distinct_cities || 0)}</span><strong>Городов</strong></article>
               </div>
+              ${
+                cityDistribution.length
+                  ? `<div class="crm-city-distribution">
+                      <strong>Распределение по городам</strong>
+                      <div class="crm-city-distribution-list">
+                        ${cityDistribution
+                          .map(
+                            (item) => `<span class="crm-city-distribution-item">
+                              <b>${escapeHtml(item.city_name || item.tenant_slug)}</b>
+                              ${Number(item.rows || 0)} строк
+                            </span>`,
+                          )
+                          .join("")}
+                      </div>
+                    </div>`
+                  : ""
+              }
               <div class="crm-import-actions">
                 <div>
                   <strong>${escapeHtml(preview.filename || state.crmImportFileName)}</strong>
