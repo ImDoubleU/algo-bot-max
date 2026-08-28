@@ -98,7 +98,7 @@ async function importCrmStudents(dryRun) {
     state.crmImportPreview = result;
     if (dryRun) {
       showNotice(
-        `Файл проверен: ${result.parsed_rows} строк, ${result.distinct_groups} групп`,
+        `Файл проверен: ${result.parsed_rows} строк, ${result.distinct_groups} групп, ${result.distinct_cities} городов`,
       );
     } else {
       await loadSession();
@@ -107,7 +107,7 @@ async function importCrmStudents(dryRun) {
       state.adminStudentsError = "";
       state.adminHistoryLoaded = false;
       showNotice(
-        `Импорт завершен: новых ${result.created_students}, обновлено ${result.updated_students}`,
+        `Импорт завершен: новых ${result.created_students}, обновлено ${result.updated_students}, городов ${result.distinct_cities}`,
       );
     }
   } catch (error) {
