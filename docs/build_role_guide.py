@@ -92,17 +92,17 @@ def add_text(
     frame.margin_right = Inches(margin)
     frame.margin_top = Inches(margin)
     frame.margin_bottom = Inches(margin)
-    paragraph = frame.paragraphs[0]
-    paragraph.text = text
-    paragraph.alignment = align
-    paragraph.space_after = Pt(0)
-    paragraph.space_before = Pt(0)
-    paragraph.line_spacing = 1.0
-    run = paragraph.runs[0]
-    run.font.name = font
-    run.font.size = Pt(size)
-    run.font.bold = bold
-    run.font.color.rgb = color(fill)
+    frame.paragraphs[0].text = text
+    for paragraph in frame.paragraphs:
+        paragraph.alignment = align
+        paragraph.space_after = Pt(0)
+        paragraph.space_before = Pt(0)
+        paragraph.line_spacing = 1.0
+        for run in paragraph.runs:
+            run.font.name = font
+            run.font.size = Pt(size)
+            run.font.bold = bold
+            run.font.color.rgb = color(fill)
     return box
 
 
@@ -424,7 +424,7 @@ def build_presentation() -> Presentation:
     )
     add_rect(slide, 0.64, 5.76, 3.26, 0.48, fill=YELLOW, line=None)
     add_text(slide, "Редактируемая презентация", 0.80, 5.89, 2.95, 0.20, size=11, bold=True)
-    add_text(slide, "Версия 2 · август 2026", 0.64, 6.52, 3.2, 0.25, size=11, fill="CBB9E8")
+    add_text(slide, "Версия 3 · август 2026", 0.64, 6.52, 3.2, 0.25, size=11, fill="CBB9E8")
     add_rect(slide, 6.02, 0.60, 6.76, 6.30, fill=PURPLE_LIGHT, line=None)
     cover = ROOT / "app" / "web" / "static" / "miniapp" / "assets" / "dashboard-learning.png"
     slide.shapes.add_picture(str(cover), Inches(6.18), Inches(1.39), width=Inches(6.45))
@@ -718,7 +718,7 @@ def build_presentation() -> Presentation:
         if index < len(statuses) - 1:
             add_text(slide, "→", x + 2.28, 3.03, 0.24, 0.36, size=20, fill=MUTED, bold=True, align=PP_ALIGN.CENTER)
     add_callout(slide, "Статус меняют после фактического действия", "Так родители, ученики и сотрудники видят одинаковую картину движения заказа.", 0.80, 5.28, 5.80, kind="yellow")
-    add_callout(slide, "Отмену оформляют сотрудники", "Администратор, директор или суперадминистратор указывает причину и возвращает AC.", 6.75, 5.28, 5.80, kind="coral")
+    add_callout(slide, "Отмену оформляют сотрудники", "Администратор или директор указывает причину; списанные AC возвращаются ученику.", 6.75, 5.28, 5.80, kind="coral")
     add_footer(slide)
 
     slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -1206,7 +1206,7 @@ def build_presentation() -> Presentation:
             "на какой площадке выдача.",
         ],
         callout_title="Не отменяйте заказ",
-        callout_text="Отмена доступна администратору, директору и суперадминистратору.",
+        callout_text="Отмена доступна администратору и директору.",
         callout_kind="coral",
     )
 
@@ -1400,7 +1400,7 @@ def build_presentation() -> Presentation:
             "сообщите ответственному за закупку.",
         ],
         callout_title="Право отмены",
-        callout_text="Заказ отменяют администратор, директор или суперадминистратор независимо от этапа.",
+        callout_text="Заказ отменяют администратор или директор независимо от этапа.",
         callout_kind="coral",
     )
 
@@ -1449,7 +1449,7 @@ def build_presentation() -> Presentation:
         kicker="Администратор",
         title="Карточка ученика",
         cards=[
-            ("Основные данные", "ФИО, CRM ID, группа, преподаватель, дата рождения и родитель.", "purple"),
+            ("Основные данные", "ФИО, ID ученика, группа, преподаватель, дата рождения и родитель.", "purple"),
             ("Статус", "Обучается, выбыл или архив. Изменение сохраняется в истории.", "coral"),
             ("Баланс", "Администратор может установить корректное количество AC с указанием причины.", "yellow"),
             ("История", "Дата импорта, обновления, выбытия, статусы и административные действия.", "teal"),
@@ -1464,23 +1464,23 @@ def build_presentation() -> Presentation:
     add_steps_slide(
         prs,
         kicker="Администратор",
-        title="Импорт учеников, групп и преподавателей",
+        title="Импорт учеников, групп и преподавателей из Excel",
         steps=[
-            ("Скачайте шаблон", "Используйте файл с листами «Инструкция» и «Шаблон»."),
-            ("Заполните нужные колонки", "Лишние листы и столбцы система игнорирует."),
-            ("Загрузите XLSX", "Выберите файл в разделе импорта CRM."),
-            ("Проверьте результат", "Смотрите созданные, обновленные, пропущенные строки и ошибки."),
-            ("Исправьте данные", "Повторный импорт обновляет существующие записи по идентификаторам."),
+            ("Скачайте шаблон", "Используйте листы «Инструкция» и «Шаблон» либо поддерживаемый лист «Сделки»."),
+            ("Заполните город", "В каждой строке укажите существующий город, доступный директору."),
+            ("Проверьте файл", "Предпросмотр покажет строки, группы, преподавателей и распределение по городам."),
+            ("Запустите импорт", "Система создаст или обновит учеников в соответствующих филиалах."),
+            ("Исправьте ошибки", "Неизвестный город или отсутствие прав останавливает импорт до записи данных."),
         ],
         side_title="До загрузки проверьте",
         side_items=[
-            "CRM ID учеников;",
+            "ID учеников;",
             "полные фамилии и имена;",
             "названия и ID групп;",
-            "преподавателей и родительские связи.",
+            "город, преподавателей и родительские связи.",
         ],
-        callout_title="Не меняйте идентификаторы без причины",
-        callout_text="Иначе система может создать дубликат вместо обновления существующего ученика.",
+        callout_title="Импорт распределяет данные автоматически",
+        callout_text="Все города должны быть заранее созданы; лишние листы и столбцы система игнорирует.",
         callout_kind="coral",
     )
 
