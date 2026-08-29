@@ -8,6 +8,7 @@ from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.util import Inches
 
 import build_role_guide as guide
+from interaction_scenarios import VIDEO_SCENARIO_IDS, InteractionScenario, scenario_map
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,7 +63,7 @@ def add_cover(prs: Presentation) -> None:
         fill="E8DFFC",
     )
     guide.add_rect(slide, 0.66, 5.76, 2.78, 0.50, fill=guide.YELLOW, line=None)
-    guide.add_text(slide, "Обзор действующего продукта", 0.82, 5.90, 2.48, 0.22, size=11, bold=True)
+    guide.add_text(slide, "Обзор и практическое обучение", 0.82, 5.90, 2.48, 0.22, size=11, bold=True)
     guide.add_text(slide, "Август 2026", 0.66, 6.58, 2.60, 0.25, size=11, fill="CBB9E8")
 
     guide.add_rect(slide, 5.98, 0.60, 6.80, 6.30, fill=guide.PURPLE_LIGHT, line=None)
@@ -215,6 +216,23 @@ def add_final_slide(prs: Presentation) -> None:
     record(
         "Итог",
         "Algo MAX закрывает полный цикл школьной системы наград: учет астрокоинов, каталог, покупку, комплектацию, доставку и выдачу. Для запуска нового филиала достаточно создать город, назначить сотрудников, загрузить учеников из Excel, заполнить товары и склады, затем отправить семьям персональные ссылки. Подробные действия для каждой роли находятся в полном руководстве пользователя.",
+    )
+
+
+def interaction_narration(scenario: InteractionScenario) -> str:
+    transitions = ("Сначала", "Затем", "После этого", "Далее", "В завершение")
+    instructions = []
+    for index, (title, description) in enumerate(scenario.steps):
+        transition = transitions[min(index, len(transitions) - 1)]
+        instructions.append(f"{transition}: {title}. {description}")
+    return " ".join(
+        [
+            f"Практический сценарий для роли: {scenario.role}.",
+            f"Путь в приложении: {scenario.path}.",
+            *instructions,
+            f"Ожидаемый результат: {scenario.result}",
+            f"Если допущена ошибка: {scenario.correction}",
+        ]
     )
 
 
@@ -590,6 +608,32 @@ def build_presentation() -> Presentation:
         "Ежедневный процесс распределен по ролям. Семья выбирает награды и отслеживает заказ. Преподаватель начисляет астрокоины и выдает полученные товары. Куратор работает с группами и новостями. Администратор ведет данные, магазин, склады и комплектацию. Директор управляет сотрудниками и несколькими филиалами. Суперадминистратор развивает структуру партнеров. Все статусы меняются по фактическим событиям, поэтому участники видят одинаковую картину.",
     )
 
+    guide.add_section_slide(
+        prs,
+        section="Практика",
+        title="Кнопки и ежедневные действия",
+        subtitle="Короткие демонстрации основных операций: путь к разделу, точные нажатия, ожидаемый результат и исправление ошибки.",
+        items=[
+            "Покупка и отслеживание заказа.",
+            "QR-код ребенка и начисление AC.",
+            "Рассылки и выдача преподавателем.",
+            "Склад, сборка и распределение заказов.",
+            "Товары, импорт, сотрудники и города.",
+        ],
+        accent=guide.PURPLE,
+        background=guide.PURPLE_LIGHT,
+    )
+    record(
+        "Практические действия",
+        "Следующая часть показывает не только возможности продукта, но и конкретную работу с интерфейсом. Для каждого сценария указан путь к разделу, точные кнопки, порядок заполнения, ожидаемый результат и действие при ошибке. Эти слайды можно использовать как самостоятельное обучение новых сотрудников и родителей.",
+    )
+
+    scenarios = scenario_map()
+    for scenario_id in VIDEO_SCENARIO_IDS:
+        scenario = scenarios[scenario_id]
+        guide.add_interaction_slide(prs, scenario)
+        record(scenario.title, interaction_narration(scenario))
+
     add_final_slide(prs)
     assert len(prs.slides) == len(NARRATION), (len(prs.slides), len(NARRATION))
     return prs
@@ -618,7 +662,9 @@ def write_narration() -> None:
                 "",
             ]
         )
-    estimated_minutes = total_words / 125
+    # Piper Dmitri with length_scale=0.94 reads this instructional script at
+    # roughly 138 words per minute once pauses between slides are included.
+    estimated_minutes = total_words / 138
     lines.extend(
         [
             "## Параметры",

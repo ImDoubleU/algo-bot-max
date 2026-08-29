@@ -1,5 +1,8 @@
 ﻿param(
     [string]$VoiceName = "Microsoft Irina Desktop - Russian",
+    [ValidateSet("Piper", "Sapi")]
+    [string]$TtsProvider = "Piper",
+    [string]$PiperModel = "",
     [switch]$SkipVideo
 )
 
@@ -9,14 +12,21 @@ $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $GuidePptx = Join-Path $Root "docs\Algo_MAX_Руководство_по_ролям.pptx"
 $ProductPptx = Join-Path $Root "docs\Algo_MAX_Презентация_продукта.pptx"
 $NarrationJson = Join-Path $Root "docs\product_video_narration.json"
+$PiperScript = Join-Path $Root "docs\build_piper_audio.py"
+$Python = Join-Path $Root "max_bot_venv\Scripts\python.exe"
 $PdfDir = Join-Path $Root "output\pdf"
 $VideoDir = Join-Path $Root "output\video"
 $AudioDir = Join-Path $VideoDir "audio"
+$PiperManifest = Join-Path $AudioDir "piper-manifest.json"
 $SlideDir = Join-Path $Root "output\presentation-slides"
 $GuidePdf = Join-Path $PdfDir "Algo_MAX_Полное_руководство.pdf"
 $ProductPdf = Join-Path $PdfDir "Algo_MAX_Презентация_продукта.pdf"
 $NarratedPptx = Join-Path $VideoDir "Algo_MAX_Презентация_с_озвучкой.pptx"
 $VideoPath = Join-Path $VideoDir "Algo_MAX_Обзор_продукта.mp4"
+
+if ([string]::IsNullOrWhiteSpace($PiperModel)) {
+    $PiperModel = Join-Path $Root "output\tts-models\ru_RU-dmitri-medium.onnx"
+}
 
 foreach ($required in @($GuidePptx, $ProductPptx, $NarrationJson)) {
     if (-not (Test-Path -LiteralPath $required)) {
@@ -120,7 +130,7 @@ function Get-WavDurationSeconds {
     }
 }
 
-function Build-NarrationAudio {
+function Build-SapiNarrationAudio {
     param(
         [object[]]$Narration,
         [string]$TargetDirectory,
@@ -164,6 +174,33 @@ function Build-NarrationAudio {
     finally {
         Release-ComObject $voice
     }
+}
+
+function Build-PiperNarrationAudio {
+    param(
+        [string]$NarrationPath,
+        [string]$ModelPath,
+        [string]$TargetDirectory,
+        [string]$ManifestPath
+    )
+
+    foreach ($required in @($Python, $PiperScript, $ModelPath)) {
+        if (-not (Test-Path -LiteralPath $required)) {
+            throw "Не найден обязательный файл для Piper: $required"
+        }
+    }
+
+    & $Python $PiperScript `
+        --narration $NarrationPath `
+        --model $ModelPath `
+        --output-dir $TargetDirectory `
+        --manifest $ManifestPath | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) {
+        throw "Piper завершился с кодом $LASTEXITCODE"
+    }
+
+    $manifestDocument = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    return @($manifestDocument | ForEach-Object { $_ })
 }
 
 function Export-NarratedVideo {
@@ -241,8 +278,19 @@ try {
         $narrationDocument = Get-Content -LiteralPath $NarrationJson -Raw -Encoding UTF8 | ConvertFrom-Json
         $narration = @($narrationDocument | ForEach-Object { $_ })
         Write-Host "Слайдов озвучки: $($narration.Count)"
-        Write-Host "Создание русской озвучки..."
-        $audioTracks = @(Build-NarrationAudio -Narration $narration -TargetDirectory $AudioDir -PreferredVoice $VoiceName)
+        Write-Host "Создание русской озвучки: $TtsProvider..."
+        if ($TtsProvider -eq "Piper") {
+            $audioTracks = @(
+                Build-PiperNarrationAudio `
+                    -NarrationPath $NarrationJson `
+                    -ModelPath $PiperModel `
+                    -TargetDirectory $AudioDir `
+                    -ManifestPath $PiperManifest
+            )
+        }
+        else {
+            $audioTracks = @(Build-SapiNarrationAudio -Narration $narration -TargetDirectory $AudioDir -PreferredVoice $VoiceName)
+        }
         Write-Host "Создание MP4..."
         Export-NarratedVideo -PowerPoint $powerPoint -Source $ProductPptx -WorkingPresentation $NarratedPptx -TargetVideo $VideoPath -AudioTracks $audioTracks
     }

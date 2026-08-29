@@ -9,10 +9,13 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.util import Inches, Pt
 
+from interaction_scenarios import SCENARIOS, InteractionScenario, write_markdown
+
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "docs" / "user-guide-assets"
 OUTPUT = ROOT / "docs" / "Algo_MAX_Руководство_по_ролям.pptx"
+INTERACTION_GUIDE_OUTPUT = ROOT / "docs" / "INTERACTION_GUIDE_RU.md"
 
 SLIDE_W = Inches(13.333)
 SLIDE_H = Inches(7.5)
@@ -400,6 +403,47 @@ def add_screenshot_steps_slide(
     add_footer(slide)
 
 
+def add_interaction_slide(prs: Presentation, scenario: InteractionScenario) -> None:
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    set_background(slide)
+    add_brand(slide, len(prs.slides), scenario.title, scenario.role)
+
+    add_rect(slide, 0.58, 1.82, 7.02, 0.48, fill=PURPLE_LIGHT, line=None)
+    add_text(slide, "ПУТЬ", 0.78, 1.96, 0.52, 0.18, size=9, fill=PURPLE, bold=True)
+    add_text(slide, scenario.path, 1.38, 1.90, 5.95, 0.26, size=13, bold=True)
+
+    step_gap = min(0.88, 4.38 / max(len(scenario.steps), 1))
+    for index, (step_title, description) in enumerate(scenario.steps, start=1):
+        add_step(
+            slide,
+            index,
+            step_title,
+            description,
+            0.62,
+            2.48 + (index - 1) * step_gap,
+            6.92,
+        )
+
+    add_rect(slide, 7.90, 1.82, 4.82, 4.98, fill=WHITE, line=LINE)
+    add_text(slide, "Кому доступно", 8.22, 2.10, 4.15, 0.26, size=12, fill=MUTED, bold=True)
+    add_text(slide, scenario.role, 8.22, 2.45, 4.15, 0.58, size=18, bold=True)
+    add_callout(slide, "Что произойдет", scenario.result, 8.16, 3.24, 4.30, kind="teal")
+    add_callout(slide, "Если ошиблись", scenario.correction, 8.16, 4.64, 4.30, kind="coral")
+    add_text(
+        slide,
+        "После сохранения обновите список и проверьте результат.",
+        8.22,
+        6.08,
+        4.05,
+        0.40,
+        size=11.5,
+        fill=PURPLE_DARK,
+        bold=True,
+        align=PP_ALIGN.CENTER,
+    )
+    add_footer(slide, "Практическая инструкция · Algo MAX")
+
+
 def build_presentation() -> Presentation:
     prs = Presentation()
     prs.slide_width = SLIDE_W
@@ -424,7 +468,7 @@ def build_presentation() -> Presentation:
     )
     add_rect(slide, 0.64, 5.76, 3.26, 0.48, fill=YELLOW, line=None)
     add_text(slide, "Редактируемая презентация", 0.80, 5.89, 2.95, 0.20, size=11, bold=True)
-    add_text(slide, "Версия 3 · август 2026", 0.64, 6.52, 3.2, 0.25, size=11, fill="CBB9E8")
+    add_text(slide, "Версия 4 · август 2026", 0.64, 6.52, 3.2, 0.25, size=11, fill="CBB9E8")
     add_rect(slide, 6.02, 0.60, 6.76, 6.30, fill=PURPLE_LIGHT, line=None)
     cover = ROOT / "app" / "web" / "static" / "miniapp" / "assets" / "dashboard-learning.png"
     slide.shapes.add_picture(str(cover), Inches(6.18), Inches(1.39), width=Inches(6.45))
@@ -1597,6 +1641,25 @@ def build_presentation() -> Presentation:
         callout_kind="yellow",
     )
 
+    add_section_slide(
+        prs,
+        section="Часть 3",
+        title="Практические действия по кнопкам",
+        subtitle="Точные маршруты для ежедневной работы: куда перейти, что нажать, какой результат ждать и как исправить ошибку.",
+        items=[
+            "Навигация на компьютере и телефоне.",
+            "Покупка, корзина, заказы и QR-коды.",
+            "Начисления, выдача и рассылки.",
+            "Склады, комплектация, товары и импорт.",
+            "Сотрудники, связи, города и проверка результата.",
+        ],
+        accent=PURPLE,
+        background=PURPLE_LIGHT,
+    )
+
+    for scenario in SCENARIOS:
+        add_interaction_slide(prs, scenario)
+
     add_cards_slide(
         prs,
         kicker="Чек-листы",
@@ -1686,7 +1749,9 @@ def main() -> None:
     presentation = build_presentation()
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     presentation.save(OUTPUT)
+    write_markdown(INTERACTION_GUIDE_OUTPUT)
     print(f"Created {OUTPUT} ({len(presentation.slides)} slides)")
+    print(f"Created {INTERACTION_GUIDE_OUTPUT}")
 
 
 if __name__ == "__main__":
