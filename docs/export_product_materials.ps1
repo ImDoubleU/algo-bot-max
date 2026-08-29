@@ -19,6 +19,7 @@ $VideoDir = Join-Path $Root "output\video"
 $AudioDir = Join-Path $VideoDir "audio"
 $PiperManifest = Join-Path $AudioDir "piper-manifest.json"
 $SlideDir = Join-Path $Root "output\presentation-slides"
+$GuideSlideDir = Join-Path $Root "output\guide-slides"
 $GuidePdf = Join-Path $PdfDir "Algo_MAX_Полное_руководство.pdf"
 $ProductPdf = Join-Path $PdfDir "Algo_MAX_Презентация_продукта.pdf"
 $NarratedPptx = Join-Path $VideoDir "Algo_MAX_Презентация_с_озвучкой.pptx"
@@ -34,7 +35,7 @@ foreach ($required in @($GuidePptx, $ProductPptx, $NarrationJson)) {
     }
 }
 
-New-Item -ItemType Directory -Force -Path $PdfDir, $VideoDir, $AudioDir, $SlideDir | Out-Null
+New-Item -ItemType Directory -Force -Path $PdfDir, $VideoDir, $AudioDir, $SlideDir, $GuideSlideDir | Out-Null
 
 function Release-ComObject {
     param([object]$Value)
@@ -264,8 +265,9 @@ function Export-NarratedVideo {
 
 $powerPoint = New-Object -ComObject PowerPoint.Application
 try {
-    Write-Host "Экспорт подробного руководства в PDF..."
+    Write-Host "Экспорт подробного руководства в PDF и PNG..."
     Export-PresentationPdf -PowerPoint $powerPoint -Source $GuidePptx -Target $GuidePdf
+    Export-PresentationSlides -PowerPoint $powerPoint -Source $GuidePptx -TargetDirectory $GuideSlideDir
 
     Write-Host "Экспорт краткой презентации в PDF и PNG..."
     Export-PresentationPdf -PowerPoint $powerPoint -Source $ProductPptx -Target $ProductPdf

@@ -1746,7 +1746,11 @@ def build_presentation() -> Presentation:
 
 
 def main() -> None:
-    presentation = build_presentation()
+    import sys
+
+    from build_visual_guide import build_visual_presentation
+
+    presentation = build_visual_presentation(sys.modules[__name__])
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     presentation.save(OUTPUT)
     write_markdown(INTERACTION_GUIDE_OUTPUT)
