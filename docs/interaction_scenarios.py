@@ -1,3 +1,5 @@
+# ruff: noqa: E501 - Scenario copy is intentionally kept as complete reviewable lines.
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -508,7 +510,9 @@ def write_markdown(path: Path) -> None:
     lines = [
         "# Algo MAX: подробные действия по кнопкам",
         "",
-        "Инструкция построена по одному принципу: куда перейти, что нажать, что проверить и как исправить ошибку.",
+        "Редакция 6 для интерфейса 0.78.1. Инструкция построена по одному принципу: куда перейти, что нажать, что проверить и как исправить ошибку.",
+        "",
+        "Перед любой операцией проверьте активную роль, рабочий город и выбранного ребенка. После сохранения нажмите обновление и сверьте историю объекта.",
         "",
     ]
     for index, scenario in enumerate(SCENARIOS, start=1):
@@ -534,4 +538,3 @@ def write_markdown(path: Path) -> None:
             ]
         )
     path.write_text("\n".join(lines), encoding="utf-8")
-
