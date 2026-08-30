@@ -67,10 +67,11 @@ _AMOCRM_FIELD_BY_NAME = {
     for field, aliases in HEADER_ALIASES.items()
     for alias in (*aliases, field)
 }
-_REQUIRED_STUDENT_FIELDS = tuple(
+# The webhook URL already fixes the target tenant, so a repeated city field is optional.
+_WEBHOOK_REQUIRED_STUDENT_FIELDS = tuple(
     (field, header)
     for field, header, required, _, _ in CRM_TEMPLATE_COLUMNS
-    if required
+    if required and field != "city"
 )
 
 
@@ -218,7 +219,7 @@ def extract_amocrm_student_rows(payload: dict[str, Any]) -> list[CrmStudentRow]:
 def missing_amocrm_student_fields(row: CrmStudentRow) -> list[str]:
     return [
         header
-        for field, header in _REQUIRED_STUDENT_FIELDS
+        for field, header in _WEBHOOK_REQUIRED_STUDENT_FIELDS
         if not normalize_text(getattr(row, field))
     ]
 
