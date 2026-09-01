@@ -155,6 +155,28 @@ def _add_hotspot(
     run.font.color.rgb = guide.color(guide.WHITE)
 
 
+def _add_cursor(
+    guide: Any,
+    slide: Any,
+    *,
+    image_rect: tuple[float, float, float, float],
+    point: Hotspot,
+) -> None:
+    px, py, pw, ph = image_rect
+    cursor = slide.shapes.add_shape(
+        MSO_SHAPE.UP_ARROW,
+        Inches(px + point.x * pw + 0.10),
+        Inches(py + point.y * ph + 0.12),
+        Inches(0.28),
+        Inches(0.40),
+    )
+    cursor.rotation = 315
+    cursor.fill.solid()
+    cursor.fill.fore_color.rgb = guide.color(guide.WHITE)
+    cursor.line.color.rgb = guide.color(guide.PURPLE_DARK)
+    cursor.line.width = Pt(1.4)
+
+
 def _add_action_card(
     guide: Any,
     slide: Any,
@@ -238,6 +260,147 @@ def add_visual_slide(guide: Any, prs: Presentation, spec: VisualSlide) -> None:
         )
     _add_result_callout(guide, slide, text=spec.note, x=panel_x, y=5.90, w=panel_w)
     guide.add_footer(slide, "Практическое руководство · интерфейс 0.78.1 · Algo MAX")
+
+
+def add_visual_step_slide(
+    guide: Any,
+    prs: Presentation,
+    spec: VisualSlide,
+    *,
+    active_index: int,
+    show_result: bool,
+) -> None:
+    if active_index < 1 or active_index > len(spec.hotspots):
+        raise ValueError(f"Invalid hotspot index {active_index} for {spec.asset}")
+
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    guide.set_background(slide)
+    point = spec.hotspots[active_index - 1]
+    guide.add_brand(slide, len(prs.slides), spec.title, spec.section)
+    guide.add_rect(slide, 0.48, 1.80, 12.28, 0.36, fill=guide.PURPLE_LIGHT, line=None)
+    guide.add_text(slide, "ПУТЬ", 0.66, 1.91, 0.46, 0.15, size=8.5, fill=guide.PURPLE, bold=True)
+    guide.add_text(slide, spec.path, 1.20, 1.86, 11.25, 0.22, size=11.5, bold=True)
+
+    if spec.mobile:
+        frame_x, frame_y, frame_w, frame_h = 0.58, 2.26, 4.18, 4.60
+        panel_x, panel_w = 5.08, 7.60
+        label = "Экран на телефоне"
+    else:
+        frame_x, frame_y, frame_w, frame_h = 0.48, 2.26, 9.10, 4.60
+        panel_x, panel_w = 9.86, 2.82
+        label = "Экран приложения"
+
+    image_rect = _add_picture_frame(
+        guide,
+        slide,
+        asset=spec.asset,
+        x=frame_x,
+        y=frame_y,
+        w=frame_w,
+        h=frame_h,
+        label=label,
+        crop=spec.crop,
+    )
+    _add_hotspot(guide, slide, number=active_index, image_rect=image_rect, point=point)
+    _add_cursor(guide, slide, image_rect=image_rect, point=point)
+    if "qr" in spec.asset.casefold():
+        guide.add_rect(slide, frame_x + 0.18, frame_y + 0.48, 1.78, 0.34, fill=guide.YELLOW, line=None)
+        guide.add_text(
+            slide,
+            "ПРИМЕР, НЕ СКАНИРОВАТЬ",
+            frame_x + 0.24,
+            frame_y + 0.57,
+            1.66,
+            0.16,
+            size=7.8,
+            bold=True,
+            align=PP_ALIGN.CENTER,
+        )
+
+    guide.add_rect(slide, panel_x, 2.26, panel_w, 0.46, fill=guide.PURPLE_DARK, line=None)
+    guide.add_text(
+        slide,
+        f"ШАГ {active_index} ИЗ {len(spec.hotspots)}",
+        panel_x + 0.18,
+        2.39,
+        panel_w - 0.36,
+        0.18,
+        size=9.5,
+        fill=guide.WHITE,
+        bold=True,
+    )
+    _add_action_card(
+        guide,
+        slide,
+        number=active_index,
+        point=point,
+        x=panel_x,
+        y=2.84,
+        w=panel_w,
+        h=1.64,
+    )
+    result_text = (
+        spec.note
+        if show_result
+        else "После нажатия дождитесь изменения экрана и переходите к следующему шагу."
+    )
+    _add_result_callout(guide, slide, text=result_text, x=panel_x, y=4.72, w=panel_w)
+    guide.add_rect(slide, panel_x, 5.92, panel_w, 0.66, fill=guide.YELLOW_LIGHT, line=None)
+    guide.add_text(
+        slide,
+        "Курсор и номер показывают единственное действие этого кадра.",
+        panel_x + 0.18,
+        6.08,
+        panel_w - 0.36,
+        0.32,
+        size=9.2,
+        fill=guide.MUTED,
+    )
+    guide.add_footer(slide, "Пошаговое видео · Algo MAX")
+
+
+def add_visual_error_slide(
+    guide: Any,
+    prs: Presentation,
+    spec: VisualSlide,
+    *,
+    error_title: str,
+    error_text: str,
+    recovery: str,
+) -> None:
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    guide.set_background(slide)
+    guide.add_brand(slide, len(prs.slides), error_title, "Типичная ситуация")
+    guide.add_rect(slide, 0.48, 1.80, 12.28, 0.36, fill=guide.CORAL_LIGHT, line=None)
+    guide.add_text(slide, "ВОСПРОИЗВЕДЕННАЯ ОШИБКА", 0.66, 1.90, 3.20, 0.17, size=8.5, fill=guide.CORAL, bold=True)
+
+    if spec.mobile:
+        frame_x, frame_y, frame_w, frame_h = 0.58, 2.26, 4.18, 4.60
+        panel_x, panel_w = 5.08, 7.60
+        label = "Экран на телефоне"
+    else:
+        frame_x, frame_y, frame_w, frame_h = 0.48, 2.26, 9.10, 4.60
+        panel_x, panel_w = 9.86, 2.82
+        label = "Экран приложения"
+    _add_picture_frame(
+        guide,
+        slide,
+        asset=spec.asset,
+        x=frame_x,
+        y=frame_y,
+        w=frame_w,
+        h=frame_h,
+        label=label,
+        crop=spec.crop,
+    )
+
+    guide.add_rect(slide, panel_x, 2.26, panel_w, 1.64, fill=guide.CORAL_LIGHT, line=guide.CORAL)
+    guide.add_text(slide, "Что произошло", panel_x + 0.20, 2.48, panel_w - 0.40, 0.30, size=12, bold=True)
+    guide.add_text(slide, error_text, panel_x + 0.20, 2.90, panel_w - 0.40, 0.78, size=10.2, fill=guide.MUTED)
+    guide.add_rect(slide, panel_x, 4.18, panel_w, 1.78, fill=guide.TEAL_LIGHT, line=guide.TEAL)
+    guide.add_text(slide, "Как исправить", panel_x + 0.20, 4.40, panel_w - 0.40, 0.30, size=12, bold=True)
+    guide.add_text(slide, recovery, panel_x + 0.20, 4.82, panel_w - 0.40, 0.90, size=10.2, fill=guide.MUTED)
+    guide.add_footer(slide, "Пошаговое видео · Algo MAX")
 
 
 def add_cover(guide: Any, prs: Presentation) -> None:
@@ -332,8 +495,8 @@ def add_role_reference(guide: Any, prs: Presentation) -> None:
             ("Администратор", "Ведет учеников, склады, товары, сотрудников и полный цикл заказа.", "teal"),
             ("Директор", "Контролирует несколько городов, отчеты и права сотрудников.", "purple"),
         ],
-        note_title="Суперадминистратор",
-        note_text="Переключает города и партнеров, назначает директоров и видит системный контур управления.",
+        note_title="Данные разделены по городам",
+        note_text="Директор переключает только назначенные ему города и проверяет выбранный филиал перед изменением.",
         note_kind="yellow",
     )
     guide.add_cards_slide(
@@ -359,7 +522,7 @@ def add_role_reference(guide: Any, prs: Presentation) -> None:
         steps=[
             ("Откройте из MAX", "Запускайте mini-app из подтвержденного аккаунта MAX."),
             ("Проверьте профиль", "Сверьте имя и активную роль в верхнем блоке."),
-            ("Проверьте город", "Директор и суперадминистратор выбирают рабочий город в верхней панели."),
+            ("Проверьте город", "Директор выбирает назначенный рабочий город в верхней панели."),
             ("Проверьте ребенка", "Родитель выбирает ребенка до магазина, корзины или истории."),
             ("Обновите данные", "После изменения нажмите кнопку с круговыми стрелками."),
         ],
@@ -423,11 +586,6 @@ def _profile_slides() -> tuple[VisualSlide, ...]:
             Hotspot(0.80, 0.34, "Контролируйте заказы", "Проверьте зависшие этапы перед выдачей."),
             Hotspot(0.09, 0.58, "Откройте управление", "Сотрудники, склады и импорт доступны директору."),
         ), note="При нескольких городах сначала переключите город, затем выполняйте изменения."),
-        VisualSlide("Суперадминистратор", "Работа с несколькими городами", "Главная -> город / партнер", "superadmin-dashboard-desktop.png", (
-            Hotspot(0.42, 0.34, "Проверьте город", "Данные на странице должны соответствовать выбору сверху."),
-            Hotspot(0.80, 0.34, "Сверьте очередь", "Заказы разных городов не смешиваются."),
-            Hotspot(0.09, 0.58, "Откройте управление", "Здесь создаются города и назначаются директора."),
-        ), note="После переключения города обновите страницу и сверьте название рабочего профиля."),
     )
 
 
@@ -488,7 +646,7 @@ def _order_slides() -> tuple[VisualSlide, ...]:
             Hotspot(0.50, 0.58, "Читайте историю", "Каждая запись содержит дату и фактическое действие."),
             Hotspot(0.90, 0.08, "Закройте", "Крестик возвращает в список без изменения заказа."),
         ), mobile=True, note="Служебные подписи из внутренних сводок пользователю не показываются."),
-        VisualSlide("Сотрудники", "Рабочие вкладки заказов", "Заказы", "admin-orders-tabs-desktop.png", (
+        VisualSlide("Заказы", "Рабочие вкладки заказов", "Заказы", "admin-orders-tabs-desktop.png", (
             Hotspot(0.38, 0.20, "Выберите состояние", "Верхний ряд фильтрует фактический статус."),
             Hotspot(0.28, 0.43, "Выберите этап работы", "Назначить склад, Собрать или Распределить."),
             Hotspot(0.88, 0.43, "Обновите", "Круговая стрелка применяет завершенные отметки."),
@@ -533,6 +691,15 @@ def _order_slides() -> tuple[VisualSlide, ...]:
             Hotspot(0.50, 0.52, "Сверьте состав", "Проверьте товар и количество."),
             Hotspot(0.50, 0.72, "Нажмите «Учитель получил»", "Статус меняется после передачи преподавателю."),
         ), mobile=True, crop=(0, 0, 0, 0.28), note="Следующее действие — «Передать ученику» после фактической выдачи ребенку."),
+        VisualSlide("Преподаватель", "Выдача заказа ученику", "Заказы -> У учителя", "teacher-orders-teacher-mobile.png", (
+            Hotspot(0.50, 0.16, "Откройте «У учителя»", "Здесь находятся принятые преподавателем комплекты."),
+            Hotspot(0.50, 0.50, "Сверьте ученика", "Проверьте имя, товар и количество перед выдачей."),
+            Hotspot(0.50, 0.72, "Передайте ученику", "Нажмите кнопку только после фактической выдачи."),
+        ), mobile=True, crop=(0, 0, 0, 0.30), note="После действия заказ перемещается во вкладку «Получены»."),
+        VisualSlide("Преподаватель", "Результат выдачи", "Заказы -> Получены -> Подробнее", "teacher-order-issued-history-mobile.png", (
+            Hotspot(0.50, 0.24, "Проверьте состояние", "Карточка подтверждает завершенную выдачу."),
+            Hotspot(0.50, 0.68, "Сверьте историю", "Последняя запись — «Заказ передан ученику»."),
+        ), mobile=True, note="Повторное нажатие не требуется: история хранит дату и итоговое состояние."),
     )
 
 
@@ -658,7 +825,7 @@ def _management_slides() -> tuple[VisualSlide, ...]:
             Hotspot(0.50, 0.54, "Укажите адрес", "Добавьте ориентир или примечание."),
             Hotspot(0.50, 0.78, "Сохраните", "Склад появится в товарах и заказах."),
         ), mobile=True, note="Код и технический тип склада пользователю заполнять не требуется."),
-        VisualSlide("Импорт данных", "Проверка CRM-таблицы", "Управление -> Импорт данных", "crm-import-desktop.png", (
+        VisualSlide("Импорт данных", "Проверка таблицы импорта", "Управление -> Импорт данных", "crm-import-desktop.png", (
             Hotspot(0.30, 0.38, "Скачайте шаблон", "Используйте актуальную структуру колонок."),
             Hotspot(0.52, 0.52, "Выберите лист", "Поддерживаются «Шаблон» и «Сделки»."),
             Hotspot(0.82, 0.65, "Проверьте файл", "Предпросмотр не изменяет базу."),
@@ -672,7 +839,7 @@ def _management_slides() -> tuple[VisualSlide, ...]:
             Hotspot(0.30, 0.34, "Выберите период", "Ограничьте историю нужным интервалом."),
             Hotspot(0.58, 0.46, "Найдите событие", "Поиск работает по сотруднику и действию."),
             Hotspot(0.86, 0.62, "Сверьте детали", "В записи есть автор, время и объект изменения."),
-        ), note="Устаревший раздел amoCRM удален; здесь только действия внутри текущей системы."),
+        ), note="Устаревший внешний раздел удален; здесь только действия внутри текущей системы."),
     )
 
 
@@ -752,7 +919,6 @@ def add_daily_checklists(guide: Any, prs: Presentation) -> None:
             ("Куратор", "Проверить свои группы -> доставку -> подготовить адресную рассылку.", "purple"),
             ("Администратор", "Назначить склад -> собрать -> распределить -> проверить остатки.", "coral"),
             ("Директор", "Выбрать город -> проверить отчет, сотрудников, заказы и импорт.", "teal"),
-            ("Суперадминистратор", "Выбрать партнер/город -> проверить изоляцию -> управлять директорами.", "purple"),
         ],
         note_title="Каждое действие заканчивается проверкой",
         note_text="Дождитесь сообщения, обновите список и откройте историю связанного заказа или ученика.",
@@ -809,7 +975,7 @@ def build_visual_presentation(guide: Any) -> Presentation:
     add_how_to_read(guide, prs)
     add_role_reference(guide, prs)
 
-    guide.add_section_slide(prs, section="Раздел 1", title="Вход, профиль и роли", subtitle="Сначала убедитесь, от чьего имени и в каком городе открыта система.", items=["Ученик и родитель", "Преподаватель и куратор", "Администратор и директор", "Суперадминистратор"])
+    guide.add_section_slide(prs, section="Раздел 1", title="Вход, профиль и роли", subtitle="Сначала убедитесь, от чьего имени и в каком городе открыта система.", items=["Ученик и родитель", "Преподаватель и куратор", "Администратор", "Директор"])
     for spec in _profile_slides():
         add_visual_slide(guide, prs, spec)
 
@@ -846,14 +1012,14 @@ def build_visual_presentation(guide: Any) -> Presentation:
     guide.add_steps_slide(
         prs, kicker="Ученики", title="Перевод в группу и подарок на день рождения",
         steps=[("Откройте карточку", "Найдите ученика через поиск или фильтр группы."), ("Выберите новую группу", "Сохраните перевод без создания дубликата."), ("Проверьте связи", "Родитель, MAX-доступ, баланс и заказы сохраняются."), ("Проверьте историю", "Старая и новая группы записаны с автором и временем."), ("Укажите день рождения", "В эту дату начисляется автоматический подарок 50 AC один раз.")],
-        side_title="Доступ к истории", side_items=["Преподаватель ученика.", "Куратор группы.", "Администратор и директор.", "Суперадминистратор."], callout_title="Перевод — не новый ученик", callout_text="Все накопленные данные продолжают относиться к прежней карточке.", callout_kind="teal",
+        side_title="Доступ к истории", side_items=["Преподаватель ученика.", "Куратор группы.", "Администратор.", "Директор."], callout_title="Перевод — не новый ученик", callout_text="Все накопленные данные продолжают относиться к прежней карточке.", callout_kind="teal",
     )
     for spec in _student_ac_slides()[4:]:
         add_visual_slide(guide, prs, spec)
     guide.add_steps_slide(
         prs, kicker="Начисления", title="Правила AC для конкретного города",
         steps=[("Откройте правила", "Работайте в выбранном городе."), ("Свяжите причину и сумму", "Стандартная причина подставляет фиксированное количество AC."), ("Отключите лишнее", "Неактивное правило исчезает из формы."), ("Оставьте ручной вариант", "Для исключения используйте свою причину и сумму."), ("Проверьте отчет", "Операция содержит автора и примененную причину.")],
-        side_title="Кому доступна настройка", side_items=["Администратору.", "Директору.", "Суперадминистратору.", "Преподаватель применяет правила."], callout_title="Автоматический подарок", callout_text="50 AC начисляются в день рождения при заполненной дате.", callout_kind="yellow",
+        side_title="Кому доступна настройка", side_items=["Администратору.", "Директору.", "Преподаватель применяет правила.", "Куратор применяет правила."], callout_title="Автоматический подарок", callout_text="50 AC начисляются в день рождения при заполненной дате.", callout_kind="yellow",
     )
 
     guide.add_section_slide(prs, section="Раздел 5", title="Рассылки", subtitle="Сначала аудитория, затем содержание и финальная проверка.", items=["Получатели и форматы", "Площадки и группы", "Текст, фото и эмодзи", "Проверка и история"], accent=guide.TEAL, background=guide.TEAL_LIGHT)
@@ -881,12 +1047,6 @@ def build_visual_presentation(guide: Any) -> Presentation:
                 steps=[("Заполните город", "Значение берется из каждой строки файла."), ("Загрузите XLSX", "Поддерживаются листы «Шаблон» и «Сделки»."), ("Проверьте предпросмотр", "Неизвестный город показывает ошибку."), ("Подтвердите", "Только теперь записи создаются по филиалам."), ("Сверьте итог", "Откройте реестр каждого доступного города.")],
                 side_title="Ограничения", side_items=["Только доступные директору города.", "Город уже создан.", "Группа создается в городе строки.", "Повтор обновляет по ID."], callout_title="Заранее база не распределяется", callout_text="Распределение выполняется только при подтвержденном импорте директором.", callout_kind="teal",
             )
-    guide.add_steps_slide(
-        prs, kicker="Суперадминистратор", title="Города, партнеры и директора",
-        steps=[("Создайте город", "Укажите официальное название и уникальный технический идентификатор."), ("Назначьте директора", "Один директор может быть связан с несколькими городами."), ("Учитывайте филиалы", "В одном городе допускаются несколько директоров со своими площадками."), ("Переключите город", "Перед изменением данных сверьте выбор в верхней панели."), ("Проверьте изоляцию", "Ученики, товары, склады и отчеты не смешиваются.")],
-        side_title="После настройки", side_items=["Создайте склады.", "Пригласите сотрудников.", "Загрузите учеников.", "Настройте правила AC."], callout_title="Права назначаются явно", callout_text="Наличие аккаунта MAX само по себе не дает доступа к городу.", callout_kind="coral",
-    )
-
     guide.add_section_slide(prs, section="Раздел 7", title="QR-коды и помощь", subtitle="Детский вход создается через подтвержденную связь с родителем.", items=["QR родителя", "QR преподавателя", "Повторная привязка", "Встроенная помощь"], accent=guide.CORAL, background=guide.CORAL_LIGHT)
     for spec in _qr_help_slides()[:3]:
         add_visual_slide(guide, prs, spec)

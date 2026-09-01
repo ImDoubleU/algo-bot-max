@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 220" role="img" aria-labelledby="title desc">
+  <title id="title">Безопасный пример QR-кода</title>
+  <desc id="desc">Декоративный несканируемый образец для демонстрационных материалов.</desc>
+  <rect width="220" height="220" rx="8" fill="#ffffff"/>
+  <g fill="#171421">
+    <path d="M18 18h58v58H18zM28 28v38h38V28zM38 38h18v18H38z" fill-rule="evenodd"/>
+    <path d="M144 18h58v58h-58zM154 28v38h38V28zM164 38h18v18h-18z" fill-rule="evenodd"/>
+    <path d="M18 144h58v58H18zM28 154v38h38v-38zM38 164h18v18H38z" fill-rule="evenodd"/>
+    <path d="M90 18h12v12H90zm24 0h12v12h-12zM90 42h12v12H90zm24 12h12v12h-12zM90 78h12v12H90zm24 0h12v12h-12zM18 90h12v12H18zm24 0h12v12H42zm36 0h12v12H78zm72 0h12v12h-12zm24 0h12v12h-12zm18 18h12v12h-12zM18 114h12v12H18zm36 0h12v12H54zm24 0h12v12H78zm72 0h12v12h-12zm24 12h12v12h-12zM90 144h12v12H90zm24 0h12v12h-12zm36 0h12v12h-12zm24 0h12v12h-12zM90 168h12v12H90zm24 12h12v12h-12zm36-12h12v12h-12zm24 24h12v12h-12z"/>
+  </g>
+  <path d="M83 83l54 54M137 83l-54 54" stroke="#ff5f57" stroke-width="13" stroke-linecap="round"/>
+</svg>

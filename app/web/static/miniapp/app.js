@@ -1158,7 +1158,7 @@ async function updateOrderAction(orderId, action, cancelData = null) {
       fromStatus: previousStatus,
       toStatus: order.rawStatus,
       comment: {
-        issue: "Заказ выдан ученику",
+        issue: "Заказ передан ученику",
         deliver: "Заказ доставлен на площадку",
         transfer: "Учитель получил заказ",
         cancel: cancelData?.customReason || cancelData?.reason || "Заказ отменен",
@@ -1167,7 +1167,7 @@ async function updateOrderAction(orderId, action, cancelData = null) {
     });
     showNotice(
       {
-        issue: `Заказ №${order.id} отмечен как выданный`,
+        issue: `Заказ №${order.id} передан ученику`,
         deliver: `Заказ №${order.id} доставлен на площадку`,
         transfer: `Учитель получил заказ №${order.id}`,
         cancel: `Заказ №${order.id} отменен`,

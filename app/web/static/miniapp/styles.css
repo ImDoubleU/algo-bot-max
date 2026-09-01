@@ -9740,6 +9740,7 @@ details.report-row { display: block; padding: 0; }
 
 .teacher-qr-preview,
 .teacher-qr-placeholder {
+  position: relative;
   width: 58px;
   aspect-ratio: 1;
   display: grid;
@@ -10001,6 +10002,41 @@ details.report-row { display: block; padding: 0; }
   border: 0;
   background: #ffffff;
   object-fit: contain;
+}
+
+.parent-invite-qr-button,
+.qr-preview-image-shell {
+  position: relative;
+}
+
+.safe-qr-label {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  z-index: 2;
+  max-width: calc(100% - 12px);
+  padding: 3px 6px;
+  border-radius: 4px;
+  color: #171421;
+  background: #ffd43b;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.teacher-qr-preview .safe-qr-label {
+  bottom: 2px;
+  max-width: calc(100% - 4px);
+  padding: 2px;
+  font-size: 5px;
+}
+
+.qr-preview-safety {
+  bottom: 20px;
+  font-size: 12px;
 }
 
 .parent-invite-qr-button > span {
