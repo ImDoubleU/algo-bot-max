@@ -62,6 +62,16 @@ def staff_names_match(left: str | None, right: str | None) -> bool:
     return not left_initials or not right_initials or bool(left_initials & right_initials)
 
 
+def teacher_staff_name(account: MaxAccount) -> str | None:
+    if account.staff_profile_completed_at:
+        parts = [account.staff_last_name, account.staff_first_name]
+        value = " ".join(part.strip() for part in parts if part and part.strip())
+        if value:
+            return value
+    legacy_name = (account.display_name or "").strip()
+    return legacy_name or None
+
+
 @dataclass(frozen=True)
 class StaffRoleBootstrapResult:
     tenant_slug: str

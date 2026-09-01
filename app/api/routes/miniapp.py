@@ -86,6 +86,8 @@ from app.schemas.miniapp import (
     MiniAppStudentInvitationRead,
     MiniAppStudentRegistryRead,
     MiniAppStudentStatusUpdate,
+    MiniAppTeacherProfileRead,
+    MiniAppTeacherProfileUpdate,
     MiniAppTenantCreate,
     MiniAppTenantCreatedRead,
     MiniAppWarehousePreferenceRead,
@@ -143,6 +145,7 @@ from app.services.miniapp import (
     update_miniapp_student_access_policy,
     update_miniapp_student_birth_date,
     update_miniapp_student_status,
+    update_miniapp_teacher_profile,
     upsert_miniapp_product,
     upsert_miniapp_warehouse,
 )
@@ -992,6 +995,28 @@ async def miniapp_update_staff_assignment(
     )
     try:
         return await update_miniapp_staff_assignment(
+            db,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.put("/teacher/profile", response_model=MiniAppTeacherProfileRead)
+async def miniapp_update_teacher_profile(
+    payload: MiniAppTeacherProfileUpdate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppTeacherProfileRead:
+    settings = get_settings()
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await update_miniapp_teacher_profile(
             db,
             payload=payload,
             default_tenant_slug=settings.default_tenant_slug,

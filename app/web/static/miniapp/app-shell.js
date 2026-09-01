@@ -856,9 +856,12 @@ function setActiveStudent(studentId) {
 function renderStatus() {
   const student = selectedStudent();
   const isStaff = ["teacher", "admin"].includes(state.role);
-  const accountName = state.account?.display_name?.trim() || "";
   const primaryRole =
     primaryStaffRole() || (state.role === "admin" ? "admin" : "teacher");
+  const accountName =
+    (primaryRole === "teacher" ? teacherProfileDisplayName() : "") ||
+    state.account?.display_name?.trim() ||
+    "";
   const profileRole = staffRoleProfileLabel(primaryRole);
   const roleStudents = studentsForCurrentRole();
   const linkedCount = roleStudents.length;

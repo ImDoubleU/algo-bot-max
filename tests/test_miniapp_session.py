@@ -38,6 +38,7 @@ from app.schemas.miniapp import (
     MiniAppStudentBalanceUpdate,
     MiniAppStudentCreate,
     MiniAppStudentStatusUpdate,
+    MiniAppTeacherProfileUpdate,
 )
 from app.services.access import create_contact_access_links
 from app.services.birthday_rewards import grant_birthday_rewards
@@ -57,6 +58,7 @@ from app.services.miniapp import (
     update_miniapp_access_link_status,
     update_miniapp_staff_assignment,
     update_miniapp_student_status,
+    update_miniapp_teacher_profile,
 )
 
 
@@ -663,6 +665,84 @@ async def test_admin_can_assign_teacher_staff_role(db_session) -> None:
         assignment.max_user_id == 1001 and assignment.role == StaffRole.TEACHER
         for assignment in session.staff_assignments
     )
+
+
+async def test_teacher_profile_automatically_links_imported_groups(db_session) -> None:
+    defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+    first_group = replace(
+        crm_row(),
+        teacher_name="Иванова Анна",
+        group_name="Python, понедельник",
+    )
+    await upsert_crm_student_rows(db_session, [first_group], defaults=defaults)
+    student = await db_session.scalar(select(Student).where(Student.lms_student_id == "ST-001"))
+    assert student is not None
+
+    teacher = MaxAccount(max_user_id=8801, display_name="max_nickname")
+    db_session.add(teacher)
+    await db_session.flush()
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=teacher.id,
+            role=StaffRole.TEACHER,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    initial_session = await get_miniapp_session(
+        db_session,
+        max_user_id=8801,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    assert initial_session.teacher_profile is not None
+    assert initial_session.teacher_profile.completed is False
+    assert initial_session.students == []
+
+    profile = await update_miniapp_teacher_profile(
+        db_session,
+        payload=MiniAppTeacherProfileUpdate(
+            max_user_id=8801,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            first_name="Анна",
+            last_name="Иванова",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    assert profile.completed is True
+    assert profile.matched_group_names == ["Python, понедельник"]
+    assert profile.matched_student_count == 1
+
+    second_group = replace(
+        crm_row(),
+        row_number=3,
+        deal_id="second-group-deal",
+        uuid="second-group-uuid",
+        lms_student_id="ST-002",
+        first_name="Борис",
+        last_name="Петров",
+        group_name="Scratch, вторник",
+        teacher_name="Анна Иванова",
+        contact_ids="682",
+    )
+    await upsert_crm_student_rows(db_session, [second_group], defaults=defaults)
+
+    linked_session = await get_miniapp_session(
+        db_session,
+        max_user_id=8801,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    assert linked_session.teacher_profile is not None
+    assert linked_session.teacher_profile.matched_group_names == [
+        "Python, понедельник",
+        "Scratch, вторник",
+    ]
+    assert linked_session.teacher_profile.matched_student_count == 2
+    assert {item.group_name for item in linked_session.students} == {
+        "Python, понедельник",
+        "Scratch, вторник",
+    }
 
 
 async def test_admin_cannot_assign_elevated_staff_role(db_session) -> None:

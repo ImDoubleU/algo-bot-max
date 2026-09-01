@@ -24,7 +24,7 @@ from app.models.enums import (
 from app.models.store import Order, Product, WarehouseInventory
 from app.models.student import Student, StudentAccessLink
 from app.models.tenant import Tenant
-from app.services.staff import staff_names_match
+from app.services.staff import staff_names_match, teacher_staff_name
 from app.services.staff_notifications import staff_notification_user_ids
 from app.services.student_access_policy import student_access_window
 
@@ -332,21 +332,23 @@ async def schedule_teacher_order_transfer_notification(
     ):
         return
 
-    teacher_accounts = (
-        await db.scalars(
-            select(MaxAccount)
-            .join(StaffRoleAssignment, StaffRoleAssignment.account_id == MaxAccount.id)
-            .where(
-                StaffRoleAssignment.tenant_id == tenant.id,
-                StaffRoleAssignment.role == StaffRole.TEACHER,
-                StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+    teacher_accounts = list(
+        (
+            await db.scalars(
+                select(MaxAccount)
+                .join(StaffRoleAssignment, StaffRoleAssignment.account_id == MaxAccount.id)
+                .where(
+                    StaffRoleAssignment.tenant_id == tenant.id,
+                    StaffRoleAssignment.role == StaffRole.TEACHER,
+                    StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+                )
             )
-        )
-    ).unique().all()
+        ).unique().all()
+    )
     user_ids = {
         account.max_user_id
         for account in teacher_accounts
-        if staff_names_match(account.display_name, teacher_name)
+        if staff_names_match(teacher_staff_name(account), teacher_name)
     }
     if not user_ids:
         return

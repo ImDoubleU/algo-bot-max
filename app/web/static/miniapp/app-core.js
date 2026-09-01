@@ -61,6 +61,9 @@ const state = {
   role: "student",
   account: null,
   staffRoles: [],
+  teacherProfile: null,
+  teacherProfileSaving: false,
+  teacherProfileDialogOpen: false,
   currentTenant: null,
   defaultWarehouseId: "",
   availableTenants: [],
@@ -1938,6 +1941,17 @@ function applySession(session) {
     : DEFAULT_ACCRUAL_RULES.map((rule) => ({ ...rule }));
   state.account = session.account || null;
   state.staffRoles = Array.isArray(session.staff_roles) ? session.staff_roles : [];
+  state.teacherProfile = session.teacher_profile
+    ? {
+        firstName: session.teacher_profile.first_name || "",
+        lastName: session.teacher_profile.last_name || "",
+        completed: Boolean(session.teacher_profile.completed),
+        matchedGroupNames: Array.isArray(session.teacher_profile.matched_group_names)
+          ? session.teacher_profile.matched_group_names.filter(Boolean)
+          : [],
+        matchedStudentCount: Number(session.teacher_profile.matched_student_count || 0),
+      }
+    : null;
   if (!state.hasAccess) {
     students = [];
     orders = [];
@@ -2061,6 +2075,12 @@ function applySession(session) {
   );
   state.role = staffRole || (hasParentRole ? "parent" : "student");
   state.sessionLoaded = true;
+}
+
+function teacherProfileDisplayName() {
+  const profile = state.teacherProfile;
+  if (!profile?.completed) return "";
+  return [profile.lastName, profile.firstName].filter(Boolean).join(" ").trim();
 }
 
 function applyAccessGate(message = state.accessMessage || "") {
