@@ -649,12 +649,38 @@ let orders = [
   },
 ];
 
+if (apiContext.demoMode) {
+  orders.forEach((order, index) => {
+    const daysAgo = Math.min(Math.floor(index / 2), 2);
+    const createdAt = new Date(sessionStartedAt);
+    createdAt.setDate(createdAt.getDate() - daysAgo);
+    createdAt.setHours(9 + (index % 6), 10 + index * 3, 0, 0);
+    order.createdAt = createdAt.toISOString();
+    order.statusHistory = (order.statusHistory || []).map((event, eventIndex) => {
+      const eventAt = new Date(createdAt);
+      eventAt.setMinutes(eventAt.getMinutes() + 20 + eventIndex * 10);
+      return { ...event, createdAt: eventAt.toISOString() };
+    });
+  });
+}
+
 let ledger = [
   ["16.06", "Начисление за проект на уроке", "+120 AC", "demo-alisa"],
   ["14.06", "Покупка: ручка металл с лого", "-120 AC", "demo-alisa"],
   ["12.06", "Бонус за домашнее задание", "+80 AC", "demo-ivan"],
   ["10.06", "Корректировка администратора", "+40 AC", "demo-mark"],
 ];
+
+if (apiContext.demoMode) {
+  ledger = ledger.map((entry, index) => {
+    const value = new Date(sessionStartedAt);
+    value.setDate(value.getDate() - index);
+    return [
+      value.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }),
+      ...entry.slice(1),
+    ];
+  });
+}
 
 const warehouses = [
   ["Общий склад", "common", "Нижний Новгород", "148 позиций", "Активен"],
@@ -2068,8 +2094,9 @@ async function loadParentInvitations() {
         student.id,
         {
           data: {
-            qr_data_url: `/miniapp/static/assets/${student.id}-qr.svg`,
-            qr_download_url: `/miniapp/static/assets/${student.id}-qr.svg`,
+            demo: true,
+            qr_data_url: "/miniapp/static/assets/safe-qr-placeholder.svg",
+            qr_download_url: "/miniapp/static/assets/safe-qr-placeholder.svg",
             bot_url: `https://max.ru/id525601030904_3_bot?start=student_demo-${student.id}`,
           },
           demo: true,
@@ -2137,8 +2164,9 @@ async function loadTeacherInvitations(force = false) {
                 group_name: student.group,
                 available: true,
                 parent_connected: true,
-                qr_data_url: `/miniapp/static/assets/${student.id}-qr.svg`,
-                qr_download_url: `/miniapp/static/assets/${student.id}-qr.svg`,
+                demo: true,
+                qr_data_url: "/miniapp/static/assets/safe-qr-placeholder.svg",
+                qr_download_url: "/miniapp/static/assets/safe-qr-placeholder.svg",
                 bot_url: "",
               }
             : {

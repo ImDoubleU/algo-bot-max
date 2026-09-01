@@ -47,6 +47,7 @@ function renderTeacherInvitations() {
             <article class="teacher-qr-card is-connected">
               <button type="button" class="teacher-qr-preview" data-open-student-qr="${escapeHtml(student.id)}" aria-label="Показать QR-код ${escapeHtml(student.name)}">
                 <img src="${escapeHtml(data.qr_data_url)}" alt="QR-код: ${escapeHtml(student.name)}" />
+                ${data.demo ? '<small class="safe-qr-label">Пример, не сканировать</small>' : ""}
               </button>
               <span class="teacher-qr-copy">
                 <strong>${escapeHtml(student.name)}</strong>

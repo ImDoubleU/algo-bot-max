@@ -19,6 +19,7 @@ TTS_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("QR", "кью ар"),
     ("AC", "астрокоины"),
     ("XLSX", "файл Эксель"),
+    ("CSV", "си эс ви"),
     ("Excel", "Эксель"),
     ("JPEG", "джейпег"),
     ("PNG", "пи эн джи"),
@@ -67,7 +68,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--length-scale", type=float, default=0.94)
-    parser.add_argument("--slide-padding", type=float, default=0.7)
+    parser.add_argument("--slide-padding", type=float, default=0.35)
     return parser.parse_args()
 
 
@@ -78,6 +79,10 @@ def main() -> None:
         raise ValueError("Narration JSON must contain a non-empty slide list")
     if not args.model.exists():
         raise FileNotFoundError(args.model)
+
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    for stale_track in args.output_dir.glob("slide-*.wav"):
+        stale_track.unlink()
 
     voice = PiperVoice.load(str(args.model))
     manifest: list[dict[str, object]] = []
@@ -96,8 +101,9 @@ def main() -> None:
             {
                 "Slide": index,
                 "Path": str(output_path),
-                "Duration": max(1, int(duration + args.slide_padding + 0.999)),
+                "Duration": max(0.75, round(duration + args.slide_padding, 3)),
                 "AudioSeconds": round(duration, 3),
+                "PaddingSeconds": round(args.slide_padding, 3),
             }
         )
         print(f"[{index:02d}/{len(narration):02d}] {duration:.1f}s")

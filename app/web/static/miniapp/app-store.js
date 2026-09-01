@@ -114,6 +114,7 @@ function renderParentInvitations() {
                 src="${escapeHtml(invitation.data.qr_data_url)}"
                 alt="QR-код для входа: ${escapeHtml(student.name)}"
               />
+              ${invitation.data.demo ? '<small class="safe-qr-label">Пример, не сканировать</small>' : ""}
               <span><i data-lucide="maximize-2"></i> Увеличить</span>
             </button>
             <div class="parent-invite-help">
@@ -160,6 +161,8 @@ function openStudentQrPreview(studentId) {
   const image = qs("#studentQrPreviewImage");
   image.src = invitation.qr_data_url;
   image.alt = `QR-код для входа: ${student.name}`;
+  const safetyLabel = qs("#studentQrSafetyLabel");
+  if (safetyLabel) safetyLabel.hidden = !invitation.demo;
   qs("#saveStudentQrPreviewButton").dataset.saveStudentQr = studentId;
   qs("#openStudentQrFileButton").dataset.openStudentQrFile = studentId;
   const copyButton = qs("#copyStudentQrLinkButton");
@@ -717,7 +720,7 @@ function renderCheckoutSummary() {
         <strong>${isDigitalCheckout ? "Где найти код после покупки" : "Что будет после оформления"}</strong>
         <span>${
           isDigitalCheckout
-            ? `Откройте «Заказы» → «${["student", "parent"].includes(state.role) ? "Получены" : "Переданы ученикам"}» и нажмите на заказ. Код и кнопка копирования будут внутри.`
+            ? "Откройте «Заказы» → «Получены» и нажмите на заказ. Код и кнопка копирования будут внутри."
             : "Заказ появится в разделе «Зарезервированы». Затем сотрудник выберет склад и начнет комплектацию."
         }</span>
       </div>
@@ -1180,7 +1183,7 @@ function renderOrderStatusTabs() {
         ["fulfillment_route", "Распределить", fulfillmentSnapshotOrdersForStage("route").length],
         ["delivered_to_venue", "На площадке", countByStatus("delivered_to_venue")],
         ["transferred_to_teacher", "У учителя", countByStatus("transferred_to_teacher")],
-        ["issued_to_student", "Переданы ученикам", countByStatus("issued_to_student")],
+        ["issued_to_student", "Получены", countByStatus("issued_to_student")],
         ["cancelled", "Отменены", countByStatus("cancelled")],
       ]
     : [
@@ -1191,7 +1194,7 @@ function renderOrderStatusTabs() {
         ["transferred_to_teacher", "У учителя"],
         [
           "issued_to_student",
-          ["student", "parent"].includes(state.role) ? "Получены" : "Переданы ученикам",
+          "Получены",
         ],
         ["cancelled", "Отменены"],
       ].map(([value, label]) => [
