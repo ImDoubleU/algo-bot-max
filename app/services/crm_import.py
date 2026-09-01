@@ -458,7 +458,7 @@ def parse_crm_workbook(
             continue
 
         raw_row = {
-            field: values[index]
+            field: values[index] if index < len(values) else None
             for index, field in header_mapping.items()
         }
         row = {field: normalize_text(value) for field, value in raw_row.items()}

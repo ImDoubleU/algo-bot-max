@@ -12,6 +12,7 @@ from app.services.crm_import import (
     build_crm_import_template,
     parse_crm_students,
     parse_crm_students_content,
+    parse_crm_workbook,
 )
 
 SHEET_DEALS = "\u0421\u0434\u0435\u043b\u043a\u0438"
@@ -136,6 +137,36 @@ def test_standard_template_ignores_other_sheets_and_columns() -> None:
     assert rows[0].deal_id == "1357"
     assert rows[0].birth_date == date(2015, 4, 15)
     assert rows[0].city == "Нижний Новгород"
+
+
+def test_standard_template_skips_empty_rows_without_trailing_cells() -> None:
+    headers = tuple(column[1] for column in CRM_TEMPLATE_COLUMNS)
+    values = tuple(column[4] for column in CRM_TEMPLATE_COLUMNS)
+
+    class ShortRowSheet:
+        title = CRM_TEMPLATE_SHEET_NAME
+
+        def iter_rows(self, *, values_only: bool):
+            assert values_only is True
+            return iter((headers, values, ()))
+
+    sheet = ShortRowSheet()
+
+    class ShortRowWorkbook:
+        sheetnames = [CRM_TEMPLATE_SHEET_NAME]
+        worksheets = [sheet]
+
+        def __getitem__(self, name: str):
+            assert name == CRM_TEMPLATE_SHEET_NAME
+            return sheet
+
+    rows = parse_crm_workbook(
+        ShortRowWorkbook(),
+        sheet_name=CRM_TEMPLATE_SHEET_NAME,
+    )
+
+    assert len(rows) == 1
+    assert rows[0].lms_student_id == values[0]
 
 
 def test_standard_template_rejects_duplicate_student_ids() -> None:
