@@ -16,6 +16,7 @@ function renderAll() {
   renderTeacherInvitations();
   renderBroadcasts();
   renderAdminPanel();
+  syncTeacherProfileControl();
   refreshIcons();
 }
 
@@ -1948,6 +1949,127 @@ async function placeOrder() {
   }
 }
 
+function teacherProfileRequired() {
+  return (
+    !apiContext.demoMode &&
+    state.role === "teacher" &&
+    primaryStaffRole() === "teacher" &&
+    state.teacherProfile !== null &&
+    !state.teacherProfile.completed
+  );
+}
+
+function renderTeacherProfileMatches() {
+  const container = qs("#teacherProfileMatches");
+  const profile = state.teacherProfile;
+  if (!container) return;
+  if (!profile?.completed) {
+    container.hidden = true;
+    container.innerHTML = "";
+    return;
+  }
+  const groups = profile.matchedGroupNames || [];
+  const groupText = groups.length
+    ? groups.map((group) => escapeHtml(group)).join(" · ")
+    : "Группы пока не найдены. Они появятся автоматически после импорта CRM.";
+  container.hidden = false;
+  container.innerHTML = `
+    <strong>Найдено учеников: ${escapeHtml(profile.matchedStudentCount)}</strong>
+    <span>${groupText}</span>
+  `;
+}
+
+function openTeacherProfileDialog({ required = teacherProfileRequired() } = {}) {
+  if (apiContext.demoMode || primaryStaffRole() !== "teacher") return;
+  const dialog = qs("#teacherProfileDialog");
+  if (!dialog) return;
+  state.teacherProfileDialogOpen = true;
+  dialog.hidden = false;
+  dialog.classList.toggle("is-required", required);
+  document.body.classList.add("dialog-open");
+  const profile = state.teacherProfile;
+  qs("#teacherProfileLastName").value = profile?.lastName || "";
+  qs("#teacherProfileFirstName").value = profile?.firstName || "";
+  qs("#teacherProfileError").hidden = true;
+  qs("#teacherProfileDialogTitle").textContent = required
+    ? "Укажите фамилию и имя"
+    : "ФИО преподавателя";
+  renderTeacherProfileMatches();
+  refreshIcons();
+  window.setTimeout(() => qs("#teacherProfileLastName")?.focus(), 40);
+}
+
+function closeTeacherProfileDialog(force = false) {
+  if (teacherProfileRequired() && !force) return;
+  const dialog = qs("#teacherProfileDialog");
+  if (!dialog) return;
+  dialog.hidden = true;
+  dialog.classList.remove("is-required");
+  state.teacherProfileDialogOpen = false;
+  document.body.classList.remove("dialog-open");
+  qs("#editTeacherProfileButton")?.focus();
+}
+
+function syncTeacherProfileControl() {
+  const editButton = qs("#editTeacherProfileButton");
+  const isTeacher = state.role === "teacher" && primaryStaffRole() === "teacher";
+  if (editButton) editButton.hidden = !isTeacher || !state.teacherProfile?.completed;
+  if (teacherProfileRequired()) {
+    openTeacherProfileDialog({ required: true });
+  } else if (state.teacherProfileDialogOpen) {
+    renderTeacherProfileMatches();
+  }
+}
+
+async function saveTeacherProfile(event) {
+  event.preventDefault();
+  if (state.teacherProfileSaving || apiContext.demoMode) return;
+  const form = event.currentTarget;
+  if (!(form instanceof HTMLFormElement) || !form.reportValidity()) return;
+  const data = new FormData(form);
+  const error = qs("#teacherProfileError");
+  const saveButton = qs("#saveTeacherProfileButton");
+  state.teacherProfileSaving = true;
+  if (error) error.hidden = true;
+  if (saveButton) saveButton.disabled = true;
+
+  try {
+    const response = await apiFetch("/api/v1/miniapp/teacher/profile", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        max_user_id: apiContext.maxUserId,
+        tenant_slug: apiContext.tenantSlug,
+        first_name: String(data.get("first_name") || "").trim(),
+        last_name: String(data.get("last_name") || "").trim(),
+      }),
+    });
+    if (!response.ok) throw new Error(await parseApiError(response));
+    const profile = await response.json();
+    closeTeacherProfileDialog(true);
+    state.teacherInvitations = new Map();
+    state.teacherInvitationsLoaded = false;
+    await loadSession();
+    await loadOpsSummary();
+    await loadTeacherInvitations(true);
+    renderAll();
+    const groupCount = Number(profile.matched_group_names?.length || 0);
+    showNotice(
+      groupCount > 0
+        ? `Профиль сохранен. Подключено групп: ${groupCount}`
+        : "Профиль сохранен. Группы появятся после импорта CRM.",
+    );
+  } catch (saveError) {
+    if (error) {
+      error.textContent = saveError.message || "Не удалось сохранить ФИО";
+      error.hidden = false;
+    }
+  } finally {
+    state.teacherProfileSaving = false;
+    if (saveButton) saveButton.disabled = false;
+  }
+}
+
 document.addEventListener("click", (event) => {
   const clickedElement = event.target instanceof Element ? event.target : null;
   if (!clickedElement?.closest(".broadcast-message-control")) {
@@ -2625,6 +2747,10 @@ qs("#staffNotificationDialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) closeStaffNotificationSettings();
 });
 
+qs("#teacherProfileDialog")?.addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) closeTeacherProfileDialog();
+});
+
 document.addEventListener("keydown", (event) => {
   const productCard = event.target instanceof Element ? event.target.closest("[data-product-card]") : null;
   if (productCard && !event.target.closest("button, input, select, textarea, a") && ["Enter", " "].includes(event.key)) {
@@ -2633,6 +2759,10 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   if (event.key !== "Escape") return;
+  if (!qs("#teacherProfileDialog")?.hidden) {
+    closeTeacherProfileDialog();
+    return;
+  }
   if (!qs("#broadcastEmojiPicker")?.hidden) {
     closeBroadcastEmojiPicker();
     qs("#broadcastEmojiButton")?.focus();
@@ -3017,6 +3147,12 @@ qs("#studentSelect").addEventListener("change", (event) => {
 qs("#openCartButton").addEventListener("click", () => setView("cart"));
 qs("#openWalletButton")?.addEventListener("click", () => setView("wallet"));
 qs("#refreshDataButton").addEventListener("click", refreshAllData);
+qs("#editTeacherProfileButton")?.addEventListener("click", () => {
+  openTeacherProfileDialog({ required: false });
+});
+qs("#closeTeacherProfileButton")?.addEventListener("click", () => closeTeacherProfileDialog());
+qs("#cancelTeacherProfileButton")?.addEventListener("click", () => closeTeacherProfileDialog());
+qs("#teacherProfileForm")?.addEventListener("submit", saveTeacherProfile);
 qs("#tenantSwitcherButton")?.addEventListener("click", openTenantDialog);
 qs("#openAccrualRulesButton")?.addEventListener("click", openAccrualRulesDialog);
 qs("#closeAccrualRulesButton")?.addEventListener("click", closeAccrualRulesDialog);

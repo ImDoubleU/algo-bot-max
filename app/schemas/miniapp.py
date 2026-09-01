@@ -605,6 +605,21 @@ class MiniAppStaffAssignmentUpdate(BaseModel):
     display_name: str | None = Field(default=None, max_length=160)
 
 
+class MiniAppTeacherProfileRead(BaseModel):
+    first_name: str | None = None
+    last_name: str | None = None
+    completed: bool = False
+    matched_group_names: list[str] = Field(default_factory=list)
+    matched_student_count: int = 0
+
+
+class MiniAppTeacherProfileUpdate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    first_name: str = Field(min_length=2, max_length=80)
+    last_name: str = Field(min_length=2, max_length=80)
+
+
 class MiniAppStaffInvitationCreate(BaseModel):
     max_user_id: int = Field(gt=0)
     tenant_slug: str | None = None
@@ -750,6 +765,7 @@ class MiniAppSessionRead(BaseModel):
     account: MiniAppAccountRead | None
     staff_roles: list[StaffRole]
     student_roles: list[StudentAccessRole]
+    teacher_profile: MiniAppTeacherProfileRead | None = None
     tenant: MiniAppTenantRead | None = None
     available_tenants: list[MiniAppTenantRead] = Field(default_factory=list)
     can_manage_tenants: bool = False

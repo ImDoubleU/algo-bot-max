@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.78.3" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.79.0" />
   </head>
   <body class="is-booting">
     <main id="accessGate" class="access-gate" hidden>
@@ -88,6 +88,9 @@
                 <p class="status-profile-label">Личный профиль</p>
                 <strong id="profileTitle">Алиса, ученик</strong>
                 <span id="statusTenantTitle" class="status-tenant" hidden></span>
+                <button id="editTeacherProfileButton" class="teacher-profile-edit" type="button" hidden>
+                  <i data-lucide="user-round-pen"></i><span>Изменить ФИО</span>
+                </button>
               </div>
             </div>
             <div id="studentContext" class="status-context" hidden>
@@ -749,6 +752,49 @@
         </section>
       </main>
 
+      <div id="teacherProfileDialog" class="dialog-backdrop teacher-profile-backdrop" hidden>
+        <section
+          class="checkout-dialog teacher-profile-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="teacherProfileDialogTitle"
+          aria-describedby="teacherProfileDialogHint"
+        >
+          <div class="dialog-head">
+            <div>
+              <p class="eyebrow">Привязка групп</p>
+              <h2 id="teacherProfileDialogTitle">Укажите фамилию и имя</h2>
+            </div>
+            <button id="closeTeacherProfileButton" class="icon-button dialog-close" type="button" title="Закрыть" aria-label="Закрыть">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <form id="teacherProfileForm" class="teacher-profile-form">
+            <p id="teacherProfileDialogHint" class="dialog-hint">
+              Введите Имя и Фамилию как в LMS.
+            </p>
+            <div class="teacher-profile-fields">
+              <label>
+                <span>Фамилия</span>
+                <input id="teacherProfileLastName" name="last_name" type="text" minlength="2" maxlength="80" autocomplete="family-name" required />
+              </label>
+              <label>
+                <span>Имя</span>
+                <input id="teacherProfileFirstName" name="first_name" type="text" minlength="2" maxlength="80" autocomplete="given-name" required />
+              </label>
+            </div>
+            <div id="teacherProfileMatches" class="teacher-profile-matches" hidden></div>
+            <p id="teacherProfileError" class="teacher-profile-error" role="alert" hidden></p>
+            <div class="dialog-actions teacher-profile-actions">
+              <button id="cancelTeacherProfileButton" class="secondary-action" type="button">Отмена</button>
+              <button id="saveTeacherProfileButton" class="primary-action" type="submit">
+                <i data-lucide="users-round"></i><span>Найти мои группы</span>
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+
       <div id="checkoutDialog" class="dialog-backdrop" hidden>
         <section
           class="checkout-dialog"
@@ -1044,11 +1090,11 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app-core.js?v=0.78.3"></script>
-    <script src="/miniapp/static/app-shell.js?v=0.78.3"></script>
-    <script src="/miniapp/static/app-store.js?v=0.78.3"></script>
-    <script src="/miniapp/static/app-admin.js?v=0.78.3"></script>
-    <script src="/miniapp/static/app-communications.js?v=0.78.3"></script>
-    <script src="/miniapp/static/app.js?v=0.78.3"></script>
+    <script src="/miniapp/static/app-core.js?v=0.79.0"></script>
+    <script src="/miniapp/static/app-shell.js?v=0.79.0"></script>
+    <script src="/miniapp/static/app-store.js?v=0.79.0"></script>
+    <script src="/miniapp/static/app-admin.js?v=0.79.0"></script>
+    <script src="/miniapp/static/app-communications.js?v=0.79.0"></script>
+    <script src="/miniapp/static/app.js?v=0.79.0"></script>
   </body>
 </html>

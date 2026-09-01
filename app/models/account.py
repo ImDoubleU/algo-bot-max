@@ -16,6 +16,9 @@ class MaxAccount(TimestampMixin, Base):
     username: Mapped[str | None] = mapped_column(String(120))
     display_name: Mapped[str | None] = mapped_column(String(160))
     phone: Mapped[str | None] = mapped_column(String(40))
+    staff_first_name: Mapped[str | None] = mapped_column(String(80))
+    staff_last_name: Mapped[str | None] = mapped_column(String(80))
+    staff_profile_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     staff_assignments = relationship("StaffRoleAssignment", back_populates="account")
     student_links = relationship("StudentAccessLink", back_populates="account")

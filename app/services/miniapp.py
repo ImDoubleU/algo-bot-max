@@ -121,6 +121,8 @@ from app.schemas.miniapp import (
     MiniAppStudentRead,
     MiniAppStudentRegistryRead,
     MiniAppStudentStatusUpdate,
+    MiniAppTeacherProfileRead,
+    MiniAppTeacherProfileUpdate,
     MiniAppTenantCreate,
     MiniAppTenantCreatedRead,
     MiniAppTenantRead,
@@ -170,6 +172,7 @@ from app.services.staff import (
     staff_names_match,
     staff_venue_scope_ids,
     superadmin_identity_is_allowed,
+    teacher_staff_name,
 )
 from app.services.staff_invitations import (
     build_max_bot_staff_invitation_deeplink,
@@ -466,11 +469,71 @@ async def _active_staff_role(
 
 
 def _teacher_owns_student(account: MaxAccount, student: Student) -> bool:
-    return staff_names_match(account.display_name, student.teacher_name)
+    return staff_names_match(teacher_staff_name(account), student.teacher_name)
 
 
 def _teacher_owns_order(account: MaxAccount, order: Order, student: Student) -> bool:
-    return staff_names_match(account.display_name, order.teacher_name or student.teacher_name)
+    return staff_names_match(
+        teacher_staff_name(account),
+        order.teacher_name or student.teacher_name,
+    )
+
+
+def _clean_teacher_profile_name_part(value: str, *, field_label: str) -> str:
+    cleaned = " ".join(value.strip().split())
+    if len(cleaned) < 2 or not any(character.isalpha() for character in cleaned):
+        raise MiniAppStoreError(f"Укажите {field_label}", status_code=422)
+    if not all(character.isalpha() or character in " -'" for character in cleaned):
+        raise MiniAppStoreError(
+            f"Поле «{field_label.capitalize()}» может содержать только буквы, пробел и дефис",
+            status_code=422,
+        )
+    return cleaned
+
+
+async def _teacher_profile_read(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    account: MaxAccount,
+) -> MiniAppTeacherProfileRead:
+    matching_name = teacher_staff_name(account)
+    matched_students: list[Student] = []
+    if matching_name:
+        candidates = list(
+            (
+                await db.scalars(
+                    select(Student).where(
+                        Student.tenant_id == tenant_id,
+                        Student.status == StudentStatus.ACTIVE,
+                    )
+                )
+            ).all()
+        )
+        matched_students = [
+            student
+            for student in candidates
+            if staff_names_match(matching_name, student.teacher_name)
+        ]
+    group_names = sorted(
+        {
+            student.group_name.strip()
+            for student in matched_students
+            if student.group_name and student.group_name.strip()
+        },
+        key=str.casefold,
+    )
+    return MiniAppTeacherProfileRead(
+        first_name=account.staff_first_name,
+        last_name=account.staff_last_name,
+        completed=bool(
+            account.staff_profile_completed_at
+            and account.staff_first_name
+            and account.staff_last_name
+        ),
+        matched_group_names=group_names,
+        matched_student_count=len(matched_students),
+    )
 
 
 async def _teacher_order_scope(
@@ -479,7 +542,8 @@ async def _teacher_order_scope(
     tenant_id: UUID,
     account: MaxAccount,
 ) -> tuple[set[UUID], set[UUID]]:
-    if not normalize_staff_name(account.display_name):
+    matching_name = teacher_staff_name(account)
+    if not normalize_staff_name(matching_name):
         return set(), set()
     rows = (
         await db.execute(
@@ -495,7 +559,7 @@ async def _teacher_order_scope(
     student_ids: set[UUID] = set()
     for order_id, student_id, order_teacher_name, current_teacher_name in rows:
         if not staff_names_match(
-            account.display_name,
+            matching_name,
             order_teacher_name or current_teacher_name,
         ):
             continue
@@ -2634,7 +2698,7 @@ async def get_miniapp_session(
             current_teacher_students = [
                 student
                 for student in tenant_students
-                if staff_names_match(account.display_name, student.teacher_name)
+                if _teacher_owns_student(account, student)
             ]
             visible_order_ids, order_student_ids = await _teacher_order_scope(
                 db,
@@ -2748,6 +2812,11 @@ async def get_miniapp_session(
         tenant_id=tenant.id,
         actor_roles=staff_roles,
     )
+    teacher_profile = (
+        await _teacher_profile_read(db, tenant_id=tenant.id, account=account)
+        if StaffRole.TEACHER in effective_staff_roles
+        else None
+    )
     default_warehouse_id = None
     if staff_roles:
         default_warehouse_id = await db.scalar(
@@ -2767,6 +2836,7 @@ async def get_miniapp_session(
         ),
         staff_roles=staff_roles,
         student_roles=sorted(set(explicit_student_roles)),
+        teacher_profile=teacher_profile,
         tenant=_tenant_to_read(tenant),
         available_tenants=(
             await _active_tenants_for_superadmin(db)
@@ -5168,7 +5238,12 @@ async def get_miniapp_accrual_report(
         MiniAppAccrualReportEntryRead(
             created_at=entry.created_at,
             teacher_id=UUID(str(actor.id)),
-            teacher_name=actor.display_name or actor.username or str(actor.max_user_id),
+            teacher_name=(
+                teacher_staff_name(actor)
+                or actor.display_name
+                or actor.username
+                or str(actor.max_user_id)
+            ),
             teacher_role=roles_by_actor.get(entry.actor_account_id),
             student_id=UUID(str(student.id)),
             student_name=student.display_name,
@@ -5529,6 +5604,95 @@ async def update_miniapp_staff_assignment(
         role=assignment.role,
         status=assignment.status,
     )
+
+
+async def update_miniapp_teacher_profile(
+    db: AsyncSession,
+    *,
+    payload: MiniAppTeacherProfileUpdate,
+    default_tenant_slug: str,
+) -> MiniAppTeacherProfileRead:
+    tenant_slug = (payload.tenant_slug or default_tenant_slug).strip().lower()
+    tenant = await get_tenant_by_slug(db, tenant_slug)
+    if tenant is None:
+        raise MiniAppStoreError("Город или партнер не найден", status_code=404)
+
+    account = await db.scalar(
+        select(MaxAccount)
+        .where(MaxAccount.max_user_id == payload.max_user_id)
+        .with_for_update()
+    )
+    if account is None:
+        raise MiniAppStoreError("Сначала подключите аккаунт в MAX", status_code=403)
+
+    teacher_assignment = await db.scalar(
+        select(StaffRoleAssignment).where(
+            StaffRoleAssignment.tenant_id == tenant.id,
+            StaffRoleAssignment.account_id == account.id,
+            StaffRoleAssignment.role == StaffRole.TEACHER,
+            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+        )
+    )
+    if teacher_assignment is None:
+        raise MiniAppStoreError("Активная роль преподавателя не найдена", status_code=403)
+
+    first_name = _clean_teacher_profile_name_part(payload.first_name, field_label="имя")
+    last_name = _clean_teacher_profile_name_part(payload.last_name, field_label="фамилию")
+    candidate_name = f"{last_name} {first_name}"
+
+    other_teacher_accounts = list(
+        (
+            await db.scalars(
+                select(MaxAccount)
+                .join(
+                    StaffRoleAssignment,
+                    StaffRoleAssignment.account_id == MaxAccount.id,
+                )
+                .where(
+                    StaffRoleAssignment.tenant_id == tenant.id,
+                    StaffRoleAssignment.role == StaffRole.TEACHER,
+                    StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+                    MaxAccount.id != account.id,
+                    MaxAccount.staff_profile_completed_at.is_not(None),
+                )
+            )
+        ).unique().all()
+    )
+    duplicate_account = next(
+        (
+            other
+            for other in other_teacher_accounts
+            if normalize_staff_name(teacher_staff_name(other))
+            == normalize_staff_name(candidate_name)
+        ),
+        None,
+    )
+    if duplicate_account is not None:
+        raise MiniAppStoreError(
+            "Это ФИО уже связано с другим преподавателем. Обратитесь к администратору",
+            status_code=409,
+        )
+
+    previous_name = teacher_staff_name(account)
+    account.staff_first_name = first_name
+    account.staff_last_name = last_name
+    account.staff_profile_completed_at = datetime.now(UTC)
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_account_id=account.id,
+            action="teacher_profile.updated",
+            entity_type="max_account",
+            entity_id=str(account.id),
+            payload={
+                "previous_name": previous_name,
+                "current_name": candidate_name,
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(account)
+    return await _teacher_profile_read(db, tenant_id=tenant.id, account=account)
 
 
 async def create_miniapp_staff_invitation(

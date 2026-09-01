@@ -13306,3 +13306,136 @@ svg + .icon-fallback {
     grid-template-columns: repeat(6, minmax(36px, 1fr));
   }
 }
+/* Teacher identity and automatic CRM group matching */
+.teacher-profile-edit {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  padding: 1px 0;
+  background: transparent;
+  color: var(--brand-purple-dark);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.teacher-profile-edit:hover {
+  color: var(--brand-purple);
+}
+
+.teacher-profile-edit svg {
+  width: 13px;
+  height: 13px;
+}
+
+.teacher-profile-dialog {
+  width: min(560px, 100%);
+}
+
+.teacher-profile-form {
+  min-height: 0;
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+}
+
+.teacher-profile-form .dialog-hint {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.teacher-profile-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.teacher-profile-fields label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.teacher-profile-fields input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+}
+
+.teacher-profile-fields input:focus {
+  border-color: var(--brand-purple);
+  outline: 3px solid rgba(109, 53, 214, 0.14);
+}
+
+.teacher-profile-matches {
+  display: grid;
+  gap: 7px;
+  border-left: 3px solid #24a99a;
+  padding: 10px 12px;
+  background: #f1faf8;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.teacher-profile-matches[hidden] {
+  display: none;
+}
+
+.teacher-profile-matches strong,
+.teacher-profile-matches span {
+  overflow-wrap: anywhere;
+}
+
+.teacher-profile-error {
+  margin: 0;
+  border-left: 3px solid #d62f5b;
+  padding: 9px 11px;
+  background: #fff1f5;
+  color: #9f173b;
+  font-size: 13px;
+}
+
+.teacher-profile-actions {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+}
+
+.teacher-profile-actions .primary-action {
+  justify-content: center;
+  gap: 8px;
+}
+
+.teacher-profile-backdrop.is-required .dialog-close,
+.teacher-profile-backdrop.is-required #cancelTeacherProfileButton {
+  display: none;
+}
+
+.teacher-profile-backdrop.is-required .teacher-profile-actions {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 560px) {
+  .teacher-profile-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .teacher-profile-form {
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .teacher-profile-actions {
+    grid-template-columns: 1fr;
+  }
+}
