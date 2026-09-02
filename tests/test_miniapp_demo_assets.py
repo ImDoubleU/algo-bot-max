@@ -23,7 +23,7 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.82.0"}
+    assert set(versions) == {"0.83.0"}
 
 
 def test_admin_products_and_warehouses_have_delete_actions() -> None:
@@ -35,3 +35,28 @@ def test_admin_products_and_warehouses_have_delete_actions() -> None:
     assert "async function deleteProduct(productId)" in app_source
     assert "async function deleteWarehouse(warehouseId)" in app_source
     assert '{ method: "DELETE" }' in app_source
+    assert "Товар и все его остатки будут удалены" in app_source
+    assert "Сначала обнулите остатки" not in app_source
+
+
+def test_product_visibility_icon_reflects_current_state() -> None:
+    admin_source = (MINIAPP / "app-admin.js").read_text(encoding="utf-8")
+
+    assert '=== "active" ? "eye" : "eye-off"' in admin_source
+    assert "Товар доступен. Нажмите, чтобы скрыть" in admin_source
+    assert "Товар скрыт. Нажмите, чтобы опубликовать" in admin_source
+
+
+def test_accrual_rules_dialog_keeps_actions_outside_scroll_area() -> None:
+    index_source = (MINIAPP / "index.html").read_text(encoding="utf-8")
+    styles_source = (MINIAPP / "styles.css").read_text(encoding="utf-8")
+
+    content_start = index_source.index('<div class="accrual-rules-content">')
+    content_end = index_source.index('<div class="dialog-actions">', content_start)
+    scroll_content = index_source[content_start:content_end]
+
+    assert 'id="accrualRulesEditor"' in scroll_content
+    assert 'id="addAccrualRuleButton"' in scroll_content
+    assert 'id="saveAccrualRulesButton"' not in scroll_content
+    assert ".accrual-rules-content" in styles_source
+    assert "overflow-y: auto" in styles_source

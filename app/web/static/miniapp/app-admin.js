@@ -1340,7 +1340,7 @@ function renderAdminPanel() {
               </div>
               <div class="admin-entity-actions">
                 <strong>${product.price} AC</strong>
-                <button class="icon-button product-status-toggle" type="button" data-toggle-product-status="${escapeHtml(product.id)}" title="${(product.status || "active") === "active" ? "Скрыть товар" : "Опубликовать товар"}" aria-label="${(product.status || "active") === "active" ? "Скрыть товар" : "Опубликовать товар"}" ${savingDisabled}><i data-lucide="${(product.status || "active") === "active" ? "eye-off" : "eye"}"></i></button>
+                <button class="icon-button product-status-toggle" type="button" data-toggle-product-status="${escapeHtml(product.id)}" title="${(product.status || "active") === "active" ? "Товар доступен. Нажмите, чтобы скрыть" : "Товар скрыт. Нажмите, чтобы опубликовать"}" aria-label="${(product.status || "active") === "active" ? "Товар доступен. Скрыть товар" : "Товар скрыт. Опубликовать товар"}" ${savingDisabled}><i data-lucide="${(product.status || "active") === "active" ? "eye" : "eye-off"}"></i></button>
                 <button class="secondary-action" type="button" data-edit-product="${escapeHtml(
                   product.id,
                 )}" ${savingDisabled}>Редактировать</button>

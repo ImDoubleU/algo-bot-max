@@ -430,8 +430,7 @@ async function deleteProduct(productId) {
   const confirmed = await requestConfirmation({
     eyebrow: "Товары",
     title: `Удалить «${product.name}»?`,
-    message:
-      "Действие нельзя отменить. Товар удалится из каталога и корзин вместе с невыданными кодами. Товар с остатками или историей заказов удалить нельзя.",
+    message: "Товар и все его остатки будут удалены. Действие нельзя отменить.",
     confirmLabel: "Удалить товар",
     cancelLabel: "Отмена",
     destructive: true,
@@ -448,17 +447,6 @@ async function deleteProduct(productId) {
       if (usedInOrders) {
         throw new Error(
           "Нельзя удалить товар, который есть в заказах. Переведите его в архив, чтобы сохранить историю.",
-        );
-      }
-      const stockQuantity = product.fulfillmentType === "digital_code"
-        ? 0
-        : productWarehouses(product).reduce(
-            (total, warehouse) => total + Number(warehouse.stock || 0),
-            0,
-          );
-      if (stockQuantity > 0) {
-        throw new Error(
-          `Нельзя удалить товар: на складах числится ${stockQuantity} шт. Сначала обнулите остатки.`,
         );
       }
       products.splice(products.indexOf(product), 1);
