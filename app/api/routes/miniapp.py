@@ -779,16 +779,7 @@ async def miniapp_import_products(
 
 
 @router.get("/products/import-template")
-async def miniapp_product_import_template(
-    identity: MiniAppIdentityDep,
-    max_user_id: Annotated[int, Query(gt=0)],
-    tenant_slug: str | None = None,
-) -> Response:
-    _authorized_tenant_slug(
-        identity,
-        max_user_id=max_user_id,
-        tenant_slug=tenant_slug,
-    )
+async def miniapp_product_import_template() -> Response:
     return Response(
         content=build_product_import_template(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

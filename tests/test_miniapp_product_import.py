@@ -1,4 +1,7 @@
+import io
+
 import pytest
+from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -90,6 +93,27 @@ async def test_admin_imports_products_from_miniapp_csv(db_session) -> None:
     assert inventory.available_quantity == 18
 
 
+async def test_admin_imports_public_product_photo_url(db_session) -> None:
+    await seed_admin(db_session)
+    photo_url = "https://cdn.example.org/catalog/pen.png?size=large"
+    content = (
+        "Артикул,Название,Цена AC,Остаток,Склад,Ссылка на фото\n"
+        f"PEN-PHOTO,Ручка с фото,150,7,Главный склад,{photo_url}\n"
+    ).encode()
+
+    await import_miniapp_products(
+        db_session,
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        filename="products.csv",
+        content=content,
+    )
+
+    product = await db_session.scalar(select(Product).where(Product.sku == "PEN-PHOTO"))
+    assert product is not None
+    assert product.photo_url == photo_url
+
+
 async def test_admin_imports_product_without_sku_from_template(db_session) -> None:
     await seed_admin(db_session)
     rows = parse_product_rows("products.xlsx", build_product_import_template())
@@ -112,6 +136,28 @@ async def test_admin_imports_product_without_sku_from_template(db_session) -> No
     assert product.sku.startswith("PRD-")
 
 
+def test_product_import_template_contains_photo_link_column_and_example() -> None:
+    content = build_product_import_template()
+    workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    try:
+        assert workbook.sheetnames == ["Инструкция", "Товары", "Пример"]
+        headers = [cell.value for cell in next(workbook["Товары"].iter_rows(max_row=1))]
+        assert headers == [
+            "Артикул",
+            "Название",
+            "Категория",
+            "Цена AC",
+            "Склад",
+            "Остаток",
+            "Статус",
+            "Описание",
+            "Ссылка на фото",
+        ]
+        assert workbook["Пример"]["I2"].value.startswith("https://")
+    finally:
+        workbook.close()
+
+
 def test_product_import_accepts_semicolon_csv_and_rejects_duplicate_inventory() -> None:
     rows = parse_product_rows(
         "products.csv",
@@ -130,6 +176,18 @@ def test_product_import_accepts_semicolon_csv_and_rejects_duplicate_inventory() 
                 "sku,name,price,quantity,warehouse\n"
                 "PEN-1,Ручка,120,5,Главный склад\n"
                 "PEN-1,Ручка,120,7,Главный склад\n"
+            ).encode(),
+        )
+
+
+@pytest.mark.parametrize("photo_url", ["ftp://files.example.org/photo.jpg", "not-a-url"])
+def test_product_import_rejects_non_http_photo_url(photo_url: str) -> None:
+    with pytest.raises(ProductImportError, match="ссылка на фото должна начинаться"):
+        parse_product_rows(
+            "products.csv",
+            (
+                "sku,name,price,quantity,warehouse,photo_url\n"
+                f"PEN-1,Ручка,120,5,Главный склад,{photo_url}\n"
             ).encode(),
         )
 

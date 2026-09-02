@@ -60,6 +60,10 @@ class Settings(BaseSettings):
         default=None,
         alias="MAX_STAFF_INVITE_COMMAND",
     )
+    max_staff_approval_notifications_enabled: bool = Field(
+        default=False,
+        alias="MAX_STAFF_APPROVAL_NOTIFICATIONS_ENABLED",
+    )
     default_tenant_slug: str = Field(
         default="nizhniy-novgorod-partner-a",
         alias="DEFAULT_TENANT_SLUG",

@@ -518,15 +518,19 @@ function renderSyncStatus() {
   const label = qs("#lastSyncTime");
   const buttons = qsa("#refreshDataButton, [data-refresh-fulfillment]");
   if (!label || buttons.length === 0) return;
+  const refreshLabel = qs("#refreshDataButton span");
   if (state.refreshing) {
     label.textContent = "Обновление";
+    if (refreshLabel) refreshLabel.textContent = "Обновление...";
   } else if (state.lastSyncAt) {
     label.textContent = `Обновлено ${state.lastSyncAt.toLocaleTimeString("ru-RU", {
       hour: "2-digit",
       minute: "2-digit",
     })}`;
+    if (refreshLabel) refreshLabel.textContent = "Обновить";
   } else {
     label.textContent = "Данные не обновлялись";
+    if (refreshLabel) refreshLabel.textContent = "Обновить";
   }
   buttons.forEach((button) => {
     button.disabled = state.refreshing;
@@ -548,6 +552,7 @@ async function refreshAllData() {
   }
   if (applyAccessGate()) {
     state.refreshing = false;
+    renderSyncStatus();
     return;
   }
   const refreshTasks = [loadCatalog(), loadOpsSummary()];

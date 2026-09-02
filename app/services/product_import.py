@@ -5,12 +5,15 @@ import io
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 from zipfile import BadZipFile
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils.exceptions import InvalidFileException
+from openpyxl.worksheet.datavalidation import DataValidation
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -50,14 +53,19 @@ HEADER_ALIASES = {
     "description": "description",
     "описание": "description",
     "photo_url": "photo_url",
+    "image_url": "photo_url",
     "фото": "photo_url",
     "фото url": "photo_url",
+    "ссылка на фото": "photo_url",
+    "ссылка на изображение": "photo_url",
+    "изображение": "photo_url",
     "status": "status",
     "статус": "status",
 }
 
 PRODUCT_TEMPLATE_SHEET_NAME = "Товары"
 PRODUCT_TEMPLATE_COLUMNS = (
+    "Артикул",
     "Название",
     "Категория",
     "Цена AC",
@@ -65,7 +73,7 @@ PRODUCT_TEMPLATE_COLUMNS = (
     "Остаток",
     "Статус",
     "Описание",
-    "Фото URL",
+    "Ссылка на фото",
 )
 
 
@@ -142,7 +150,12 @@ def _read_xlsx(content: bytes) -> list[dict[str, Any]]:
         headers = [str(value or "").strip() for value in rows[0]]
         result: list[dict[str, Any]] = []
         for values in rows[1:]:
-            result.append({headers[index]: values[index] for index in range(len(headers))})
+            result.append(
+                {
+                    headers[index]: values[index] if index < len(values) else None
+                    for index in range(len(headers))
+                }
+            )
         return result
     finally:
         workbook.close()
@@ -191,6 +204,21 @@ def _status(value: Any) -> ProductStatus:
     raise ValueError(f"unknown status: {value}")
 
 
+def _photo_url(value: Any) -> str | None:
+    photo_url = _text(value)
+    if not photo_url:
+        return None
+    if len(photo_url) > 500:
+        raise ValueError("ссылка на фото длиннее 500 символов")
+    try:
+        parsed = urlsplit(photo_url)
+    except ValueError as exc:
+        raise ValueError("некорректная ссылка на фото") from exc
+    if parsed.scheme.casefold() not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("ссылка на фото должна начинаться с http:// или https://")
+    return photo_url
+
+
 def _normalize_rows(raw_rows: list[dict[str, Any]]) -> list[ProductImportRow]:
     rows: list[ProductImportRow] = []
     seen_inventory_rows: dict[tuple[str, str], int] = {}
@@ -221,6 +249,7 @@ def _normalize_rows(raw_rows: list[dict[str, Any]]) -> list[ProductImportRow]:
             price = _int(_cell(raw_row, "price_astrocoins"))
             quantity = _int(_cell(raw_row, "quantity"), default=0)
             status = _status(_cell(raw_row, "status"))
+            photo_url = _photo_url(_cell(raw_row, "photo_url"))
         except ValueError as exc:
             raise ProductImportError(f"Строка {index}: {exc}") from exc
 
@@ -241,7 +270,7 @@ def _normalize_rows(raw_rows: list[dict[str, Any]]) -> list[ProductImportRow]:
                 warehouse_name=warehouse_name,
                 warehouse_slug=warehouse_slug,
                 description=_text(_cell(raw_row, "description")) or None,
-                photo_url=_text(_cell(raw_row, "photo_url")) or None,
+                photo_url=photo_url,
                 status=status,
             )
         )
@@ -259,12 +288,29 @@ def build_product_import_template() -> bytes:
     instruction.append(["Шаблон массовой загрузки товаров"])
     instruction.append([])
     instruction.append(["1. Заполняйте только лист «Товары»."])
-    instruction.append(["2. Обязательные поля: название, цена, склад и остаток."])
+    instruction.append(
+        [
+            "2. Обязательные поля: название и цена. Если склад не указан, используется "
+            "«Общий склад», остаток будет равен 0."
+        ]
+    )
     instruction.append([
-        "3. Для нескольких складов повторите название и категорию товара в нескольких строках."
+        "3. Артикул необязателен, но рекомендуется: по нему система надежно обновляет "
+        "уже загруженный товар."
     ])
-    instruction.append(["4. Статус: Активен, Скрыт или Архив. Пустое значение означает «Активен»."])
-    instruction.append(["5. Лишние листы и колонки система игнорирует."])
+    instruction.append([
+        "4. Для нескольких складов повторите артикул и данные товара в нескольких "
+        "строках, меняя склад и остаток."
+    ])
+    instruction.append([
+        "5. В поле «Ссылка на фото» укажите публичный адрес http:// или https://, "
+        "который открывается без входа и пароля."
+    ])
+    instruction.append(["6. Статус: Активен, Скрыт или Архив. Пустое значение означает «Активен»."])
+    instruction.append([
+        "7. Заполняйте лист «Товары». Листы «Инструкция» и «Пример» при импорте "
+        "не обрабатываются."
+    ])
     instruction.column_dimensions["A"].width = 105
     instruction["A1"].font = Font(bold=True, size=16, color="FFFFFF")
     instruction["A1"].fill = PatternFill("solid", fgColor="6F35D5")
@@ -274,8 +320,8 @@ def build_product_import_template() -> bytes:
     sheet = workbook.create_sheet(PRODUCT_TEMPLATE_SHEET_NAME)
     sheet.append(list(PRODUCT_TEMPLATE_COLUMNS))
     sheet.freeze_panes = "A2"
-    sheet.auto_filter.ref = "A1:H1"
-    widths = (32, 24, 14, 28, 14, 16, 48, 48)
+    sheet.auto_filter.ref = "A1:I1"
+    widths = (20, 32, 24, 14, 28, 14, 16, 48, 56)
     for index, width in enumerate(widths, start=1):
         sheet.column_dimensions[chr(64 + index)].width = width
         cell = sheet.cell(row=1, column=index)
@@ -283,6 +329,69 @@ def build_product_import_template() -> bytes:
         cell.fill = PatternFill("solid", fgColor="6F35D5")
         cell.alignment = Alignment(horizontal="center", vertical="center")
     sheet.row_dimensions[1].height = 26
+
+    comments = {
+        1: (
+            "Необязательно, но рекомендуется. Один и тот же товар на разных складах "
+            "должен иметь одинаковый артикул."
+        ),
+        2: "Обязательное поле.",
+        3: "Если оставить пустым, будет создана категория «Без категории».",
+        4: "Обязательное целое число, не меньше 0.",
+        5: "Если оставить пустым, будет использован «Общий склад».",
+        6: "Целое число, не меньше 0. По умолчанию 0.",
+        7: "Активен, Скрыт или Архив. По умолчанию Активен.",
+        8: "Необязательное описание товара.",
+        9: "Публичная ссылка http:// или https:// длиной до 500 символов.",
+    }
+    for column, comment in comments.items():
+        sheet.cell(row=1, column=column).comment = Comment(comment, "Algo MAX")
+
+    status_validation = DataValidation(
+        type="list",
+        formula1='"Активен,Скрыт,Архив"',
+        allow_blank=True,
+    )
+    status_validation.error = "Выберите: Активен, Скрыт или Архив"
+    status_validation.errorTitle = "Некорректный статус"
+    sheet.add_data_validation(status_validation)
+    status_validation.add("G2:G5000")
+
+    example = workbook.create_sheet("Пример")
+    example.append(list(PRODUCT_TEMPLATE_COLUMNS))
+    example.append(
+        [
+            "ROBOT-KIT-01",
+            "Набор для робототехники",
+            "Учебные наборы",
+            750,
+            "Главный склад",
+            12,
+            "Активен",
+            "Набор для учебных проектов",
+            "https://images.example.org/products/robot-kit.jpg",
+        ]
+    )
+    example.append(
+        [
+            "ROBOT-KIT-01",
+            "Набор для робототехники",
+            "Учебные наборы",
+            750,
+            "Склад площадки",
+            4,
+            "Активен",
+            "Набор для учебных проектов",
+            "https://images.example.org/products/robot-kit.jpg",
+        ]
+    )
+    example.freeze_panes = "A2"
+    for index, width in enumerate(widths, start=1):
+        example.column_dimensions[chr(64 + index)].width = width
+        cell = example.cell(row=1, column=index)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="6F35D5")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
 
     output = io.BytesIO()
     workbook.save(output)

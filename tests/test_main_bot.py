@@ -433,6 +433,29 @@ def test_staff_deeplink_submits_preselected_role_request() -> None:
     assert client.sent_messages[-1]["user_id"] == 53364725
 
 
+def test_staff_deeplink_does_not_notify_superadmin_when_approvals_are_disabled() -> None:
+    client = FakeMaxClient()
+    bot = LongPollingBot(
+        client,
+        backend_client=FakeBackendClient(linked=False),
+        default_tenant_slug="n-novgorod",
+    )
+    bot.staff_approver_user_id = None
+
+    response = bot.handle_contact_payload_response(
+        payload="staff_n-novgorod~teacher",
+        user_id=903,
+        username="teacher_without_invite",
+        display_name="Преподаватель Без Приглашения",
+    )
+
+    assert response is not None
+    assert "Регистрация по общей ссылке отключена" in response.text
+    assert "персональную ссылку" in response.text
+    assert client.sent_messages == []
+    assert bot.pending_staff_requests == {}
+
+
 def test_unique_staff_invitation_is_activated_immediately() -> None:
     client = FakeMaxClient()
     backend = FakeBackendClient(linked=False)
