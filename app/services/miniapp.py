@@ -2606,56 +2606,6 @@ async def delete_miniapp_product(
             status_code=409,
         )
 
-    movement_count = int(
-        await db.scalar(
-            select(func.count(StockMovement.id)).where(
-                StockMovement.tenant_id == tenant.id,
-                StockMovement.product_id == product.id,
-            )
-        )
-        or 0
-    )
-    if movement_count:
-        raise MiniAppStoreError(
-            "Нельзя удалить товар с историей движения остатков. Переведите его в архив.",
-            status_code=409,
-        )
-
-    inventories = list(
-        (
-            await db.scalars(
-                select(WarehouseInventory)
-                .where(
-                    WarehouseInventory.tenant_id == tenant.id,
-                    WarehouseInventory.product_id == product.id,
-                )
-                .with_for_update()
-            )
-        ).all()
-    )
-    reserved_quantity = sum(max(inventory.reserved_quantity, 0) for inventory in inventories)
-    stock_quantity = sum(max(inventory.available_quantity, 0) for inventory in inventories)
-    historical_quantity = sum(
-        max(inventory.issued_quantity, 0) + max(inventory.returned_quantity, 0)
-        for inventory in inventories
-    )
-    if reserved_quantity:
-        raise MiniAppStoreError(
-            f"Нельзя удалить товар: в заказах зарезервировано {reserved_quantity} шт.",
-            status_code=409,
-        )
-    if stock_quantity:
-        raise MiniAppStoreError(
-            f"Нельзя удалить товар: на складах числится {stock_quantity} шт. "
-            "Сначала обнулите остатки.",
-            status_code=409,
-        )
-    if historical_quantity:
-        raise MiniAppStoreError(
-            "Нельзя удалить товар с историей выдачи или возврата. Переведите его в архив.",
-            status_code=409,
-        )
-
     issued_code_count = int(
         await db.scalar(
             select(func.count(ProductCode.id)).where(
@@ -2689,6 +2639,12 @@ async def delete_miniapp_product(
         delete(ProductCode).where(
             ProductCode.tenant_id == tenant.id,
             ProductCode.product_id == product.id,
+        )
+    )
+    await db.execute(
+        delete(StockMovement).where(
+            StockMovement.tenant_id == tenant.id,
+            StockMovement.product_id == product.id,
         )
     )
     await db.execute(

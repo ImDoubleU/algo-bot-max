@@ -6120,6 +6120,23 @@ body[data-active-role="student"] #studentContext {
   width: min(640px, calc(100vw - 24px));
 }
 
+.accrual-rules-content {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px;
+  overscroll-behavior: contain;
+}
+
+.accrual-rules-content .dialog-hint {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.accrual-rules-content > .secondary-action {
+  width: 100%;
+}
+
 .accrual-rules-editor {
   display: grid;
   gap: 10px;

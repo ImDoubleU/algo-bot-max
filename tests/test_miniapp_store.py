@@ -1472,21 +1472,45 @@ async def test_admin_can_delete_unused_product_and_related_drafts(db_session) ->
     ) is not None
 
 
-async def test_product_delete_rejects_stock_and_order_history(db_session) -> None:
+async def test_product_delete_removes_stock_and_movement_history(db_session) -> None:
     student = await seed_linked_student(db_session)
     product, inventory = await seed_product(db_session, student)
+    account = await grant_store_admin(db_session, tenant_id=student.tenant_id)
+    db_session.add(
+        StockMovement(
+            tenant_id=student.tenant_id,
+            product_id=product.id,
+            to_warehouse_id=inventory.warehouse_id,
+            actor_account_id=account.id,
+            movement_type=StockMovementType.ADJUSTMENT,
+            quantity=5,
+            comment="Первичное поступление",
+        )
+    )
+    await db_session.commit()
+
+    await delete_miniapp_product(
+        db_session,
+        product_id=product.id,
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    assert await db_session.scalar(select(Product).where(Product.id == product.id)) is None
+    assert await db_session.scalar(
+        select(WarehouseInventory).where(WarehouseInventory.product_id == product.id)
+    ) is None
+    assert await db_session.scalar(
+        select(StockMovement).where(StockMovement.product_id == product.id)
+    ) is None
+
+
+async def test_product_delete_rejects_order_history(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, _inventory = await seed_product(db_session, student)
     await grant_store_admin(db_session, tenant_id=student.tenant_id)
 
-    with pytest.raises(MiniAppStoreError, match="числится 5 шт"):
-        await delete_miniapp_product(
-            db_session,
-            product_id=product.id,
-            max_user_id=53364725,
-            tenant_slug="nizhniy-novgorod-partner-a",
-            default_tenant_slug="nizhniy-novgorod-partner-a",
-        )
-
-    inventory.available_quantity = 0
     order = Order(
         tenant_id=student.tenant_id,
         student_id=student.id,
@@ -1516,6 +1540,8 @@ async def test_product_delete_rejects_stock_and_order_history(db_session) -> Non
             tenant_slug="nizhniy-novgorod-partner-a",
             default_tenant_slug="nizhniy-novgorod-partner-a",
         )
+
+    assert await db_session.scalar(select(Product).where(Product.id == product.id)) is not None
 
 
 async def test_admin_can_delete_empty_warehouse_and_default_preference(db_session) -> None:
