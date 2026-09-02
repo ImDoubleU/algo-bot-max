@@ -40,6 +40,7 @@ from app.models.store import (
     Product,
     ProductCategory,
     ProductCode,
+    StockMovement,
     StudentCartItem,
     Warehouse,
     WarehouseInventory,
@@ -2041,6 +2042,7 @@ AUDIT_ACTION_COPY = {
     "miniapp_crm.imported": ("Импорт учеников и групп", "Ученики"),
     "product.created": ("Товар создан", "Товары"),
     "product.updated": ("Товар изменен", "Товары"),
+    "product.deleted": ("Товар удален", "Товары"),
     "miniapp_order.created": ("Заказ создан", "Заказы"),
     "miniapp_order.warehouses_assigned": ("Склад заказа назначен", "Заказы"),
     "miniapp_order.item_pick_updated": ("Комплектация заказа изменена", "Заказы"),
@@ -2063,6 +2065,7 @@ AUDIT_ACTION_COPY = {
     "tenant.reopened": ("Партнер восстановлен", "Партнеры"),
     "warehouse.created": ("Склад создан", "Склады"),
     "warehouse.updated": ("Склад изменен", "Склады"),
+    "warehouse.deleted": ("Склад удален", "Склады"),
     "warehouse_inventory.adjusted": ("Остаток скорректирован", "Склады"),
     "warehouse_inventory.transferred": ("Товар перемещен", "Склады"),
     "school_broadcast.sent": ("Рассылка отправлена", "Рассылки"),
@@ -2528,6 +2531,167 @@ async def upsert_miniapp_product(
             inventory=inventory,
         )
     return _product_to_read(product, include_codes=True)
+
+
+async def delete_miniapp_product(
+    db: AsyncSession,
+    *,
+    product_id: UUID,
+    max_user_id: int,
+    tenant_slug: str,
+    default_tenant_slug: str,
+) -> str | None:
+    normalized_tenant_slug = (tenant_slug or default_tenant_slug).strip().lower()
+    tenant = await get_tenant_by_slug(db, normalized_tenant_slug)
+    if tenant is None:
+        raise MiniAppStoreError("Партнер не найден", status_code=404)
+
+    account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
+    if account is None:
+        raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
+
+    staff_role = await _active_staff_role(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        allowed_roles=STORE_ADMIN_ROLES,
+    )
+    if staff_role is None:
+        raise MiniAppStoreError("Нет прав на удаление товаров", status_code=403)
+
+    product = await db.scalar(
+        select(Product)
+        .where(Product.tenant_id == tenant.id, Product.id == product_id)
+        .with_for_update()
+    )
+    if product is None:
+        raise MiniAppStoreError("Товар не найден", status_code=404)
+
+    order_count = int(
+        await db.scalar(
+            select(func.count(OrderItem.id)).where(
+                OrderItem.tenant_id == tenant.id,
+                OrderItem.product_id == product.id,
+            )
+        )
+        or 0
+    )
+    if order_count:
+        raise MiniAppStoreError(
+            "Нельзя удалить товар, который есть в заказах. "
+            "Переведите его в архив, чтобы сохранить историю.",
+            status_code=409,
+        )
+
+    movement_count = int(
+        await db.scalar(
+            select(func.count(StockMovement.id)).where(
+                StockMovement.tenant_id == tenant.id,
+                StockMovement.product_id == product.id,
+            )
+        )
+        or 0
+    )
+    if movement_count:
+        raise MiniAppStoreError(
+            "Нельзя удалить товар с историей движения остатков. Переведите его в архив.",
+            status_code=409,
+        )
+
+    inventories = list(
+        (
+            await db.scalars(
+                select(WarehouseInventory)
+                .where(
+                    WarehouseInventory.tenant_id == tenant.id,
+                    WarehouseInventory.product_id == product.id,
+                )
+                .with_for_update()
+            )
+        ).all()
+    )
+    reserved_quantity = sum(max(inventory.reserved_quantity, 0) for inventory in inventories)
+    stock_quantity = sum(max(inventory.available_quantity, 0) for inventory in inventories)
+    historical_quantity = sum(
+        max(inventory.issued_quantity, 0) + max(inventory.returned_quantity, 0)
+        for inventory in inventories
+    )
+    if reserved_quantity:
+        raise MiniAppStoreError(
+            f"Нельзя удалить товар: в заказах зарезервировано {reserved_quantity} шт.",
+            status_code=409,
+        )
+    if stock_quantity:
+        raise MiniAppStoreError(
+            f"Нельзя удалить товар: на складах числится {stock_quantity} шт. "
+            "Сначала обнулите остатки.",
+            status_code=409,
+        )
+    if historical_quantity:
+        raise MiniAppStoreError(
+            "Нельзя удалить товар с историей выдачи или возврата. Переведите его в архив.",
+            status_code=409,
+        )
+
+    issued_code_count = int(
+        await db.scalar(
+            select(func.count(ProductCode.id)).where(
+                ProductCode.tenant_id == tenant.id,
+                ProductCode.product_id == product.id,
+                (
+                    (ProductCode.status == ProductCodeStatus.ISSUED)
+                    | ProductCode.order_item_id.is_not(None)
+                    | ProductCode.issued_to_student_id.is_not(None)
+                ),
+            )
+        )
+        or 0
+    )
+    if issued_code_count:
+        raise MiniAppStoreError(
+            "Нельзя удалить товар с выданными цифровыми кодами. Переведите его в архив.",
+            status_code=409,
+        )
+
+    product_name = product.name
+    product_sku = product.sku
+    photo_url = product.photo_url
+    await db.execute(
+        delete(StudentCartItem).where(
+            StudentCartItem.tenant_id == tenant.id,
+            StudentCartItem.product_id == product.id,
+        )
+    )
+    await db.execute(
+        delete(ProductCode).where(
+            ProductCode.tenant_id == tenant.id,
+            ProductCode.product_id == product.id,
+        )
+    )
+    await db.execute(
+        delete(WarehouseInventory).where(
+            WarehouseInventory.tenant_id == tenant.id,
+            WarehouseInventory.product_id == product.id,
+        )
+    )
+    await db.flush()
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_account_id=account.id,
+            action="product.deleted",
+            entity_type="product",
+            entity_id=str(product.id),
+            payload={
+                "sku": product_sku,
+                "name": product_name,
+                "staff_role": staff_role.value,
+            },
+        )
+    )
+    await db.delete(product)
+    await db.commit()
+    return photo_url
 
 
 async def get_miniapp_session(
@@ -6313,6 +6477,145 @@ async def upsert_miniapp_warehouse(
         warehouse_type=warehouse.warehouse_type,
         address=warehouse.address,
     )
+
+
+async def delete_miniapp_warehouse(
+    db: AsyncSession,
+    *,
+    warehouse_id: UUID,
+    max_user_id: int,
+    tenant_slug: str,
+    default_tenant_slug: str,
+) -> None:
+    normalized_tenant_slug = (tenant_slug or default_tenant_slug).strip().lower()
+    tenant = await get_tenant_by_slug(db, normalized_tenant_slug)
+    if tenant is None:
+        raise MiniAppStoreError("Город или партнер не найден", status_code=404)
+
+    account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
+    if account is None:
+        raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
+
+    staff_role = await _active_staff_role(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        allowed_roles=STORE_ADMIN_ROLES,
+    )
+    if staff_role is None:
+        raise MiniAppStoreError("Нет прав на удаление складов", status_code=403)
+
+    warehouse = await db.scalar(
+        select(Warehouse)
+        .where(Warehouse.tenant_id == tenant.id, Warehouse.id == warehouse_id)
+        .with_for_update()
+    )
+    if warehouse is None:
+        raise MiniAppStoreError("Склад не найден", status_code=404)
+
+    order_count = int(
+        await db.scalar(
+            select(func.count(OrderItem.id)).where(
+                OrderItem.tenant_id == tenant.id,
+                (
+                    (OrderItem.warehouse_id == warehouse.id)
+                    | (OrderItem.reserved_warehouse_id == warehouse.id)
+                ),
+            )
+        )
+        or 0
+    )
+    if order_count:
+        raise MiniAppStoreError(
+            "Нельзя удалить склад, который использовался в заказах: это нарушит историю выдачи.",
+            status_code=409,
+        )
+
+    movement_count = int(
+        await db.scalar(
+            select(func.count(StockMovement.id)).where(
+                StockMovement.tenant_id == tenant.id,
+                (
+                    (StockMovement.from_warehouse_id == warehouse.id)
+                    | (StockMovement.to_warehouse_id == warehouse.id)
+                ),
+            )
+        )
+        or 0
+    )
+    if movement_count:
+        raise MiniAppStoreError(
+            "Нельзя удалить склад с историей движения товаров. "
+            "Его можно переименовать и больше не использовать.",
+            status_code=409,
+        )
+
+    inventories = list(
+        (
+            await db.scalars(
+                select(WarehouseInventory)
+                .where(
+                    WarehouseInventory.tenant_id == tenant.id,
+                    WarehouseInventory.warehouse_id == warehouse.id,
+                )
+                .with_for_update()
+            )
+        ).all()
+    )
+    reserved_quantity = sum(max(inventory.reserved_quantity, 0) for inventory in inventories)
+    stock_quantity = sum(max(inventory.available_quantity, 0) for inventory in inventories)
+    historical_quantity = sum(
+        max(inventory.issued_quantity, 0) + max(inventory.returned_quantity, 0)
+        for inventory in inventories
+    )
+    if reserved_quantity:
+        raise MiniAppStoreError(
+            f"Нельзя удалить склад: на нем зарезервировано {reserved_quantity} шт. товара.",
+            status_code=409,
+        )
+    if stock_quantity:
+        raise MiniAppStoreError(
+            f"Нельзя удалить склад: на нем числится {stock_quantity} шт. товара. "
+            "Сначала перенесите или обнулите остатки.",
+            status_code=409,
+        )
+    if historical_quantity:
+        raise MiniAppStoreError(
+            "Нельзя удалить склад с историей выдачи или возврата товаров.",
+            status_code=409,
+        )
+
+    warehouse_name = warehouse.name
+    warehouse_slug = warehouse.slug
+    await db.execute(
+        delete(StaffWarehousePreference).where(
+            StaffWarehousePreference.tenant_id == tenant.id,
+            StaffWarehousePreference.warehouse_id == warehouse.id,
+        )
+    )
+    await db.execute(
+        delete(WarehouseInventory).where(
+            WarehouseInventory.tenant_id == tenant.id,
+            WarehouseInventory.warehouse_id == warehouse.id,
+        )
+    )
+    await db.flush()
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_account_id=account.id,
+            action="warehouse.deleted",
+            entity_type="warehouse",
+            entity_id=str(warehouse.id),
+            payload={
+                "slug": warehouse_slug,
+                "name": warehouse_name,
+                "staff_role": staff_role.value,
+            },
+        )
+    )
+    await db.delete(warehouse)
+    await db.commit()
 
 
 async def adjust_miniapp_inventory(

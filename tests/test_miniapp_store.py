@@ -1,4 +1,4 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
@@ -6,7 +6,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.db.base  # noqa: F401
 import app.services.miniapp as miniapp_service
-from app.models.account import MaxAccount, StaffRoleAssignment, StaffVenueScope
+from app.models.account import (
+    MaxAccount,
+    StaffRoleAssignment,
+    StaffVenueScope,
+    StaffWarehousePreference,
+)
 from app.models.audit import AuditLog
 from app.models.base import Base
 from app.models.enums import (
@@ -62,6 +67,8 @@ from app.services.miniapp import (
     assign_miniapp_order_warehouses,
     cancel_miniapp_order,
     create_miniapp_order,
+    delete_miniapp_product,
+    delete_miniapp_warehouse,
     get_miniapp_ops_summary,
     issue_miniapp_order,
     list_miniapp_admin_history,
@@ -166,6 +173,21 @@ async def seed_product(db_session, student: Student) -> tuple[Product, Warehouse
     db_session.add(inventory)
     await db_session.commit()
     return product, inventory
+
+
+async def grant_store_admin(db_session, *, tenant_id: UUID) -> MaxAccount:
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
+    assert account is not None
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=tenant_id,
+            account_id=account.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+    return account
 
 
 async def test_order_waits_for_admin_warehouse_and_debits_wallet(db_session) -> None:
@@ -1399,3 +1421,174 @@ async def test_admin_can_create_and_update_product_from_miniapp(db_session) -> N
         include_inactive=True,
     )
     assert created.id in {item.id for item in admin_catalog.products}
+
+
+async def test_admin_can_delete_unused_product_and_related_drafts(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, inventory = await seed_product(db_session, student)
+    await grant_store_admin(db_session, tenant_id=student.tenant_id)
+    product.photo_url = "https://algo.test/media/products/deleted.png"
+    product.fulfillment_type = ProductFulfillmentType.DIGITAL_CODE
+    inventory.available_quantity = 0
+    db_session.add_all(
+        [
+            ProductCode(
+                tenant_id=student.tenant_id,
+                product_id=product.id,
+                code="UNUSED-CODE",
+                status=ProductCodeStatus.AVAILABLE,
+            ),
+            StudentCartItem(
+                tenant_id=student.tenant_id,
+                student_id=student.id,
+                product_id=product.id,
+                quantity=1,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    photo_url = await delete_miniapp_product(
+        db_session,
+        product_id=product.id,
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    assert photo_url == "https://algo.test/media/products/deleted.png"
+    assert await db_session.scalar(select(Product).where(Product.id == product.id)) is None
+    assert await db_session.scalar(
+        select(WarehouseInventory).where(WarehouseInventory.product_id == product.id)
+    ) is None
+    assert await db_session.scalar(
+        select(StudentCartItem).where(StudentCartItem.product_id == product.id)
+    ) is None
+    assert await db_session.scalar(
+        select(ProductCode).where(ProductCode.product_id == product.id)
+    ) is None
+    assert await db_session.scalar(
+        select(AuditLog).where(AuditLog.action == "product.deleted")
+    ) is not None
+
+
+async def test_product_delete_rejects_stock_and_order_history(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, inventory = await seed_product(db_session, student)
+    await grant_store_admin(db_session, tenant_id=student.tenant_id)
+
+    with pytest.raises(MiniAppStoreError, match="числится 5 шт"):
+        await delete_miniapp_product(
+            db_session,
+            product_id=product.id,
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
+
+    inventory.available_quantity = 0
+    order = Order(
+        tenant_id=student.tenant_id,
+        student_id=student.id,
+        order_number=101,
+        status=OrderStatus.RESERVED,
+        total_astrocoins=120,
+    )
+    db_session.add(order)
+    await db_session.flush()
+    db_session.add(
+        OrderItem(
+            tenant_id=student.tenant_id,
+            order_id=order.id,
+            product_id=product.id,
+            quantity=1,
+            unit_price_astrocoins=120,
+            total_price_astrocoins=120,
+        )
+    )
+    await db_session.commit()
+
+    with pytest.raises(MiniAppStoreError, match="есть в заказах"):
+        await delete_miniapp_product(
+            db_session,
+            product_id=product.id,
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
+
+
+async def test_admin_can_delete_empty_warehouse_and_default_preference(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, inventory = await seed_product(db_session, student)
+    account = await grant_store_admin(db_session, tenant_id=student.tenant_id)
+    inventory.available_quantity = 0
+    db_session.add(
+        StaffWarehousePreference(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            warehouse_id=inventory.warehouse_id,
+        )
+    )
+    await db_session.commit()
+
+    await delete_miniapp_warehouse(
+        db_session,
+        warehouse_id=inventory.warehouse_id,
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    assert await db_session.scalar(
+        select(Warehouse).where(Warehouse.id == inventory.warehouse_id)
+    ) is None
+    assert await db_session.scalar(
+        select(WarehouseInventory).where(WarehouseInventory.warehouse_id == inventory.warehouse_id)
+    ) is None
+    assert await db_session.scalar(
+        select(StaffWarehousePreference).where(
+            StaffWarehousePreference.warehouse_id == inventory.warehouse_id
+        )
+    ) is None
+    assert await db_session.scalar(select(Product).where(Product.id == product.id)) is not None
+    assert await db_session.scalar(
+        select(AuditLog).where(AuditLog.action == "warehouse.deleted")
+    ) is not None
+
+
+async def test_warehouse_delete_rejects_stock_and_movement_history(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, inventory = await seed_product(db_session, student)
+    account = await grant_store_admin(db_session, tenant_id=student.tenant_id)
+
+    with pytest.raises(MiniAppStoreError, match="числится 5 шт"):
+        await delete_miniapp_warehouse(
+            db_session,
+            warehouse_id=inventory.warehouse_id,
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
+
+    inventory.available_quantity = 0
+    db_session.add(
+        StockMovement(
+            tenant_id=student.tenant_id,
+            product_id=product.id,
+            to_warehouse_id=inventory.warehouse_id,
+            actor_account_id=account.id,
+            movement_type=StockMovementType.INITIAL,
+            quantity=5,
+        )
+    )
+    await db_session.commit()
+
+    with pytest.raises(MiniAppStoreError, match="историей движения товаров"):
+        await delete_miniapp_warehouse(
+            db_session,
+            warehouse_id=inventory.warehouse_id,
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )

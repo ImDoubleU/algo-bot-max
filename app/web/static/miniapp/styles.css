@@ -504,6 +504,10 @@ select:focus-visible {
   border-color: #f0b6ad;
 }
 
+.entity-delete-action.is-loading svg {
+  animation: ui-spin 700ms linear infinite;
+}
+
 .order-actions {
   display: flex;
   flex-wrap: wrap;

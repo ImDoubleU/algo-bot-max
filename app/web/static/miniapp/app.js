@@ -422,6 +422,78 @@ async function saveProductFromForm() {
   }
 }
 
+async function deleteProduct(productId) {
+  if (state.productSaving || state.deletingProductId) return;
+  const product = products.find((item) => item.id === productId);
+  if (!product) return;
+
+  const confirmed = await requestConfirmation({
+    eyebrow: "Товары",
+    title: `Удалить «${product.name}»?`,
+    message:
+      "Действие нельзя отменить. Товар удалится из каталога и корзин вместе с невыданными кодами. Товар с остатками или историей заказов удалить нельзя.",
+    confirmLabel: "Удалить товар",
+    cancelLabel: "Отмена",
+    destructive: true,
+  });
+  if (!confirmed) return;
+
+  state.deletingProductId = product.id;
+  renderAdminPanel();
+  try {
+    if (apiContext.demoMode || !apiContext.maxUserId || product.id.startsWith("demo-")) {
+      const usedInOrders = orders.some((order) =>
+        (order.items || []).some((item) => String(item.productId || item.product_id) === product.id),
+      );
+      if (usedInOrders) {
+        throw new Error(
+          "Нельзя удалить товар, который есть в заказах. Переведите его в архив, чтобы сохранить историю.",
+        );
+      }
+      const stockQuantity = product.fulfillmentType === "digital_code"
+        ? 0
+        : productWarehouses(product).reduce(
+            (total, warehouse) => total + Number(warehouse.stock || 0),
+            0,
+          );
+      if (stockQuantity > 0) {
+        throw new Error(
+          `Нельзя удалить товар: на складах числится ${stockQuantity} шт. Сначала обнулите остатки.`,
+        );
+      }
+      products.splice(products.indexOf(product), 1);
+      state.favorites.delete(product.id);
+      state.carts.forEach((cart) => {
+        Array.from(cart.entries()).forEach(([key, item]) => {
+          if (item.productId === product.id) cart.delete(key);
+        });
+      });
+    } else {
+      const params = new URLSearchParams({ max_user_id: String(apiContext.maxUserId) });
+      if (apiContext.tenantSlug) params.set("tenant_slug", apiContext.tenantSlug);
+      const response = await apiFetch(
+        `/api/v1/miniapp/products/${encodeURIComponent(product.id)}?${params.toString()}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) throw new Error(await parseApiError(response));
+      await refreshCatalogAndOpsSummary();
+    }
+    if (state.editingProductId === product.id) {
+      state.editingProductId = "";
+      state.productEditorOpen = false;
+      resetProductPhotoSelection();
+    }
+    showNotice(`Товар «${product.name}» удален`);
+    renderAll();
+  } catch (error) {
+    showNotice(error.message || "Не удалось удалить товар", "danger");
+  } finally {
+    state.deletingProductId = "";
+    renderAdminPanel();
+  }
+}
+
+
 async function cropProductPhoto() {
   const editing = products.find((product) => product.id === state.editingProductId);
   const source = state.productPhotoPreviewUrl || editing?.photoUrl || "";
@@ -1381,6 +1453,85 @@ async function saveWarehouseFromForm() {
     renderAdminPanel();
   }
 }
+
+async function deleteWarehouse(warehouseId) {
+  if (state.warehouseSaving || state.deletingWarehouseId) return;
+  const warehouse = allCatalogWarehouses().find((item) => item.id === warehouseId);
+  if (!warehouse) return;
+
+  const confirmed = await requestConfirmation({
+    eyebrow: "Склады",
+    title: `Удалить «${warehouse.name}»?`,
+    message:
+      "Действие нельзя отменить. Удалить можно только пустой склад без заказов и истории движения товаров.",
+    confirmLabel: "Удалить склад",
+    cancelLabel: "Отмена",
+    destructive: true,
+  });
+  if (!confirmed) return;
+
+  state.deletingWarehouseId = warehouse.id;
+  renderAdminPanel();
+  try {
+    if (apiContext.demoMode || !apiContext.maxUserId || warehouse.id.startsWith("demo-")) {
+      const usedInOrders = orders.some((order) =>
+        (order.items || []).some(
+          (item) =>
+            String(item.warehouseId || item.warehouse_id || "") === warehouse.id ||
+            String(item.suggestedWarehouseId || item.suggested_warehouse_id || "") === warehouse.id,
+        ),
+      );
+      if (usedInOrders) {
+        throw new Error(
+          "Нельзя удалить склад, который использовался в заказах: это нарушит историю выдачи.",
+        );
+      }
+      const stockQuantity = products.reduce(
+        (total, product) =>
+          total +
+          productWarehouses(product)
+            .filter((item) => item.id === warehouse.id)
+            .reduce((sum, item) => sum + Number(item.stock || 0), 0),
+        0,
+      );
+      if (stockQuantity > 0) {
+        throw new Error(
+          `Нельзя удалить склад: на нем числится ${stockQuantity} шт. товара. Сначала перенесите или обнулите остатки.`,
+        );
+      }
+      const warehouseIndex = catalogWarehouses.findIndex((item) => item.id === warehouse.id);
+      if (warehouseIndex >= 0) catalogWarehouses.splice(warehouseIndex, 1);
+      products.forEach((product) => {
+        if (!Array.isArray(product.warehouses)) return;
+        product.warehouses = product.warehouses.filter(
+          (item) => String(item.warehouse_id || item.id) !== warehouse.id,
+        );
+      });
+    } else {
+      const params = new URLSearchParams({ max_user_id: String(apiContext.maxUserId) });
+      if (apiContext.tenantSlug) params.set("tenant_slug", apiContext.tenantSlug);
+      const response = await apiFetch(
+        `/api/v1/miniapp/warehouses/${encodeURIComponent(warehouse.id)}?${params.toString()}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) throw new Error(await parseApiError(response));
+      await refreshCatalogAndOpsSummary();
+    }
+    if (state.defaultWarehouseId === warehouse.id) state.defaultWarehouseId = "";
+    if (state.editingWarehouseId === warehouse.id) {
+      state.editingWarehouseId = "";
+      state.warehouseEditorOpen = false;
+    }
+    showNotice(`Склад «${warehouse.name}» удален`);
+    renderAll();
+  } catch (error) {
+    showNotice(error.message || "Не удалось удалить склад", "danger");
+  } finally {
+    state.deletingWarehouseId = "";
+    renderAdminPanel();
+  }
+}
+
 
 async function saveWarehousePreference() {
   const warehouseId = qs("#defaultWarehouseSelect")?.value || "";
@@ -2534,6 +2685,11 @@ document.addEventListener("click", (event) => {
     renderAccrual();
     qs("#accrualNameFilter")?.focus();
   }
+  const deleteWarehouseId = target.dataset.deleteWarehouse;
+  if (deleteWarehouseId) {
+    void deleteWarehouse(deleteWarehouseId);
+    return;
+  }
   const editWarehouseId = target.dataset.editWarehouse;
   if (editWarehouseId) {
     state.editingWarehouseId = editWarehouseId;
@@ -2601,6 +2757,11 @@ document.addEventListener("click", (event) => {
     importCrmStudents(false);
   }
 
+  const deleteProductId = target.dataset.deleteProduct;
+  if (deleteProductId) {
+    void deleteProduct(deleteProductId);
+    return;
+  }
   const editProductId = target.dataset.editProduct;
   if (editProductId) {
     resetProductPhotoSelection();
