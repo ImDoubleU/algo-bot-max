@@ -114,6 +114,8 @@ from app.services.miniapp import (
     create_miniapp_staff_invitation,
     create_miniapp_student,
     create_miniapp_tenant,
+    delete_miniapp_product,
+    delete_miniapp_warehouse,
     get_miniapp_accrual_report,
     get_miniapp_cart,
     get_miniapp_ops_summary,
@@ -948,6 +950,34 @@ async def miniapp_save_product(
         raise
 
 
+@router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def miniapp_delete_product(
+    product_id: UUID,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: Annotated[str | None, Query()] = None,
+) -> Response:
+    settings = get_settings()
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        photo_url = await delete_miniapp_product(
+            db,
+            product_id=product_id,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    await remove_product_image_url(photo_url, media_root=settings.product_media_root)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.patch("/access-links/{link_id}", response_model=MiniAppAccessStatusRead)
 async def miniapp_update_access_link(
     link_id: UUID,
@@ -1195,6 +1225,33 @@ async def miniapp_upsert_warehouse(
         )
     except MiniAppStoreError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.delete("/warehouses/{warehouse_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def miniapp_delete_warehouse(
+    warehouse_id: UUID,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: Annotated[str | None, Query()] = None,
+) -> Response:
+    settings = get_settings()
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        await delete_miniapp_warehouse(
+            db,
+            warehouse_id=warehouse_id,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

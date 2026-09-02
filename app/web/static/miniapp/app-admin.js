@@ -1027,7 +1027,7 @@ function renderAdminPanel() {
 
   if (state.adminTab === "products") {
     const importingDisabled = state.productImporting ? "disabled" : "";
-    const savingDisabled = state.productSaving ? "disabled" : "";
+    const savingDisabled = state.productSaving || state.deletingProductId ? "disabled" : "";
     const editing = products.find((product) => product.id === state.editingProductId);
     const editorOpen = state.productEditorOpen || Boolean(editing);
     const photoPreviewUrl = state.productPhotoPreviewUrl || (state.productPhotoRemoved ? "" : editing?.photoUrl || "");
@@ -1340,10 +1340,18 @@ function renderAdminPanel() {
               </div>
               <div class="admin-entity-actions">
                 <strong>${product.price} AC</strong>
-                <button class="icon-button product-status-toggle" type="button" data-toggle-product-status="${escapeHtml(product.id)}" title="${(product.status || "active") === "active" ? "Скрыть товар" : "Опубликовать товар"}" aria-label="${(product.status || "active") === "active" ? "Скрыть товар" : "Опубликовать товар"}"><i data-lucide="${(product.status || "active") === "active" ? "eye-off" : "eye"}"></i></button>
+                <button class="icon-button product-status-toggle" type="button" data-toggle-product-status="${escapeHtml(product.id)}" title="${(product.status || "active") === "active" ? "Скрыть товар" : "Опубликовать товар"}" aria-label="${(product.status || "active") === "active" ? "Скрыть товар" : "Опубликовать товар"}" ${savingDisabled}><i data-lucide="${(product.status || "active") === "active" ? "eye-off" : "eye"}"></i></button>
                 <button class="secondary-action" type="button" data-edit-product="${escapeHtml(
                   product.id,
-                )}">Редактировать</button>
+                )}" ${savingDisabled}>Редактировать</button>
+                <button
+                  class="icon-button danger-action entity-delete-action ${state.deletingProductId === product.id ? "is-loading" : ""}"
+                  type="button"
+                  data-delete-product="${escapeHtml(product.id)}"
+                  title="Удалить товар"
+                  aria-label="Удалить товар ${escapeHtml(product.name)}"
+                  ${savingDisabled}
+                ><i data-lucide="${state.deletingProductId === product.id ? "loader-circle" : "trash-2"}"></i></button>
               </div>
             </article>
           `,
@@ -1453,7 +1461,7 @@ function renderAdminPanel() {
   if (state.adminTab === "warehouses") {
     const editing = catalogWarehouses.find((item) => item.id === state.editingWarehouseId);
     const editorOpen = state.warehouseEditorOpen || Boolean(editing);
-    const disabled = state.warehouseSaving ? "disabled" : "";
+    const disabled = state.warehouseSaving || state.deletingWarehouseId ? "disabled" : "";
     const rows = allCatalogWarehouses()
       .map(
         (warehouse) => `
@@ -1472,7 +1480,15 @@ function renderAdminPanel() {
             <div class="admin-entity-actions">
               <button class="secondary-action" type="button" data-edit-warehouse="${escapeHtml(
                 warehouse.id,
-              )}">Редактировать</button>
+              )}" ${disabled}>Редактировать</button>
+              <button
+                class="icon-button danger-action entity-delete-action ${state.deletingWarehouseId === warehouse.id ? "is-loading" : ""}"
+                type="button"
+                data-delete-warehouse="${escapeHtml(warehouse.id)}"
+                title="Удалить склад"
+                aria-label="Удалить склад ${escapeHtml(warehouse.name)}"
+                ${disabled}
+              ><i data-lucide="${state.deletingWarehouseId === warehouse.id ? "loader-circle" : "trash-2"}"></i></button>
             </div>
           </article>
         `,
@@ -1537,6 +1553,7 @@ function renderAdminPanel() {
         ${rows || '<div class="empty-state">Складов пока нет</div>'}
       </div>
     `;
+    refreshIcons();
     return;
   }
 

@@ -23,4 +23,15 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.80.0"}
+    assert set(versions) == {"0.81.0"}
+
+
+def test_admin_products_and_warehouses_have_delete_actions() -> None:
+    admin_source = (MINIAPP / "app-admin.js").read_text(encoding="utf-8")
+    app_source = (MINIAPP / "app.js").read_text(encoding="utf-8")
+
+    assert 'data-delete-product="${escapeHtml(product.id)}"' in admin_source
+    assert 'data-delete-warehouse="${escapeHtml(warehouse.id)}"' in admin_source
+    assert "async function deleteProduct(productId)" in app_source
+    assert "async function deleteWarehouse(warehouseId)" in app_source
+    assert '{ method: "DELETE" }' in app_source
