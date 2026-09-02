@@ -141,7 +141,11 @@ class LongPollingBot:
         except ValueError:
             self.staff_approver_user_id = None
         else:
-            self.staff_approver_user_id = approver_user_id if approver_user_id > 0 else None
+            self.staff_approver_user_id = (
+                approver_user_id
+                if settings.max_staff_approval_notifications_enabled and approver_user_id > 0
+                else None
+            )
         self.knowledge_base = KnowledgeBaseService()
         self.running = True
         self.stop_event = threading.Event()
@@ -448,7 +452,16 @@ class LongPollingBot:
         username: str | None,
         display_name: str | None,
     ) -> BotResponse:
-        if user_id is None or self.backend_client is None or self.staff_approver_user_id is None:
+        if self.staff_approver_user_id is None:
+            return BotResponse(
+                (
+                    "Регистрация по общей ссылке отключена.\n\n"
+                    "Попросите директора или администратора создать персональную ссылку "
+                    "во вкладке «Сотрудники»."
+                ),
+                self.main_menu_attachments(user_id),
+            )
+        if user_id is None or self.backend_client is None:
             return BotResponse(
                 "Регистрация сотрудников сейчас недоступна.",
                 self.main_menu_attachments(user_id),

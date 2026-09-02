@@ -37,6 +37,19 @@ def test_miniapp_static_serves_assets() -> None:
     assert "state" in response.text
 
 
+def test_product_import_template_is_publicly_downloadable() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/api/v1/miniapp/products/import-template")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert "algo-max-products-template.xlsx" in response.headers["content-disposition"]
+    assert response.content.startswith(b"PK")
+
+
 def test_ready_route_returns_safe_config_report() -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
 

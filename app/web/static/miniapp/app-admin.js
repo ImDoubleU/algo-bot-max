@@ -1277,9 +1277,12 @@ function renderAdminPanel() {
           <i class="product-import-chevron" data-lucide="chevron-down"></i>
         </summary>
         <div class="product-import-controls">
-          <a class="secondary-action" href="${escapeHtml(apiUrl("/api/v1/miniapp/products/import-template", { max_user_id: apiContext.maxUserId, tenant_slug: apiContext.tenantSlug }))}" download>
+          <a class="secondary-action" href="/api/v1/miniapp/products/import-template" download="algo-max-products-template.xlsx">
             <i data-lucide="download"></i><span>Скачать шаблон XLSX</span>
           </a>
+          <p class="product-import-hint">
+            В шаблоне можно указать публичную ссылку на фото товара. Ссылка должна открываться без входа и пароля.
+          </p>
           <label class="file-picker">
             <input id="productImportFile" type="file" accept=".xlsx,.csv,text/csv" />
             <span>${escapeHtml(state.productImportFileName || "Выбрать CSV или XLSX")}</span>

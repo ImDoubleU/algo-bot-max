@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.79.0" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.80.0" />
   </head>
   <body class="is-booting">
     <main id="accessGate" class="access-gate" hidden>
@@ -103,12 +103,13 @@
                 <button id="openWalletButton" class="balance-link" type="button" title="Открыть историю астрокоинов">
                   <strong><span id="balanceValue">1240</span> <small>AC</small></strong>
                 </button>
-                <button id="refreshDataButton" class="icon-button refresh-button" type="button" title="Обновить данные" aria-label="Обновить данные">
-                  <i data-lucide="refresh-cw"></i>
-                </button>
               </div>
               <span id="lastSyncTime" class="status-balance-caption sync-time">Загрузка данных</span>
             </div>
+            <button id="refreshDataButton" class="secondary-action global-refresh-button" type="button" title="Загрузить актуальные данные">
+              <i data-lucide="refresh-cw"></i>
+              <span>Обновить</span>
+            </button>
             <button id="openCartButton" class="primary-action" type="button">
               <i data-lucide="shopping-bag"></i>
               <span>Корзина</span>
@@ -1090,11 +1091,11 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app-core.js?v=0.79.0"></script>
-    <script src="/miniapp/static/app-shell.js?v=0.79.0"></script>
-    <script src="/miniapp/static/app-store.js?v=0.79.0"></script>
-    <script src="/miniapp/static/app-admin.js?v=0.79.0"></script>
-    <script src="/miniapp/static/app-communications.js?v=0.79.0"></script>
-    <script src="/miniapp/static/app.js?v=0.79.0"></script>
+    <script src="/miniapp/static/app-core.js?v=0.80.0"></script>
+    <script src="/miniapp/static/app-shell.js?v=0.80.0"></script>
+    <script src="/miniapp/static/app-store.js?v=0.80.0"></script>
+    <script src="/miniapp/static/app-admin.js?v=0.80.0"></script>
+    <script src="/miniapp/static/app-communications.js?v=0.80.0"></script>
+    <script src="/miniapp/static/app.js?v=0.80.0"></script>
   </body>
 </html>

@@ -6910,9 +6910,39 @@ body[data-active-role="student"] #studentContext {
 
 .product-import-controls {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
+  grid-template-columns: auto minmax(220px, 1fr) auto;
   gap: 10px;
   padding: 0 16px 14px 65px;
+}
+
+.product-import-controls > a {
+  grid-column: 1;
+  grid-row: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.product-import-controls .file-picker {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.product-import-controls .primary-action {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.product-import-hint {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 @media (max-width: 760px) {
@@ -7008,6 +7038,14 @@ body[data-active-role="student"] #studentContext {
   .product-import-controls {
     grid-template-columns: 1fr;
     padding: 0 12px 12px;
+  }
+
+  .product-import-controls > a,
+  .product-import-controls .file-picker,
+  .product-import-controls .primary-action,
+  .product-import-hint {
+    grid-column: 1;
+    grid-row: auto;
   }
 
   .product-import-controls .primary-action {
@@ -12988,7 +13026,7 @@ svg + .icon-fallback {
 /* Final role review */
 .status-strip {
   min-height: 88px;
-  grid-template-columns: minmax(260px, 1fr) minmax(170px, 220px) auto;
+  grid-template-columns: minmax(260px, 1fr) minmax(170px, 220px) auto auto;
   align-items: center;
   gap: 14px;
   padding: 12px 14px;
@@ -12997,6 +13035,29 @@ svg + .icon-fallback {
   border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 6px 18px rgba(34, 25, 48, 0.06);
+}
+
+.status-strip.is-staff-profile {
+  grid-template-columns: minmax(260px, 1fr) auto;
+}
+
+.global-refresh-button {
+  min-width: 126px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.global-refresh-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.global-refresh-button.is-loading svg {
+  animation: ui-spin 700ms linear infinite;
 }
 
 .status-profile {
@@ -13222,11 +13283,43 @@ svg + .icon-fallback {
 
 @media (max-width: 700px) {
   .status-strip:not(.is-staff-profile) {
-    min-height: 70px;
+    min-height: 116px;
     grid-template-columns: minmax(0, 1fr) 104px 44px;
     gap: 7px;
     padding: 8px;
     border-left-width: 3px;
+  }
+
+  .status-strip:not(.is-staff-profile) .status-profile {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .status-strip:not(.is-staff-profile) .status-balance {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .status-strip:not(.is-staff-profile) #openCartButton {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .status-strip:not(.is-staff-profile) .global-refresh-button {
+    width: 100%;
+    min-height: 38px;
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .status-strip.is-staff-profile {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .status-strip.is-staff-profile .global-refresh-button {
+    min-width: 112px;
+    min-height: 40px;
   }
 
   .status-profile {
