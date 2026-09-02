@@ -23,7 +23,7 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.81.0"}
+    assert set(versions) == {"0.82.0"}
 
 
 def test_admin_products_and_warehouses_have_delete_actions() -> None:

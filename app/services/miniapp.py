@@ -162,8 +162,10 @@ from app.services.product_import import (
     ProductImportError,
     generate_product_sku,
     import_products_for_tenant,
+    localize_product_import_photos,
     parse_product_rows,
 )
+from app.services.product_media import remove_product_image, remove_product_image_url
 from app.services.staff import (
     active_staff_roles_for_tenant,
     configured_superadmin_max_user_id,
@@ -964,6 +966,8 @@ async def import_miniapp_products(
     tenant_slug: str,
     filename: str,
     content: bytes,
+    media_root: str,
+    media_base_url: str,
 ) -> MiniAppProductImportRead:
     tenant, account, admin_role = await _store_admin_context(
         db,
@@ -981,32 +985,51 @@ async def import_miniapp_products(
         raise MiniAppStoreError("Файл не содержит товаров", status_code=400)
 
     try:
+        rows, saved_images = await localize_product_import_photos(
+            rows,
+            media_root=media_root,
+            media_base_url=media_base_url,
+        )
+    except ProductImportError as exc:
+        raise MiniAppStoreError(str(exc), status_code=400) from exc
+
+    try:
         result = await import_products_for_tenant(
             db,
             tenant=tenant,
             rows=rows,
             actor_account_id=UUID(str(account.id)),
         )
+        db.add(
+            AuditLog(
+                tenant_id=tenant.id,
+                actor_account_id=account.id,
+                action="miniapp_products.imported",
+                entity_type="product_import",
+                entity_id=None,
+                payload={
+                    "filename": filename,
+                    "created_products": result.created_products,
+                    "updated_products": result.updated_products,
+                    "updated_inventory": result.updated_inventory,
+                    "admin_role": admin_role.value,
+                },
+            )
+        )
+        await db.commit()
     except ProductImportError as exc:
         await db.rollback()
+        for saved_image in saved_images:
+            await remove_product_image(saved_image)
         raise MiniAppStoreError(str(exc), status_code=409) from exc
-    db.add(
-        AuditLog(
-            tenant_id=tenant.id,
-            actor_account_id=account.id,
-            action="miniapp_products.imported",
-            entity_type="product_import",
-            entity_id=None,
-            payload={
-                "filename": filename,
-                "created_products": result.created_products,
-                "updated_products": result.updated_products,
-                "updated_inventory": result.updated_inventory,
-                "admin_role": admin_role.value,
-            },
-        )
-    )
-    await db.commit()
+    except Exception:
+        await db.rollback()
+        for saved_image in saved_images:
+            await remove_product_image(saved_image)
+        raise
+
+    for photo_url in set(result.obsolete_photo_urls):
+        await remove_product_image_url(photo_url, media_root=media_root)
     for product in result.new_active_products:
         await schedule_new_product_notification(db, tenant=tenant, product=product)
     for product, inventory in result.low_stock_items:

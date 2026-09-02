@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import urlsplit
@@ -22,6 +22,12 @@ from app.models.enums import ProductStatus, StockMovementType, WarehouseType
 from app.models.store import Product, ProductCategory, Warehouse, WarehouseInventory
 from app.models.tenant import Tenant
 from app.services.crm_sync import slugify
+from app.services.product_media import (
+    ProductMediaError,
+    SavedProductImage,
+    remove_product_image,
+    save_remote_product_image,
+)
 from app.services.warehouse import build_stock_movement
 
 HEADER_ALIASES = {
@@ -92,6 +98,7 @@ class ProductImportResult:
     skipped_rows: int = 0
     errors: list[str] = field(default_factory=list)
     new_active_products: list[Product] = field(default_factory=list, repr=False)
+    obsolete_photo_urls: list[str] = field(default_factory=list, repr=False)
     low_stock_items: list[tuple[Product, WarehouseInventory]] = field(
         default_factory=list,
         repr=False,
@@ -281,6 +288,45 @@ def generate_product_sku() -> str:
     return f"PRD-{uuid4().hex[:12].upper()}"
 
 
+async def localize_product_import_photos(
+    rows: list[ProductImportRow],
+    *,
+    media_root: str,
+    media_base_url: str,
+) -> tuple[list[ProductImportRow], list[SavedProductImage]]:
+    localized_rows: list[ProductImportRow] = []
+    saved_images: list[SavedProductImage] = []
+    localized_urls: dict[tuple[str, str], str] = {}
+    base_url = media_base_url.rstrip("/")
+
+    try:
+        for row in rows:
+            if not row.photo_url:
+                localized_rows.append(row)
+                continue
+
+            product_key = row.sku or f"{row.category_slug}:{row.name.casefold()}"
+            cache_key = (product_key, row.photo_url)
+            local_url = localized_urls.get(cache_key)
+            if local_url is None:
+                saved_image = await save_remote_product_image(
+                    row.photo_url,
+                    media_root=media_root,
+                )
+                saved_images.append(saved_image)
+                local_url = f"{base_url}{saved_image.url_path}"
+                localized_urls[cache_key] = local_url
+            localized_rows.append(replace(row, photo_url=local_url))
+    except ProductMediaError as exc:
+        for saved_image in saved_images:
+            await remove_product_image(saved_image)
+        raise ProductImportError(
+            f"Строка {row.row_number}: не удалось загрузить фото: {exc}"
+        ) from exc
+
+    return localized_rows, saved_images
+
+
 def build_product_import_template() -> bytes:
     workbook = Workbook()
     instruction = workbook.active
@@ -294,23 +340,32 @@ def build_product_import_template() -> bytes:
             "«Общий склад», остаток будет равен 0."
         ]
     )
-    instruction.append([
-        "3. Артикул необязателен, но рекомендуется: по нему система надежно обновляет "
-        "уже загруженный товар."
-    ])
-    instruction.append([
-        "4. Для нескольких складов повторите артикул и данные товара в нескольких "
-        "строках, меняя склад и остаток."
-    ])
-    instruction.append([
-        "5. В поле «Ссылка на фото» укажите публичный адрес http:// или https://, "
-        "который открывается без входа и пароля."
-    ])
+    instruction.append(
+        [
+            "3. Артикул необязателен, но рекомендуется: по нему система надежно обновляет "
+            "уже загруженный товар."
+        ]
+    )
+    instruction.append(
+        [
+            "4. Для нескольких складов повторите артикул и данные товара в нескольких "
+            "строках, меняя склад и остаток."
+        ]
+    )
+    instruction.append(
+        [
+            "5. В поле «Ссылка на фото» укажите прямой адрес изображения либо публичную "
+            "ссылку Яндекс Диска или Google Drive. Для Google Drive включите доступ "
+            "«Все, у кого есть ссылка»."
+        ]
+    )
     instruction.append(["6. Статус: Активен, Скрыт или Архив. Пустое значение означает «Активен»."])
-    instruction.append([
-        "7. Заполняйте лист «Товары». Листы «Инструкция» и «Пример» при импорте "
-        "не обрабатываются."
-    ])
+    instruction.append(
+        [
+            "7. Заполняйте лист «Товары». Листы «Инструкция» и «Пример» при импорте "
+            "не обрабатываются."
+        ]
+    )
     instruction.column_dimensions["A"].width = 105
     instruction["A1"].font = Font(bold=True, size=16, color="FFFFFF")
     instruction["A1"].fill = PatternFill("solid", fgColor="6F35D5")
@@ -342,7 +397,10 @@ def build_product_import_template() -> bytes:
         6: "Целое число, не меньше 0. По умолчанию 0.",
         7: "Активен, Скрыт или Архив. По умолчанию Активен.",
         8: "Необязательное описание товара.",
-        9: "Публичная ссылка http:// или https:// длиной до 500 символов.",
+        9: (
+            "Прямая ссылка на изображение или публичная ссылка Яндекс Диска/Google Drive "
+            "http:// или https:// длиной до 500 символов."
+        ),
     }
     for column, comment in comments.items():
         sheet.cell(row=1, column=column).comment = Comment(comment, "Algo MAX")
@@ -370,6 +428,32 @@ def build_product_import_template() -> bytes:
             "Активен",
             "Набор для учебных проектов",
             "https://images.example.org/products/robot-kit.jpg",
+        ]
+    )
+    example.append(
+        [
+            "YANDEX-PHOTO-01",
+            "Товар с фото из Яндекс Диска",
+            "Примеры ссылок",
+            100,
+            "Главный склад",
+            1,
+            "Активен",
+            "Используйте стабильную ссылку, полученную через «Поделиться»",
+            "https://disk.yandex.ru/i/PUBLIC_LINK_ID",
+        ]
+    )
+    example.append(
+        [
+            "GOOGLE-PHOTO-01",
+            "Товар с фото из Google Drive",
+            "Примеры ссылок",
+            100,
+            "Главный склад",
+            1,
+            "Активен",
+            "Откройте доступ «Все, у кого есть ссылка»",
+            "https://drive.google.com/file/d/FILE_ID/view?usp=sharing",
         ]
     )
     example.append(
@@ -461,6 +545,8 @@ async def import_products_for_tenant(
             if product.status == ProductStatus.ACTIVE:
                 result.new_active_products.append(product)
         else:
+            if product.photo_url and product.photo_url != row.photo_url:
+                result.obsolete_photo_urls.append(product.photo_url)
             product.category_id = category.id
             product.name = row.name
             product.description = row.description
