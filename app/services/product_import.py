@@ -185,6 +185,10 @@ def _text(value: Any) -> str:
     return str(value).strip()
 
 
+def _warehouse_name_key(value: str) -> str:
+    return " ".join(value.casefold().replace("ё", "е").replace("\u00a0", " ").split())
+
+
 def _int(value: Any, *, default: int | None = None) -> int:
     text = _text(value).replace(" ", "").replace(",", ".")
     if not text:
@@ -654,8 +658,24 @@ async def _get_or_create_warehouse(
             Warehouse.slug == row.warehouse_slug,
         )
     )
+    if warehouse is None:
+        warehouse_name_key = _warehouse_name_key(row.warehouse_name)
+        existing_warehouses = (
+            await db.scalars(
+                select(Warehouse)
+                .where(Warehouse.tenant_id == tenant.id)
+                .order_by(Warehouse.created_at, Warehouse.id)
+            )
+        ).all()
+        warehouse = next(
+            (
+                candidate
+                for candidate in existing_warehouses
+                if _warehouse_name_key(candidate.name) == warehouse_name_key
+            ),
+            None,
+        )
     if warehouse is not None:
-        warehouse.name = row.warehouse_name
         return warehouse, False
 
     warehouse = Warehouse(

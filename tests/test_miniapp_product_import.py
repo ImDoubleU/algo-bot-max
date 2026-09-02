@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import app.db.base  # noqa: F401
 from app.models.account import MaxAccount, StaffRoleAssignment
 from app.models.base import Base
-from app.models.enums import AssignmentStatus, StaffRole
+from app.models.enums import AssignmentStatus, StaffRole, WarehouseType
 from app.models.store import Product, ProductCategory, Warehouse, WarehouseInventory
 from app.models.tenant import City, Partner, Tenant
 from app.services.miniapp import import_miniapp_products
@@ -93,6 +93,51 @@ async def test_admin_imports_products_from_miniapp_csv(db_session, tmp_path) -> 
     assert warehouse is not None
     assert warehouse.name == "Союзный 45"
     assert inventory is not None
+    assert inventory.available_quantity == 18
+
+
+async def test_product_import_reuses_existing_warehouse_with_different_slug(
+    db_session,
+    tmp_path,
+) -> None:
+    await seed_admin(db_session)
+    tenant = await db_session.scalar(
+        select(Tenant).where(Tenant.slug == "nizhniy-novgorod-partner-a")
+    )
+    assert tenant is not None
+    existing_warehouse = Warehouse(
+        tenant_id=tenant.id,
+        slug="бор-центр",
+        name="Бор Центр",
+        warehouse_type=WarehouseType.COMMON,
+        address="ул. Ленина, 157",
+    )
+    db_session.add(existing_warehouse)
+    await db_session.commit()
+
+    content = (
+        "sku,name,category,price_astrocoins,quantity,warehouse\n"
+        "NOTEBOOK,Блокнот,Канцелярия,120,18,БОР\u00a0  ЦЕНТР\n"
+    ).encode()
+    result = await import_miniapp_products(
+        db_session,
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        filename="products.csv",
+        content=content,
+        media_root=str(tmp_path),
+        media_base_url="https://algo.test",
+    )
+
+    warehouses = list(await db_session.scalars(select(Warehouse)))
+    inventory = await db_session.scalar(select(WarehouseInventory))
+    assert result.created_warehouses == 0
+    assert len(warehouses) == 1
+    assert warehouses[0].id == existing_warehouse.id
+    assert warehouses[0].name == "Бор Центр"
+    assert warehouses[0].address == "ул. Ленина, 157"
+    assert inventory is not None
+    assert inventory.warehouse_id == existing_warehouse.id
     assert inventory.available_quantity == 18
 
 
