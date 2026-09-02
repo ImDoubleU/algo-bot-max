@@ -1281,7 +1281,7 @@ function renderAdminPanel() {
             <i data-lucide="download"></i><span>Скачать шаблон XLSX</span>
           </a>
           <p class="product-import-hint">
-            В шаблоне можно указать публичную ссылку на фото товара. Ссылка должна открываться без входа и пароля.
+            Фото можно загрузить по прямой ссылке, из Яндекс Диска или Google Drive. В облаке должен быть открыт доступ по ссылке.
           </p>
           <label class="file-picker">
             <input id="productImportFile" type="file" accept=".xlsx,.csv,text/csv" />

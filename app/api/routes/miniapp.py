@@ -757,6 +757,7 @@ async def miniapp_ops_summary(
 async def miniapp_import_products(
     db: DbSession,
     identity: MiniAppIdentityDep,
+    request: Request,
     max_user_id: Annotated[int, Form(gt=0)],
     file: Annotated[UploadFile, File()],
     tenant_slug: Annotated[str | None, Form()] = None,
@@ -775,6 +776,8 @@ async def miniapp_import_products(
             tenant_slug=resolved_tenant,
             filename=filename,
             content=content,
+            media_root=get_settings().product_media_root,
+            media_base_url=str(request.base_url).rstrip("/"),
         )
     except MiniAppStoreError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

@@ -17,6 +17,7 @@ from app.services.product_import import (
     build_product_import_template,
     parse_product_rows,
 )
+from app.services.product_media import SavedProductImage
 
 
 @pytest.fixture
@@ -57,7 +58,7 @@ async def seed_admin(db_session) -> None:
     await db_session.commit()
 
 
-async def test_admin_imports_products_from_miniapp_csv(db_session) -> None:
+async def test_admin_imports_products_from_miniapp_csv(db_session, tmp_path) -> None:
     await seed_admin(db_session)
     content = (
         "sku,name,category,price_astrocoins,quantity,warehouse\n"
@@ -70,6 +71,8 @@ async def test_admin_imports_products_from_miniapp_csv(db_session) -> None:
         tenant_slug="nizhniy-novgorod-partner-a",
         filename="products.csv",
         content=content,
+        media_root=str(tmp_path),
+        media_base_url="https://algo.test",
     )
 
     assert result.created_products == 1
@@ -93,9 +96,32 @@ async def test_admin_imports_products_from_miniapp_csv(db_session) -> None:
     assert inventory.available_quantity == 18
 
 
-async def test_admin_imports_public_product_photo_url(db_session) -> None:
+async def test_admin_imports_public_product_photo_url(
+    db_session,
+    tmp_path,
+    monkeypatch,
+) -> None:
     await seed_admin(db_session)
     photo_url = "https://cdn.example.org/catalog/pen.png?size=large"
+    saved_path = tmp_path / "imported.png"
+
+    async def fake_save_remote_product_image(
+        value: str,
+        *,
+        media_root: str,
+    ) -> SavedProductImage:
+        assert value == photo_url
+        assert media_root == str(tmp_path)
+        saved_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+        return SavedProductImage(
+            path=saved_path,
+            url_path="/media/products/imported.png",
+        )
+
+    monkeypatch.setattr(
+        "app.services.product_import.save_remote_product_image",
+        fake_save_remote_product_image,
+    )
     content = (
         "Артикул,Название,Цена AC,Остаток,Склад,Ссылка на фото\n"
         f"PEN-PHOTO,Ручка с фото,150,7,Главный склад,{photo_url}\n"
@@ -107,21 +133,23 @@ async def test_admin_imports_public_product_photo_url(db_session) -> None:
         tenant_slug="nizhniy-novgorod-partner-a",
         filename="products.csv",
         content=content,
+        media_root=str(tmp_path),
+        media_base_url="https://algo.test",
     )
 
     product = await db_session.scalar(select(Product).where(Product.sku == "PEN-PHOTO"))
     assert product is not None
-    assert product.photo_url == photo_url
+    assert product.photo_url == "https://algo.test/media/products/imported.png"
+    assert saved_path.exists()
 
 
-async def test_admin_imports_product_without_sku_from_template(db_session) -> None:
+async def test_admin_imports_product_without_sku_from_template(db_session, tmp_path) -> None:
     await seed_admin(db_session)
     rows = parse_product_rows("products.xlsx", build_product_import_template())
     assert rows == []
 
     content = (
-        "Название,Категория,Цена AC,Склад,Остаток\n"
-        "Набор наклеек,Сувениры,75,Главный склад,12\n"
+        "Название,Категория,Цена AC,Склад,Остаток\nНабор наклеек,Сувениры,75,Главный склад,12\n"
     ).encode()
     result = await import_miniapp_products(
         db_session,
@@ -129,6 +157,8 @@ async def test_admin_imports_product_without_sku_from_template(db_session) -> No
         tenant_slug="nizhniy-novgorod-partner-a",
         filename="products.csv",
         content=content,
+        media_root=str(tmp_path),
+        media_base_url="https://algo.test",
     )
     product = await db_session.scalar(select(Product).where(Product.name == "Набор наклеек"))
     assert result.created_products == 1
@@ -154,6 +184,11 @@ def test_product_import_template_contains_photo_link_column_and_example() -> Non
             "Ссылка на фото",
         ]
         assert workbook["Пример"]["I2"].value.startswith("https://")
+        instructions = "\n".join(
+            str(row[0].value or "") for row in workbook["Инструкция"].iter_rows()
+        )
+        assert "Яндекс Диска" in instructions
+        assert "Google Drive" in instructions
     finally:
         workbook.close()
 
@@ -161,10 +196,7 @@ def test_product_import_template_contains_photo_link_column_and_example() -> Non
 def test_product_import_accepts_semicolon_csv_and_rejects_duplicate_inventory() -> None:
     rows = parse_product_rows(
         "products.csv",
-        (
-            "Артикул;Название;Цена;Остаток;Склад\n"
-            "PEN-1;Ручка;120;5;Главный склад\n"
-        ).encode(),
+        ("Артикул;Название;Цена;Остаток;Склад\nPEN-1;Ручка;120;5;Главный склад\n").encode(),
     )
     assert rows[0].sku == "PEN-1"
     assert rows[0].quantity == 5
