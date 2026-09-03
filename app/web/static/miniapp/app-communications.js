@@ -4,11 +4,11 @@ function renderTeacherInvitations() {
   const groupSelect = qs("#teacherQrGroupFilter");
   if (!panel || !list || !groupSelect) return;
 
-  const visible = state.role === "teacher" && primaryStaffRole() === "teacher";
+  const visible = hasTeacherCapabilities();
   panel.hidden = !visible;
   if (!visible) return;
 
-  const teacherStudents = studentsForCurrentRole();
+  const teacherStudents = studentsForTeacherCapabilities();
   const groups = [...new Set(teacherStudents.map(studentGroupName))].sort((a, b) =>
     a.localeCompare(b, "ru"),
   );

@@ -1634,13 +1634,29 @@ function renderAdminPanel() {
   }
 
   const disabled = state.staffSaving ? "disabled" : "";
-  const activeStaff = staffAssignments.filter((item) => item.status === "active").length;
-  const revokedStaff = staffAssignments.length - activeStaff;
+  const staffGroups = groupedStaffAssignments();
+  const activeStaff = staffGroups.filter((group) =>
+    group.assignments.some((assignment) => assignment.status === "active"),
+  ).length;
+  const revokedStaff = staffGroups.filter((group) =>
+    group.assignments.some((assignment) => assignment.status === "revoked"),
+  ).length;
+  const activeRoleCount = staffAssignments.filter((item) => item.status === "active").length;
   const staffQuery = state.adminEntitySearch.trim().toLowerCase();
-  const visibleStaffAssignments = staffAssignments.filter((item) => {
-    const matchesStatus = state.staffStatusFilter === "all" || item.status === state.staffStatusFilter;
-    const matchesRole = state.staffRoleFilter === "all" || item.role === state.staffRoleFilter;
-    const matchesQuery = !staffQuery || `${item.displayName} ${item.username} ${item.maxUserId} ${staffRoleLabel(item.role)}`.toLowerCase().includes(staffQuery);
+  const visibleStaffGroups = staffGroups.filter((group) => {
+    const matchesStatus = state.staffStatusFilter === "all" || group.assignments.some(
+      (assignment) => assignment.status === state.staffStatusFilter,
+    );
+    const matchesRole = state.staffRoleFilter === "all" || group.assignments.some(
+      (assignment) => assignment.role === state.staffRoleFilter,
+    );
+    const searchable = [
+      group.displayName,
+      group.username,
+      group.maxUserId,
+      ...group.assignments.map((assignment) => staffRoleLabel(assignment.role)),
+    ].join(" ").toLowerCase();
+    const matchesQuery = !staffQuery || searchable.includes(staffQuery);
     return matchesStatus && matchesRole && matchesQuery;
   });
   const actorRole = primaryStaffRole();
@@ -1670,7 +1686,7 @@ function renderAdminPanel() {
     return actorRole === "admin" && ["curator", "teacher"].includes(assignment.role);
   };
   const rows =
-    visibleStaffAssignments.length === 0
+    visibleStaffGroups.length === 0
       ? `<div class="empty-state">${
           staffAssignments.length === 0
             ? "Сотрудников пока нет"
@@ -1678,67 +1694,153 @@ function renderAdminPanel() {
               ? "Отозванных назначений нет"
               : "Активных назначений нет"
         }</div>`
-      : visibleStaffAssignments
+      : visibleStaffGroups
           .map(
-            (assignment) => `
-              <article class="admin-entity-card staff-entity-card">
+            (group) => {
+              const activeAssignments = group.assignments.filter(
+                (assignment) => assignment.status === "active",
+              );
+              const primaryAssignment = activeAssignments[0] || group.assignments[0];
+              const allActive = activeAssignments.length === group.assignments.length;
+              const allRevoked = activeAssignments.length === 0;
+              const statusTone = allActive ? "ok" : allRevoked ? "danger" : "warn";
+              const statusLabel = allActive
+                ? "Активен"
+                : allRevoked
+                  ? "Отозван"
+                  : "Есть отозванные роли";
+              const roleLabels = group.assignments.map((assignment) => {
+                const suffix = assignment.status === "revoked" ? " (отозвана)" : "";
+                return `${staffRoleLabel(assignment.role)}${suffix}`;
+              });
+              const toggleableAssignments = group.assignments.filter(
+                canToggleStaffAssignment,
+              );
+              const additionalRoles = additionalStaffRolesForAccount(group.accountId);
+              const roleEditorOpen = state.staffRoleEditorAccountId === group.accountId;
+              const profileEditorOpen = state.staffProfileEditorAccountId === group.accountId;
+              const canEditProfile = canManageStaffProfileForGroup(group);
+              const canManageNotifications = canManageStaffNotifications && activeAssignments.some(
+                (assignment) => ["admin", "curator"].includes(assignment.role),
+              );
+              const menuAvailable =
+                canEditProfile || additionalRoles.length > 0 || toggleableAssignments.length > 0;
+              return `
+              <article class="admin-entity-card staff-entity-card ${roleEditorOpen || profileEditorOpen ? "is-editing" : ""}">
                 <div class="staff-role-mark">${escapeHtml(
-                  staffRoleLabel(assignment.role).slice(0, 1),
+                  staffRoleLabel(primaryAssignment.role).slice(0, 1),
                 )}</div>
                 <div class="admin-entity-main">
                   <div class="admin-entity-title">
                     <strong>${escapeHtml(
-                      assignment.displayName || assignment.username || "Без имени",
+                      group.displayName || group.username || "Без имени",
                     )}</strong>
-                    <span class="status-badge ${
-                      assignment.status === "active" ? "ok" : "danger"
-                    }">${escapeHtml(assignmentStatusLabel(assignment.status))}</span>
+                    <span class="status-badge ${statusTone}">${escapeHtml(statusLabel)}</span>
                   </div>
                   <div class="admin-entity-meta">
-                    <span>${escapeHtml(staffRoleLabel(assignment.role))}</span>
-                    <span>MAX ID ${escapeHtml(assignment.maxUserId)}</span>
-                    ${assignment.username ? `<span>@${escapeHtml(assignment.username)}</span>` : ""}
+                    <span class="staff-role-list">${escapeHtml(roleLabels.join(", "))}</span>
+                    <span>MAX ID ${escapeHtml(group.maxUserId)}</span>
+                    ${group.username ? `<span>@${escapeHtml(group.username)}</span>` : ""}
                   </div>
                 </div>
                 <div class="admin-entity-actions">
                   ${
-                    canManageStaffNotifications
-                    && assignment.status === "active"
-                    && ["admin", "curator"].includes(assignment.role)
+                    canManageNotifications
                       ? `<button
                           class="secondary-action staff-notification-button"
                           type="button"
-                          data-staff-notifications="${escapeHtml(assignment.accountId)}"
+                          data-staff-notifications="${escapeHtml(group.accountId)}"
                         ><i data-lucide="bell-ring"></i><span>Уведомления</span></button>`
                       : ""
                   }
                   ${
-                    canToggleStaffAssignment(assignment)
+                    menuAvailable
                       ? `<details class="admin-row-menu">
                           <summary class="icon-button" title="Действия" aria-label="Действия с сотрудником"><i data-lucide="ellipsis-vertical"></i></summary>
                           <div class="admin-row-menu-popover">
-                            <button
-                              class="${assignment.status === "active" ? "danger-action" : ""}"
-                              type="button"
-                              data-toggle-staff="${escapeHtml(assignment.maxUserId)}"
-                              data-staff-role="${escapeHtml(assignment.role)}"
-                            >${assignment.status === "revoked" ? "Восстановить роль" : "Отозвать роль"}</button>
+                            ${canEditProfile ? `
+                              <button type="button" data-edit-staff-profile="${escapeHtml(group.accountId)}">
+                                Изменить ФИО
+                              </button>
+                            ` : ""}
+                            ${additionalRoles.length ? `
+                              <button type="button" data-add-staff-role="${escapeHtml(group.accountId)}">
+                                Добавить роль
+                              </button>
+                            ` : ""}
+                            ${toggleableAssignments.map((assignment) => `
+                              <button
+                                class="${assignment.status === "active" ? "danger-action" : ""}"
+                                type="button"
+                                data-toggle-staff="${escapeHtml(group.maxUserId)}"
+                                data-staff-role="${escapeHtml(assignment.role)}"
+                              >${assignment.status === "revoked" ? "Восстановить" : "Отозвать"}: ${escapeHtml(staffRoleLabel(assignment.role))}</button>
+                            `).join("")}
                           </div>
                         </details>`
                       : ""
                   }
                 </div>
+                ${roleEditorOpen && additionalRoles.length ? `
+                  <div class="staff-card-role-editor">
+                    <div>
+                      <strong>Добавить роль</strong>
+                      <span>${escapeHtml(group.displayName || group.username || `MAX ID ${group.maxUserId}`)}</span>
+                    </div>
+                    <select data-staff-additional-role-select aria-label="Новая роль сотрудника" ${disabled}>
+                      ${additionalRoles.map((role) => `<option value="${escapeHtml(role)}" ${state.staffRoleEditorRole === role ? "selected" : ""}>${escapeHtml(staffRoleLabel(role))}</option>`).join("")}
+                    </select>
+                    <button class="primary-action" type="button" data-save-additional-staff-role="${escapeHtml(group.accountId)}" ${disabled}>
+                      ${state.staffSaving ? "Сохранение..." : "Добавить"}
+                    </button>
+                    <button class="secondary-action" type="button" data-cancel-additional-staff-role>Отмена</button>
+                  </div>
+                ` : ""}
+                ${profileEditorOpen && canEditProfile ? `
+                  <div class="staff-card-profile-editor">
+                    <div class="staff-card-editor-heading">
+                      <strong>Изменить ФИО</strong>
+                      <span>Имя обновится во всех ролях сотрудника.</span>
+                    </div>
+                    <label>
+                      <span>Фамилия</span>
+                      <input
+                        data-managed-staff-last-name
+                        type="text"
+                        minlength="2"
+                        maxlength="80"
+                        value="${escapeHtml(state.staffProfileEditorLastName)}"
+                        placeholder="Фамилия"
+                        ${disabled}
+                      />
+                    </label>
+                    <label>
+                      <span>Имя</span>
+                      <input
+                        data-managed-staff-first-name
+                        type="text"
+                        minlength="2"
+                        maxlength="80"
+                        value="${escapeHtml(state.staffProfileEditorFirstName)}"
+                        placeholder="Имя"
+                        ${disabled}
+                      />
+                    </label>
+                    <button class="primary-action" type="button" data-save-staff-profile="${escapeHtml(group.accountId)}" ${disabled}>
+                      ${state.staffSaving ? "Сохранение..." : "Сохранить"}
+                    </button>
+                    <button class="secondary-action" type="button" data-cancel-staff-profile>Отмена</button>
+                  </div>
+                ` : ""}
               </article>
-            `,
+            `;
+            },
           )
           .join("");
 
-  const elevatedRoleOptions = actorRole === "superadmin"
-    ? `
-          <option value="admin">Администратор</option>
-          <option value="partner_director">Директор партнера</option>
-        `
-    : "";
+  const directRoleOptions = directlyAssignableStaffRoles()
+    .map((role) => `<option value="${escapeHtml(role)}">${escapeHtml(staffRoleLabel(role))}</option>`)
+    .join("");
   const invitationRoleOptions = invitableRoles
     .map(
       (role) => `<option value="${escapeHtml(role)}" ${
@@ -1751,7 +1853,7 @@ function renderAdminPanel() {
     <div class="admin-section-toolbar">
       <div>
         <h3>Сотрудники</h3>
-        <span>${activeStaff} активных назначений из ${staffAssignments.length}</span>
+        <span>${activeStaff} активных сотрудников · ${activeRoleCount} активных ролей</span>
       </div>
       ${
         state.staffEditorOpen || state.staffInvitationOpen
@@ -1825,7 +1927,7 @@ function renderAdminPanel() {
         class="staff-filter-button ${state.staffStatusFilter === "all" ? "is-active" : ""}"
         type="button"
         data-staff-status-filter="all"
-      >Все <span>${staffAssignments.length}</span></button>
+      >Все <span>${staffGroups.length}</span></button>
     </div>
     <div class="admin-filter-toolbar">
       <label class="search-field"><i data-lucide="search"></i><input id="adminEntitySearch" type="search" value="${escapeHtml(state.adminEntitySearch)}" placeholder="Имя, MAX ID или роль" /><button class="search-clear" type="button" data-clear-admin-search ${state.adminEntitySearch ? "" : "hidden"}><i data-lucide="x"></i></button></label>
@@ -1847,9 +1949,7 @@ function renderAdminPanel() {
       <label>
         <span>Роль</span>
         <select id="staffRoleSelect">
-          <option value="teacher">Преподаватель</option>
-          <option value="curator">Куратор</option>
-          ${elevatedRoleOptions}
+          ${directRoleOptions}
         </select>
       </label>
       <button id="staffSaveButton" class="primary-action" type="button" ${disabled}>

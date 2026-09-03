@@ -18,12 +18,15 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    json_default = (
+        sa.text("'[]'") if op.get_bind().dialect.name == "sqlite" else sa.text("'[]'::json")
+    )
     op.add_column(
         "venues",
         sa.Column(
             "broadcast_keywords",
             sa.JSON(),
-            server_default=sa.text("'[]'::json"),
+            server_default=json_default,
             nullable=False,
         ),
     )
@@ -32,7 +35,7 @@ def upgrade() -> None:
         sa.Column(
             "broadcast_group_names",
             sa.JSON(),
-            server_default=sa.text("'[]'::json"),
+            server_default=json_default,
             nullable=False,
         ),
     )

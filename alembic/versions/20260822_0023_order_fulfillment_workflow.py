@@ -18,9 +18,10 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    with op.get_context().autocommit_block():
-        op.execute("ALTER TYPE orderstatus ADD VALUE IF NOT EXISTS 'AWAITING_DELIVERY'")
-        op.execute("ALTER TYPE orderstatus ADD VALUE IF NOT EXISTS 'DELIVERED_TO_VENUE'")
+    if op.get_bind().dialect.name == "postgresql":
+        with op.get_context().autocommit_block():
+            op.execute("ALTER TYPE orderstatus ADD VALUE IF NOT EXISTS 'AWAITING_DELIVERY'")
+            op.execute("ALTER TYPE orderstatus ADD VALUE IF NOT EXISTS 'DELIVERED_TO_VENUE'")
 
     op.add_column(
         "order_items",

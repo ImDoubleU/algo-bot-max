@@ -482,6 +482,37 @@ def _teacher_owns_order(account: MaxAccount, order: Order, student: Student) -> 
     )
 
 
+async def _students_visible_to_staff_roles(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    account: MaxAccount,
+    staff_roles: set[StaffRole],
+    students: list[Student],
+) -> list[Student]:
+    if staff_roles.intersection({StaffRole.SUPERADMIN, StaffRole.ADMIN, StaffRole.CURATOR}):
+        return students
+
+    visible_student_ids: set[UUID] = set()
+    if StaffRole.PARTNER_DIRECTOR in staff_roles:
+        venue_scope_ids = await staff_venue_scope_ids(
+            db,
+            tenant_id=tenant_id,
+            account_id=account.id,
+            role=StaffRole.PARTNER_DIRECTOR,
+        )
+        if venue_scope_ids is None:
+            return students
+        visible_student_ids.update(
+            student.id for student in students if student.venue_id in venue_scope_ids
+        )
+    if StaffRole.TEACHER in staff_roles:
+        visible_student_ids.update(
+            student.id for student in students if _teacher_owns_student(account, student)
+        )
+    return [student for student in students if student.id in visible_student_ids]
+
+
 def _clean_teacher_profile_name_part(value: str, *, field_label: str) -> str:
     cleaned = " ".join(value.strip().split())
     if len(cleaned) < 2 or not any(character.isalpha() for character in cleaned):
@@ -499,10 +530,11 @@ async def _teacher_profile_read(
     *,
     tenant_id: UUID,
     account: MaxAccount,
+    match_groups: bool = True,
 ) -> MiniAppTeacherProfileRead:
     matching_name = teacher_staff_name(account)
     matched_students: list[Student] = []
-    if matching_name:
+    if matching_name and match_groups:
         candidates = list(
             (
                 await db.scalars(
@@ -635,7 +667,7 @@ async def _assigned_tenants_for_director(
         .unique()
         .all()
     )
-    tenants.sort(key=lambda item: ((item.city.name if item.city else item.name).casefold()))
+    tenants.sort(key=lambda item: (item.city.name if item.city else item.name).casefold())
     return [_tenant_to_read(tenant) for tenant in tenants]
 
 
@@ -645,9 +677,7 @@ def _product_to_read(product: Product, *, include_codes: bool = False) -> MiniAp
     product_codes = list(product.__dict__.get("digital_codes", []))
 
     if product.fulfillment_type == ProductFulfillmentType.DIGITAL_CODE:
-        available_total = sum(
-            code.status == ProductCodeStatus.AVAILABLE for code in product_codes
-        )
+        available_total = sum(code.status == ProductCodeStatus.AVAILABLE for code in product_codes)
     else:
         for inventory in product.inventory_items:
             if not getattr(inventory, "is_active", True):
@@ -685,9 +715,7 @@ def _product_to_read(product: Product, *, include_codes: bool = False) -> MiniAp
         fulfillment_type=product.fulfillment_type,
         available_quantity=available_total,
         total_code_count=len(product_codes),
-        issued_code_count=sum(
-            code.status == ProductCodeStatus.ISSUED for code in product_codes
-        ),
+        issued_code_count=sum(code.status == ProductCodeStatus.ISSUED for code in product_codes),
         codes=(
             [
                 MiniAppProductCodeRead(
@@ -922,9 +950,7 @@ async def list_miniapp_catalog(
                     selectinload(Product.inventory_items).selectinload(
                         WarehouseInventory.warehouse
                     ),
-                    selectinload(Product.digital_codes).selectinload(
-                        ProductCode.issued_to_student
-                    ),
+                    selectinload(Product.digital_codes).selectinload(ProductCode.issued_to_student),
                     selectinload(Product.digital_codes)
                     .selectinload(ProductCode.order_item)
                     .selectinload(OrderItem.order),
@@ -1068,11 +1094,19 @@ async def _store_admin_context(
     if account is None:
         raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
 
-    admin_role = await _active_staff_role(
+    admin_roles = await active_staff_roles_for_tenant(
         db,
         tenant_id=tenant.id,
         account_id=account.id,
         allowed_roles=STORE_ADMIN_ROLES,
+    )
+    admin_role = next(
+        (
+            role
+            for role in (StaffRole.SUPERADMIN, StaffRole.ADMIN, StaffRole.PARTNER_DIRECTOR)
+            if role in admin_roles
+        ),
+        None,
     )
     if admin_role is None:
         raise MiniAppStoreError(denied_message, status_code=403)
@@ -1084,7 +1118,7 @@ async def _student_registry_context(
     *,
     max_user_id: int,
     tenant_slug: str,
-) -> tuple[Tenant, MaxAccount, StaffRole]:
+) -> tuple[Tenant, MaxAccount, StaffRole, set[StaffRole]]:
     normalized_tenant_slug = tenant_slug.strip().lower()
     tenant = await get_tenant_by_slug(db, normalized_tenant_slug)
     if tenant is None:
@@ -1093,15 +1127,16 @@ async def _student_registry_context(
     account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
     if account is None:
         raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
-    staff_role = await _active_staff_role(
+    staff_roles = await active_staff_roles_for_tenant(
         db,
         tenant_id=tenant.id,
         account_id=account.id,
         allowed_roles=COIN_ACCRUAL_ROLES,
     )
+    staff_role = next((role for role in STAFF_ROLE_PRIORITY if role in staff_roles), None)
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на просмотр учеников", status_code=403)
-    return tenant, account, staff_role
+    return tenant, account, staff_role, staff_roles
 
 
 def _crm_city_aliases(value: str | None) -> set[str]:
@@ -1357,28 +1392,32 @@ async def list_miniapp_student_registry(
     max_user_id: int,
     tenant_slug: str,
 ) -> MiniAppStudentRegistryRead:
-    tenant, account, staff_role = await _student_registry_context(
+    tenant, account, _staff_role, staff_roles = await _student_registry_context(
         db,
         max_user_id=max_user_id,
         tenant_slug=tenant_slug,
     )
-    students = (
-        await db.scalars(
-            select(Student)
-            .where(Student.tenant_id == tenant.id)
-            .order_by(Student.status, Student.group_name, Student.last_name, Student.first_name)
-        )
-    ).all()
-    venue_scope_ids = await staff_venue_scope_ids(
+    students = list(
+        (
+            await db.scalars(
+                select(Student)
+                .where(Student.tenant_id == tenant.id)
+                .order_by(
+                    Student.status,
+                    Student.group_name,
+                    Student.last_name,
+                    Student.first_name,
+                )
+            )
+        ).all()
+    )
+    students = await _students_visible_to_staff_roles(
         db,
         tenant_id=tenant.id,
-        account_id=account.id,
-        role=staff_role,
+        account=account,
+        staff_roles=staff_roles,
+        students=students,
     )
-    if venue_scope_ids is not None:
-        students = [student for student in students if student.venue_id in venue_scope_ids]
-    if staff_role == StaffRole.TEACHER:
-        students = [student for student in students if _teacher_owns_student(account, student)]
     student_ids = [student.id for student in students]
     balances = await _wallet_balances(db, student_ids)
     contact_ids_by_student: dict[UUID, list[str]] = {}
@@ -1523,7 +1562,7 @@ async def list_miniapp_student_ledger(
     student_id: UUID,
     limit: int = 100,
 ) -> list[MiniAppLedgerRead]:
-    tenant, account, staff_role = await _student_registry_context(
+    tenant, account, _staff_role, staff_roles = await _student_registry_context(
         db,
         max_user_id=max_user_id,
         tenant_slug=tenant_slug,
@@ -1533,16 +1572,17 @@ async def list_miniapp_student_ledger(
     )
     if student is None:
         raise MiniAppStoreError("Ученик не найден", status_code=404)
-    if staff_role == StaffRole.TEACHER and not _teacher_owns_student(account, student):
-        raise MiniAppStoreError("Нет доступа к ученику другой группы", status_code=403)
-    venue_scope_ids = await staff_venue_scope_ids(
+    visible_students = await _students_visible_to_staff_roles(
         db,
         tenant_id=tenant.id,
-        account_id=account.id,
-        role=staff_role,
+        account=account,
+        staff_roles=staff_roles,
+        students=[student],
     )
-    if venue_scope_ids is not None and student.venue_id not in venue_scope_ids:
-        raise MiniAppStoreError("Нет доступа к ученику другой площадки", status_code=403)
+    if not visible_students:
+        if staff_roles == {StaffRole.TEACHER}:
+            raise MiniAppStoreError("Нет доступа к ученику другой группы", status_code=403)
+        raise MiniAppStoreError("Нет доступа к выбранному ученику", status_code=403)
 
     entries = (
         await db.scalars(
@@ -1820,9 +1860,7 @@ async def create_miniapp_student(
                 "lms_student_id": lms_student_id,
                 "birth_date": payload.birth_date.isoformat() if payload.birth_date else None,
                 "crm_deal_id": crm_deal_id,
-                "parent_contact_id": parent_contact.external_contact_id
-                if parent_contact
-                else None,
+                "parent_contact_id": parent_contact.external_contact_id if parent_contact else None,
                 "parent_max_user_id": payload.parent_max_user_id,
                 "initial_balance": payload.initial_balance,
             },
@@ -1885,12 +1923,8 @@ async def update_miniapp_student_birth_date(
             entity_id=str(student.id),
             payload={
                 "student_name": student.display_name,
-                "from_birth_date": previous_birth_date.isoformat()
-                if previous_birth_date
-                else None,
-                "to_birth_date": payload.birth_date.isoformat()
-                if payload.birth_date
-                else None,
+                "from_birth_date": previous_birth_date.isoformat() if previous_birth_date else None,
+                "to_birth_date": payload.birth_date.isoformat() if payload.birth_date else None,
             },
         )
     )
@@ -2015,8 +2049,7 @@ async def set_miniapp_student_balance(
             amount=abs(delta),
             reason=reason,
             comment=(
-                payload.comment
-                or f"Баланс изменен с {previous_balance} до {payload.balance} AC"
+                payload.comment or f"Баланс изменен с {previous_balance} до {payload.balance} AC"
             ),
         )
     )
@@ -2202,11 +2235,19 @@ async def upsert_miniapp_product(
     if account is None:
         raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
 
-    staff_role = await _active_staff_role(
+    staff_roles = await active_staff_roles_for_tenant(
         db,
         tenant_id=tenant.id,
         account_id=account.id,
         allowed_roles=STORE_ADMIN_ROLES,
+    )
+    staff_role = next(
+        (
+            role
+            for role in (StaffRole.SUPERADMIN, StaffRole.ADMIN, StaffRole.PARTNER_DIRECTOR)
+            if role in staff_roles
+        ),
+        None,
     )
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на управление товарами", status_code=403)
@@ -2283,9 +2324,7 @@ async def upsert_miniapp_product(
             )
             has_codes = bool(
                 await db.scalar(
-                    select(ProductCode.id)
-                    .where(ProductCode.product_id == product.id)
-                    .limit(1)
+                    select(ProductCode.id).where(ProductCode.product_id == product.id).limit(1)
                 )
             )
             if has_inventory or has_codes:
@@ -2358,8 +2397,7 @@ async def upsert_miniapp_product(
             if not payload.inventories:
                 raise MiniAppStoreError("Выберите хотя бы один склад для товара")
             requested_inventory = {
-                UUID(str(item.warehouse_id)): item.stock_quantity
-                for item in payload.inventories
+                UUID(str(item.warehouse_id)): item.stock_quantity for item in payload.inventories
             }
             if len(requested_inventory) != len(payload.inventories):
                 raise MiniAppStoreError("Один склад указан несколько раз")
@@ -2420,9 +2458,7 @@ async def upsert_miniapp_product(
                         status_code=409,
                     )
 
-            inventory_changes: list[
-                tuple[UUID, WarehouseInventory, int, int]
-            ] = []
+            inventory_changes: list[tuple[UUID, WarehouseInventory, int, int]] = []
             for warehouse_id, inventory in inventories_by_warehouse.items():
                 next_quantity = requested_inventory.get(warehouse_id, 0)
                 was_active = inventory.is_active
@@ -2541,9 +2577,7 @@ async def upsert_miniapp_product(
         raise MiniAppStoreError("Товар не найден после сохранения", status_code=500)
     if product_created and product.status == ProductStatus.ACTIVE:
         await schedule_new_product_notification(db, tenant=tenant, product=product)
-    active_low_stock_ids = {
-        UUID(str(inventory.warehouse_id)) for inventory in low_stock_items
-    }
+    active_low_stock_ids = {UUID(str(inventory.warehouse_id)) for inventory in low_stock_items}
     for inventory in product.inventory_items:
         if UUID(str(inventory.warehouse_id)) not in active_low_stock_ids:
             continue
@@ -2701,9 +2735,7 @@ async def get_miniapp_session(
                     tenant_id=UUID(str(tenant.id)),
                     account_id=UUID(str(account.id)),
                 )
-            ) or any(
-                row_tenant.id == tenant.id for _, _, row_tenant in effective_access_rows
-            )
+            ) or any(row_tenant.id == tenant.id for _, _, row_tenant in effective_access_rows)
 
         if not requested_has_access:
             accessible_tenant_ids = set(
@@ -2808,57 +2840,78 @@ async def get_miniapp_session(
 
     visible_order_ids: set[UUID] | None = None
     access_link_student_ids: set[UUID] | None = None
+    teacher_student_ids: set[UUID] = set()
+    unrestricted_order_student_ids = set(linked_students_by_id)
     ledger_student_ids: list[UUID]
     if staff_roles:
         ordered_student_ids = select(Order.student_id).where(Order.tenant_id == tenant.id)
-        tenant_students = (
-            await db.scalars(
-                select(Student)
-                .where(
-                    Student.tenant_id == tenant.id,
-                    (Student.status == StudentStatus.ACTIVE)
-                    | Student.id.in_(ordered_student_ids),
+        all_tenant_students = list(
+            (
+                await db.scalars(
+                    select(Student)
+                    .where(
+                        Student.tenant_id == tenant.id,
+                        (Student.status == StudentStatus.ACTIVE)
+                        | Student.id.in_(ordered_student_ids),
+                    )
+                    .order_by(Student.group_name, Student.first_name, Student.last_name)
                 )
-                .order_by(Student.group_name, Student.first_name, Student.last_name)
-            )
-        ).all()
-        effective_staff_role = next(
-            (role for role in STAFF_ROLE_PRIORITY if role in staff_roles),
-            None,
+            ).all()
         )
-        director_venue_ids = await staff_venue_scope_ids(
+        manager_roles = effective_staff_roles.intersection(
+            {
+                StaffRole.SUPERADMIN,
+                StaffRole.PARTNER_DIRECTOR,
+                StaffRole.ADMIN,
+                StaffRole.CURATOR,
+            }
+        )
+        manager_students = await _students_visible_to_staff_roles(
             db,
             tenant_id=tenant.id,
-            account_id=account.id,
-            role=effective_staff_role,
-        ) if effective_staff_role is not None else None
-        if director_venue_ids is not None:
-            tenant_students = [
-                student for student in tenant_students if student.venue_id in director_venue_ids
-            ]
-        teacher_scoped = effective_staff_role == StaffRole.TEACHER
-        if teacher_scoped:
-            current_teacher_students = [
-                student
-                for student in tenant_students
+            account=account,
+            staff_roles=manager_roles,
+            students=all_tenant_students,
+        )
+        manager_student_ids = {student.id for student in manager_students}
+
+        teacher_order_student_ids: set[UUID] = set()
+        if StaffRole.TEACHER in effective_staff_roles:
+            teacher_student_ids = {
+                student.id
+                for student in all_tenant_students
                 if _teacher_owns_student(account, student)
-            ]
-            visible_order_ids, order_student_ids = await _teacher_order_scope(
+            }
+            visible_order_ids, teacher_order_student_ids = await _teacher_order_scope(
                 db,
                 tenant_id=tenant.id,
                 account=account,
             )
-            current_teacher_student_ids = {student.id for student in current_teacher_students}
-            tenant_students = [
-                student
-                for student in tenant_students
-                if student.id in current_teacher_student_ids or student.id in order_student_ids
-            ]
-            staff_student_ids = current_teacher_student_ids
-            staff_order_student_ids = order_student_ids
-        else:
-            staff_student_ids = {student.id for student in tenant_students}
-            staff_order_student_ids = set(staff_student_ids)
+
+        staff_student_ids = manager_student_ids | teacher_student_ids
+        staff_order_student_ids = manager_student_ids | teacher_order_student_ids
+        combined_student_ids = staff_student_ids | staff_order_student_ids
+        tenant_students = [
+            student for student in all_tenant_students if student.id in combined_student_ids
+        ]
+        unrestricted_order_student_ids |= manager_student_ids
+
+        if (
+            StaffRole.PARTNER_DIRECTOR in effective_staff_roles
+            and not effective_staff_roles.intersection({StaffRole.SUPERADMIN, StaffRole.ADMIN})
+        ):
+            director_venue_ids = await staff_venue_scope_ids(
+                db,
+                tenant_id=tenant.id,
+                account_id=account.id,
+                role=StaffRole.PARTNER_DIRECTOR,
+            )
+            director_student_ids = {
+                student.id
+                for student in all_tenant_students
+                if director_venue_ids is None or student.venue_id in director_venue_ids
+            }
+            access_link_student_ids = director_student_ids | set(linked_students_by_id)
         visible_students_by_id = {student.id: student for student in tenant_students}
         visible_students_by_id.update(linked_students_by_id)
         tenant_students = sorted(
@@ -2871,8 +2924,6 @@ async def get_miniapp_session(
         )
         student_ids = [student.id for student in tenant_students]
         ledger_student_ids = list(staff_student_ids | set(linked_students_by_id))
-        if director_venue_ids is not None:
-            access_link_student_ids = staff_student_ids | set(linked_students_by_id)
         balances = await _wallet_balances(db, student_ids)
         students = [
             MiniAppStudentRead(
@@ -2885,6 +2936,7 @@ async def get_miniapp_session(
                 ),
                 staff_visible=student.id in staff_student_ids,
                 staff_order_visible=student.id in staff_order_student_ids,
+                teacher_visible=student.id in teacher_student_ids,
                 display_name=student.display_name,
                 first_name=student.first_name,
                 birth_date=student.birth_date,
@@ -2935,7 +2987,7 @@ async def get_miniapp_session(
         tenant_id=tenant.id,
         student_ids=student_ids,
         visible_order_ids=visible_order_ids,
-        unrestricted_student_ids=set(linked_students_by_id),
+        unrestricted_student_ids=unrestricted_order_student_ids,
         issued_code_student_ids=(set(linked_students_by_id) if staff_roles else None),
     )
     ledger = await _ledger_for_students(
@@ -2956,8 +3008,13 @@ async def get_miniapp_session(
         actor_roles=staff_roles,
     )
     teacher_profile = (
-        await _teacher_profile_read(db, tenant_id=tenant.id, account=account)
-        if StaffRole.TEACHER in effective_staff_roles
+        await _teacher_profile_read(
+            db,
+            tenant_id=tenant.id,
+            account=account,
+            match_groups=StaffRole.TEACHER in effective_staff_roles,
+        )
+        if effective_staff_roles
         else None
     )
     default_warehouse_id = None
@@ -3358,35 +3415,47 @@ async def get_miniapp_ops_summary(
     if account is None:
         raise MiniAppStoreError("MAX account не найден", status_code=403)
 
-    staff_role = await _active_staff_role(
+    staff_roles = await active_staff_roles_for_tenant(
         db,
         tenant_id=tenant.id,
         account_id=account.id,
         allowed_roles=ORDER_MANAGER_ROLES,
     )
+    staff_role = next((role for role in STAFF_ROLE_PRIORITY if role in staff_roles), None)
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на операционную сводку", status_code=403)
 
     order_filters = [Order.tenant_id == tenant.id]
-    venue_scope_ids = await staff_venue_scope_ids(
-        db,
-        tenant_id=tenant.id,
-        account_id=account.id,
-        role=staff_role,
-    )
-    if venue_scope_ids is not None:
-        scoped_student_ids = select(Student.id).where(
-            Student.tenant_id == tenant.id,
-            Student.venue_id.in_(venue_scope_ids),
-        )
-        order_filters.append(Order.student_id.in_(scoped_student_ids))
-    if staff_role == StaffRole.TEACHER:
-        teacher_order_ids, _teacher_student_ids = await _teacher_order_scope(
-            db,
-            tenant_id=tenant.id,
-            account=account,
-        )
-        order_filters.append(Order.id.in_(teacher_order_ids))
+    if not staff_roles.intersection({StaffRole.SUPERADMIN, StaffRole.ADMIN, StaffRole.CURATOR}):
+        role_scopes = []
+        director_has_full_scope = False
+        if StaffRole.PARTNER_DIRECTOR in staff_roles:
+            venue_scope_ids = await staff_venue_scope_ids(
+                db,
+                tenant_id=tenant.id,
+                account_id=account.id,
+                role=StaffRole.PARTNER_DIRECTOR,
+            )
+            if venue_scope_ids is None:
+                director_has_full_scope = True
+            else:
+                scoped_student_ids = select(Student.id).where(
+                    Student.tenant_id == tenant.id,
+                    Student.venue_id.in_(venue_scope_ids),
+                )
+                role_scopes.append(Order.student_id.in_(scoped_student_ids))
+        if StaffRole.TEACHER in staff_roles:
+            teacher_order_ids, _teacher_student_ids = await _teacher_order_scope(
+                db,
+                tenant_id=tenant.id,
+                account=account,
+            )
+            role_scopes.append(Order.id.in_(teacher_order_ids))
+        if not director_has_full_scope and role_scopes:
+            order_scope = role_scopes[0]
+            for role_scope in role_scopes[1:]:
+                order_scope = order_scope | role_scope
+            order_filters.append(order_scope)
 
     status_rows = (
         await db.execute(
@@ -3557,25 +3626,42 @@ async def _load_order_action_context(
         raise MiniAppStoreError("Заказ не найден", status_code=404)
 
     order, student = row
-    staff_role = await _active_staff_role(
+    staff_roles = await active_staff_roles_for_tenant(
         db,
         tenant_id=tenant.id,
         account_id=account.id,
         allowed_roles=ORDER_MANAGER_ROLES,
     )
-    if staff_role is not None:
+    unrestricted_roles = staff_roles.intersection({StaffRole.SUPERADMIN, StaffRole.ADMIN})
+    unrestricted_role = next(
+        (role for role in STAFF_ROLE_PRIORITY if role in unrestricted_roles),
+        None,
+    )
+    if unrestricted_role is not None:
+        return tenant, account, order, student, unrestricted_role
+
+    director_scope_denied = False
+    if StaffRole.PARTNER_DIRECTOR in staff_roles:
         venue_scope_ids = await staff_venue_scope_ids(
             db,
             tenant_id=tenant.id,
             account_id=account.id,
-            role=staff_role,
+            role=StaffRole.PARTNER_DIRECTOR,
         )
-        if venue_scope_ids is not None and student.venue_id not in venue_scope_ids:
+        if venue_scope_ids is None or student.venue_id in venue_scope_ids:
+            return tenant, account, order, student, StaffRole.PARTNER_DIRECTOR
+        director_scope_denied = True
+
+    if StaffRole.CURATOR in staff_roles:
+        return tenant, account, order, student, StaffRole.CURATOR
+
+    if StaffRole.TEACHER in staff_roles and _teacher_owns_order(account, order, student):
+        return tenant, account, order, student, StaffRole.TEACHER
+
+    if require_manager and staff_roles:
+        if director_scope_denied:
             raise MiniAppStoreError("Нет доступа к заказу другой площадки", status_code=403)
-        if staff_role != StaffRole.TEACHER or _teacher_owns_order(account, order, student):
-            return tenant, account, order, student, staff_role
-        if require_manager:
-            raise MiniAppStoreError("Нет доступа к заказу чужой группы", status_code=403)
+        raise MiniAppStoreError("Нет доступа к заказу чужой группы", status_code=403)
 
     if require_manager:
         raise MiniAppStoreError("Нет прав на управление заказом", status_code=403)
@@ -3643,10 +3729,12 @@ async def create_miniapp_order(
         )
 
     student = await db.scalar(
-        select(Student).where(
+        select(Student)
+        .where(
             Student.tenant_id == tenant.id,
             Student.id == payload.student_id,
-        ).with_for_update()
+        )
+        .with_for_update()
     )
     if student is None:
         raise MiniAppStoreError("Ученик не найден у выбранного партнера", status_code=404)
@@ -3824,9 +3912,7 @@ async def create_miniapp_order(
         for code in locked_codes:
             available_codes_by_product.setdefault(UUID(str(code.product_id)), []).append(code)
 
-    order_plan: list[
-        tuple[Product, int, WarehouseInventory | None, list[ProductCode]]
-    ] = []
+    order_plan: list[tuple[Product, int, WarehouseInventory | None, list[ProductCode]]] = []
     for product_id, quantity in quantities.items():
         product = products_by_id[product_id]
         if is_digital_order:
@@ -3966,9 +4052,7 @@ async def create_miniapp_order(
                 warehouse_id=None,
                 warehouse_name=None,
                 suggested_warehouse_id=(
-                    UUID(str(reservation_inventory.warehouse_id))
-                    if reservation_inventory
-                    else None
+                    UUID(str(reservation_inventory.warehouse_id)) if reservation_inventory else None
                 ),
                 suggested_warehouse_name=(
                     reservation_inventory.warehouse.name
@@ -4407,18 +4491,30 @@ async def set_miniapp_order_items_picked(
     )
     if account is None:
         raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
-    staff_role = await _active_staff_role(
+    fulfillment_roles = await active_staff_roles_for_tenant(
         db,
         tenant_id=tenant.id,
         account_id=account.id,
         allowed_roles=FULFILLMENT_MANAGER_ROLES,
     )
+    staff_role = next(
+        (
+            role
+            for role in (
+                StaffRole.SUPERADMIN,
+                StaffRole.ADMIN,
+                StaffRole.CURATOR,
+                StaffRole.PARTNER_DIRECTOR,
+            )
+            if role in fulfillment_roles
+        ),
+        None,
+    )
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на комплектацию заказа", status_code=403)
 
     update_keys = [
-        (UUID(str(item.order_id)), UUID(str(item.order_item_id)))
-        for item in payload.items
+        (UUID(str(item.order_id)), UUID(str(item.order_item_id))) for item in payload.items
     ]
     if len(set(update_keys)) != len(update_keys):
         raise MiniAppStoreError("Позиция заказа указана несколько раз")
@@ -5019,12 +5115,13 @@ async def accrue_miniapp_astrocoins(
     if account is None:
         raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
 
-    staff_role = await _active_staff_role(
+    staff_roles = await active_staff_roles_for_tenant(
         db,
         tenant_id=tenant.id,
         account_id=account.id,
         allowed_roles=COIN_ACCRUAL_ROLES,
     )
+    staff_role = next((role for role in STAFF_ROLE_PRIORITY if role in staff_roles), None)
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на начисление астрокоинов", status_code=403)
 
@@ -5062,10 +5159,15 @@ async def accrue_miniapp_astrocoins(
     ).all()
     if len(students) != len(unique_student_ids):
         raise MiniAppStoreError("Один или несколько учеников не найдены", status_code=404)
-    if staff_role == StaffRole.TEACHER and any(
-        not _teacher_owns_student(account, student) for student in students
-    ):
-        raise MiniAppStoreError("Нельзя начислять AC ученикам чужой группы", status_code=403)
+    visible_students = await _students_visible_to_staff_roles(
+        db,
+        tenant_id=tenant.id,
+        account=account,
+        staff_roles=staff_roles,
+        students=list(students),
+    )
+    if {student.id for student in visible_students} != {student.id for student in students}:
+        raise MiniAppStoreError("Нет доступа к одному или нескольким ученикам", status_code=403)
 
     wallets = (
         await db.scalars(
@@ -5318,12 +5420,13 @@ async def get_miniapp_accrual_report(
     account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
     if account is None:
         raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
-    role = await _active_staff_role(
+    report_roles = await active_staff_roles_for_tenant(
         db,
         tenant_id=tenant.id,
         account_id=account.id,
         allowed_roles=ACCRUAL_REPORT_ROLES,
     )
+    role = next((item for item in STAFF_ROLE_PRIORITY if item in report_roles), None)
     if role is None:
         raise MiniAppStoreError(
             "Отчет доступен куратору, администратору и директору",
@@ -5351,12 +5454,16 @@ async def get_miniapp_accrual_report(
             .order_by(AstrocoinLedgerEntry.created_at.desc())
         )
     ).all()
-    venue_scope_ids = await staff_venue_scope_ids(
-        db,
-        tenant_id=tenant.id,
-        account_id=account.id,
-        role=role,
-    )
+    venue_scope_ids = None
+    if StaffRole.PARTNER_DIRECTOR in report_roles and not report_roles.intersection(
+        {StaffRole.SUPERADMIN, StaffRole.ADMIN, StaffRole.CURATOR}
+    ):
+        venue_scope_ids = await staff_venue_scope_ids(
+            db,
+            tenant_id=tenant.id,
+            account_id=account.id,
+            role=StaffRole.PARTNER_DIRECTOR,
+        )
     if venue_scope_ids is not None:
         rows = [row for row in rows if row[1].venue_id in venue_scope_ids]
     actor_ids = {entry.actor_account_id for entry, _student, _actor in rows}
@@ -5480,11 +5587,19 @@ async def update_miniapp_access_link_status(
     if account is None:
         raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
 
-    staff_role = await _active_staff_role(
+    staff_roles = await active_staff_roles_for_tenant(
         db,
         tenant_id=tenant.id,
         account_id=account.id,
         allowed_roles=STORE_ADMIN_ROLES,
+    )
+    staff_role = next(
+        (
+            role
+            for role in (StaffRole.SUPERADMIN, StaffRole.ADMIN, StaffRole.PARTNER_DIRECTOR)
+            if role in staff_roles
+        ),
+        None,
     )
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на управление связями доступа", status_code=403)
@@ -5601,7 +5716,7 @@ async def update_miniapp_staff_assignment(
     if not actor_roles.intersection(STORE_ADMIN_ROLES) and not is_global_superadmin:
         raise MiniAppStoreError("Нет прав на управление сотрудниками", status_code=403)
     director_updates_existing_admin = (
-        is_partner_director and payload.role == StaffRole.ADMIN
+        is_partner_director and not is_global_superadmin and payload.role == StaffRole.ADMIN
     )
     if (
         payload.role in ELEVATED_STAFF_ROLES
@@ -5672,9 +5787,7 @@ async def update_miniapp_staff_assignment(
                 StaffRoleAssignment.tenant_id == tenant.id,
                 StaffRoleAssignment.account_id == target.id,
                 StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-                StaffRoleAssignment.role.in_(
-                    {StaffRole.SUPERADMIN, StaffRole.PARTNER_DIRECTOR}
-                ),
+                StaffRoleAssignment.role.in_({StaffRole.SUPERADMIN, StaffRole.PARTNER_DIRECTOR}),
             )
         )
         if protected_target_role is not None:
@@ -5744,8 +5857,90 @@ async def update_miniapp_staff_assignment(
         max_user_id=target.max_user_id,
         username=target.username,
         display_name=target.display_name,
+        first_name=target.staff_first_name,
+        last_name=target.staff_last_name,
         role=assignment.role,
         status=assignment.status,
+    )
+
+
+async def _save_miniapp_staff_profile(
+    db: AsyncSession,
+    *,
+    tenant: Tenant,
+    account: MaxAccount,
+    actor: MaxAccount,
+    staff_roles: set[StaffRole],
+    first_name_value: str,
+    last_name_value: str,
+    audit_action: str,
+) -> MiniAppTeacherProfileRead:
+    first_name = _clean_teacher_profile_name_part(first_name_value, field_label="имя")
+    last_name = _clean_teacher_profile_name_part(last_name_value, field_label="фамилию")
+    candidate_name = f"{last_name} {first_name}"
+
+    if StaffRole.TEACHER in staff_roles:
+        other_teacher_accounts = list(
+            (
+                await db.scalars(
+                    select(MaxAccount)
+                    .join(
+                        StaffRoleAssignment,
+                        StaffRoleAssignment.account_id == MaxAccount.id,
+                    )
+                    .where(
+                        StaffRoleAssignment.tenant_id == tenant.id,
+                        StaffRoleAssignment.role == StaffRole.TEACHER,
+                        StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+                        MaxAccount.id != account.id,
+                        MaxAccount.staff_profile_completed_at.is_not(None),
+                    )
+                )
+            )
+            .unique()
+            .all()
+        )
+        duplicate_account = next(
+            (
+                other
+                for other in other_teacher_accounts
+                if normalize_staff_name(teacher_staff_name(other))
+                == normalize_staff_name(candidate_name)
+            ),
+            None,
+        )
+        if duplicate_account is not None:
+            raise MiniAppStoreError(
+                "Это ФИО уже связано с другим преподавателем. Обратитесь к администратору",
+                status_code=409,
+            )
+
+    previous_name = teacher_staff_name(account)
+    account.staff_first_name = first_name
+    account.staff_last_name = last_name
+    account.display_name = candidate_name
+    account.staff_profile_completed_at = datetime.now(UTC)
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_account_id=actor.id,
+            action=audit_action,
+            entity_type="max_account",
+            entity_id=str(account.id),
+            payload={
+                "previous_name": previous_name,
+                "current_name": candidate_name,
+                "staff_roles": [role.value for role in STAFF_ROLE_PRIORITY if role in staff_roles],
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(account)
+    return await _teacher_profile_read(
+        db,
+        tenant_id=tenant.id,
+        account=account,
+        match_groups=StaffRole.TEACHER in staff_roles,
     )
 
 
@@ -5761,81 +5956,101 @@ async def update_miniapp_teacher_profile(
         raise MiniAppStoreError("Город или партнер не найден", status_code=404)
 
     account = await db.scalar(
-        select(MaxAccount)
-        .where(MaxAccount.max_user_id == payload.max_user_id)
-        .with_for_update()
+        select(MaxAccount).where(MaxAccount.max_user_id == payload.max_user_id).with_for_update()
     )
     if account is None:
         raise MiniAppStoreError("Сначала подключите аккаунт в MAX", status_code=403)
 
-    teacher_assignment = await db.scalar(
-        select(StaffRoleAssignment).where(
-            StaffRoleAssignment.tenant_id == tenant.id,
-            StaffRoleAssignment.account_id == account.id,
-            StaffRoleAssignment.role == StaffRole.TEACHER,
-            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-        )
+    staff_roles = await active_staff_roles_for_tenant(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
     )
-    if teacher_assignment is None:
-        raise MiniAppStoreError("Активная роль преподавателя не найдена", status_code=403)
+    if not staff_roles:
+        raise MiniAppStoreError("Активная роль сотрудника не найдена", status_code=403)
 
-    first_name = _clean_teacher_profile_name_part(payload.first_name, field_label="имя")
-    last_name = _clean_teacher_profile_name_part(payload.last_name, field_label="фамилию")
-    candidate_name = f"{last_name} {first_name}"
+    return await _save_miniapp_staff_profile(
+        db,
+        tenant=tenant,
+        account=account,
+        actor=account,
+        staff_roles=staff_roles,
+        first_name_value=payload.first_name,
+        last_name_value=payload.last_name,
+        audit_action="staff_profile.updated",
+    )
 
-    other_teacher_accounts = list(
-        (
-            await db.scalars(
-                select(MaxAccount)
-                .join(
-                    StaffRoleAssignment,
-                    StaffRoleAssignment.account_id == MaxAccount.id,
-                )
-                .where(
-                    StaffRoleAssignment.tenant_id == tenant.id,
-                    StaffRoleAssignment.role == StaffRole.TEACHER,
-                    StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
-                    MaxAccount.id != account.id,
-                    MaxAccount.staff_profile_completed_at.is_not(None),
-                )
+
+async def update_miniapp_managed_staff_profile(
+    db: AsyncSession,
+    *,
+    target_account_id: UUID,
+    payload: MiniAppTeacherProfileUpdate,
+    default_tenant_slug: str,
+) -> MiniAppTeacherProfileRead:
+    tenant_slug = (payload.tenant_slug or default_tenant_slug).strip().lower()
+    tenant = await get_tenant_by_slug(db, tenant_slug)
+    if tenant is None:
+        raise MiniAppStoreError("Город или партнер не найден", status_code=404)
+
+    actor = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == payload.max_user_id))
+    if actor is None:
+        raise MiniAppStoreError("MAX-аккаунт администратора не найден", status_code=403)
+    actor_roles = await active_staff_roles_for_tenant(
+        db,
+        tenant_id=tenant.id,
+        account_id=actor.id,
+    )
+    if not actor_roles.intersection(STORE_ADMIN_ROLES):
+        raise MiniAppStoreError("Нет прав на изменение ФИО сотрудников", status_code=403)
+
+    account = await db.scalar(
+        select(MaxAccount).where(MaxAccount.id == target_account_id).with_for_update()
+    )
+    if account is None:
+        raise MiniAppStoreError("Сотрудник не найден", status_code=404)
+    target_assignments = (
+        await db.execute(
+            select(StaffRoleAssignment.role, StaffRoleAssignment.status).where(
+                StaffRoleAssignment.tenant_id == tenant.id,
+                StaffRoleAssignment.account_id == account.id,
             )
-        ).unique().all()
+        )
+    ).all()
+    active_target_roles = {
+        role for role, status in target_assignments if status == AssignmentStatus.ACTIVE
+    }
+    target_roles = active_target_roles or {role for role, _status in target_assignments}
+    if not target_roles:
+        raise MiniAppStoreError("Сотрудник не относится к выбранному городу", status_code=404)
+
+    can_manage_target = (
+        StaffRole.SUPERADMIN in actor_roles
+        or (
+            StaffRole.PARTNER_DIRECTOR in actor_roles
+            and not target_roles.intersection({StaffRole.SUPERADMIN, StaffRole.PARTNER_DIRECTOR})
+        )
+        or (
+            StaffRole.ADMIN in actor_roles
+            and target_roles.issubset({StaffRole.CURATOR, StaffRole.TEACHER})
+        )
     )
-    duplicate_account = next(
-        (
-            other
-            for other in other_teacher_accounts
-            if normalize_staff_name(teacher_staff_name(other))
-            == normalize_staff_name(candidate_name)
-        ),
-        None,
-    )
-    if duplicate_account is not None:
+    if not can_manage_target:
         raise MiniAppStoreError(
-            "Это ФИО уже связано с другим преподавателем. Обратитесь к администратору",
-            status_code=409,
+            "Нельзя менять ФИО сотрудника с равной или более высокой ролью",
+            status_code=403,
         )
 
-    previous_name = teacher_staff_name(account)
-    account.staff_first_name = first_name
-    account.staff_last_name = last_name
-    account.staff_profile_completed_at = datetime.now(UTC)
-    db.add(
-        AuditLog(
-            tenant_id=tenant.id,
-            actor_account_id=account.id,
-            action="teacher_profile.updated",
-            entity_type="max_account",
-            entity_id=str(account.id),
-            payload={
-                "previous_name": previous_name,
-                "current_name": candidate_name,
-            },
-        )
+    return await _save_miniapp_staff_profile(
+        db,
+        tenant=tenant,
+        account=account,
+        actor=actor,
+        staff_roles=active_target_roles,
+        first_name_value=payload.first_name,
+        last_name_value=payload.last_name,
+        audit_action="staff_profile.managed_updated",
     )
-    await db.commit()
-    await db.refresh(account)
-    return await _teacher_profile_read(db, tenant_id=tenant.id, account=account)
 
 
 async def create_miniapp_staff_invitation(
@@ -5846,9 +6061,7 @@ async def create_miniapp_staff_invitation(
 ) -> MiniAppStaffInvitationRead:
     tenant_slug = (payload.tenant_slug or default_tenant_slug).strip().lower()
     tenant = await db.scalar(
-        select(Tenant)
-        .options(selectinload(Tenant.city))
-        .where(Tenant.slug == tenant_slug)
+        select(Tenant).options(selectinload(Tenant.city)).where(Tenant.slug == tenant_slug)
     )
     if tenant is None:
         raise MiniAppStoreError("Город или партнер не найден", status_code=404)
@@ -6016,6 +6229,8 @@ async def redeem_miniapp_staff_invitation(
         max_user_id=target.max_user_id,
         username=target.username,
         display_name=target.display_name,
+        first_name=target.staff_first_name,
+        last_name=target.staff_last_name,
         role=assignment.role,
         status=assignment.status,
     )
@@ -6328,6 +6543,8 @@ async def create_miniapp_tenant(
             max_user_id=director.max_user_id,
             username=director.username,
             display_name=director.display_name,
+            first_name=director.staff_first_name,
+            last_name=director.staff_last_name,
             role=assignment.role,
             status=assignment.status,
         )
@@ -6962,6 +7179,8 @@ async def _staff_assignments_for_session(
             max_user_id=account.max_user_id,
             username=account.username,
             display_name=account.display_name,
+            first_name=account.staff_first_name,
+            last_name=account.staff_last_name,
             role=assignment.role,
             status=assignment.status,
         )

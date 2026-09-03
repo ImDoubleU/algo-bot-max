@@ -53,6 +53,7 @@ class MiniAppStudentRead(BaseModel):
     access_status: StudentAccessStatus = StudentAccessStatus.ACTIVE
     staff_visible: bool = False
     staff_order_visible: bool = False
+    teacher_visible: bool = False
     display_name: str
     first_name: str
     birth_date: date | None = None
@@ -591,6 +592,8 @@ class MiniAppStaffAssignmentRead(BaseModel):
     max_user_id: int
     username: str | None = None
     display_name: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
     role: StaffRole
     status: AssignmentStatus
 
