@@ -220,6 +220,7 @@ class MiniAppWarehouseRead(BaseModel):
     name: str
     warehouse_type: WarehouseType
     address: str | None = None
+    is_owner: bool = True
 
 
 class MiniAppProductCodeRead(BaseModel):
@@ -248,6 +249,7 @@ class MiniAppProductRead(BaseModel):
     issued_code_count: int = 0
     codes: list[MiniAppProductCodeRead] = Field(default_factory=list)
     warehouses: list[MiniAppProductWarehouseRead] = Field(default_factory=list)
+    can_manage: bool = True
 
 
 class MiniAppCatalogRead(BaseModel):

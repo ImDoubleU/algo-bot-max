@@ -430,7 +430,7 @@ async function deleteProduct(productId) {
   const confirmed = await requestConfirmation({
     eyebrow: "Товары",
     title: `Удалить «${product.name}»?`,
-    message: "Товар и все его остатки будут удалены. Действие нельзя отменить.",
+    message: "Товар и все его остатки будут удалены во всех подключенных городах. Действие нельзя отменить.",
     confirmLabel: "Удалить товар",
     cancelLabel: "Отмена",
     destructive: true,
@@ -1449,10 +1449,11 @@ async function deleteWarehouse(warehouseId) {
 
   const confirmed = await requestConfirmation({
     eyebrow: "Склады",
-    title: `Удалить «${warehouse.name}»?`,
-    message:
-      "Действие нельзя отменить. Удалить можно только пустой склад без заказов и истории движения товаров.",
-    confirmLabel: "Удалить склад",
+    title: `${warehouse.isOwner ? "Удалить" : "Отключить"} «${warehouse.name}»?`,
+    message: warehouse.isOwner
+      ? "Действие нельзя отменить. Удалить можно только пустой склад без заказов и истории движения товаров."
+      : "Склад исчезнет только из выбранного города. Сам склад, товары и общие остатки сохранятся.",
+    confirmLabel: warehouse.isOwner ? "Удалить склад" : "Отключить от города",
     cancelLabel: "Отмена",
     destructive: true,
   });
@@ -1510,7 +1511,11 @@ async function deleteWarehouse(warehouseId) {
       state.editingWarehouseId = "";
       state.warehouseEditorOpen = false;
     }
-    showNotice(`Склад «${warehouse.name}» удален`);
+    showNotice(
+      warehouse.isOwner
+        ? `Склад «${warehouse.name}» удален`
+        : `Склад «${warehouse.name}» отключен от города`,
+    );
     renderAll();
   } catch (error) {
     showNotice(error.message || "Не удалось удалить склад", "danger");

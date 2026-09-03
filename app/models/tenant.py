@@ -48,6 +48,11 @@ class Tenant(TimestampMixin, Base):
     students = relationship("Student", back_populates="tenant")
     staff_assignments = relationship("StaffRoleAssignment", back_populates="tenant")
     warehouses = relationship("Warehouse", back_populates="tenant")
+    warehouse_links = relationship(
+        "WarehouseTenantLink",
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+    )
     accrual_rules = relationship(
         "AstrocoinAccrualRule",
         back_populates="tenant",

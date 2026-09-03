@@ -19,6 +19,7 @@ from app.models.store import (
     StudentCartItem,
     Warehouse,
     WarehouseInventory,
+    WarehouseTenantLink,
 )
 from app.models.student import (
     AstrocoinLedgerEntry,
@@ -78,4 +79,5 @@ __all__ = [
     "Wallet",
     "Warehouse",
     "WarehouseInventory",
+    "WarehouseTenantLink",
 ]

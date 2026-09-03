@@ -29,6 +29,11 @@ from app.services.product_media import (
     save_remote_product_image,
 )
 from app.services.warehouse import build_stock_movement
+from app.services.warehouse_access import (
+    ensure_warehouse_link,
+    find_partner_warehouse_by_name,
+    normalize_warehouse_name,
+)
 
 HEADER_ALIASES = {
     "sku": "sku",
@@ -183,10 +188,6 @@ def _text(value: Any) -> str:
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value).strip()
-
-
-def _warehouse_name_key(value: str) -> str:
-    return " ".join(value.casefold().replace("ё", "е").replace("\u00a0", " ").split())
 
 
 def _int(value: Any, *, default: int | None = None) -> int:
@@ -495,42 +496,44 @@ async def import_products_for_tenant(
     actor_account_id: UUID | None = None,
 ) -> ProductImportResult:
     result = ProductImportResult(tenant_slug=tenant.slug)
-    categories: dict[str, ProductCategory] = {}
+    categories: dict[tuple[UUID, str], ProductCategory] = {}
     warehouses: dict[str, Warehouse] = {}
 
     for row in rows:
-        category = categories.get(row.category_slug)
-        if category is None:
-            category = await _get_or_create_category(db, tenant=tenant, row=row)
-            categories[row.category_slug] = category
-            if category.created_at is None:
-                pass
-
-        warehouse = warehouses.get(row.warehouse_slug)
+        warehouse_key = normalize_warehouse_name(row.warehouse_name)
+        warehouse = warehouses.get(warehouse_key)
         if warehouse is None:
             warehouse, created_warehouse = await _get_or_create_warehouse(
                 db,
                 tenant=tenant,
                 row=row,
             )
-            warehouses[row.warehouse_slug] = warehouse
+            warehouses[warehouse_key] = warehouse
             if created_warehouse:
                 result.created_warehouses += 1
+
+        product = await _find_import_product(
+            db,
+            tenant=tenant,
+            warehouse=warehouse,
+            row=row,
+        )
+        product_tenant_id = UUID(str(product.tenant_id if product is not None else tenant.id))
+        category_key = (product_tenant_id, row.category_slug)
+        category = categories.get(category_key)
+        if category is None:
+            category = await _get_or_create_category(
+                db,
+                tenant_id=product_tenant_id,
+                row=row,
+            )
+            categories[category_key] = category
 
         category_created = getattr(category, "_import_created", False)
         if category_created:
             result.created_categories += 1
             category._import_created = False
 
-        product_query = select(Product).where(Product.tenant_id == tenant.id)
-        if row.sku:
-            product_query = product_query.where(Product.sku == row.sku)
-        else:
-            product_query = product_query.where(
-                Product.category_id == category.id,
-                Product.name == row.name,
-            )
-        product = await db.scalar(product_query.order_by(Product.created_at).limit(1))
         product_created = product is None
         if product_created:
             product = Product(
@@ -562,7 +565,6 @@ async def import_products_for_tenant(
         inventory = await db.scalar(
             select(WarehouseInventory)
             .where(
-                WarehouseInventory.tenant_id == tenant.id,
                 WarehouseInventory.warehouse_id == warehouse.id,
                 WarehouseInventory.product_id == product.id,
             )
@@ -574,7 +576,7 @@ async def import_products_for_tenant(
         )
         if inventory is None:
             inventory = WarehouseInventory(
-                tenant_id=tenant.id,
+                tenant_id=product.tenant_id,
                 warehouse_id=warehouse.id,
                 product_id=product.id,
             )
@@ -621,12 +623,12 @@ async def import_products_for_tenant(
 async def _get_or_create_category(
     db: AsyncSession,
     *,
-    tenant: Tenant,
+    tenant_id: UUID,
     row: ProductImportRow,
 ) -> ProductCategory:
     category = await db.scalar(
         select(ProductCategory).where(
-            ProductCategory.tenant_id == tenant.id,
+            ProductCategory.tenant_id == tenant_id,
             ProductCategory.slug == row.category_slug,
         )
     )
@@ -635,7 +637,7 @@ async def _get_or_create_category(
         return category
 
     category = ProductCategory(
-        tenant_id=tenant.id,
+        tenant_id=tenant_id,
         slug=row.category_slug,
         name=row.category_name,
         sort_order=100,
@@ -646,36 +648,68 @@ async def _get_or_create_category(
     return category
 
 
+async def _find_import_product(
+    db: AsyncSession,
+    *,
+    tenant: Tenant,
+    warehouse: Warehouse,
+    row: ProductImportRow,
+) -> Product | None:
+    own_products = list(
+        await db.scalars(
+            select(Product)
+            .where(Product.tenant_id == tenant.id)
+            .options(selectinload(Product.category))
+            .order_by(Product.created_at, Product.id)
+        )
+    )
+
+    def matches(product: Product) -> bool:
+        if row.sku:
+            return product.sku == row.sku
+        return (
+            normalize_warehouse_name(product.name) == normalize_warehouse_name(row.name)
+            and product.category is not None
+            and product.category.slug == row.category_slug
+        )
+
+    own_product = next((product for product in own_products if matches(product)), None)
+    if own_product is not None:
+        return own_product
+
+    shared_products = (
+        (
+            await db.scalars(
+                select(Product)
+                .join(WarehouseInventory, WarehouseInventory.product_id == Product.id)
+                .where(WarehouseInventory.warehouse_id == warehouse.id)
+                .options(selectinload(Product.category))
+                .order_by(Product.created_at, Product.id)
+            )
+        )
+        .unique()
+        .all()
+    )
+    return next((product for product in shared_products if matches(product)), None)
+
+
 async def _get_or_create_warehouse(
     db: AsyncSession,
     *,
     tenant: Tenant,
     row: ProductImportRow,
 ) -> tuple[Warehouse, bool]:
-    warehouse = await db.scalar(
-        select(Warehouse).where(
-            Warehouse.tenant_id == tenant.id,
-            Warehouse.slug == row.warehouse_slug,
-        )
+    warehouse = await find_partner_warehouse_by_name(
+        db,
+        tenant=tenant,
+        name=row.warehouse_name,
     )
-    if warehouse is None:
-        warehouse_name_key = _warehouse_name_key(row.warehouse_name)
-        existing_warehouses = (
-            await db.scalars(
-                select(Warehouse)
-                .where(Warehouse.tenant_id == tenant.id)
-                .order_by(Warehouse.created_at, Warehouse.id)
-            )
-        ).all()
-        warehouse = next(
-            (
-                candidate
-                for candidate in existing_warehouses
-                if _warehouse_name_key(candidate.name) == warehouse_name_key
-            ),
-            None,
-        )
     if warehouse is not None:
+        await ensure_warehouse_link(
+            db,
+            tenant_id=UUID(str(tenant.id)),
+            warehouse_id=UUID(str(warehouse.id)),
+        )
         return warehouse, False
 
     warehouse = Warehouse(
@@ -686,4 +720,9 @@ async def _get_or_create_warehouse(
     )
     db.add(warehouse)
     await db.flush()
+    await ensure_warehouse_link(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+        warehouse_id=UUID(str(warehouse.id)),
+    )
     return warehouse, True

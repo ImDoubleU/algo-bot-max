@@ -122,6 +122,37 @@ class Warehouse(TimestampMixin, Base):
     tenant = relationship("Tenant", back_populates="warehouses")
     venue = relationship("Venue", back_populates="warehouses")
     inventory_items = relationship("WarehouseInventory", back_populates="warehouse")
+    tenant_links = relationship(
+        "WarehouseTenantLink",
+        back_populates="warehouse",
+        cascade="all, delete-orphan",
+    )
+
+
+class WarehouseTenantLink(TimestampMixin, Base):
+    __tablename__ = "warehouse_tenant_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "warehouse_id",
+            name="uq_warehouse_tenant_links_tenant_warehouse",
+        ),
+    )
+
+    id: Mapped[UUID] = uuid_pk()
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    warehouse_id: Mapped[UUID] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+
+    tenant = relationship("Tenant", back_populates="warehouse_links")
+    warehouse = relationship("Warehouse", back_populates="tenant_links")
 
 
 class WarehouseInventory(TimestampMixin, Base):

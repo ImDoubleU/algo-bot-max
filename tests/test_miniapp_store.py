@@ -24,6 +24,8 @@ from app.models.enums import (
     StaffRole,
     StockMovementType,
     StudentAccessRole,
+    StudentAccessSource,
+    StudentAccessStatus,
     WarehouseType,
 )
 from app.models.store import (
@@ -36,9 +38,10 @@ from app.models.store import (
     StudentCartItem,
     Warehouse,
     WarehouseInventory,
+    WarehouseTenantLink,
 )
-from app.models.student import AstrocoinLedgerEntry, Student, Wallet
-from app.models.tenant import Venue
+from app.models.student import AstrocoinLedgerEntry, Student, StudentAccessLink, Wallet
+from app.models.tenant import City, Tenant, Venue
 from app.schemas.access import AccessLinkCreate
 from app.schemas.miniapp import (
     MiniAppAccrualCreate,
@@ -188,6 +191,198 @@ async def grant_store_admin(db_session, *, tenant_id: UUID) -> MaxAccount:
     )
     await db_session.commit()
     return account
+
+
+async def seed_second_city_student(
+    db_session,
+    *,
+    source_tenant: Tenant,
+    account: MaxAccount,
+) -> tuple[Tenant, Student]:
+    city = City(slug="bor", name="Бор")
+    db_session.add(city)
+    await db_session.flush()
+    tenant = Tenant(
+        city_id=city.id,
+        partner_id=source_tenant.partner_id,
+        slug="bor-partner-a",
+        name="Бор / Партнер A",
+    )
+    db_session.add(tenant)
+    await db_session.flush()
+    student = Student(
+        tenant_id=tenant.id,
+        student_access_code="BOR-STUDENT-001",
+        first_name="Борис",
+        last_name="Иванов",
+    )
+    db_session.add(student)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            Wallet(tenant_id=tenant.id, student_id=student.id, balance=1000),
+            StudentAccessLink(
+                tenant_id=tenant.id,
+                account_id=account.id,
+                student_id=student.id,
+                role=StudentAccessRole.STUDENT,
+                status=StudentAccessStatus.ACTIVE,
+                source=StudentAccessSource.ADMIN,
+            ),
+            StaffRoleAssignment(
+                tenant_id=tenant.id,
+                account_id=account.id,
+                role=StaffRole.ADMIN,
+                status=AssignmentStatus.ACTIVE,
+            ),
+        ]
+    )
+    await db_session.commit()
+    return tenant, student
+
+
+async def test_shared_warehouse_exposes_one_stock_to_two_partner_cities(db_session) -> None:
+    source_student = await seed_linked_student(db_session)
+    product, inventory = await seed_product(db_session, source_student)
+    account = await grant_store_admin(db_session, tenant_id=source_student.tenant_id)
+    source_tenant = await db_session.get(Tenant, source_student.tenant_id)
+    assert source_tenant is not None
+    target_tenant, target_student = await seed_second_city_student(
+        db_session,
+        source_tenant=source_tenant,
+        account=account,
+    )
+
+    linked_warehouse = await upsert_miniapp_warehouse(
+        db_session,
+        payload=MiniAppWarehouseUpsert(
+            max_user_id=account.max_user_id,
+            tenant_slug=target_tenant.slug,
+            name="СОЮЗНЫЙ\u00a0  45",
+        ),
+        default_tenant_slug=source_tenant.slug,
+    )
+
+    assert linked_warehouse.id == inventory.warehouse_id
+    assert linked_warehouse.is_owner is False
+    link = await db_session.scalar(
+        select(WarehouseTenantLink).where(
+            WarehouseTenantLink.tenant_id == target_tenant.id,
+            WarehouseTenantLink.warehouse_id == inventory.warehouse_id,
+        )
+    )
+    assert link is not None
+
+    target_catalog = await list_miniapp_catalog(
+        db_session,
+        tenant_slug=target_tenant.slug,
+        max_user_id=account.max_user_id,
+        include_inactive=True,
+    )
+    assert [warehouse.id for warehouse in target_catalog.warehouses] == [inventory.warehouse_id]
+    assert [item.id for item in target_catalog.products] == [product.id]
+    assert target_catalog.products[0].available_quantity == 5
+    assert target_catalog.products[0].can_manage is True
+
+    updated_product = await upsert_miniapp_product(
+        db_session,
+        payload=MiniAppProductUpsert(
+            max_user_id=account.max_user_id,
+            tenant_slug=target_tenant.slug,
+            product_id=product.id,
+            name="Общая ручка с логотипом",
+            category_name="Подарки",
+            price_astrocoins=150,
+            inventories=[
+                MiniAppProductInventoryWrite(
+                    warehouse_id=inventory.warehouse_id,
+                    stock_quantity=5,
+                )
+            ],
+        ),
+        default_tenant_slug=source_tenant.slug,
+    )
+    adjusted_inventory = await adjust_miniapp_inventory(
+        db_session,
+        payload=MiniAppInventoryAdjustmentCreate(
+            max_user_id=account.max_user_id,
+            tenant_slug=target_tenant.slug,
+            product_id=product.id,
+            warehouse_id=inventory.warehouse_id,
+            available_quantity=7,
+            comment="Инвентаризация общего склада из Бора",
+        ),
+        default_tenant_slug=source_tenant.slug,
+    )
+    await db_session.refresh(product)
+    await db_session.refresh(inventory)
+    category = await db_session.get(ProductCategory, product.category_id)
+    assert updated_product.name == "Общая ручка с логотипом"
+    assert product.tenant_id == source_tenant.id
+    assert category is not None
+    assert category.tenant_id == source_tenant.id
+    assert adjusted_inventory.stock_quantity == 7
+    assert inventory.available_quantity == 7
+
+    created_order = await create_miniapp_order(
+        db_session,
+        payload=MiniAppOrderCreate(
+            max_user_id=account.max_user_id,
+            tenant_slug=target_tenant.slug,
+            student_id=target_student.id,
+            items=[MiniAppOrderItemCreate(product_id=product.id, quantity=2)],
+        ),
+        default_tenant_slug=source_tenant.slug,
+    )
+    await db_session.refresh(inventory)
+    assert inventory.reserved_quantity == 2
+
+    await delete_miniapp_warehouse(
+        db_session,
+        warehouse_id=UUID(str(inventory.warehouse_id)),
+        max_user_id=account.max_user_id,
+        tenant_slug=target_tenant.slug,
+        default_tenant_slug=source_tenant.slug,
+    )
+    assert await db_session.get(Warehouse, inventory.warehouse_id) is not None
+    assert (
+        await db_session.scalar(
+            select(WarehouseTenantLink.id).where(
+                WarehouseTenantLink.tenant_id == target_tenant.id,
+                WarehouseTenantLink.warehouse_id == inventory.warehouse_id,
+            )
+        )
+        is None
+    )
+
+    target_catalog = await list_miniapp_catalog(
+        db_session,
+        tenant_slug=target_tenant.slug,
+        max_user_id=account.max_user_id,
+    )
+    assert target_catalog.warehouses == []
+    assert target_catalog.products == []
+
+    await cancel_miniapp_order(
+        db_session,
+        order_id=created_order.order.id,
+        payload=MiniAppOrderCancelCreate(
+            max_user_id=account.max_user_id,
+            tenant_slug=target_tenant.slug,
+            reason="Отмена после отключения склада",
+        ),
+        default_tenant_slug=source_tenant.slug,
+    )
+    await db_session.refresh(inventory)
+    assert inventory.reserved_quantity == 0
+
+    source_catalog = await list_miniapp_catalog(
+        db_session,
+        tenant_slug=source_tenant.slug,
+        max_user_id=account.max_user_id,
+    )
+    assert [warehouse.id for warehouse in source_catalog.warehouses] == [inventory.warehouse_id]
+    assert source_catalog.products[0].available_quantity == 7
 
 
 async def test_order_waits_for_admin_warehouse_and_debits_wallet(db_session) -> None:
