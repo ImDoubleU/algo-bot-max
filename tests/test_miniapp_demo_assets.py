@@ -23,7 +23,33 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.83.0"}
+    assert set(versions) == {"0.84.0"}
+
+
+def test_staff_cards_group_roles_and_expose_profile_management() -> None:
+    core_source = (MINIAPP / "app-core.js").read_text(encoding="utf-8")
+    admin_source = (MINIAPP / "app-admin.js").read_text(encoding="utf-8")
+    app_source = (MINIAPP / "app.js").read_text(encoding="utf-8")
+
+    assert "function groupedStaffAssignments" in core_source
+    assert 'roleLabels.join(", ")' in admin_source
+    assert "data-add-staff-role" in admin_source
+    assert "data-edit-staff-profile" in admin_source
+    assert "data-save-staff-profile" in admin_source
+    assert "async function saveAdditionalStaffRole" in app_source
+    assert "async function saveManagedStaffProfile" in app_source
+    assert "/profile`" in app_source
+
+
+def test_combined_teacher_role_keeps_teacher_features() -> None:
+    core_source = (MINIAPP / "app-core.js").read_text(encoding="utf-8")
+    communications_source = (MINIAPP / "app-communications.js").read_text(encoding="utf-8")
+    app_source = (MINIAPP / "app.js").read_text(encoding="utf-8")
+
+    assert "function hasTeacherCapabilities" in core_source
+    assert "function studentsForTeacherCapabilities" in core_source
+    assert "const visible = hasTeacherCapabilities();" in communications_source
+    assert "hasTeacherCapabilities()" in app_source
 
 
 def test_admin_products_and_warehouses_have_delete_actions() -> None:

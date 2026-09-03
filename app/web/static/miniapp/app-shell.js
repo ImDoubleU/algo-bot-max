@@ -571,7 +571,7 @@ async function refreshAllData() {
   state.teacherInvitations = new Map();
   state.teacherInvitationsLoaded = false;
   await loadParentInvitations();
-  if (primaryStaffRole() === "teacher") {
+  if (hasTeacherCapabilities()) {
     try {
       await loadTeacherInvitations(true);
     } catch (error) {
@@ -822,8 +822,7 @@ function setRole(role) {
     loadParentInvitations().catch((error) => console.warn(error));
   }
   if (
-    role === "teacher" &&
-    primaryStaffRole() === "teacher" &&
+    hasTeacherCapabilities() &&
     !state.teacherInvitationsLoaded &&
     !state.teacherInvitationsLoading
   ) {
@@ -864,10 +863,12 @@ function renderStatus() {
   const primaryRole =
     primaryStaffRole() || (state.role === "admin" ? "admin" : "teacher");
   const accountName =
-    (primaryRole === "teacher" ? teacherProfileDisplayName() : "") ||
+    staffProfileDisplayName() ||
     state.account?.display_name?.trim() ||
     "";
-  const profileRole = staffRoleProfileLabel(primaryRole);
+  const profileRole = state.staffRoles.length
+    ? state.staffRoles.map(staffRoleProfileLabel).join(", ")
+    : staffRoleProfileLabel(primaryRole);
   const roleStudents = studentsForCurrentRole();
   const linkedCount = roleStudents.length;
   const statusStrip = qs(".status-strip");

@@ -142,6 +142,7 @@ from app.services.miniapp import (
     undo_miniapp_astrocoins,
     update_miniapp_access_link_status,
     update_miniapp_accrual_rules,
+    update_miniapp_managed_staff_profile,
     update_miniapp_staff_assignment,
     update_miniapp_staff_notification_settings,
     update_miniapp_student_access_policy,
@@ -788,9 +789,7 @@ async def miniapp_product_import_template() -> Response:
     return Response(
         content=build_product_import_template(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={
-            "Content-Disposition": 'attachment; filename="algo-max-products-template.xlsx"'
-        },
+        headers={"Content-Disposition": 'attachment; filename="algo-max-products-template.xlsx"'},
     )
 
 
@@ -1027,7 +1026,8 @@ async def miniapp_update_staff_assignment(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
-@router.put("/teacher/profile", response_model=MiniAppTeacherProfileRead)
+@router.put("/staff/profile", response_model=MiniAppTeacherProfileRead)
+@router.put("/teacher/profile", response_model=MiniAppTeacherProfileRead, include_in_schema=False)
 async def miniapp_update_teacher_profile(
     payload: MiniAppTeacherProfileUpdate,
     db: DbSession,
@@ -1042,6 +1042,30 @@ async def miniapp_update_teacher_profile(
     try:
         return await update_miniapp_teacher_profile(
             db,
+            payload=payload,
+            default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.put("/staff/{target_account_id}/profile", response_model=MiniAppTeacherProfileRead)
+async def miniapp_update_managed_staff_profile(
+    target_account_id: UUID,
+    payload: MiniAppTeacherProfileUpdate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppTeacherProfileRead:
+    settings = get_settings()
+    _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await update_miniapp_managed_staff_profile(
+            db,
+            target_account_id=target_account_id,
             payload=payload,
             default_tenant_slug=settings.default_tenant_slug,
         )

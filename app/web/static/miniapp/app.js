@@ -1890,6 +1890,116 @@ async function toggleStaffAssignment(maxUserId, role) {
   });
 }
 
+function closeStaffCardEditors() {
+  state.staffRoleEditorAccountId = "";
+  state.staffRoleEditorRole = "";
+  state.staffProfileEditorAccountId = "";
+  state.staffProfileEditorFirstName = "";
+  state.staffProfileEditorLastName = "";
+}
+
+function openAdditionalStaffRoleEditor(accountId) {
+  const group = groupedStaffAssignments().find((item) => item.accountId === accountId);
+  const availableRoles = additionalStaffRolesForAccount(accountId);
+  if (!group || availableRoles.length === 0) return;
+  state.staffEditorOpen = false;
+  state.staffInvitationOpen = false;
+  state.staffProfileEditorAccountId = "";
+  state.staffProfileEditorFirstName = "";
+  state.staffProfileEditorLastName = "";
+  state.staffRoleEditorAccountId = accountId;
+  state.staffRoleEditorRole = availableRoles[0];
+  renderAdminPanel();
+}
+
+async function saveAdditionalStaffRole(accountId) {
+  const group = groupedStaffAssignments().find((item) => item.accountId === accountId);
+  const availableRoles = additionalStaffRolesForAccount(accountId);
+  const role = qs("[data-staff-additional-role-select]")?.value || state.staffRoleEditorRole;
+  if (!group || !availableRoles.includes(role)) {
+    showNotice("Эту роль нельзя назначить сотруднику", "danger");
+    return;
+  }
+  state.staffRoleEditorRole = role;
+  const saved = await updateStaffAssignment({
+    targetMaxUserId: group.maxUserId,
+    role,
+    status: "active",
+    displayName: group.displayName,
+  });
+  if (saved) {
+    closeStaffCardEditors();
+    renderAdminPanel();
+  }
+}
+
+function openManagedStaffProfileEditor(accountId) {
+  const group = groupedStaffAssignments().find((item) => item.accountId === accountId);
+  if (!group || !canManageStaffProfileForGroup(group)) return;
+  state.staffEditorOpen = false;
+  state.staffInvitationOpen = false;
+  state.staffRoleEditorAccountId = "";
+  state.staffRoleEditorRole = "";
+  state.staffProfileEditorAccountId = accountId;
+  state.staffProfileEditorFirstName = group.firstName || "";
+  state.staffProfileEditorLastName = group.lastName || "";
+  renderAdminPanel();
+  window.setTimeout(() => qs("[data-managed-staff-last-name]")?.focus(), 40);
+}
+
+async function saveManagedStaffProfile(accountId) {
+  const group = groupedStaffAssignments().find((item) => item.accountId === accountId);
+  if (!group || !canManageStaffProfileForGroup(group) || state.staffSaving) return;
+  const firstName = qs("[data-managed-staff-first-name]")?.value.trim() || "";
+  const lastName = qs("[data-managed-staff-last-name]")?.value.trim() || "";
+  if (firstName.length < 2 || lastName.length < 2) {
+    showNotice("Укажите фамилию и имя сотрудника", "danger");
+    return;
+  }
+  state.staffProfileEditorFirstName = firstName;
+  state.staffProfileEditorLastName = lastName;
+
+  if (apiContext.demoMode || !apiContext.maxUserId) {
+    group.assignments.forEach((assignment) => {
+      assignment.firstName = firstName;
+      assignment.lastName = lastName;
+      assignment.displayName = `${lastName} ${firstName}`;
+    });
+    closeStaffCardEditors();
+    showNotice("ФИО сотрудника сохранено");
+    renderAdminPanel();
+    return;
+  }
+
+  state.staffSaving = true;
+  renderAdminPanel();
+  try {
+    const response = await apiFetch(
+      `/api/v1/miniapp/staff/${encodeURIComponent(accountId)}/profile`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          max_user_id: Number(apiContext.maxUserId),
+          tenant_slug: apiContext.tenantSlug || undefined,
+          first_name: firstName,
+          last_name: lastName,
+        }),
+      },
+    );
+    if (!response.ok) throw new Error(await parseApiError(response));
+    closeStaffCardEditors();
+    await loadSession();
+    renderAll();
+    showNotice("ФИО сотрудника сохранено");
+  } catch (error) {
+    showNotice(error.message || "Не удалось сохранить ФИО сотрудника", "danger");
+  } finally {
+    state.staffSaving = false;
+    renderAdminPanel();
+  }
+}
+
 function updateCartQuantity(key, value) {
   if (!canUseStoreCart()) return;
   const item = state.cart.get(key);
@@ -2091,8 +2201,7 @@ async function placeOrder() {
 function teacherProfileRequired() {
   return (
     !apiContext.demoMode &&
-    state.role === "teacher" &&
-    primaryStaffRole() === "teacher" &&
+    hasTeacherCapabilities() &&
     state.teacherProfile !== null &&
     !state.teacherProfile.completed
   );
@@ -2102,7 +2211,7 @@ function renderTeacherProfileMatches() {
   const container = qs("#teacherProfileMatches");
   const profile = state.teacherProfile;
   if (!container) return;
-  if (!profile?.completed) {
+  if (!hasTeacherCapabilities() || !profile?.completed) {
     container.hidden = true;
     container.innerHTML = "";
     return;
@@ -2119,7 +2228,7 @@ function renderTeacherProfileMatches() {
 }
 
 function openTeacherProfileDialog({ required = teacherProfileRequired() } = {}) {
-  if (apiContext.demoMode || primaryStaffRole() !== "teacher") return;
+  if (apiContext.demoMode || !hasStaffProfileCapabilities()) return;
   const dialog = qs("#teacherProfileDialog");
   if (!dialog) return;
   state.teacherProfileDialogOpen = true;
@@ -2132,7 +2241,18 @@ function openTeacherProfileDialog({ required = teacherProfileRequired() } = {}) 
   qs("#teacherProfileError").hidden = true;
   qs("#teacherProfileDialogTitle").textContent = required
     ? "Укажите фамилию и имя"
-    : "ФИО преподавателя";
+    : "ФИО сотрудника";
+  const eyebrow = dialog.querySelector(".eyebrow");
+  if (eyebrow) eyebrow.textContent = hasTeacherCapabilities() ? "Привязка групп" : "Рабочий профиль";
+  qs("#teacherProfileDialogHint").textContent = hasTeacherCapabilities()
+    ? "Введите имя и фамилию как в LMS."
+    : "Укажите фамилию и имя, которые будут отображаться в системе.";
+  const saveButtonLabel = qs("#saveTeacherProfileButton span");
+  if (saveButtonLabel) {
+    saveButtonLabel.textContent = hasTeacherCapabilities()
+      ? "Сохранить и найти группы"
+      : "Сохранить ФИО";
+  }
   renderTeacherProfileMatches();
   refreshIcons();
   window.setTimeout(() => qs("#teacherProfileLastName")?.focus(), 40);
@@ -2151,8 +2271,9 @@ function closeTeacherProfileDialog(force = false) {
 
 function syncTeacherProfileControl() {
   const editButton = qs("#editTeacherProfileButton");
-  const isTeacher = state.role === "teacher" && primaryStaffRole() === "teacher";
-  if (editButton) editButton.hidden = !isTeacher || !state.teacherProfile?.completed;
+  if (editButton) {
+    editButton.hidden = !hasStaffProfileCapabilities() || state.teacherProfile === null;
+  }
   if (teacherProfileRequired()) {
     openTeacherProfileDialog({ required: true });
   } else if (state.teacherProfileDialogOpen) {
@@ -2173,7 +2294,7 @@ async function saveTeacherProfile(event) {
   if (saveButton) saveButton.disabled = true;
 
   try {
-    const response = await apiFetch("/api/v1/miniapp/teacher/profile", {
+    const response = await apiFetch("/api/v1/miniapp/staff/profile", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -2190,11 +2311,13 @@ async function saveTeacherProfile(event) {
     state.teacherInvitationsLoaded = false;
     await loadSession();
     await loadOpsSummary();
-    await loadTeacherInvitations(true);
+    if (hasTeacherCapabilities()) await loadTeacherInvitations(true);
     renderAll();
     const groupCount = Number(profile.matched_group_names?.length || 0);
     showNotice(
-      groupCount > 0
+      !hasTeacherCapabilities()
+        ? "ФИО сохранено"
+        : groupCount > 0
         ? `Профиль сохранен. Подключено групп: ${groupCount}`
         : "Профиль сохранен. Группы появятся после импорта CRM.",
     );
@@ -2730,7 +2853,44 @@ document.addEventListener("click", (event) => {
   const staffMaxUserId = target.dataset.toggleStaff;
   const staffRole = target.dataset.staffRole;
   if (staffMaxUserId && staffRole) {
-    toggleStaffAssignment(staffMaxUserId, staffRole);
+    void toggleStaffAssignment(staffMaxUserId, staffRole);
+    return;
+  }
+
+  const addStaffRoleAccountId = target.dataset.addStaffRole;
+  if (addStaffRoleAccountId) {
+    openAdditionalStaffRoleEditor(addStaffRoleAccountId);
+    return;
+  }
+
+  const saveAdditionalStaffRoleAccountId = target.dataset.saveAdditionalStaffRole;
+  if (saveAdditionalStaffRoleAccountId) {
+    void saveAdditionalStaffRole(saveAdditionalStaffRoleAccountId);
+    return;
+  }
+
+  if ("cancelAdditionalStaffRole" in target.dataset) {
+    closeStaffCardEditors();
+    renderAdminPanel();
+    return;
+  }
+
+  const editStaffProfileAccountId = target.dataset.editStaffProfile;
+  if (editStaffProfileAccountId) {
+    openManagedStaffProfileEditor(editStaffProfileAccountId);
+    return;
+  }
+
+  const saveStaffProfileAccountId = target.dataset.saveStaffProfile;
+  if (saveStaffProfileAccountId) {
+    void saveManagedStaffProfile(saveStaffProfileAccountId);
+    return;
+  }
+
+  if ("cancelStaffProfile" in target.dataset) {
+    closeStaffCardEditors();
+    renderAdminPanel();
+    return;
   }
 
   if (target.id === "productImportButton") {
@@ -2817,12 +2977,14 @@ document.addEventListener("click", (event) => {
   }
 
   if (target.id === "staffCreateButton") {
+    closeStaffCardEditors();
     state.staffInvitationOpen = false;
     state.staffEditorOpen = true;
     renderAdminPanel();
   }
 
   if (target.id === "staffInviteButton") {
+    closeStaffCardEditors();
     state.staffEditorOpen = false;
     state.staffInvitationOpen = true;
     state.staffInvitationRole = "teacher";
@@ -3089,6 +3251,9 @@ document.addEventListener("change", (event) => {
   if (target.id === "staffRoleFilter") {
     state.staffRoleFilter = target.value;
     renderAdminPanel();
+  }
+  if ("staffAdditionalRoleSelect" in target.dataset) {
+    state.staffRoleEditorRole = target.value;
   }
   if (target.id === "staffInvitationRoleSelect") {
     state.staffInvitationRole = target.value;
@@ -3419,7 +3584,7 @@ async function init() {
   if (apiContext.demoMode || state.catalogLoaded) restoreCart();
   await loadServerCart(state.activeStudentId);
   await loadParentInvitations();
-  if (primaryStaffRole() === "teacher") await loadTeacherInvitations();
+  if (hasTeacherCapabilities()) await loadTeacherInvitations();
   setView(state.view);
   state.lastSyncAt = new Date();
   renderAll();

@@ -18,6 +18,14 @@ if (queryParam("miniapp_token")) {
 }
 const sessionStartedAt = new Date();
 
+const STAFF_ROLE_PRIORITY = Object.freeze([
+  "superadmin",
+  "partner_director",
+  "admin",
+  "curator",
+  "teacher",
+]);
+
 const ROLE_VIEWS = Object.freeze({
   student: ["dashboard", "store", "cart", "orders", "wallet", "help"],
   parent: ["dashboard", "store", "cart", "orders", "wallet", "help"],
@@ -150,6 +158,11 @@ const state = {
   editingProductId: "",
   staffSaving: false,
   staffEditorOpen: false,
+  staffRoleEditorAccountId: "",
+  staffRoleEditorRole: "",
+  staffProfileEditorAccountId: "",
+  staffProfileEditorFirstName: "",
+  staffProfileEditorLastName: "",
   staffInvitationOpen: false,
   staffInvitationSaving: false,
   staffInvitationRole: "teacher",
@@ -308,11 +321,24 @@ let staffAssignments = [
     status: "active",
   },
   {
+    id: "demo-staff-admin-teacher",
+    accountId: "demo-account-admin",
+    maxUserId: "53364725",
+    username: "admin_user",
+    displayName: "Администратор",
+    firstName: "",
+    lastName: "",
+    role: "teacher",
+    status: "active",
+  },
+  {
     id: "demo-staff-teacher",
     accountId: "demo-account-teacher",
     maxUserId: "53364726",
     username: "teacher_user",
     displayName: "Педагог",
+    firstName: "",
+    lastName: "",
     role: "teacher",
     status: "active",
   },
@@ -934,6 +960,16 @@ function studentsForCurrentRole() {
     return students.filter((student) => linkedStudentIds.has(student.id));
   }
   return students.filter((student) => student.role === state.role);
+}
+
+function studentsForTeacherCapabilities() {
+  const activeStudents = students.filter((student) => student.status === "active");
+  if (!hasTeacherCapabilities()) return [];
+  if (!apiContext.demoMode) {
+    return activeStudents.filter((student) => student.teacherVisible);
+  }
+  const teacherName = activeStudents[0]?.teacher;
+  return activeStudents.filter((student) => student.teacher === teacherName);
 }
 
 function selectedStudent() {
@@ -1737,9 +1773,21 @@ function applyDemoRole() {
 }
 
 function primaryStaffRole(staffRoles = state.staffRoles) {
-  return ["superadmin", "partner_director", "admin", "curator", "teacher"].find((role) =>
+  return STAFF_ROLE_PRIORITY.find((role) =>
     staffRoles.includes(role),
   ) || "";
+}
+
+function hasStaffRole(role) {
+  return state.staffRoles.includes(role);
+}
+
+function hasStaffProfileCapabilities() {
+  return state.staffRoles.length > 0;
+}
+
+function hasTeacherCapabilities() {
+  return hasStaffRole("teacher");
 }
 
 function isStaffStudentHistoryView() {
@@ -1835,6 +1883,88 @@ function staffRoleProfileLabel(role) {
     curator: "куратор",
     teacher: "преподаватель",
   }[role] || "сотрудник";
+}
+
+function directlyAssignableStaffRoles(staffRoles = state.staffRoles) {
+  const actorRole = primaryStaffRole(staffRoles);
+  return {
+    superadmin: ["partner_director", "admin", "curator", "teacher"],
+    partner_director: ["curator", "teacher"],
+    admin: ["curator", "teacher"],
+  }[actorRole] || [];
+}
+
+function groupedStaffAssignments(assignments = staffAssignments) {
+  const groupsByAccount = new Map();
+  assignments.forEach((assignment) => {
+    const key = assignment.accountId || `max-${assignment.maxUserId}`;
+    const existing = groupsByAccount.get(key);
+    if (existing) {
+      existing.assignments.push(assignment);
+      if (!existing.displayName && assignment.displayName) {
+        existing.displayName = assignment.displayName;
+      }
+      if (!existing.username && assignment.username) existing.username = assignment.username;
+      if (!existing.firstName && assignment.firstName) existing.firstName = assignment.firstName;
+      if (!existing.lastName && assignment.lastName) existing.lastName = assignment.lastName;
+      return;
+    }
+    groupsByAccount.set(key, {
+      accountId: assignment.accountId,
+      maxUserId: assignment.maxUserId,
+      username: assignment.username,
+      displayName: assignment.displayName,
+      firstName: assignment.firstName,
+      lastName: assignment.lastName,
+      assignments: [assignment],
+    });
+  });
+  return Array.from(groupsByAccount.values())
+    .map((group) => ({
+      ...group,
+      assignments: group.assignments.sort(
+        (left, right) =>
+          STAFF_ROLE_PRIORITY.indexOf(left.role) - STAFF_ROLE_PRIORITY.indexOf(right.role),
+      ),
+    }))
+    .sort((left, right) =>
+      (left.displayName || left.username || left.maxUserId).localeCompare(
+        right.displayName || right.username || right.maxUserId,
+        "ru",
+      ),
+    );
+}
+
+function additionalStaffRolesForAccount(accountId) {
+  const existingRoles = new Set(
+    staffAssignments
+      .filter((assignment) => assignment.accountId === accountId)
+      .map((assignment) => assignment.role),
+  );
+  return directlyAssignableStaffRoles().filter((role) => !existingRoles.has(role));
+}
+
+function canManageStaffProfileForGroup(group) {
+  const actorRole = primaryStaffRole();
+  const assignments = group?.assignments || [];
+  const activeAssignments = assignments.filter((assignment) => assignment.status === "active");
+  const effectiveAssignments = activeAssignments.length ? activeAssignments : assignments;
+  const targetRoles = new Set(effectiveAssignments.map((assignment) => assignment.role));
+  if (actorRole === "superadmin") return targetRoles.size > 0;
+  if (actorRole === "partner_director") {
+    return (
+      targetRoles.size > 0 &&
+      !targetRoles.has("superadmin") &&
+      !targetRoles.has("partner_director")
+    );
+  }
+  if (actorRole === "admin") {
+    return (
+      targetRoles.size > 0 &&
+      [...targetRoles].every((role) => ["curator", "teacher"].includes(role))
+    );
+  }
+  return false;
 }
 
 function accessRoleLabel(role) {
@@ -1983,6 +2113,7 @@ function applySession(session) {
     role: student.role,
     staffVisible: Boolean(student.staff_visible),
     staffOrderVisible: Boolean(student.staff_order_visible),
+    teacherVisible: Boolean(student.teacher_visible),
     accessStatus: student.access_status || "active",
     name: student.display_name,
     firstName: student.first_name || "",
@@ -2057,6 +2188,8 @@ function applySession(session) {
     maxUserId: String(assignment.max_user_id),
     username: assignment.username || "",
     displayName: assignment.display_name || "",
+    firstName: assignment.first_name || "",
+    lastName: assignment.last_name || "",
     role: assignment.role,
     status: assignment.status,
   }));
@@ -2079,7 +2212,7 @@ function applySession(session) {
   state.sessionLoaded = true;
 }
 
-function teacherProfileDisplayName() {
+function staffProfileDisplayName() {
   const profile = state.teacherProfile;
   if (!profile?.completed) return "";
   return [profile.lastName, profile.firstName].filter(Boolean).join(" ").trim();
@@ -2174,7 +2307,7 @@ async function loadParentInvitations() {
 
 async function loadTeacherInvitations(force = false) {
   if (apiContext.demoMode) {
-    const teacherStudents = studentsForCurrentRole();
+    const teacherStudents = studentsForTeacherCapabilities();
     state.teacherInvitations = new Map(
       teacherStudents.map((student, index) => [
         student.id,
@@ -2210,7 +2343,7 @@ async function loadTeacherInvitations(force = false) {
   if (
     !state.hasAccess ||
     !apiContext.maxUserId ||
-    primaryStaffRole() !== "teacher" ||
+    !hasTeacherCapabilities() ||
     state.teacherInvitationsLoading ||
     (state.teacherInvitationsLoaded && !force)
   ) return;

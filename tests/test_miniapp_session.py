@@ -56,6 +56,7 @@ from app.services.miniapp import (
     list_miniapp_student_registry,
     set_miniapp_student_balance,
     update_miniapp_access_link_status,
+    update_miniapp_managed_staff_profile,
     update_miniapp_staff_assignment,
     update_miniapp_student_status,
     update_miniapp_teacher_profile,
@@ -268,12 +269,15 @@ async def test_staff_session_returns_tenant_students_sorted_by_group(db_session)
         tenant_slug="nizhniy-novgorod-partner-a",
     )
     assert [item.display_name for item in teacher_registry.students] == ["Васильева Алиса"]
-    assert await list_miniapp_student_ledger(
-        db_session,
-        max_user_id=53364725,
-        tenant_slug="nizhniy-novgorod-partner-a",
-        student_id=teacher_registry.students[0].student_id,
-    ) == []
+    assert (
+        await list_miniapp_student_ledger(
+            db_session,
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            student_id=teacher_registry.students[0].student_id,
+        )
+        == []
+    )
 
     foreign_student = await db_session.scalar(
         select(Student).where(Student.teacher_name == "Другой Педагог")
@@ -358,9 +362,7 @@ async def test_scoped_director_sees_access_links_only_for_own_venue(db_session) 
     )
     db_session.add_all([director, assignment])
     await db_session.flush()
-    db_session.add(
-        StaffVenueScope(assignment_id=assignment.id, venue_id=first_student.venue_id)
-    )
+    db_session.add(StaffVenueScope(assignment_id=assignment.id, venue_id=first_student.venue_id))
     await db_session.commit()
 
     session = await get_miniapp_session(
@@ -613,11 +615,14 @@ async def test_admin_can_revoke_student_access_link(db_session) -> None:
     assert result.status == StudentAccessStatus.REVOKED
     tenant = await db_session.scalar(select(Tenant).where(Tenant.id == student.tenant_id))
     assert tenant is not None
-    assert await _recipient_user_ids(
-        db_session,
-        tenant=tenant,
-        student=student,
-    ) == set()
+    assert (
+        await _recipient_user_ids(
+            db_session,
+            tenant=tenant,
+            student=student,
+        )
+        == set()
+    )
     assert await _tenant_customer_user_ids(db_session, tenant_id=tenant.id) == set()
     assert session.access_links[0].status == StudentAccessStatus.REVOKED
     await db_session.refresh(child_link)
@@ -665,6 +670,113 @@ async def test_admin_can_assign_teacher_staff_role(db_session) -> None:
         assignment.max_user_id == 1001 and assignment.role == StaffRole.TEACHER
         for assignment in session.staff_assignments
     )
+
+
+async def test_admin_can_add_second_role_to_existing_staff_account(db_session) -> None:
+    defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+    await upsert_crm_student_rows(db_session, [crm_row()], defaults=defaults)
+    student = await db_session.scalar(select(Student))
+    assert student is not None
+    admin = MaxAccount(max_user_id=1010, username="admin_user")
+    employee = MaxAccount(max_user_id=1011, display_name="Сотрудник")
+    db_session.add_all([admin, employee])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            StaffRoleAssignment(
+                tenant_id=student.tenant_id,
+                account_id=admin.id,
+                role=StaffRole.ADMIN,
+                status=AssignmentStatus.ACTIVE,
+            ),
+            StaffRoleAssignment(
+                tenant_id=student.tenant_id,
+                account_id=employee.id,
+                role=StaffRole.CURATOR,
+                status=AssignmentStatus.ACTIVE,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    added = await update_miniapp_staff_assignment(
+        db_session,
+        payload=MiniAppStaffAssignmentUpdate(
+            max_user_id=admin.max_user_id,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            target_max_user_id=employee.max_user_id,
+            role=StaffRole.TEACHER,
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    session = await get_miniapp_session(
+        db_session,
+        max_user_id=admin.max_user_id,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    employee_assignments = [
+        assignment
+        for assignment in session.staff_assignments
+        if assignment.account_id == employee.id
+    ]
+    assert added.account_id == employee.id
+    assert {assignment.role for assignment in employee_assignments} == {
+        StaffRole.CURATOR,
+        StaffRole.TEACHER,
+    }
+    assert (
+        len(
+            list(
+                await db_session.scalars(
+                    select(MaxAccount).where(MaxAccount.max_user_id == employee.max_user_id)
+                )
+            )
+        )
+        == 1
+    )
+
+
+async def test_superadmin_role_takes_priority_over_combined_director_role(db_session) -> None:
+    defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+    await upsert_crm_student_rows(db_session, [crm_row()], defaults=defaults)
+    student = await db_session.scalar(select(Student))
+    assert student is not None
+    actor = MaxAccount(max_user_id=1020, username="combined_manager")
+    db_session.add(actor)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            StaffRoleAssignment(
+                tenant_id=student.tenant_id,
+                account_id=actor.id,
+                role=StaffRole.SUPERADMIN,
+                status=AssignmentStatus.ACTIVE,
+            ),
+            StaffRoleAssignment(
+                tenant_id=student.tenant_id,
+                account_id=actor.id,
+                role=StaffRole.PARTNER_DIRECTOR,
+                status=AssignmentStatus.ACTIVE,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    assigned = await update_miniapp_staff_assignment(
+        db_session,
+        payload=MiniAppStaffAssignmentUpdate(
+            max_user_id=actor.max_user_id,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            target_max_user_id=1021,
+            display_name="Новый администратор",
+            role=StaffRole.ADMIN,
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    assert assigned.role == StaffRole.ADMIN
+    assert assigned.status == AssignmentStatus.ACTIVE
 
 
 async def test_teacher_profile_automatically_links_imported_groups(db_session) -> None:
@@ -743,6 +855,274 @@ async def test_teacher_profile_automatically_links_imported_groups(db_session) -
         "Python, понедельник",
         "Scratch, вторник",
     }
+
+
+async def test_admin_and_teacher_roles_combine_visibility_and_group_matching(db_session) -> None:
+    defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+    own_group = replace(crm_row(), teacher_name="Китова Татьяна")
+    other_group = replace(
+        crm_row(),
+        row_number=3,
+        deal_id="combined-role-other-deal",
+        uuid="combined-role-other-uuid",
+        lms_student_id="ST-002",
+        first_name="Борис",
+        last_name="Петров",
+        group_name="Scratch, вторник",
+        venue_name="Гагарина 64",
+        teacher_name="Другой Педагог",
+        contact_ids="682",
+    )
+    await upsert_crm_student_rows(db_session, [own_group, other_group], defaults=defaults)
+    student = await db_session.scalar(select(Student).where(Student.lms_student_id == "ST-001"))
+    assert student is not None
+
+    account = MaxAccount(max_user_id=8810, display_name="max_nickname")
+    db_session.add(account)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            StaffRoleAssignment(
+                tenant_id=student.tenant_id,
+                account_id=account.id,
+                role=StaffRole.ADMIN,
+                status=AssignmentStatus.ACTIVE,
+            ),
+            StaffRoleAssignment(
+                tenant_id=student.tenant_id,
+                account_id=account.id,
+                role=StaffRole.TEACHER,
+                status=AssignmentStatus.ACTIVE,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    await update_miniapp_teacher_profile(
+        db_session,
+        payload=MiniAppTeacherProfileUpdate(
+            max_user_id=8810,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            first_name="Татьяна",
+            last_name="Китова",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    session = await get_miniapp_session(
+        db_session,
+        max_user_id=8810,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    registry = await list_miniapp_student_registry(
+        db_session,
+        max_user_id=8810,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    assert session.staff_roles == [StaffRole.ADMIN, StaffRole.TEACHER]
+    assert session.account is not None
+    assert session.account.display_name == "Китова Татьяна"
+    assert session.teacher_profile is not None
+    assert session.teacher_profile.matched_student_count == 1
+    students_by_lms_id = {item.lms_student_id: item for item in session.students}
+    assert students_by_lms_id["ST-001"].staff_visible is True
+    assert students_by_lms_id["ST-001"].teacher_visible is True
+    assert students_by_lms_id["ST-002"].staff_visible is True
+    assert students_by_lms_id["ST-002"].teacher_visible is False
+    assert {item.lms_student_id for item in registry.students} == {"ST-001", "ST-002"}
+
+
+async def test_scoped_director_and_teacher_roles_union_their_students(db_session) -> None:
+    defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+    scoped_group = replace(crm_row(), teacher_name="Другой Педагог")
+    teacher_group = replace(
+        crm_row(),
+        row_number=3,
+        deal_id="director-teacher-own-deal",
+        uuid="director-teacher-own-uuid",
+        lms_student_id="ST-002",
+        first_name="Борис",
+        last_name="Петров",
+        group_name="Scratch, вторник",
+        venue_name="Гагарина 64",
+        teacher_name="Китова Татьяна",
+        contact_ids="682",
+    )
+    hidden_group = replace(
+        crm_row(),
+        row_number=4,
+        deal_id="director-teacher-hidden-deal",
+        uuid="director-teacher-hidden-uuid",
+        lms_student_id="ST-003",
+        first_name="Вера",
+        last_name="Смирнова",
+        group_name="Roblox, среда",
+        venue_name="Онлайн",
+        teacher_name="Третий Педагог",
+        contact_ids="683",
+    )
+    await upsert_crm_student_rows(
+        db_session,
+        [scoped_group, teacher_group, hidden_group],
+        defaults=defaults,
+    )
+    scoped_student = await db_session.scalar(
+        select(Student).where(Student.lms_student_id == "ST-001")
+    )
+    assert scoped_student is not None
+    assert scoped_student.venue_id is not None
+
+    account = MaxAccount(max_user_id=8811, display_name="max_nickname")
+    director_assignment = StaffRoleAssignment(
+        tenant_id=scoped_student.tenant_id,
+        account=account,
+        role=StaffRole.PARTNER_DIRECTOR,
+        status=AssignmentStatus.ACTIVE,
+    )
+    teacher_assignment = StaffRoleAssignment(
+        tenant_id=scoped_student.tenant_id,
+        account=account,
+        role=StaffRole.TEACHER,
+        status=AssignmentStatus.ACTIVE,
+    )
+    db_session.add_all([account, director_assignment, teacher_assignment])
+    await db_session.flush()
+    db_session.add(
+        StaffVenueScope(
+            assignment_id=director_assignment.id,
+            venue_id=scoped_student.venue_id,
+        )
+    )
+    await db_session.commit()
+
+    await update_miniapp_teacher_profile(
+        db_session,
+        payload=MiniAppTeacherProfileUpdate(
+            max_user_id=8811,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            first_name="Татьяна",
+            last_name="Китова",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    session = await get_miniapp_session(
+        db_session,
+        max_user_id=8811,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    registry = await list_miniapp_student_registry(
+        db_session,
+        max_user_id=8811,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    assert session.staff_roles == [StaffRole.PARTNER_DIRECTOR, StaffRole.TEACHER]
+    assert {item.lms_student_id for item in session.students} == {"ST-001", "ST-002"}
+    students_by_lms_id = {item.lms_student_id: item for item in session.students}
+    assert students_by_lms_id["ST-001"].teacher_visible is False
+    assert students_by_lms_id["ST-002"].teacher_visible is True
+    assert {item.lms_student_id for item in registry.students} == {"ST-001", "ST-002"}
+
+
+async def test_non_teacher_staff_can_update_own_fio(db_session) -> None:
+    defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+    await upsert_crm_student_rows(db_session, [crm_row()], defaults=defaults)
+    student = await db_session.scalar(select(Student))
+    assert student is not None
+    curator = MaxAccount(max_user_id=8812, display_name="old_name")
+    db_session.add(curator)
+    await db_session.flush()
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=curator.id,
+            role=StaffRole.CURATOR,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    profile = await update_miniapp_teacher_profile(
+        db_session,
+        payload=MiniAppTeacherProfileUpdate(
+            max_user_id=8812,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            first_name="Мария",
+            last_name="Соколова",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    await db_session.refresh(curator)
+    assert profile.completed is True
+    assert curator.display_name == "Соколова Мария"
+    assert curator.staff_first_name == "Мария"
+    assert curator.staff_last_name == "Соколова"
+
+
+async def test_admin_can_update_managed_staff_fio_for_all_assignments(db_session) -> None:
+    defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+    await upsert_crm_student_rows(db_session, [crm_row()], defaults=defaults)
+    student = await db_session.scalar(select(Student))
+    assert student is not None
+    admin = MaxAccount(max_user_id=8813, display_name="Администратор")
+    employee = MaxAccount(max_user_id=8814, display_name="Старое имя")
+    db_session.add_all([admin, employee])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            StaffRoleAssignment(
+                tenant_id=student.tenant_id,
+                account_id=admin.id,
+                role=StaffRole.ADMIN,
+                status=AssignmentStatus.ACTIVE,
+            ),
+            StaffRoleAssignment(
+                tenant_id=student.tenant_id,
+                account_id=employee.id,
+                role=StaffRole.CURATOR,
+                status=AssignmentStatus.ACTIVE,
+            ),
+            StaffRoleAssignment(
+                tenant_id=student.tenant_id,
+                account_id=employee.id,
+                role=StaffRole.TEACHER,
+                status=AssignmentStatus.ACTIVE,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    profile = await update_miniapp_managed_staff_profile(
+        db_session,
+        target_account_id=employee.id,
+        payload=MiniAppTeacherProfileUpdate(
+            max_user_id=8813,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            first_name="Ольга",
+            last_name="Иванова",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    session = await get_miniapp_session(
+        db_session,
+        max_user_id=8813,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    employee_assignments = [
+        assignment
+        for assignment in session.staff_assignments
+        if assignment.account_id == employee.id
+    ]
+    assert profile.completed is True
+    assert {assignment.role for assignment in employee_assignments} == {
+        StaffRole.CURATOR,
+        StaffRole.TEACHER,
+    }
+    assert all(assignment.display_name == "Иванова Ольга" for assignment in employee_assignments)
+    assert all(assignment.first_name == "Ольга" for assignment in employee_assignments)
+    assert all(assignment.last_name == "Иванова" for assignment in employee_assignments)
 
 
 async def test_admin_cannot_assign_elevated_staff_role(db_session) -> None:
@@ -936,9 +1316,7 @@ async def test_admin_can_create_student_change_status_and_set_exact_balance(db_s
         ).all()
     )
     ledger = await db_session.scalar(
-        select(AstrocoinLedgerEntry).where(
-            AstrocoinLedgerEntry.student_id == created.student_id
-        )
+        select(AstrocoinLedgerEntry).where(AstrocoinLedgerEntry.student_id == created.student_id)
     )
     assert history_types == {"created", "status_changed"}
     assert ledger is not None
@@ -984,9 +1362,7 @@ async def test_create_student_with_parent_and_grant_birthday_reward_once(db_sess
         ),
         default_tenant_slug="nizhniy-novgorod-partner-a",
     )
-    created = next(
-        item for item in registry.students if item.lms_student_id == "MANUAL-BIRTHDAY"
-    )
+    created = next(item for item in registry.students if item.lms_student_id == "MANUAL-BIRTHDAY")
     assert created.birth_date == date(2015, 8, 16)
     assert created.parent_contact_ids == ["PARENT-100"]
     assert created.parent_names == ["Петрова Анна"]
