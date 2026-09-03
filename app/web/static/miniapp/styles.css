@@ -5759,64 +5759,11 @@ body[data-active-role="student"] #studentContext {
   height: 16px;
 }
 
-.staff-status-filter {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--line);
-  background: #f8f7fa;
-}
-
-.staff-filter-button {
-  min-height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  border: 1px solid #d7dbe3;
-  border-radius: 6px;
-  padding: 6px 10px;
-  color: var(--muted);
-  background: #ffffff;
-  font-size: 13px;
-  font-weight: 700;
-  max-width: 220px;
-}
-
 .category-chip > span {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.staff-filter-button:hover:not(:disabled) {
-  border-color: var(--brand-purple);
-  color: var(--brand-purple);
-  background: var(--brand-purple-soft);
-}
-
-.staff-filter-button.is-active {
-  border-color: var(--brand-purple);
-  color: #ffffff;
-  background: var(--brand-purple);
-}
-
-.staff-filter-button span {
-  min-width: 20px;
-  height: 20px;
-  display: inline-grid;
-  place-items: center;
-  border-radius: 5px;
-  padding-inline: 5px;
-  color: inherit;
-  background: rgba(111, 97, 121, 0.12);
-  font-size: 11px;
-}
-
-.staff-filter-button.is-active span {
-  background: rgba(255, 255, 255, 0.18);
 }
 
 .staff-notification-button {
@@ -6064,20 +6011,6 @@ body[data-active-role="student"] #studentContext {
   .admin-tab:last-child {
     grid-column: 1 / -1;
     justify-content: center;
-  }
-
-  .staff-status-filter {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 4px;
-    padding: 9px 12px;
-  }
-
-  .staff-filter-button {
-    min-width: 0;
-    gap: 4px;
-    padding-inline: 5px;
-    font-size: 11px;
   }
 
   .staff-notification-dialog {
@@ -9359,8 +9292,10 @@ details.report-row { display: block; padding: 0; }
 }
 
 .admin-row-menu { position: relative; }
+.admin-row-menu[open] { z-index: 30; }
 .admin-row-menu > summary { list-style: none; }
 .admin-row-menu > summary::-webkit-details-marker { display: none; }
+.admin-panel:has(.admin-row-menu[open]) { overflow: visible; }
 .admin-row-menu-popover {
   position: absolute;
   top: calc(100% + 5px);

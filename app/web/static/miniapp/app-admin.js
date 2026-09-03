@@ -1634,19 +1634,16 @@ function renderAdminPanel() {
   }
 
   const disabled = state.staffSaving ? "disabled" : "";
-  const staffGroups = groupedStaffAssignments();
-  const activeStaff = staffGroups.filter((group) =>
-    group.assignments.some((assignment) => assignment.status === "active"),
-  ).length;
-  const revokedStaff = staffGroups.filter((group) =>
-    group.assignments.some((assignment) => assignment.status === "revoked"),
-  ).length;
+  const staffGroups = groupedStaffAssignments()
+    .map((group) => ({
+      ...group,
+      assignments: group.assignments.filter((assignment) => assignment.status === "active"),
+    }))
+    .filter((group) => group.assignments.length > 0);
+  const activeStaff = staffGroups.length;
   const activeRoleCount = staffAssignments.filter((item) => item.status === "active").length;
   const staffQuery = state.adminEntitySearch.trim().toLowerCase();
   const visibleStaffGroups = staffGroups.filter((group) => {
-    const matchesStatus = state.staffStatusFilter === "all" || group.assignments.some(
-      (assignment) => assignment.status === state.staffStatusFilter,
-    );
     const matchesRole = state.staffRoleFilter === "all" || group.assignments.some(
       (assignment) => assignment.role === state.staffRoleFilter,
     );
@@ -1657,7 +1654,7 @@ function renderAdminPanel() {
       ...group.assignments.map((assignment) => staffRoleLabel(assignment.role)),
     ].join(" ").toLowerCase();
     const matchesQuery = !staffQuery || searchable.includes(staffQuery);
-    return matchesStatus && matchesRole && matchesQuery;
+    return matchesRole && matchesQuery;
   });
   const actorRole = primaryStaffRole();
   const canManageStaffNotifications = ["superadmin", "partner_director"].includes(actorRole);
@@ -1688,31 +1685,18 @@ function renderAdminPanel() {
   const rows =
     visibleStaffGroups.length === 0
       ? `<div class="empty-state">${
-          staffAssignments.length === 0
+          activeRoleCount === 0
             ? "Сотрудников пока нет"
-            : state.staffStatusFilter === "revoked"
-              ? "Отозванных назначений нет"
-              : "Активных назначений нет"
+            : "Активные сотрудники не найдены"
         }</div>`
       : visibleStaffGroups
           .map(
             (group) => {
-              const activeAssignments = group.assignments.filter(
-                (assignment) => assignment.status === "active",
+              const activeAssignments = group.assignments;
+              const primaryAssignment = activeAssignments[0];
+              const roleLabels = activeAssignments.map((assignment) =>
+                staffRoleLabel(assignment.role),
               );
-              const primaryAssignment = activeAssignments[0] || group.assignments[0];
-              const allActive = activeAssignments.length === group.assignments.length;
-              const allRevoked = activeAssignments.length === 0;
-              const statusTone = allActive ? "ok" : allRevoked ? "danger" : "warn";
-              const statusLabel = allActive
-                ? "Активен"
-                : allRevoked
-                  ? "Отозван"
-                  : "Есть отозванные роли";
-              const roleLabels = group.assignments.map((assignment) => {
-                const suffix = assignment.status === "revoked" ? " (отозвана)" : "";
-                return `${staffRoleLabel(assignment.role)}${suffix}`;
-              });
               const toggleableAssignments = group.assignments.filter(
                 canToggleStaffAssignment,
               );
@@ -1735,7 +1719,7 @@ function renderAdminPanel() {
                     <strong>${escapeHtml(
                       group.displayName || group.username || "Без имени",
                     )}</strong>
-                    <span class="status-badge ${statusTone}">${escapeHtml(statusLabel)}</span>
+                    <span class="status-badge ok">Активен</span>
                   </div>
                   <div class="admin-entity-meta">
                     <span class="staff-role-list">${escapeHtml(roleLabels.join(", "))}</span>
@@ -1770,11 +1754,11 @@ function renderAdminPanel() {
                             ` : ""}
                             ${toggleableAssignments.map((assignment) => `
                               <button
-                                class="${assignment.status === "active" ? "danger-action" : ""}"
+                                class="danger-action"
                                 type="button"
                                 data-toggle-staff="${escapeHtml(group.maxUserId)}"
                                 data-staff-role="${escapeHtml(assignment.role)}"
-                              >${assignment.status === "revoked" ? "Восстановить" : "Отозвать"}: ${escapeHtml(staffRoleLabel(assignment.role))}</button>
+                              >Отозвать: ${escapeHtml(staffRoleLabel(assignment.role))}</button>
                             `).join("")}
                           </div>
                         </details>`
@@ -1912,23 +1896,6 @@ function renderAdminPanel() {
         ` : ""}
       </section>
     ` : ""}
-    <div class="staff-status-filter" role="group" aria-label="Фильтр сотрудников">
-      <button
-        class="staff-filter-button ${state.staffStatusFilter === "active" ? "is-active" : ""}"
-        type="button"
-        data-staff-status-filter="active"
-      >Активные <span>${activeStaff}</span></button>
-      <button
-        class="staff-filter-button ${state.staffStatusFilter === "revoked" ? "is-active" : ""}"
-        type="button"
-        data-staff-status-filter="revoked"
-      >Отозванные <span>${revokedStaff}</span></button>
-      <button
-        class="staff-filter-button ${state.staffStatusFilter === "all" ? "is-active" : ""}"
-        type="button"
-        data-staff-status-filter="all"
-      >Все <span>${staffGroups.length}</span></button>
-    </div>
     <div class="admin-filter-toolbar">
       <label class="search-field"><i data-lucide="search"></i><input id="adminEntitySearch" type="search" value="${escapeHtml(state.adminEntitySearch)}" placeholder="Имя, MAX ID или роль" /><button class="search-clear" type="button" data-clear-admin-search ${state.adminEntitySearch ? "" : "hidden"}><i data-lucide="x"></i></button></label>
       <select id="staffRoleFilter" aria-label="Роль сотрудника">

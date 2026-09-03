@@ -23,7 +23,14 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.84.0"}
+    assert set(versions) == {"0.84.3"}
+
+
+def test_staff_action_menu_is_not_clipped_by_admin_panel() -> None:
+    styles_source = (MINIAPP / "styles.css").read_text(encoding="utf-8")
+
+    assert ".admin-row-menu[open] { z-index: 30; }" in styles_source
+    assert ".admin-panel:has(.admin-row-menu[open]) { overflow: visible; }" in styles_source
 
 
 def test_staff_cards_group_roles_and_expose_profile_management() -> None:
@@ -36,6 +43,15 @@ def test_staff_cards_group_roles_and_expose_profile_management() -> None:
     assert "data-add-staff-role" in admin_source
     assert "data-edit-staff-profile" in admin_source
     assert "data-save-staff-profile" in admin_source
+    assert "data-staff-status-filter" not in admin_source
+    assert (
+        'assignments: group.assignments.filter((assignment) => assignment.status === "active")'
+        in admin_source
+    )
+    assert '.filter((group) => group.assignments.length > 0)' in admin_source
+    assert 'state.staffStatusFilter' not in core_source
+    assert 'dataset.staffStatusFilter' not in app_source
+    assert '>Отозвать: ${escapeHtml(staffRoleLabel(assignment.role))}</button>' in admin_source
     assert "async function saveAdditionalStaffRole" in app_source
     assert "async function saveManagedStaffProfile" in app_source
     assert "/profile`" in app_source

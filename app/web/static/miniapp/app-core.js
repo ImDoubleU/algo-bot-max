@@ -168,7 +168,6 @@ const state = {
   staffInvitationRole: "teacher",
   staffInvitationLink: "",
   staffInvitationExpiresAt: "",
-  staffStatusFilter: "active",
   staffRoleFilter: "all",
   staffNotificationSettings: null,
   staffNotificationTargetAccountId: "",
@@ -1938,7 +1937,10 @@ function groupedStaffAssignments(assignments = staffAssignments) {
 function additionalStaffRolesForAccount(accountId) {
   const existingRoles = new Set(
     staffAssignments
-      .filter((assignment) => assignment.accountId === accountId)
+      .filter(
+        (assignment) =>
+          assignment.accountId === accountId && assignment.status === "active",
+      )
       .map((assignment) => assignment.role),
   );
   return directlyAssignableStaffRoles().filter((role) => !existingRoles.has(role));
@@ -1969,10 +1971,6 @@ function canManageStaffProfileForGroup(group) {
 
 function accessRoleLabel(role) {
   return { parent: "Родитель", student: "Ученик" }[role] || role;
-}
-
-function assignmentStatusLabel(status) {
-  return status === "active" ? "Активна" : "Отозвана";
 }
 
 function ledgerAmount(entry) {

@@ -2682,12 +2682,6 @@ document.addEventListener("click", (event) => {
     return;
   }
 
-  const staffStatusFilter = target.dataset.staffStatusFilter;
-  if (["active", "revoked", "all"].includes(staffStatusFilter)) {
-    state.staffStatusFilter = staffStatusFilter;
-    renderAdminPanel();
-  }
-
   const opsJump = target.dataset.opsJump;
   if (opsJump === "orders") {
     state.orderStatusFilter = "all";
