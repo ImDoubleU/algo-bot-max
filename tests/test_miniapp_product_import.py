@@ -9,7 +9,13 @@ import app.db.base  # noqa: F401
 from app.models.account import MaxAccount, StaffRoleAssignment
 from app.models.base import Base
 from app.models.enums import AssignmentStatus, StaffRole, WarehouseType
-from app.models.store import Product, ProductCategory, Warehouse, WarehouseInventory
+from app.models.store import (
+    Product,
+    ProductCategory,
+    Warehouse,
+    WarehouseInventory,
+    WarehouseTenantLink,
+)
 from app.models.tenant import City, Partner, Tenant
 from app.services.miniapp import import_miniapp_products
 from app.services.product_import import (
@@ -139,6 +145,103 @@ async def test_product_import_reuses_existing_warehouse_with_different_slug(
     assert inventory is not None
     assert inventory.warehouse_id == existing_warehouse.id
     assert inventory.available_quantity == 18
+
+
+async def test_product_import_links_same_named_warehouse_from_partner_city(
+    db_session,
+    tmp_path,
+) -> None:
+    await seed_admin(db_session)
+    source_tenant = await db_session.scalar(
+        select(Tenant).where(Tenant.slug == "nizhniy-novgorod-partner-a")
+    )
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
+    assert source_tenant is not None
+    assert account is not None
+
+    existing_warehouse = Warehouse(
+        tenant_id=source_tenant.id,
+        slug="nn-vaneeva-133",
+        name="НН Ванеева 133",
+        warehouse_type=WarehouseType.COMMON,
+        address="Нижний Новгород, ул. Ванеева, 133",
+    )
+    source_category = ProductCategory(
+        tenant_id=source_tenant.id,
+        slug="uchebnye-nabory",
+        name="Учебные наборы",
+    )
+    source_product = Product(
+        tenant_id=source_tenant.id,
+        category=source_category,
+        sku="ROBOT",
+        name="Робот",
+        price_astrocoins=700,
+    )
+    bor_city = City(slug="bor", name="Бор")
+    db_session.add_all([existing_warehouse, source_product, bor_city])
+    await db_session.flush()
+    db_session.add(
+        WarehouseInventory(
+            tenant_id=source_tenant.id,
+            warehouse_id=existing_warehouse.id,
+            product_id=source_product.id,
+            available_quantity=5,
+        )
+    )
+    bor_tenant = Tenant(
+        city_id=bor_city.id,
+        partner_id=source_tenant.partner_id,
+        slug="bor-partner-a",
+        name="Бор / Партнер A",
+    )
+    db_session.add(bor_tenant)
+    await db_session.flush()
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=bor_tenant.id,
+            account_id=account.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    content = (
+        "sku,name,category,price_astrocoins,quantity,warehouse\n"
+        "ROBOT,Робот,Учебные наборы,750,12,НН\u00a0  ВАНЕЕВА 133\n"
+    ).encode()
+    result = await import_miniapp_products(
+        db_session,
+        max_user_id=account.max_user_id,
+        tenant_slug=bor_tenant.slug,
+        filename="products.csv",
+        content=content,
+        media_root=str(tmp_path),
+        media_base_url="https://algo.test",
+    )
+
+    warehouses = list(await db_session.scalars(select(Warehouse)))
+    products = list(await db_session.scalars(select(Product)))
+    inventories = list(await db_session.scalars(select(WarehouseInventory)))
+    link = await db_session.scalar(
+        select(WarehouseTenantLink).where(
+            WarehouseTenantLink.tenant_id == bor_tenant.id,
+            WarehouseTenantLink.warehouse_id == existing_warehouse.id,
+        )
+    )
+    assert result.created_warehouses == 0
+    assert result.created_products == 0
+    assert result.updated_products == 1
+    assert len(warehouses) == 1
+    assert len(products) == 1
+    assert products[0].id == source_product.id
+    assert products[0].tenant_id == source_tenant.id
+    assert products[0].price_astrocoins == 750
+    assert len(inventories) == 1
+    assert inventories[0].warehouse_id == existing_warehouse.id
+    assert inventories[0].available_quantity == 12
+    assert link is not None
 
 
 async def test_admin_imports_public_product_photo_url(

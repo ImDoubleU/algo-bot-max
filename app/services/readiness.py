@@ -9,6 +9,10 @@ from app.core.config import Settings
 from app.models.store import Product, Warehouse
 from app.models.student import Contact, Student
 from app.models.tenant import Tenant
+from app.services.warehouse_access import (
+    accessible_product_filter,
+    accessible_warehouse_ids_query,
+)
 
 
 async def check_database_session(db: AsyncSession) -> dict[str, Any]:
@@ -50,10 +54,14 @@ async def check_app_data_session(db: AsyncSession, settings: Settings) -> dict[s
         }
 
     product_count = await db.scalar(
-        select(func.count()).select_from(Product).where(Product.tenant_id == tenant.id)
+        select(func.count())
+        .select_from(Product)
+        .where(accessible_product_filter(tenant.id))
     )
     warehouse_count = await db.scalar(
-        select(func.count()).select_from(Warehouse).where(Warehouse.tenant_id == tenant.id)
+        select(func.count())
+        .select_from(Warehouse)
+        .where(Warehouse.id.in_(accessible_warehouse_ids_query(tenant.id)))
     )
     student_count = await db.scalar(
         select(func.count()).select_from(Student).where(Student.tenant_id == tenant.id)

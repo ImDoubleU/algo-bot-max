@@ -159,6 +159,7 @@ from app.services.product_media import (
     remove_product_image_url,
     save_product_image,
 )
+from app.services.warehouse_access import accessible_product_filter
 
 router = APIRouter()
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
@@ -906,8 +907,8 @@ async def miniapp_save_product(
             if product_id is not None:
                 existing_product = await db.scalar(
                     select(Product).where(
-                        Product.tenant_id == tenant.id,
                         Product.id == product_id,
+                        accessible_product_filter(UUID(str(tenant.id))),
                     )
                 )
             elif sku:

@@ -44,6 +44,7 @@ from app.models.store import (
     StudentCartItem,
     Warehouse,
     WarehouseInventory,
+    WarehouseTenantLink,
 )
 from app.models.student import (
     AstrocoinLedgerEntry,
@@ -206,6 +207,14 @@ from app.services.warehouse import (
     release_reservation,
     reserve_inventory,
     transfer_inventory,
+)
+from app.services.warehouse_access import (
+    accessible_product_filter,
+    accessible_warehouse_ids,
+    ensure_warehouse_link,
+    find_partner_warehouse_by_name,
+    get_accessible_warehouse,
+    list_accessible_warehouses,
 )
 
 logger = logging.getLogger(__name__)
@@ -671,7 +680,13 @@ async def _assigned_tenants_for_director(
     return [_tenant_to_read(tenant) for tenant in tenants]
 
 
-def _product_to_read(product: Product, *, include_codes: bool = False) -> MiniAppProductRead:
+def _product_to_read(
+    product: Product,
+    *,
+    include_codes: bool = False,
+    visible_warehouse_ids: set[UUID] | None = None,
+    can_manage: bool = True,
+) -> MiniAppProductRead:
     warehouses: list[MiniAppProductWarehouseRead] = []
     available_total = 0
     product_codes = list(product.__dict__.get("digital_codes", []))
@@ -681,6 +696,11 @@ def _product_to_read(product: Product, *, include_codes: bool = False) -> MiniAp
     else:
         for inventory in product.inventory_items:
             if not getattr(inventory, "is_active", True):
+                continue
+            if (
+                visible_warehouse_ids is not None
+                and UUID(str(inventory.warehouse_id)) not in visible_warehouse_ids
+            ):
                 continue
             available = max(available_for_reservation(inventory), 0)
             if inventory.warehouse is None:
@@ -746,6 +766,7 @@ def _product_to_read(product: Product, *, include_codes: bool = False) -> MiniAp
             else []
         ),
         warehouses=warehouses,
+        can_manage=can_manage,
     )
 
 
@@ -910,7 +931,7 @@ async def list_miniapp_catalog(
     if tenant is None:
         return MiniAppCatalogRead(tenant_slug=normalized_tenant_slug, products=[], warehouses=[])
 
-    product_filters = [Product.tenant_id == tenant.id]
+    product_filters = [accessible_product_filter(UUID(str(tenant.id)))]
     account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
     if account is None:
         raise MiniAppStoreError("MAX-аккаунт не найден", status_code=403)
@@ -961,16 +982,19 @@ async def list_miniapp_catalog(
         .unique()
         .all()
     )
-    warehouses = (
-        await db.scalars(
-            select(Warehouse).where(Warehouse.tenant_id == tenant.id).order_by(Warehouse.name)
-        )
-    ).all()
+    warehouses = await list_accessible_warehouses(db, tenant_id=UUID(str(tenant.id)))
+    visible_warehouse_ids = {UUID(str(warehouse.id)) for warehouse in warehouses}
 
     return MiniAppCatalogRead(
         tenant_slug=tenant.slug,
         products=[
-            _product_to_read(product, include_codes=include_inactive) for product in products
+            _product_to_read(
+                product,
+                include_codes=include_inactive and product.tenant_id == tenant.id,
+                visible_warehouse_ids=visible_warehouse_ids,
+                can_manage=True,
+            )
+            for product in products
         ],
         warehouses=[
             MiniAppWarehouseRead(
@@ -979,6 +1003,7 @@ async def list_miniapp_catalog(
                 name=warehouse.name,
                 warehouse_type=warehouse.warehouse_type.value,
                 address=warehouse.address,
+                is_owner=warehouse.tenant_id == tenant.id,
             )
             for warehouse in warehouses
         ],
@@ -2253,17 +2278,33 @@ async def upsert_miniapp_product(
         raise MiniAppStoreError("Нет прав на управление товарами", status_code=403)
 
     requested_sku = payload.sku.strip().upper() if payload.sku else None
+    product = None
+    if payload.product_id is not None:
+        product = await db.scalar(
+            select(Product).where(
+                Product.id == payload.product_id,
+                accessible_product_filter(UUID(str(tenant.id))),
+            )
+        )
+        if product is None:
+            raise MiniAppStoreError("Товар не найден", status_code=404)
+        sku = product.sku
+    else:
+        sku = requested_sku or generate_product_sku()
+        product = None
+
+    category_tenant_id = product.tenant_id if product is not None else tenant.id
     category_slug = _slugify(payload.category_slug or payload.category_name)
     category = await db.scalar(
         select(ProductCategory).where(
-            ProductCategory.tenant_id == tenant.id,
+            ProductCategory.tenant_id == category_tenant_id,
             ProductCategory.slug == category_slug,
         )
     )
     category_created = False
     if category is None:
         category = ProductCategory(
-            tenant_id=tenant.id,
+            tenant_id=category_tenant_id,
             slug=category_slug,
             name=payload.category_name.strip(),
             sort_order=100,
@@ -2273,21 +2314,6 @@ async def upsert_miniapp_product(
         category_created = True
     else:
         category.name = payload.category_name.strip()
-
-    product = None
-    if payload.product_id is not None:
-        product = await db.scalar(
-            select(Product).where(
-                Product.tenant_id == tenant.id,
-                Product.id == payload.product_id,
-            )
-        )
-        if product is None:
-            raise MiniAppStoreError("Товар не найден", status_code=404)
-        sku = product.sku
-    else:
-        sku = requested_sku or generate_product_sku()
-        product = None
 
     product_created = False
     if product is None:
@@ -2311,7 +2337,6 @@ async def upsert_miniapp_product(
                 await db.scalar(
                     select(WarehouseInventory.id)
                     .where(
-                        WarehouseInventory.tenant_id == tenant.id,
                         WarehouseInventory.product_id == product.id,
                         (
                             (WarehouseInventory.available_quantity != 0)
@@ -2354,7 +2379,7 @@ async def upsert_miniapp_product(
             (
                 await db.scalars(
                     select(ProductCode.code).where(
-                        ProductCode.tenant_id == tenant.id,
+                        ProductCode.tenant_id == product.tenant_id,
                         ProductCode.code.in_(normalized_codes),
                     )
                 )
@@ -2365,7 +2390,7 @@ async def upsert_miniapp_product(
                 continue
             db.add(
                 ProductCode(
-                    tenant_id=tenant.id,
+                    tenant_id=product.tenant_id,
                     product_id=product.id,
                     code=code,
                     status=ProductCodeStatus.AVAILABLE,
@@ -2403,18 +2428,12 @@ async def upsert_miniapp_product(
                 raise MiniAppStoreError("Один склад указан несколько раз")
 
             warehouse_ids = set(requested_inventory)
+            visible_warehouse_ids = await accessible_warehouse_ids(
+                db,
+                tenant_id=UUID(str(tenant.id)),
+            )
             if warehouse_ids:
-                existing_warehouse_ids = set(
-                    (
-                        await db.scalars(
-                            select(Warehouse.id).where(
-                                Warehouse.tenant_id == tenant.id,
-                                Warehouse.id.in_(warehouse_ids),
-                            )
-                        )
-                    ).all()
-                )
-                if existing_warehouse_ids != warehouse_ids:
+                if not warehouse_ids.issubset(visible_warehouse_ids):
                     raise MiniAppStoreError("Один из складов не найден", status_code=404)
 
             inventory_rows = list(
@@ -2422,8 +2441,8 @@ async def upsert_miniapp_product(
                     await db.scalars(
                         select(WarehouseInventory)
                         .where(
-                            WarehouseInventory.tenant_id == tenant.id,
                             WarehouseInventory.product_id == product.id,
+                            WarehouseInventory.warehouse_id.in_(visible_warehouse_ids),
                         )
                         .with_for_update()
                         .options(selectinload(WarehouseInventory.warehouse))
@@ -2439,7 +2458,7 @@ async def upsert_miniapp_product(
                 inventory = inventories_by_warehouse.get(warehouse_id)
                 if inventory is None:
                     inventory = WarehouseInventory(
-                        tenant_id=tenant.id,
+                        tenant_id=product.tenant_id,
                         product_id=product.id,
                         warehouse_id=warehouse_id,
                         available_quantity=0,
@@ -2587,7 +2606,16 @@ async def upsert_miniapp_product(
             product=product,
             inventory=inventory,
         )
-    return _product_to_read(product, include_codes=True)
+    visible_warehouse_ids = await accessible_warehouse_ids(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+    )
+    return _product_to_read(
+        product,
+        include_codes=True,
+        visible_warehouse_ids=visible_warehouse_ids,
+        can_manage=True,
+    )
 
 
 async def delete_miniapp_product(
@@ -2618,7 +2646,10 @@ async def delete_miniapp_product(
 
     product = await db.scalar(
         select(Product)
-        .where(Product.tenant_id == tenant.id, Product.id == product_id)
+        .where(
+            Product.id == product_id,
+            accessible_product_filter(UUID(str(tenant.id))),
+        )
         .with_for_update()
     )
     if product is None:
@@ -2627,7 +2658,6 @@ async def delete_miniapp_product(
     order_count = int(
         await db.scalar(
             select(func.count(OrderItem.id)).where(
-                OrderItem.tenant_id == tenant.id,
                 OrderItem.product_id == product.id,
             )
         )
@@ -2643,7 +2673,6 @@ async def delete_miniapp_product(
     issued_code_count = int(
         await db.scalar(
             select(func.count(ProductCode.id)).where(
-                ProductCode.tenant_id == tenant.id,
                 ProductCode.product_id == product.id,
                 (
                     (ProductCode.status == ProductCodeStatus.ISSUED)
@@ -2665,25 +2694,21 @@ async def delete_miniapp_product(
     photo_url = product.photo_url
     await db.execute(
         delete(StudentCartItem).where(
-            StudentCartItem.tenant_id == tenant.id,
             StudentCartItem.product_id == product.id,
         )
     )
     await db.execute(
         delete(ProductCode).where(
-            ProductCode.tenant_id == tenant.id,
             ProductCode.product_id == product.id,
         )
     )
     await db.execute(
         delete(StockMovement).where(
-            StockMovement.tenant_id == tenant.id,
             StockMovement.product_id == product.id,
         )
     )
     await db.execute(
         delete(WarehouseInventory).where(
-            WarehouseInventory.tenant_id == tenant.id,
             WarehouseInventory.product_id == product.id,
         )
     )
@@ -3314,7 +3339,7 @@ async def get_miniapp_cart(
             .where(
                 StudentCartItem.tenant_id == tenant.id,
                 StudentCartItem.student_id == student.id,
-                Product.tenant_id == tenant.id,
+                accessible_product_filter(UUID(str(tenant.id))),
                 Product.status == ProductStatus.ACTIVE,
             )
             .order_by(StudentCartItem.created_at, StudentCartItem.id)
@@ -3357,7 +3382,7 @@ async def replace_miniapp_cart(
         product_ids = set(
             await db.scalars(
                 select(Product.id).where(
-                    Product.tenant_id == tenant.id,
+                    accessible_product_filter(UUID(str(tenant.id))),
                     Product.id.in_(quantities),
                     Product.status == ProductStatus.ACTIVE,
                 )
@@ -3495,23 +3520,24 @@ async def get_miniapp_ops_summary(
     ).all()
     recent_open_orders = [_order_to_read(order, student) for order, student in open_order_rows]
 
+    visible_warehouse_ids = await accessible_warehouse_ids(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+    )
     active_products = int(
         await db.scalar(
             select(func.count(Product.id)).where(
-                Product.tenant_id == tenant.id,
+                accessible_product_filter(UUID(str(tenant.id))),
                 Product.status == ProductStatus.ACTIVE,
             )
         )
         or 0
     )
-    warehouses = int(
-        await db.scalar(select(func.count(Warehouse.id)).where(Warehouse.tenant_id == tenant.id))
-        or 0
-    )
+    warehouses = len(visible_warehouse_ids)
     total_stock_quantity = int(
         await db.scalar(
             select(func.coalesce(func.sum(WarehouseInventory.available_quantity), 0)).where(
-                WarehouseInventory.tenant_id == tenant.id,
+                WarehouseInventory.warehouse_id.in_(visible_warehouse_ids),
                 WarehouseInventory.is_active.is_(True),
             )
         )
@@ -3520,7 +3546,7 @@ async def get_miniapp_ops_summary(
     total_reserved_quantity = int(
         await db.scalar(
             select(func.coalesce(func.sum(WarehouseInventory.reserved_quantity), 0)).where(
-                WarehouseInventory.tenant_id == tenant.id,
+                WarehouseInventory.warehouse_id.in_(visible_warehouse_ids),
                 WarehouseInventory.is_active.is_(True),
             )
         )
@@ -3534,7 +3560,7 @@ async def get_miniapp_ops_summary(
             .join(Product, Product.id == WarehouseInventory.product_id)
             .join(Warehouse, Warehouse.id == WarehouseInventory.warehouse_id)
             .where(
-                WarehouseInventory.tenant_id == tenant.id,
+                WarehouseInventory.warehouse_id.in_(visible_warehouse_ids),
                 WarehouseInventory.is_active.is_(True),
                 Product.status != ProductStatus.ARCHIVED,
                 Product.fulfillment_type == ProductFulfillmentType.WAREHOUSE,
@@ -3684,7 +3710,6 @@ async def _load_order_action_context(
 async def _inventory_for_order_item(
     db: AsyncSession,
     *,
-    tenant_id: UUID,
     item: OrderItem,
     allow_provisional: bool = False,
 ) -> WarehouseInventory:
@@ -3697,7 +3722,6 @@ async def _inventory_for_order_item(
     inventory = await db.scalar(
         select(WarehouseInventory)
         .where(
-            WarehouseInventory.tenant_id == tenant_id,
             WarehouseInventory.warehouse_id == warehouse_id,
             WarehouseInventory.product_id == item.product_id,
         )
@@ -3823,12 +3847,16 @@ async def create_miniapp_order(
     if wallet is None:
         raise MiniAppStoreError("Кошелек ученика не найден", status_code=409)
 
+    visible_warehouse_ids = await accessible_warehouse_ids(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+    )
     products = (
         (
             await db.scalars(
                 select(Product)
                 .where(
-                    Product.tenant_id == tenant.id,
+                    accessible_product_filter(UUID(str(tenant.id))),
                     Product.id.in_(quantities),
                     Product.status == ProductStatus.ACTIVE,
                 )
@@ -3876,7 +3904,7 @@ async def create_miniapp_order(
                 await db.scalars(
                     select(WarehouseInventory)
                     .where(
-                        WarehouseInventory.tenant_id == tenant.id,
+                        WarehouseInventory.warehouse_id.in_(visible_warehouse_ids),
                         WarehouseInventory.product_id.in_(requested_product_ids),
                         WarehouseInventory.is_active.is_(True),
                     )
@@ -4247,6 +4275,13 @@ async def assign_miniapp_order_warehouses(
     if set(assignments) != order_product_ids:
         raise MiniAppStoreError("Назначьте склад для каждой позиции заказа")
 
+    visible_warehouse_ids = await accessible_warehouse_ids(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+    )
+    if not set(assignments.values()).issubset(visible_warehouse_ids):
+        raise MiniAppStoreError("Один из складов недоступен в выбранном городе", status_code=404)
+
     reservation_plan: list[tuple[OrderItem, WarehouseInventory | None, WarehouseInventory]] = []
     for item in order.items:
         target_warehouse_id = assignments[UUID(str(item.product_id))]
@@ -4259,7 +4294,6 @@ async def assign_miniapp_order_warehouses(
                 await db.scalars(
                     select(WarehouseInventory)
                     .where(
-                        WarehouseInventory.tenant_id == tenant.id,
                         WarehouseInventory.product_id == item.product_id,
                         WarehouseInventory.warehouse_id.in_(warehouse_ids),
                     )
@@ -4749,7 +4783,6 @@ async def cancel_miniapp_order(
             continue
         inventory = await _inventory_for_order_item(
             db,
-            tenant_id=tenant.id,
             item=item,
             allow_provisional=True,
         )
@@ -4783,11 +4816,21 @@ async def cancel_miniapp_order(
         )
 
     if out_of_stock_product_ids:
+        inventory_warehouse_ids = await accessible_warehouse_ids(
+            db,
+            tenant_id=UUID(str(tenant.id)),
+        )
+        inventory_warehouse_ids.update(
+            UUID(str(warehouse_id))
+            for item in order.items
+            for warehouse_id in (item.warehouse_id, item.reserved_warehouse_id)
+            if warehouse_id is not None
+        )
         inventory_rows = (
             await db.scalars(
                 select(WarehouseInventory)
                 .where(
-                    WarehouseInventory.tenant_id == tenant.id,
+                    WarehouseInventory.warehouse_id.in_(inventory_warehouse_ids),
                     WarehouseInventory.product_id.in_(out_of_stock_product_ids),
                     WarehouseInventory.is_active.is_(True),
                 )
@@ -4925,7 +4968,7 @@ async def issue_miniapp_order(
         )
 
     for item in order.items:
-        inventory = await _inventory_for_order_item(db, tenant_id=tenant.id, item=item)
+        inventory = await _inventory_for_order_item(db, item=item)
         try:
             issue_reserved_inventory(inventory, item.quantity)
         except WarehouseServiceError as exc:
@@ -5537,11 +5580,10 @@ async def set_miniapp_warehouse_preference(
             "Основной склад назначает администратор или директор",
             status_code=403,
         )
-    warehouse = await db.scalar(
-        select(Warehouse).where(
-            Warehouse.tenant_id == tenant.id,
-            Warehouse.id == payload.warehouse_id,
-        )
+    warehouse = await get_accessible_warehouse(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+        warehouse_id=UUID(str(payload.warehouse_id)),
     )
     if warehouse is None:
         raise MiniAppStoreError("Склад не найден", status_code=404)
@@ -6604,22 +6646,42 @@ async def upsert_miniapp_warehouse(
         raise MiniAppStoreError("Нет прав на управление складами", status_code=403)
 
     warehouse = None
+    linked_existing = False
     if payload.warehouse_id is not None:
-        warehouse = await db.scalar(
-            select(Warehouse).where(
-                Warehouse.tenant_id == tenant.id,
-                Warehouse.id == payload.warehouse_id,
-            )
+        warehouse = await get_accessible_warehouse(
+            db,
+            tenant_id=UUID(str(tenant.id)),
+            warehouse_id=UUID(str(payload.warehouse_id)),
+            for_update=True,
         )
         if warehouse is None:
             raise MiniAppStoreError("Склад не найден", status_code=404)
     else:
         slug = _slugify(payload.slug or payload.name)
-        warehouse = await db.scalar(
-            select(Warehouse).where(Warehouse.tenant_id == tenant.id, Warehouse.slug == slug)
+        warehouse = await find_partner_warehouse_by_name(
+            db,
+            tenant=tenant,
+            name=payload.name,
         )
+        if warehouse is not None:
+            _, linked_existing = await ensure_warehouse_link(
+                db,
+                tenant_id=UUID(str(tenant.id)),
+                warehouse_id=UUID(str(warehouse.id)),
+            )
 
     if warehouse is None:
+        slug_duplicate = await db.scalar(
+            select(Warehouse.id).where(
+                Warehouse.tenant_id == tenant.id,
+                Warehouse.slug == slug,
+            )
+        )
+        if slug_duplicate is not None:
+            raise MiniAppStoreError(
+                "У партнера уже есть склад с похожим названием",
+                status_code=409,
+            )
         warehouse = Warehouse(
             tenant_id=tenant.id,
             slug=slug,
@@ -6629,12 +6691,28 @@ async def upsert_miniapp_warehouse(
         )
         db.add(warehouse)
         await db.flush()
+        await ensure_warehouse_link(
+            db,
+            tenant_id=UUID(str(tenant.id)),
+            warehouse_id=UUID(str(warehouse.id)),
+        )
         action = "warehouse.created"
-    else:
+    elif payload.warehouse_id is not None:
+        name_duplicate = await find_partner_warehouse_by_name(
+            db,
+            tenant=tenant,
+            name=payload.name,
+            exclude_warehouse_id=UUID(str(warehouse.id)),
+        )
+        if name_duplicate is not None:
+            raise MiniAppStoreError(
+                "У партнера уже есть другой склад с таким названием",
+                status_code=409,
+            )
         slug = _slugify(payload.slug) if payload.slug else warehouse.slug
         duplicate = await db.scalar(
             select(Warehouse).where(
-                Warehouse.tenant_id == tenant.id,
+                Warehouse.tenant_id == warehouse.tenant_id,
                 Warehouse.slug == slug,
                 Warehouse.id != warehouse.id,
             )
@@ -6647,6 +6725,8 @@ async def upsert_miniapp_warehouse(
             warehouse.warehouse_type = payload.warehouse_type
         warehouse.address = payload.address.strip() if payload.address else None
         action = "warehouse.updated"
+    else:
+        action = "warehouse.linked" if linked_existing else "warehouse.reused"
 
     db.add(
         AuditLog(
@@ -6660,6 +6740,7 @@ async def upsert_miniapp_warehouse(
                 "name": warehouse.name,
                 "warehouse_type": warehouse.warehouse_type.value,
                 "address": warehouse.address,
+                "owner_tenant_id": str(warehouse.tenant_id),
                 "staff_role": staff_role.value,
             },
         )
@@ -6672,6 +6753,7 @@ async def upsert_miniapp_warehouse(
         name=warehouse.name,
         warehouse_type=warehouse.warehouse_type,
         address=warehouse.address,
+        is_owner=warehouse.tenant_id == tenant.id,
     )
 
 
@@ -6701,18 +6783,64 @@ async def delete_miniapp_warehouse(
     if staff_role is None:
         raise MiniAppStoreError("Нет прав на удаление складов", status_code=403)
 
-    warehouse = await db.scalar(
-        select(Warehouse)
-        .where(Warehouse.tenant_id == tenant.id, Warehouse.id == warehouse_id)
-        .with_for_update()
+    warehouse = await get_accessible_warehouse(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+        warehouse_id=UUID(str(warehouse_id)),
+        for_update=True,
     )
     if warehouse is None:
         raise MiniAppStoreError("Склад не найден", status_code=404)
 
+    if warehouse.tenant_id != tenant.id:
+        await db.execute(
+            delete(StaffWarehousePreference).where(
+                StaffWarehousePreference.tenant_id == tenant.id,
+                StaffWarehousePreference.warehouse_id == warehouse.id,
+            )
+        )
+        await db.execute(
+            delete(WarehouseTenantLink).where(
+                WarehouseTenantLink.tenant_id == tenant.id,
+                WarehouseTenantLink.warehouse_id == warehouse.id,
+            )
+        )
+        db.add(
+            AuditLog(
+                tenant_id=tenant.id,
+                actor_account_id=account.id,
+                action="warehouse.unlinked",
+                entity_type="warehouse",
+                entity_id=str(warehouse.id),
+                payload={
+                    "slug": warehouse.slug,
+                    "name": warehouse.name,
+                    "owner_tenant_id": str(warehouse.tenant_id),
+                    "staff_role": staff_role.value,
+                },
+            )
+        )
+        await db.commit()
+        return
+
+    linked_city_count = int(
+        await db.scalar(
+            select(func.count(WarehouseTenantLink.id)).where(
+                WarehouseTenantLink.warehouse_id == warehouse.id,
+                WarehouseTenantLink.tenant_id != tenant.id,
+            )
+        )
+        or 0
+    )
+    if linked_city_count:
+        raise MiniAppStoreError(
+            "Склад подключен к другим городам. Сначала отключите его в этих городах.",
+            status_code=409,
+        )
+
     order_count = int(
         await db.scalar(
             select(func.count(OrderItem.id)).where(
-                OrderItem.tenant_id == tenant.id,
                 (
                     (OrderItem.warehouse_id == warehouse.id)
                     | (OrderItem.reserved_warehouse_id == warehouse.id)
@@ -6730,7 +6858,6 @@ async def delete_miniapp_warehouse(
     movement_count = int(
         await db.scalar(
             select(func.count(StockMovement.id)).where(
-                StockMovement.tenant_id == tenant.id,
                 (
                     (StockMovement.from_warehouse_id == warehouse.id)
                     | (StockMovement.to_warehouse_id == warehouse.id)
@@ -6751,7 +6878,6 @@ async def delete_miniapp_warehouse(
             await db.scalars(
                 select(WarehouseInventory)
                 .where(
-                    WarehouseInventory.tenant_id == tenant.id,
                     WarehouseInventory.warehouse_id == warehouse.id,
                 )
                 .with_for_update()
@@ -6785,13 +6911,11 @@ async def delete_miniapp_warehouse(
     warehouse_slug = warehouse.slug
     await db.execute(
         delete(StaffWarehousePreference).where(
-            StaffWarehousePreference.tenant_id == tenant.id,
             StaffWarehousePreference.warehouse_id == warehouse.id,
         )
     )
     await db.execute(
         delete(WarehouseInventory).where(
-            WarehouseInventory.tenant_id == tenant.id,
             WarehouseInventory.warehouse_id == warehouse.id,
         )
     )
@@ -6843,19 +6967,18 @@ async def adjust_miniapp_inventory(
     product = await db.scalar(
         select(Product)
         .where(
-            Product.tenant_id == tenant.id,
             Product.id == payload.product_id,
+            accessible_product_filter(UUID(str(tenant.id))),
         )
         .with_for_update()
     )
     if product is None:
         raise MiniAppStoreError("Товар не найден", status_code=404)
 
-    warehouse = await db.scalar(
-        select(Warehouse).where(
-            Warehouse.tenant_id == tenant.id,
-            Warehouse.id == payload.warehouse_id,
-        )
+    warehouse = await get_accessible_warehouse(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+        warehouse_id=UUID(str(payload.warehouse_id)),
     )
     if warehouse is None:
         raise MiniAppStoreError("Склад не найден", status_code=404)
@@ -6863,7 +6986,6 @@ async def adjust_miniapp_inventory(
     inventory = await db.scalar(
         select(WarehouseInventory)
         .where(
-            WarehouseInventory.tenant_id == tenant.id,
             WarehouseInventory.product_id == product.id,
             WarehouseInventory.warehouse_id == warehouse.id,
         )
@@ -6871,7 +6993,7 @@ async def adjust_miniapp_inventory(
     )
     if inventory is None:
         inventory = WarehouseInventory(
-            tenant_id=tenant.id,
+            tenant_id=product.tenant_id,
             product_id=product.id,
             warehouse_id=warehouse.id,
             available_quantity=0,
@@ -6976,21 +7098,23 @@ async def transfer_miniapp_inventory(
     product = await db.scalar(
         select(Product)
         .where(
-            Product.tenant_id == tenant.id,
             Product.id == payload.product_id,
+            accessible_product_filter(UUID(str(tenant.id))),
         )
         .with_for_update()
     )
     if product is None:
         raise MiniAppStoreError("Товар не найден", status_code=404)
 
+    visible_warehouse_ids = await accessible_warehouse_ids(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+    )
+    requested_warehouse_ids = {payload.from_warehouse_id, payload.to_warehouse_id}
+    if not requested_warehouse_ids.issubset(visible_warehouse_ids):
+        raise MiniAppStoreError("Один из складов не найден", status_code=404)
     warehouses = (
-        await db.scalars(
-            select(Warehouse).where(
-                Warehouse.tenant_id == tenant.id,
-                Warehouse.id.in_([payload.from_warehouse_id, payload.to_warehouse_id]),
-            )
-        )
+        await db.scalars(select(Warehouse).where(Warehouse.id.in_(requested_warehouse_ids)))
     ).all()
     warehouses_by_id = {warehouse.id: warehouse for warehouse in warehouses}
     source_warehouse = warehouses_by_id.get(payload.from_warehouse_id)
@@ -7001,7 +7125,6 @@ async def transfer_miniapp_inventory(
     source = await db.scalar(
         select(WarehouseInventory)
         .where(
-            WarehouseInventory.tenant_id == tenant.id,
             WarehouseInventory.product_id == product.id,
             WarehouseInventory.warehouse_id == source_warehouse.id,
         )
@@ -7013,7 +7136,6 @@ async def transfer_miniapp_inventory(
     target = await db.scalar(
         select(WarehouseInventory)
         .where(
-            WarehouseInventory.tenant_id == tenant.id,
             WarehouseInventory.product_id == product.id,
             WarehouseInventory.warehouse_id == target_warehouse.id,
         )
@@ -7021,7 +7143,7 @@ async def transfer_miniapp_inventory(
     )
     if target is None:
         target = WarehouseInventory(
-            tenant_id=tenant.id,
+            tenant_id=product.tenant_id,
             product_id=product.id,
             warehouse_id=target_warehouse.id,
             available_quantity=0,

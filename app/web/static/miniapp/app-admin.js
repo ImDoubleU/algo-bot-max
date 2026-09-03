@@ -1341,17 +1341,8 @@ function renderAdminPanel() {
               <div class="admin-entity-actions">
                 <strong>${product.price} AC</strong>
                 <button class="icon-button product-status-toggle" type="button" data-toggle-product-status="${escapeHtml(product.id)}" title="${(product.status || "active") === "active" ? "Товар доступен. Нажмите, чтобы скрыть" : "Товар скрыт. Нажмите, чтобы опубликовать"}" aria-label="${(product.status || "active") === "active" ? "Товар доступен. Скрыть товар" : "Товар скрыт. Опубликовать товар"}" ${savingDisabled}><i data-lucide="${(product.status || "active") === "active" ? "eye" : "eye-off"}"></i></button>
-                <button class="secondary-action" type="button" data-edit-product="${escapeHtml(
-                  product.id,
-                )}" ${savingDisabled}>Редактировать</button>
-                <button
-                  class="icon-button danger-action entity-delete-action ${state.deletingProductId === product.id ? "is-loading" : ""}"
-                  type="button"
-                  data-delete-product="${escapeHtml(product.id)}"
-                  title="Удалить товар"
-                  aria-label="Удалить товар ${escapeHtml(product.name)}"
-                  ${savingDisabled}
-                ><i data-lucide="${state.deletingProductId === product.id ? "loader-circle" : "trash-2"}"></i></button>
+                <button class="secondary-action" type="button" data-edit-product="${escapeHtml(product.id)}" ${savingDisabled}>Редактировать</button>
+                <button class="icon-button danger-action entity-delete-action ${state.deletingProductId === product.id ? "is-loading" : ""}" type="button" data-delete-product="${escapeHtml(product.id)}" title="Удалить товар" aria-label="Удалить товар ${escapeHtml(product.name)}" ${savingDisabled}><i data-lucide="${state.deletingProductId === product.id ? "loader-circle" : "trash-2"}"></i></button>
               </div>
             </article>
           `,
@@ -1472,6 +1463,7 @@ function renderAdminPanel() {
             <div class="admin-entity-main">
               <div class="admin-entity-title">
                 <strong>${escapeHtml(warehouse.name)}</strong>
+                ${warehouse.isOwner ? "" : '<span class="status-badge info">Подключен</span>'}
               </div>
               <div class="admin-entity-meta">
                 <span>${escapeHtml(warehouse.address || "Адрес или примечание не указаны")}</span>
@@ -1485,8 +1477,8 @@ function renderAdminPanel() {
                 class="icon-button danger-action entity-delete-action ${state.deletingWarehouseId === warehouse.id ? "is-loading" : ""}"
                 type="button"
                 data-delete-warehouse="${escapeHtml(warehouse.id)}"
-                title="Удалить склад"
-                aria-label="Удалить склад ${escapeHtml(warehouse.name)}"
+                title="${warehouse.isOwner ? "Удалить склад" : "Отключить склад от города"}"
+                aria-label="${warehouse.isOwner ? "Удалить склад" : "Отключить склад от города"} ${escapeHtml(warehouse.name)}"
                 ${disabled}
               ><i data-lucide="${state.deletingWarehouseId === warehouse.id ? "loader-circle" : "trash-2"}"></i></button>
             </div>

@@ -23,7 +23,20 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.84.3"}
+    assert set(versions) == {"0.85.0"}
+
+
+def test_shared_warehouse_controls_are_explicit() -> None:
+    core_source = (MINIAPP / "app-core.js").read_text(encoding="utf-8")
+    admin_source = (MINIAPP / "app-admin.js").read_text(encoding="utf-8")
+    app_source = (MINIAPP / "app.js").read_text(encoding="utf-8")
+
+    assert "product.can_manage !== false" in core_source
+    assert "warehouse.is_owner !== false" in core_source
+    assert "Товар другого города" not in admin_source
+    assert "во всех подключенных городах" in app_source
+    assert "Отключить склад от города" in admin_source
+    assert "Сам склад, товары и общие остатки сохранятся" in app_source
 
 
 def test_staff_action_menu_is_not_clipped_by_admin_panel() -> None:

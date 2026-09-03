@@ -1044,6 +1044,8 @@ function allCatalogWarehouses() {
       name: warehouse.name || "Склад",
       type: warehouse.warehouse_type || warehouse.type || "",
       address: warehouse.address || "",
+      isOwner:
+        warehouse.isOwner !== undefined ? warehouse.isOwner : warehouse.is_owner !== false,
     });
   });
   products.forEach((product) => {
@@ -1056,6 +1058,7 @@ function allCatalogWarehouses() {
           name: warehouse.name,
           type: "",
           address: "",
+          isOwner: false,
         });
       }
     });
@@ -2381,6 +2384,7 @@ function applyCatalog(catalog) {
       name: warehouse.name || "Склад",
       type: warehouse.warehouse_type || "",
       address: warehouse.address || "",
+      isOwner: warehouse.is_owner !== false,
     }));
   }
 
@@ -2415,6 +2419,7 @@ function applyCatalog(catalog) {
           : primaryWarehouse?.warehouse_name || "Склад будет выбран",
       mark: name.trim().slice(0, 1).toUpperCase() || "A",
       warehouses: product.warehouses || [],
+      canManage: product.can_manage !== false,
       catalogIndex,
     };
   });
