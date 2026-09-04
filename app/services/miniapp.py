@@ -134,6 +134,11 @@ from app.schemas.miniapp import (
     MiniAppWarehouseUpsert,
 )
 from app.services.access import normalize_student_code, revoke_dependent_student_links
+from app.services.birthday_rewards import (
+    BIRTHDAY_GIFT_DEFAULT_AMOUNT,
+    BIRTHDAY_GIFT_REASON,
+    BIRTHDAY_GIFT_SYSTEM_KEY,
+)
 from app.services.crm_import import CrmImportError, CrmStudentRow, parse_crm_students_content
 from app.services.crm_sync import (
     CrmSyncDefaults,
@@ -396,6 +401,9 @@ async def _accrual_rules_for_tenant(
     *,
     tenant_id: UUID,
 ) -> list[MiniAppAccrualRuleRead]:
+    birthday_reward_amount = await db.scalar(
+        select(Tenant.birthday_reward_amount).where(Tenant.id == tenant_id)
+    )
     rules = list(
         (
             await db.scalars(
@@ -405,20 +413,32 @@ async def _accrual_rules_for_tenant(
             )
         ).all()
     )
-    if not rules:
-        return [
+    manual_rules = (
+        [
             MiniAppAccrualRuleRead(reason=reason, amount=amount, sort_order=index * 10)
             for index, (reason, amount) in enumerate(DEFAULT_ACCRUAL_RULES, start=1)
         ]
+        if not rules
+        else [
+            MiniAppAccrualRuleRead(
+                id=UUID(str(rule.id)),
+                reason=rule.reason,
+                amount=rule.amount,
+                is_active=rule.is_active,
+                sort_order=rule.sort_order,
+            )
+            for rule in rules
+        ]
+    )
     return [
         MiniAppAccrualRuleRead(
-            id=UUID(str(rule.id)),
-            reason=rule.reason,
-            amount=rule.amount,
-            is_active=rule.is_active,
-            sort_order=rule.sort_order,
-        )
-        for rule in rules
+            reason=BIRTHDAY_GIFT_REASON,
+            amount=birthday_reward_amount or BIRTHDAY_GIFT_DEFAULT_AMOUNT,
+            is_active=True,
+            sort_order=0,
+            system_key=BIRTHDAY_GIFT_SYSTEM_KEY,
+        ),
+        *manual_rules,
     ]
 
 
@@ -435,13 +455,26 @@ async def update_miniapp_accrual_rules(
         tenant_slug=tenant_slug,
         denied_message="Нет прав на настройку начислений",
     )
-    normalized_reasons = [rule.reason.strip() for rule in payload.rules]
+    birthday_rules = [
+        rule
+        for rule in payload.rules
+        if rule.system_key == BIRTHDAY_GIFT_SYSTEM_KEY
+        or rule.reason.strip().casefold() == BIRTHDAY_GIFT_REASON.casefold()
+    ]
+    if len(birthday_rules) > 1:
+        raise MiniAppStoreError("Настройка дня рождения не должна повторяться", status_code=409)
+    manual_rules = [rule for rule in payload.rules if rule not in birthday_rules]
+    if not manual_rules:
+        raise MiniAppStoreError("Добавьте хотя бы одну обычную причину начисления")
+    normalized_reasons = [rule.reason.strip() for rule in manual_rules]
     if len({reason.casefold() for reason in normalized_reasons}) != len(normalized_reasons):
         raise MiniAppStoreError("Причины начислений не должны повторяться", status_code=409)
+    if birthday_rules:
+        tenant.birthday_reward_amount = birthday_rules[0].amount
     await db.execute(
         delete(AstrocoinAccrualRule).where(AstrocoinAccrualRule.tenant_id == tenant.id)
     )
-    for index, rule in enumerate(payload.rules, start=1):
+    for index, rule in enumerate(manual_rules, start=1):
         db.add(
             AstrocoinAccrualRule(
                 tenant_id=tenant.id,
@@ -457,7 +490,10 @@ async def update_miniapp_accrual_rules(
             actor_account_id=account.id,
             action="astrocoin_accrual_rules.updated",
             entity_type="astrocoin_accrual_rule",
-            payload={"rules_count": len(payload.rules)},
+            payload={
+                "rules_count": len(manual_rules),
+                "birthday_reward_amount": tenant.birthday_reward_amount,
+            },
         )
     )
     await db.commit()
@@ -651,24 +687,42 @@ async def _active_tenants_for_superadmin(db: AsyncSession) -> list[MiniAppTenant
     return [_tenant_to_read(tenant) for tenant in tenants]
 
 
-async def _assigned_tenants_for_director(
+async def _accessible_tenants_for_account(
     db: AsyncSession,
     *,
     account_id: UUID,
 ) -> list[MiniAppTenantRead]:
+    if await is_global_superadmin(db, account_id=account_id):
+        return await _active_tenants_for_superadmin(db)
+
+    tenant_ids = set(
+        (
+            await db.scalars(
+                select(StaffRoleAssignment.tenant_id).where(
+                    StaffRoleAssignment.account_id == account_id,
+                    StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+                    StaffRoleAssignment.role != StaffRole.SUPERADMIN,
+                )
+            )
+        ).all()
+    )
+    tenant_ids.update(
+        row_tenant.id
+        for _, _, row_tenant in await _effective_student_access_rows(
+            db,
+            account_id=account_id,
+        )
+    )
+    if not tenant_ids:
+        return []
+
     tenants = (
         (
             await db.scalars(
                 select(Tenant)
-                .join(
-                    StaffRoleAssignment,
-                    StaffRoleAssignment.tenant_id == Tenant.id,
-                )
                 .options(selectinload(Tenant.city), selectinload(Tenant.partner))
                 .where(
-                    StaffRoleAssignment.account_id == account_id,
-                    StaffRoleAssignment.role == StaffRole.PARTNER_DIRECTOR,
-                    StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+                    Tenant.id.in_(tenant_ids),
                     Tenant.status == TenantStatus.ACTIVE,
                 )
             )
@@ -676,7 +730,12 @@ async def _assigned_tenants_for_director(
         .unique()
         .all()
     )
-    tenants.sort(key=lambda item: (item.city.name if item.city else item.name).casefold())
+    tenants.sort(
+        key=lambda item: (
+            (item.city.name if item.city else item.name).casefold(),
+            (item.partner.name if item.partner else item.name).casefold(),
+        )
+    )
     return [_tenant_to_read(tenant) for tenant in tenants]
 
 
@@ -3050,6 +3109,10 @@ async def get_miniapp_session(
                 StaffWarehousePreference.account_id == account.id,
             )
         )
+    available_tenants = await _accessible_tenants_for_account(
+        db,
+        account_id=UUID(str(account.id)),
+    )
 
     return MiniAppSessionRead(
         tenant_slug=tenant.slug,
@@ -3063,15 +3126,9 @@ async def get_miniapp_session(
         student_roles=sorted(set(explicit_student_roles)),
         teacher_profile=teacher_profile,
         tenant=_tenant_to_read(tenant),
-        available_tenants=(
-            await _active_tenants_for_superadmin(db)
-            if StaffRole.SUPERADMIN in effective_staff_roles
-            else await _assigned_tenants_for_director(db, account_id=account.id)
-            if StaffRole.PARTNER_DIRECTOR in effective_staff_roles
-            else []
-        ),
+        available_tenants=available_tenants,
         can_manage_tenants=bool(
-            {StaffRole.SUPERADMIN, StaffRole.PARTNER_DIRECTOR} & effective_staff_roles
+            len(available_tenants) > 1 or StaffRole.SUPERADMIN in effective_staff_roles
         ),
         can_create_tenants=StaffRole.SUPERADMIN in effective_staff_roles,
         default_warehouse_id=(UUID(str(default_warehouse_id)) if default_warehouse_id else None),

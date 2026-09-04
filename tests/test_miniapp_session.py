@@ -30,10 +30,12 @@ from app.models.student import (
     StudentHistoryEvent,
     Wallet,
 )
-from app.models.tenant import Tenant
+from app.models.tenant import City, Tenant
 from app.schemas.access import AccessLinkCreate
 from app.schemas.miniapp import (
     MiniAppAccessStatusUpdate,
+    MiniAppAccrualRulesUpdate,
+    MiniAppAccrualRuleWrite,
     MiniAppStaffAssignmentUpdate,
     MiniAppStudentBalanceUpdate,
     MiniAppStudentCreate,
@@ -56,6 +58,7 @@ from app.services.miniapp import (
     list_miniapp_student_registry,
     set_miniapp_student_balance,
     update_miniapp_access_link_status,
+    update_miniapp_accrual_rules,
     update_miniapp_managed_staff_profile,
     update_miniapp_staff_assignment,
     update_miniapp_student_status,
@@ -932,6 +935,151 @@ async def test_admin_and_teacher_roles_combine_visibility_and_group_matching(db_
     assert {item.lms_student_id for item in registry.students} == {"ST-001", "ST-002"}
 
 
+async def test_curator_and_teacher_keep_curator_groups_when_teacher_role_is_added_later(
+    db_session,
+) -> None:
+    defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+    first_group = replace(crm_row(), teacher_name="Матвеева Анастасия")
+    second_group = replace(
+        crm_row(),
+        row_number=3,
+        deal_id="curator-second-group-deal",
+        uuid="curator-second-group-uuid",
+        lms_student_id="ST-002",
+        first_name="Борис",
+        last_name="Петров",
+        group_name="Scratch, вторник",
+        teacher_name="Елисейкина Екатерина",
+        contact_ids="682",
+    )
+    await upsert_crm_student_rows(db_session, [first_group, second_group], defaults=defaults)
+    student = await db_session.scalar(select(Student).where(Student.lms_student_id == "ST-001"))
+    assert student is not None
+
+    account = MaxAccount(max_user_id=8815, display_name="Пушкарева Ольга")
+    db_session.add(account)
+    await db_session.flush()
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.CURATOR,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.TEACHER,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+    await update_miniapp_teacher_profile(
+        db_session,
+        payload=MiniAppTeacherProfileUpdate(
+            max_user_id=8815,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            first_name="Ольга",
+            last_name="Пушкарева",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    session = await get_miniapp_session(
+        db_session,
+        max_user_id=8815,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    assert session.staff_roles == [StaffRole.CURATOR, StaffRole.TEACHER]
+    assert {item.group_name for item in session.students} == {
+        "Python Start, вс 10:00",
+        "Scratch, вторник",
+    }
+    assert all(item.staff_visible for item in session.students)
+    assert not any(item.teacher_visible for item in session.students)
+    assert session.teacher_profile is not None
+    assert session.teacher_profile.matched_group_names == []
+
+
+async def test_staff_member_can_switch_between_tenants_with_different_active_roles(
+    db_session,
+) -> None:
+    defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+    await upsert_crm_student_rows(db_session, [crm_row()], defaults=defaults)
+    nizhny_tenant = await db_session.scalar(select(Tenant))
+    assert nizhny_tenant is not None
+
+    bor_city = City(slug="bor", name="Бор")
+    bor_tenant = Tenant(
+        city=bor_city,
+        partner_id=nizhny_tenant.partner_id,
+        slug="bor",
+        name="Бор / Партнер A",
+    )
+    kirov_city = City(slug="kirov", name="Киров")
+    kirov_tenant = Tenant(
+        city=kirov_city,
+        partner_id=nizhny_tenant.partner_id,
+        slug="kirov",
+        name="Киров / Партнер A",
+    )
+    account = MaxAccount(max_user_id=8816, display_name="Пушкарева Ольга")
+    db_session.add_all([bor_tenant, kirov_tenant, account])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            StaffRoleAssignment(
+                tenant_id=nizhny_tenant.id,
+                account_id=account.id,
+                role=StaffRole.ADMIN,
+                status=AssignmentStatus.ACTIVE,
+            ),
+            StaffRoleAssignment(
+                tenant_id=bor_tenant.id,
+                account_id=account.id,
+                role=StaffRole.CURATOR,
+                status=AssignmentStatus.ACTIVE,
+            ),
+            StaffRoleAssignment(
+                tenant_id=bor_tenant.id,
+                account_id=account.id,
+                role=StaffRole.TEACHER,
+                status=AssignmentStatus.ACTIVE,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    nizhny_session = await get_miniapp_session(
+        db_session,
+        max_user_id=8816,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    bor_session = await get_miniapp_session(
+        db_session,
+        max_user_id=8816,
+        tenant_slug="bor",
+    )
+
+    assert nizhny_session.staff_roles == [StaffRole.ADMIN]
+    assert bor_session.staff_roles == [StaffRole.CURATOR, StaffRole.TEACHER]
+    assert {tenant.tenant_slug for tenant in nizhny_session.available_tenants} == {
+        "bor",
+        "nizhniy-novgorod-partner-a",
+    }
+    assert nizhny_session.can_manage_tenants is True
+    assert {tenant.tenant_slug for tenant in bor_session.available_tenants} == {
+        "bor",
+        "nizhniy-novgorod-partner-a",
+    }
+    assert bor_session.can_manage_tenants is True
+
+
 async def test_scoped_director_and_teacher_roles_union_their_students(db_session) -> None:
     defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
     scoped_group = replace(crm_row(), teacher_name="Другой Педагог")
@@ -1403,3 +1551,60 @@ async def test_create_student_with_parent_and_grant_birthday_reward_once(db_sess
     assert first_reward.credited_students == 1
     assert second_reward.credited_students == 0
     assert second_reward.already_credited_students == 1
+
+
+async def test_birthday_reward_uses_tenant_accrual_setting(db_session) -> None:
+    defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+    birthday_student_row = replace(crm_row(), birth_date=date(2015, 9, 4))
+    await upsert_crm_student_rows(db_session, [birthday_student_row], defaults=defaults)
+    student = await db_session.scalar(select(Student))
+    assert student is not None
+
+    admin = MaxAccount(max_user_id=9293, username="birthday_admin")
+    db_session.add(admin)
+    await db_session.flush()
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=admin.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    rules = await update_miniapp_accrual_rules(
+        db_session,
+        payload=MiniAppAccrualRulesUpdate(
+            max_user_id=9293,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            rules=[
+                MiniAppAccrualRuleWrite(
+                    reason="С днем рождения",
+                    amount=125,
+                    system_key="birthday",
+                ),
+                MiniAppAccrualRuleWrite(reason="Активность на уроке", amount=10),
+            ],
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    birthday_rule = next(rule for rule in rules if rule.system_key == "birthday")
+    assert birthday_rule.reason == "С днем рождения"
+    assert birthday_rule.amount == 125
+
+    reward = await grant_birthday_rewards(db_session, reward_date=date(2026, 9, 4))
+    wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
+    ledger_entry = await db_session.scalar(
+        select(AstrocoinLedgerEntry).where(
+            AstrocoinLedgerEntry.student_id == student.id,
+            AstrocoinLedgerEntry.idempotency_key == f"birthday_reward:2026:{student.id}",
+        )
+    )
+
+    assert reward.credited_students == 1
+    assert wallet is not None
+    assert wallet.balance == 125
+    assert ledger_entry is not None
+    assert ledger_entry.amount == 125
+    assert ledger_entry.reason == "С днем рождения"

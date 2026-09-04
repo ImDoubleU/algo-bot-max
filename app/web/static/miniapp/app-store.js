@@ -2195,7 +2195,7 @@ function renderAccrual() {
   const effectiveReason = customSelected ? customReason : selectedGroupReason;
   groupReason.innerHTML = [
     '<option value="">Выберите причину</option>',
-    ...state.accrualRules.filter((rule) => rule.isActive).map(
+    ...state.accrualRules.filter((rule) => rule.isActive && !rule.systemKey).map(
       (rule) => `<option value="${escapeHtml(rule.reason)}">${escapeHtml(rule.reason)} · +${rule.amount} AC</option>`,
     ),
     '<option value="__custom__">Своя причина и сумма</option>',
@@ -2293,19 +2293,26 @@ function readAccrualRulesEditor() {
       10,
     ),
     isActive: true,
+    systemKey: row.dataset.accrualRuleSystemKey || "",
   }));
 }
 
 function renderAccrualRulesEditor() {
   const editor = qs("#accrualRulesEditor");
   if (!editor) return;
-  editor.innerHTML = state.accrualRulesDraft.map((rule, index) => `
-    <div class="accrual-rule-row" data-accrual-rule-row="${index}">
-      <input data-accrual-rule-reason type="text" maxlength="160" value="${escapeHtml(rule.reason || "")}" placeholder="Причина начисления" aria-label="Причина начисления" />
-      <input data-accrual-rule-amount type="number" min="1" max="10000" inputmode="numeric" value="${Number(rule.amount || 0) || ""}" placeholder="Сумма AC" aria-label="Сумма астрокоинов" />
-      <button class="icon-button danger-action" type="button" data-remove-accrual-rule="${index}" title="Удалить причину" aria-label="Удалить причину"><i data-lucide="trash-2"></i></button>
-    </div>
-  `).join("");
+  editor.innerHTML = state.accrualRulesDraft.map((rule, index) => {
+    const systemKey = rule.systemKey || "";
+    const systemRule = systemKey === "birthday";
+    return `
+      <div class="accrual-rule-row ${systemRule ? "is-system" : ""}" data-accrual-rule-row="${index}" data-accrual-rule-system-key="${escapeHtml(systemKey)}">
+        <input data-accrual-rule-reason type="text" maxlength="160" value="${escapeHtml(rule.reason || "")}" placeholder="Причина начисления" aria-label="Причина начисления" ${systemRule ? "readonly" : ""} />
+        <input data-accrual-rule-amount type="number" min="1" max="10000" inputmode="numeric" value="${Number(rule.amount || 0) || ""}" placeholder="Сумма AC" aria-label="Сумма астрокоинов" />
+        ${systemRule
+          ? '<span class="accrual-rule-system" title="Автоматическое начисление" aria-label="Автоматическое начисление"><i data-lucide="gift"></i></span>'
+          : `<button class="icon-button danger-action" type="button" data-remove-accrual-rule="${index}" title="Удалить причину" aria-label="Удалить причину"><i data-lucide="trash-2"></i></button>`}
+      </div>
+    `;
+  }).join("");
   refreshIcons();
 }
 
@@ -2326,7 +2333,8 @@ function closeAccrualRulesDialog() {
 async function saveAccrualRules() {
   if (state.accrualRulesSaving) return;
   const rules = readAccrualRulesEditor();
-  if (!rules.length) {
+  const manualRules = rules.filter((rule) => !rule.systemKey);
+  if (!manualRules.length) {
     showNotice("Добавьте хотя бы одну причину начисления", "danger");
     return;
   }
@@ -2353,6 +2361,7 @@ async function saveAccrualRules() {
           reason: rule.reason,
           amount: rule.amount,
           is_active: true,
+          system_key: rule.systemKey || null,
         })),
       }),
     });
@@ -2363,6 +2372,7 @@ async function saveAccrualRules() {
       reason: rule.reason,
       amount: Number(rule.amount),
       isActive: rule.is_active !== false,
+      systemKey: rule.system_key || "",
     }));
     closeAccrualRulesDialog();
     renderAccrual();

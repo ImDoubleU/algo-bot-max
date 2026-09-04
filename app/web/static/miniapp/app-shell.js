@@ -474,7 +474,7 @@ async function switchTenant(tenantSlug) {
 
 async function createTenantFromForm(event) {
   event.preventDefault();
-  if (!state.canManageTenants || !apiContext.maxUserId) return;
+  if (!state.canCreateTenants || !apiContext.maxUserId) return;
   const cityName = qs("#tenantCityName")?.value.trim() || "";
   const partnerName = qs("#tenantPartnerName")?.value.trim() || "";
   const directorId = qs("#tenantDirectorMaxUserId")?.value.trim() || "";

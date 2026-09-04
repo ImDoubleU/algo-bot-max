@@ -6087,6 +6087,30 @@ body[data-active-role="student"] #studentContext {
   width: 100%;
 }
 
+.accrual-rule-row.is-system {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--brand-purple-soft);
+}
+
+.accrual-rule-row.is-system [data-accrual-rule-reason] {
+  font-weight: 750;
+}
+
+.accrual-rule-system {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  color: var(--brand-purple);
+}
+
+.accrual-rule-system svg {
+  width: 19px;
+  height: 19px;
+}
+
 @media (max-width: 520px) {
   .accrual-page-actions {
     align-items: flex-end;
@@ -8788,6 +8812,12 @@ details.report-row { display: block; padding: 0; }
 }
 .admin-filter-toolbar select { min-height: 44px; }
 .admin-filter-toolbar > span { color: var(--muted); font-size: 12px; font-weight: 700; }
+.admin-filter-toolbar.product-catalog-filters {
+  grid-template-columns: minmax(240px, 1fr) repeat(3, minmax(135px, 190px)) auto;
+}
+@media (max-width: 700px) {
+  .admin-filter-toolbar.product-catalog-filters { grid-template-columns: 1fr; }
+}
 .product-status-toggle { width: 42px; }
 
 .product-editor {

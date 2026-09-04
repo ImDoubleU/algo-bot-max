@@ -41,6 +41,7 @@ class Tenant(TimestampMixin, Base):
     departed_access_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     access_freeze_from: Mapped[date | None] = mapped_column(Date)
     access_freeze_until: Mapped[date | None] = mapped_column(Date)
+    birthday_reward_amount: Mapped[int] = mapped_column(Integer, default=50, nullable=False)
 
     city = relationship("City", back_populates="tenants")
     partner = relationship("Partner", back_populates="tenants")

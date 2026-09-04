@@ -54,6 +54,7 @@ const ROLE_MOBILE_PRIMARY = Object.freeze({
 });
 
 const DEFAULT_ACCRUAL_RULES = Object.freeze([
+  { systemKey: "birthday", reason: "С днем рождения", amount: 50, isActive: true },
   { reason: "Активность на уроке", amount: 10, isActive: true },
   { reason: "Домашнее задание", amount: 20, isActive: true },
   { reason: "Проект", amount: 30, isActive: true },
@@ -214,6 +215,7 @@ const state = {
   studentRegistryVisibleCount: STUDENT_REGISTRY_PAGE_SIZE,
   productStatusFilter: "all",
   productCategoryFilter: "all",
+  productWarehouseFilter: "all",
   broadcastHistory: [],
   broadcastHistoryLoaded: false,
   broadcastHistoryLoading: false,
@@ -2070,6 +2072,7 @@ function applySession(session) {
         reason: rule.reason || "",
         amount: Number(rule.amount || 0),
         isActive: rule.is_active !== false,
+        systemKey: rule.system_key || "",
       })).filter((rule) => rule.reason && rule.amount > 0)
     : DEFAULT_ACCRUAL_RULES.map((rule) => ({ ...rule }));
   state.account = session.account || null;

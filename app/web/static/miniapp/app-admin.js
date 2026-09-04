@@ -1092,11 +1092,22 @@ function renderAdminPanel() {
       .join("");
     const productQuery = state.adminEntitySearch.trim().toLowerCase();
     const productCategories = Array.from(new Set(products.map((product) => product.category).filter(Boolean))).sort((left, right) => left.localeCompare(right, "ru"));
+    const productWarehouseOptions = allCatalogWarehouses();
+    const productWarehouseIds = new Set(productWarehouseOptions.map((warehouse) => warehouse.id));
+    if (
+      state.productWarehouseFilter !== "all" &&
+      !productWarehouseIds.has(state.productWarehouseFilter)
+    ) {
+      state.productWarehouseFilter = "all";
+    }
     const visibleProducts = products.filter((product) => {
       const matchesQuery = !productQuery || productSearchText(product).includes(productQuery);
       const matchesStatus = state.productStatusFilter === "all" || (product.status || "active") === state.productStatusFilter;
       const matchesCategory = state.productCategoryFilter === "all" || product.category === state.productCategoryFilter;
-      return matchesQuery && matchesStatus && matchesCategory;
+      const matchesWarehouse = state.productWarehouseFilter === "all" || productWarehouses(product).some(
+        (warehouse) => warehouse.id === state.productWarehouseFilter,
+      );
+      return matchesQuery && matchesStatus && matchesCategory && matchesWarehouse;
     });
     qs("#adminPanel").innerHTML = `
       <div class="admin-section-toolbar">
@@ -1110,7 +1121,7 @@ function renderAdminPanel() {
             : '<button id="productCreateButton" class="primary-action" type="button">Добавить товар</button>'
         }
       </div>
-      ${editorOpen ? "" : `<div class="admin-filter-toolbar">
+      ${editorOpen ? "" : `<div class="admin-filter-toolbar product-catalog-filters">
         <label class="search-field"><i data-lucide="search"></i><input id="adminEntitySearch" type="search" value="${escapeHtml(state.adminEntitySearch)}" placeholder="Название или категория" /><button class="search-clear" type="button" data-clear-admin-search ${state.adminEntitySearch ? "" : "hidden"}><i data-lucide="x"></i></button></label>
         <select id="productStatusFilter" aria-label="Статус товара">
           <option value="all">Все статусы</option>
@@ -1121,6 +1132,10 @@ function renderAdminPanel() {
         <select id="productCategoryFilter" aria-label="Категория товара">
           <option value="all">Все категории</option>
           ${productCategories.map((category) => `<option value="${escapeHtml(category)}" ${state.productCategoryFilter === category ? "selected" : ""}>${escapeHtml(category)}</option>`).join("")}
+        </select>
+        <select id="productWarehouseFilter" aria-label="Склад товара">
+          <option value="all">Все склады</option>
+          ${productWarehouseOptions.map((warehouse) => `<option value="${escapeHtml(warehouse.id)}" ${state.productWarehouseFilter === warehouse.id ? "selected" : ""}>${escapeHtml(warehouse.name)}</option>`).join("")}
         </select>
         <span>${visibleProducts.length} из ${products.length}</span>
       </div>`}

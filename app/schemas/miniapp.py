@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -530,12 +531,14 @@ class MiniAppAccrualRuleRead(BaseModel):
     amount: int
     is_active: bool = True
     sort_order: int = 100
+    system_key: Literal["birthday"] | None = None
 
 
 class MiniAppAccrualRuleWrite(BaseModel):
     reason: str = Field(min_length=2, max_length=160)
     amount: int = Field(gt=0, le=10000)
     is_active: bool = True
+    system_key: Literal["birthday"] | None = None
 
 
 class MiniAppAccrualRulesUpdate(BaseModel):
