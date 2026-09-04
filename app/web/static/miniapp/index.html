@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.86.1" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.86.2" />
   </head>
   <body class="is-booting">
     <main id="accessGate" class="access-gate" hidden>
@@ -228,19 +228,22 @@
                 <select id="categoryFilter" class="visually-hidden" aria-label="Категория">
                   <option value="all">Все категории</option>
                 </select>
-                <label class="store-sort-filter">
-                  <i data-lucide="arrow-up-down" aria-hidden="true"></i>
-                  <span class="store-sort-copy">
-                    <span class="store-sort-caption">Сортировка</span>
-                    <select id="productSort" aria-label="Сортировка товаров">
-                      <option value="recommended">Сначала популярные</option>
-                      <option value="price-asc">Сначала дешевле</option>
-                      <option value="price-desc">Сначала дороже</option>
-                      <option value="newest">Сначала новые</option>
-                    </select>
-                  </span>
-                  <i class="store-sort-chevron" data-lucide="chevron-down" aria-hidden="true"></i>
-                </label>
+                <details id="productSortMenu" class="store-sort-menu">
+                  <summary class="store-sort-filter" aria-label="Сортировка товаров">
+                    <i data-lucide="arrow-up-down" aria-hidden="true"></i>
+                    <span class="store-sort-copy">
+                      <span class="store-sort-caption">Сортировка</span>
+                      <strong id="productSortLabel">Сначала популярные</strong>
+                    </span>
+                    <i class="store-sort-chevron" data-lucide="chevron-down" aria-hidden="true"></i>
+                  </summary>
+                  <div class="store-sort-options" role="listbox" aria-label="Сортировка товаров">
+                    <button type="button" role="option" data-product-sort="recommended" aria-selected="true"><span>Сначала популярные</span><i data-lucide="check" aria-hidden="true"></i></button>
+                    <button type="button" role="option" data-product-sort="price-asc" aria-selected="false"><span>Сначала дешевле</span><i data-lucide="check" aria-hidden="true"></i></button>
+                    <button type="button" role="option" data-product-sort="price-desc" aria-selected="false"><span>Сначала дороже</span><i data-lucide="check" aria-hidden="true"></i></button>
+                    <button type="button" role="option" data-product-sort="newest" aria-selected="false"><span>Сначала новые</span><i data-lucide="check" aria-hidden="true"></i></button>
+                  </div>
+                </details>
                 <label class="stock-filter">
                   <input id="inStockOnly" type="checkbox" />
                   <span>В наличии</span>
@@ -896,6 +899,7 @@
           </div>
           <div class="accrual-rules-content">
             <p class="dialog-hint">Сумма «С днем рождения» начисляется автоматически. Остальные причины используются сотрудниками вручную.</p>
+            <div id="birthdayAccrualRuleEditor" class="accrual-system-rule-editor"></div>
             <div id="accrualRulesEditor" class="accrual-rules-editor"></div>
             <button id="addAccrualRuleButton" class="secondary-action" type="button"><i data-lucide="plus"></i><span>Добавить причину</span></button>
           </div>
@@ -1093,11 +1097,11 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app-core.js?v=0.86.1"></script>
-    <script src="/miniapp/static/app-shell.js?v=0.86.1"></script>
-    <script src="/miniapp/static/app-store.js?v=0.86.1"></script>
-    <script src="/miniapp/static/app-admin.js?v=0.86.1"></script>
-    <script src="/miniapp/static/app-communications.js?v=0.86.1"></script>
-    <script src="/miniapp/static/app.js?v=0.86.1"></script>
+    <script src="/miniapp/static/app-core.js?v=0.86.2"></script>
+    <script src="/miniapp/static/app-shell.js?v=0.86.2"></script>
+    <script src="/miniapp/static/app-store.js?v=0.86.2"></script>
+    <script src="/miniapp/static/app-admin.js?v=0.86.2"></script>
+    <script src="/miniapp/static/app-communications.js?v=0.86.2"></script>
+    <script src="/miniapp/static/app.js?v=0.86.2"></script>
   </body>
 </html>

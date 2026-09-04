@@ -1094,7 +1094,22 @@ function renderAdminPanel() {
       })
       .join("");
     const productQuery = state.adminEntitySearch.trim().toLowerCase();
-    const productCategories = Array.from(new Set(products.map((product) => product.category).filter(Boolean))).sort((left, right) => left.localeCompare(right, "ru"));
+    const productCategoryMap = new Map();
+    products.forEach((product) => {
+      const label = normalizeProductCategoryName(product.category);
+      const key = productCategoryKey(label);
+      if (!productCategoryMap.has(key)) productCategoryMap.set(key, label);
+    });
+    const productCategories = Array.from(
+      productCategoryMap,
+      ([key, label]) => ({ key, label }),
+    ).sort((left, right) => left.label.localeCompare(right.label, "ru"));
+    if (state.productCategoryFilter !== "all") {
+      const selectedCategoryKey = productCategoryKey(state.productCategoryFilter);
+      state.productCategoryFilter = productCategoryMap.has(selectedCategoryKey)
+        ? selectedCategoryKey
+        : "all";
+    }
     const productWarehouseOptions = allCatalogWarehouses();
     const productWarehouseIds = new Set(productWarehouseOptions.map((warehouse) => warehouse.id));
     if (
@@ -1106,7 +1121,7 @@ function renderAdminPanel() {
     const visibleProducts = products.filter((product) => {
       const matchesQuery = !productQuery || productSearchText(product).includes(productQuery);
       const matchesStatus = state.productStatusFilter === "all" || (product.status || "active") === state.productStatusFilter;
-      const matchesCategory = state.productCategoryFilter === "all" || product.category === state.productCategoryFilter;
+      const matchesCategory = state.productCategoryFilter === "all" || productCategoryKey(product.category) === state.productCategoryFilter;
       const matchesWarehouse = state.productWarehouseFilter === "all" || productWarehouses(product).some(
         (warehouse) => warehouse.id === state.productWarehouseFilter,
       );
@@ -1134,7 +1149,7 @@ function renderAdminPanel() {
         </select>
         <select id="productCategoryFilter" aria-label="Категория товара">
           <option value="all">Все категории</option>
-          ${productCategories.map((category) => `<option value="${escapeHtml(category)}" ${state.productCategoryFilter === category ? "selected" : ""}>${escapeHtml(category)}</option>`).join("")}
+          ${productCategories.map(({ key, label }) => `<option value="${escapeHtml(key)}" ${state.productCategoryFilter === key ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}
         </select>
         <select id="productWarehouseFilter" aria-label="Склад товара">
           <option value="all">Все склады</option>
@@ -1340,7 +1355,7 @@ function renderAdminPanel() {
                   }">${escapeHtml(productStatusLabel(product.status))}</span>
                 </div>
                 <div class="admin-entity-meta">
-                  <span>${escapeHtml(product.category)}</span>
+                  <span>${escapeHtml(normalizeProductCategoryName(product.category))}</span>
                   <span>${
                     product.fulfillmentType === "digital_code"
                       ? `${product.stock} кодов доступно`

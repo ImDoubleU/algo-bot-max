@@ -1618,6 +1618,61 @@ async def test_admin_can_create_and_update_product_from_miniapp(db_session) -> N
     assert created.id in {item.id for item in admin_catalog.products}
 
 
+async def test_product_upsert_reuses_semantically_matching_category(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    account = await db_session.scalar(
+        select(MaxAccount).where(MaxAccount.max_user_id == 53364725)
+    )
+    assert account is not None
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=account.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    category = ProductCategory(
+        tenant_id=student.tenant_id,
+        slug="kruzhki-butylki",
+        name="Кружки/бутылки",
+    )
+    warehouse = Warehouse(
+        tenant_id=student.tenant_id,
+        slug="main-stock",
+        name="Основной склад",
+        warehouse_type=WarehouseType.COMMON,
+    )
+    db_session.add_all([category, warehouse])
+    await db_session.commit()
+
+    created = await upsert_miniapp_product(
+        db_session,
+        payload=MiniAppProductUpsert(
+            max_user_id=53364725,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            name="Бутылка",
+            category_name="Кружки / бутылки",
+            category_slug="кружки-бутылки",
+            price_astrocoins=250,
+            inventories=[
+                MiniAppProductInventoryWrite(
+                    warehouse_id=warehouse.id,
+                    stock_quantity=3,
+                )
+            ],
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    categories = list(await db_session.scalars(select(ProductCategory)))
+    product = await db_session.get(Product, created.id)
+    assert len(categories) == 1
+    assert categories[0].name == "Кружки / бутылки"
+    assert product is not None
+    assert product.category_id == category.id
+
+
 async def test_admin_can_delete_unused_product_and_related_drafts(db_session) -> None:
     student = await seed_linked_student(db_session)
     product, inventory = await seed_product(db_session, student)

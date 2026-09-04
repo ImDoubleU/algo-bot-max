@@ -20,6 +20,8 @@ def test_miniapp_route_serves_html() -> None:
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
+    assert response.headers["cache-control"] == "no-store, max-age=0"
+    assert response.headers["pragma"] == "no-cache"
     assert "Алгоритмика" in response.text
     assert "Расписание" not in response.text
 

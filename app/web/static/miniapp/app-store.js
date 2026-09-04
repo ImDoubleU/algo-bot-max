@@ -314,25 +314,56 @@ function renderDashboardOrders() {
     .join("");
 }
 
+const PRODUCT_SORT_LABELS = Object.freeze({
+  recommended: "Сначала популярные",
+  "price-asc": "Сначала дешевле",
+  "price-desc": "Сначала дороже",
+  newest: "Сначала новые",
+});
+
+function renderProductSortControl() {
+  const menu = qs("#productSortMenu");
+  if (!menu) return;
+  const sort = PRODUCT_SORT_LABELS[state.productSort] ? state.productSort : "recommended";
+  state.productSort = sort;
+  const label = PRODUCT_SORT_LABELS[sort];
+  const labelElement = qs("#productSortLabel");
+  if (labelElement) labelElement.textContent = label;
+  const summary = menu.querySelector(".store-sort-filter");
+  summary?.classList.toggle("is-active", sort !== "recommended");
+  summary?.setAttribute("aria-label", `Сортировка товаров: ${label}`);
+  qsa("[data-product-sort]").forEach((button) => {
+    const selected = button.dataset.productSort === sort;
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-selected", String(selected));
+  });
+}
+
 function renderCategories() {
   const filter = qs("#categoryFilter");
-  const selected = state.productCategory || filter.value || "all";
-  const categories = [...new Set(activeProducts().map((product) => product.category))]
-    .filter(Boolean)
-    .sort((left, right) => left.localeCompare(right, "ru"));
+  const storedCategory = state.productCategory || filter.value || "all";
+  const selected = storedCategory === "all" ? "all" : productCategoryKey(storedCategory);
+  const categoryMap = new Map();
+  activeProducts().forEach((product) => {
+    const label = normalizeProductCategoryName(product.category);
+    const key = productCategoryKey(label);
+    if (!categoryMap.has(key)) categoryMap.set(key, label);
+  });
+  const categories = Array.from(categoryMap, ([key, label]) => ({ key, label }))
+    .sort((left, right) => left.label.localeCompare(right.label, "ru"));
   filter.innerHTML = [
     '<option value="all">Все категории</option>',
     ...categories.map(
-      (category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`,
+      ({ key, label }) => `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`,
     ),
   ].join("");
-  state.productCategory = categories.includes(selected) ? selected : "all";
+  state.productCategory = categories.some(({ key }) => key === selected) ? selected : "all";
   filter.value = state.productCategory;
   const chips = qs("#categoryChips");
   if (chips) {
     chips.innerHTML = [
       ["all", "Все"],
-      ...categories.map((category) => [category, category]),
+      ...categories.map(({ key, label }) => [key, label]),
     ]
       .map(
         ([value, label]) => `
@@ -351,18 +382,20 @@ function renderCategories() {
 
 function renderProducts() {
   const search = qs("#productSearch").value.trim().toLowerCase();
-  const category = qs("#categoryFilter").value;
-  const sort = qs("#productSort").value;
+  const selectedCategory = qs("#categoryFilter").value || state.productCategory || "all";
+  const category = selectedCategory === "all" ? "all" : productCategoryKey(selectedCategory);
+  const sort = PRODUCT_SORT_LABELS[state.productSort] ? state.productSort : "recommended";
   const grid = qs("#productGrid");
   state.productSort = sort;
   state.productCategory = category;
+  renderProductSortControl();
   const stockCheckbox = qs("#inStockOnly");
   state.inStockOnly = stockCheckbox.checked;
   stockCheckbox.closest(".stock-filter")?.classList.toggle("is-active", state.inStockOnly);
   const visible = activeProducts()
     .filter((product) => {
       const matchesSearch = productMatchesSearch(product, search);
-      const matchesCategory = category === "all" || product.category === category;
+      const matchesCategory = category === "all" || productCategoryKey(product.category) === category;
       const matchesFavorite = !state.favoritesOnly || state.favorites.has(product.id);
       const matchesStock = !state.inStockOnly || productAvailable(product) > 0;
       return matchesSearch && matchesCategory && matchesFavorite && matchesStock;
@@ -381,7 +414,6 @@ function renderProducts() {
   ).length;
   const favoritesFilter = qs("#favoritesFilter");
   favoritesFilter.setAttribute("aria-pressed", String(state.favoritesOnly));
-  qs(".store-sort-filter")?.classList.toggle("is-active", sort !== "recommended");
   const clearSearchButton = qs("#clearProductSearch");
   if (clearSearchButton) clearSearchButton.hidden = !search;
   const filterButton = qs("#mobileStoreFiltersButton");
@@ -454,7 +486,7 @@ function renderProducts() {
             ><i data-lucide="heart"></i></button>
           </div>
           <div class="product-body">
-            <span class="product-category">${escapeHtml(product.category)}</span>
+            <span class="product-category">${escapeHtml(normalizeProductCategoryName(product.category))}</span>
             <button
               class="product-title-button"
               type="button"
@@ -502,7 +534,7 @@ function renderRecentProductSearches() {
   if (!container || !searchInput) return;
   const query = searchInput.value.trim().toLowerCase();
   const values = query
-    ? Array.from(new Set(activeProducts().flatMap((product) => [product.name, product.category])))
+    ? Array.from(new Set(activeProducts().flatMap((product) => [product.name, normalizeProductCategoryName(product.category)])))
         .filter((value) => value.toLowerCase().includes(query) && value.toLowerCase() !== query)
         .slice(0, 5)
     : state.recentProductSearches;
@@ -594,7 +626,7 @@ function renderCart() {
                 }
               </div>
               <div>
-                <span>${escapeHtml(product.category)}</span>
+                <span>${escapeHtml(normalizeProductCategoryName(product.category))}</span>
                 <strong>${escapeHtml(product.name)}</strong>
                 <small class="cart-mobile-price">${product.price} AC за шт.</small>
               </div>
@@ -861,7 +893,7 @@ function openProductDialog(productId) {
     <div class="product-dialog-info">
       <div class="product-dialog-price">${product.price} AC</div>
       <div class="product-dialog-meta">
-        <span>${escapeHtml(product.category)}</span>
+        <span>${escapeHtml(normalizeProductCategoryName(product.category))}</span>
       </div>
       ${
         product.description
@@ -2309,7 +2341,9 @@ function normalizeAccrualRulesDraft(rules) {
 }
 
 function readAccrualRulesEditor() {
-  const rules = qsa("[data-accrual-rule-row]").map((row) => ({
+  const rules = qsa(
+    "#birthdayAccrualRuleEditor [data-accrual-rule-row], #accrualRulesEditor [data-accrual-rule-row]",
+  ).map((row) => ({
     reason: row.querySelector("[data-accrual-rule-reason]")?.value.trim() || "",
     amount: Number.parseInt(
       row.querySelector("[data-accrual-rule-amount]")?.value || "0",
@@ -2321,23 +2355,29 @@ function readAccrualRulesEditor() {
   return normalizeAccrualRulesDraft(rules);
 }
 
+function accrualRuleRowTemplate(rule, index, systemRule = false) {
+  const systemKey = systemRule ? "birthday" : (rule.systemKey || "");
+  return `
+    <div class="accrual-rule-row ${systemRule ? "is-system" : ""}" data-accrual-rule-row="${index}" data-accrual-rule-system-key="${escapeHtml(systemKey)}">
+      <input data-accrual-rule-reason type="text" maxlength="160" value="${escapeHtml(rule.reason || "")}" placeholder="Причина начисления" aria-label="Причина начисления" ${systemRule ? "readonly" : ""} />
+      <input data-accrual-rule-amount type="number" min="1" max="10000" inputmode="numeric" value="${Number(rule.amount || 0) || ""}" placeholder="Сумма AC" aria-label="Сумма астрокоинов" />
+      ${systemRule
+        ? '<span class="accrual-rule-system" title="Автоматическое начисление. Можно изменить только сумму" aria-label="Автоматическое начисление. Можно изменить только сумму"><i data-lucide="gift"></i></span>'
+        : `<button class="icon-button danger-action" type="button" data-remove-accrual-rule="${index}" title="Удалить причину" aria-label="Удалить причину"><i data-lucide="trash-2"></i></button>`}
+    </div>
+  `;
+}
+
 function renderAccrualRulesEditor() {
+  const systemEditor = qs("#birthdayAccrualRuleEditor");
   const editor = qs("#accrualRulesEditor");
-  if (!editor) return;
+  if (!systemEditor || !editor) return;
   state.accrualRulesDraft = normalizeAccrualRulesDraft(state.accrualRulesDraft);
-  editor.innerHTML = state.accrualRulesDraft.map((rule, index) => {
-    const systemRule = isBirthdayAccrualRule(rule);
-    const systemKey = systemRule ? "birthday" : (rule.systemKey || "");
-    return `
-      <div class="accrual-rule-row ${systemRule ? "is-system" : ""}" data-accrual-rule-row="${index}" data-accrual-rule-system-key="${escapeHtml(systemKey)}">
-        <input data-accrual-rule-reason type="text" maxlength="160" value="${escapeHtml(rule.reason || "")}" placeholder="Причина начисления" aria-label="Причина начисления" ${systemRule ? "readonly" : ""} />
-        <input data-accrual-rule-amount type="number" min="1" max="10000" inputmode="numeric" value="${Number(rule.amount || 0) || ""}" placeholder="Сумма AC" aria-label="Сумма астрокоинов" />
-        ${systemRule
-          ? '<span class="accrual-rule-system" title="Автоматическое начисление" aria-label="Автоматическое начисление"><i data-lucide="gift"></i></span>'
-          : `<button class="icon-button danger-action" type="button" data-remove-accrual-rule="${index}" title="Удалить причину" aria-label="Удалить причину"><i data-lucide="trash-2"></i></button>`}
-      </div>
-    `;
-  }).join("");
+  const [birthdayRule, ...manualRules] = state.accrualRulesDraft;
+  systemEditor.innerHTML = accrualRuleRowTemplate(birthdayRule, 0, true);
+  editor.innerHTML = manualRules
+    .map((rule, index) => accrualRuleRowTemplate(rule, index + 1))
+    .join("");
   refreshIcons();
 }
 

@@ -244,7 +244,7 @@ function syncProductInventoryEditor() {
 
 async function saveProductFromForm() {
   const name = qs("#productName")?.value.trim() || "";
-  const category = qs("#productCategory")?.value.trim() || "Без категории";
+  const category = normalizeProductCategoryName(qs("#productCategory")?.value);
   const price = Number.parseInt(qs("#productPrice")?.value || "0", 10);
   const status = qs("#productStatus")?.value || "active";
   const fulfillmentType = qs("#productFulfillmentType")?.value || "warehouse";
@@ -2349,6 +2349,10 @@ document.addEventListener("click", (event) => {
   if (!clickedElement?.closest(".broadcast-message-control")) {
     closeBroadcastEmojiPicker();
   }
+  const productSortMenu = qs("#productSortMenu");
+  if (productSortMenu?.open && !clickedElement?.closest("#productSortMenu")) {
+    productSortMenu.open = false;
+  }
   const target = clickedElement?.closest("button") || null;
   if (!target) {
     const productCard = clickedElement?.closest("[data-product-card]");
@@ -2567,6 +2571,15 @@ document.addEventListener("click", (event) => {
     state.productCategory = productCategory;
     qs("#categoryFilter").value = productCategory;
     renderCategories();
+    renderProducts();
+    savePreferences();
+  }
+
+  const productSort = target.dataset.productSort;
+  if (productSort && PRODUCT_SORT_LABELS[productSort]) {
+    state.productSort = productSort;
+    const sortMenu = qs("#productSortMenu");
+    if (sortMenu) sortMenu.open = false;
     renderProducts();
     savePreferences();
   }
@@ -2794,7 +2807,7 @@ document.addEventListener("click", (event) => {
     state.accrualRulesDraft = readAccrualRulesEditor();
     state.accrualRulesDraft.push({ reason: "", amount: 10, isActive: true });
     renderAccrualRulesEditor();
-    qs("[data-accrual-rule-row]:last-child [data-accrual-rule-reason]")?.focus();
+    qs("#accrualRulesEditor [data-accrual-rule-row]:last-child [data-accrual-rule-reason]")?.focus();
   }
 
   const accrualSelection = target.dataset.accrualSelect;
@@ -3086,6 +3099,11 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   if (event.key !== "Escape") return;
+  if (qs("#productSortMenu")?.open) {
+    qs("#productSortMenu").open = false;
+    qs("#productSortMenu > summary")?.focus();
+    return;
+  }
   if (!qs("#teacherProfileDialog")?.hidden) {
     closeTeacherProfileDialog();
     return;
@@ -3537,10 +3555,6 @@ qs("#categoryFilter").addEventListener("change", () => {
   renderProducts();
   savePreferences();
 });
-qs("#productSort").addEventListener("change", () => {
-  renderProducts();
-  savePreferences();
-});
 qs("#inStockOnly").addEventListener("change", () => {
   renderProducts();
   savePreferences();
@@ -3558,7 +3572,6 @@ async function init() {
   qs("#tenantTitle").textContent = tenantTitle();
   restorePreferences();
   applyDemoRole();
-  qs("#productSort").value = state.productSort;
   qs("#inStockOnly").checked = state.inStockOnly;
   const results = [];
   results.push(

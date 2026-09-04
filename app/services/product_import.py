@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from dataclasses import dataclass, field, replace
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -190,6 +191,16 @@ def _text(value: Any) -> str:
     return str(value).strip()
 
 
+def normalize_product_category_name(value: Any) -> str:
+    normalized = re.sub(r"\s+", " ", _text(value)).strip()
+    normalized = re.sub(r"\s*/\s*", " / ", normalized)
+    return normalized or "Без категории"
+
+
+def product_category_key(value: Any) -> str:
+    return normalize_product_category_name(value).casefold()
+
+
 def _int(value: Any, *, default: int | None = None) -> int:
     text = _text(value).replace(" ", "").replace(",", ".")
     if not text:
@@ -242,8 +253,8 @@ def _normalize_rows(raw_rows: list[dict[str, Any]]) -> list[ProductImportRow]:
         if not name:
             raise ProductImportError(f"Строка {index}: не указано название товара")
 
-        category_name = _text(_cell(raw_row, "category_name")) or "Без категории"
-        category_slug = _text(_cell(raw_row, "category_slug")) or slugify(category_name)
+        category_name = normalize_product_category_name(_cell(raw_row, "category_name"))
+        category_slug = slugify(_text(_cell(raw_row, "category_slug")) or category_name)
         warehouse_name = _text(_cell(raw_row, "warehouse_name")) or "Общий склад"
         warehouse_slug = _text(_cell(raw_row, "warehouse_slug")) or slugify(warehouse_name)
         product_key = sku or f"{category_slug}:{name.casefold()}"
@@ -626,26 +637,55 @@ async def _get_or_create_category(
     tenant_id: UUID,
     row: ProductImportRow,
 ) -> ProductCategory:
-    category = await db.scalar(
-        select(ProductCategory).where(
-            ProductCategory.tenant_id == tenant_id,
-            ProductCategory.slug == row.category_slug,
+    category, created = await get_or_create_product_category(
+        db,
+        tenant_id=tenant_id,
+        category_name=row.category_name,
+        category_slug=row.category_slug,
+    )
+    category._import_created = created
+    return category
+
+
+async def get_or_create_product_category(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    category_name: str,
+    category_slug: str | None = None,
+) -> tuple[ProductCategory, bool]:
+    canonical_name = normalize_product_category_name(category_name)
+    canonical_slug = slugify(_text(category_slug) or canonical_name)
+    categories = list(
+        await db.scalars(
+            select(ProductCategory)
+            .where(ProductCategory.tenant_id == tenant_id)
+            .order_by(ProductCategory.sort_order, ProductCategory.id)
         )
     )
+    category = next(
+        (item for item in categories if item.slug == canonical_slug),
+        None,
+    )
+    if category is None:
+        canonical_key = product_category_key(canonical_name)
+        category = next(
+            (item for item in categories if product_category_key(item.name) == canonical_key),
+            None,
+        )
     if category is not None:
-        category.name = row.category_name
-        return category
+        category.name = canonical_name
+        return category, False
 
     category = ProductCategory(
         tenant_id=tenant_id,
-        slug=row.category_slug,
-        name=row.category_name,
+        slug=canonical_slug,
+        name=canonical_name,
         sort_order=100,
     )
-    category._import_created = True
     db.add(category)
     await db.flush()
-    return category
+    return category, True
 
 
 async def _find_import_product(
@@ -670,7 +710,8 @@ async def _find_import_product(
         return (
             normalize_warehouse_name(product.name) == normalize_warehouse_name(row.name)
             and product.category is not None
-            and product.category.slug == row.category_slug
+            and product_category_key(product.category.name)
+            == product_category_key(row.category_name)
         )
 
     own_product = next((product for product in own_products if matches(product)), None)
