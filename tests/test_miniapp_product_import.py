@@ -102,6 +102,34 @@ async def test_admin_imports_products_from_miniapp_csv(db_session, tmp_path) -> 
     assert inventory.available_quantity == 18
 
 
+async def test_product_import_merges_category_spacing_variants(db_session, tmp_path) -> None:
+    await seed_admin(db_session)
+    content = (
+        "sku,name,category,price_astrocoins,quantity,warehouse\n"
+        "MUG-1,Кружка,Кружки/бутылки,120,5,Главный склад\n"
+        "BOTTLE-1,Бутылка,Кружки / бутылки,180,4,Главный склад\n"
+    ).encode()
+
+    parsed_rows = parse_product_rows("products.csv", content)
+    assert {row.category_name for row in parsed_rows} == {"Кружки / бутылки"}
+    assert len({row.category_slug for row in parsed_rows}) == 1
+
+    result = await import_miniapp_products(
+        db_session,
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        filename="products.csv",
+        content=content,
+        media_root=str(tmp_path),
+        media_base_url="https://algo.test",
+    )
+
+    categories = list(await db_session.scalars(select(ProductCategory)))
+    assert result.created_categories == 1
+    assert len(categories) == 1
+    assert categories[0].name == "Кружки / бутылки"
+
+
 async def test_product_import_reuses_existing_warehouse_with_different_slug(
     db_session,
     tmp_path,

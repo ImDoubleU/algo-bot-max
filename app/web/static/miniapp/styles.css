@@ -6076,6 +6076,19 @@ body[data-active-role="student"] #studentContext {
   margin: 18px 0 12px;
 }
 
+.accrual-system-rule-editor {
+  display: grid;
+  margin: 18px 0 0;
+}
+
+.accrual-system-rule-editor + .accrual-rules-editor {
+  margin-top: 10px;
+}
+
+#birthdayAccrualRuleEditor [data-remove-accrual-rule] {
+  display: none;
+}
+
 .accrual-rule-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 130px 44px;
@@ -8283,9 +8296,21 @@ body[data-active-role="teacher"] .dashboard-spotlight {
 .category-chips::-webkit-scrollbar { display: none; }
 .mobile-filter-button { display: none; }
 .store-mobile-filter-head { display: none; }
-.store-sort-filter {
+.store-sort-menu {
   position: relative;
   min-width: 224px;
+}
+
+.store-sort-menu > summary {
+  list-style: none;
+}
+
+.store-sort-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.store-sort-filter {
+  width: 100%;
   min-height: 44px;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) 16px;
@@ -8301,11 +8326,14 @@ body[data-active-role="teacher"] .dashboard-spotlight {
 }
 
 .store-sort-filter:hover,
-.store-sort-filter:focus-within {
+.store-sort-filter:focus-visible,
+.store-sort-menu[open] .store-sort-filter {
   border-color: var(--brand-purple);
 }
 
-.store-sort-filter:focus-within {
+.store-sort-filter:focus-visible,
+.store-sort-menu[open] .store-sort-filter {
+  outline: 0;
   box-shadow: 0 0 0 3px rgba(108, 54, 201, 0.12);
 }
 
@@ -8334,26 +8362,81 @@ body[data-active-role="teacher"] .dashboard-spotlight {
   line-height: 1.1;
 }
 
-.store-sort-filter select {
-  width: 100%;
+.store-sort-copy strong {
   min-width: 0;
-  min-height: 20px;
-  appearance: none;
-  padding: 0;
-  border: 0;
-  outline: 0;
+  overflow: hidden;
   color: var(--ink);
-  background: transparent;
   font-size: 13px;
   font-weight: 750;
   line-height: 1.2;
-  cursor: pointer;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .store-sort-filter .store-sort-chevron {
   width: 16px;
   height: 16px;
   color: var(--muted);
+  transition: transform 160ms ease;
+}
+
+.store-sort-menu[open] .store-sort-chevron {
+  transform: rotate(180deg);
+}
+
+.store-sort-options {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  z-index: 105;
+  display: grid;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(23, 19, 38, 0.18);
+}
+
+.store-sort-options button {
+  width: 100%;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+
+.store-sort-options button:hover,
+.store-sort-options button:focus-visible {
+  outline: 0;
+  background: #f4f1fa;
+}
+
+.store-sort-options button.is-selected {
+  color: var(--brand-purple-dark);
+  background: var(--brand-purple-soft);
+}
+
+.store-sort-options button svg {
+  width: 17px;
+  height: 17px;
+  opacity: 0;
+}
+
+.store-sort-options button.is-selected svg {
+  opacity: 1;
 }
 .store-filter-backdrop { display: none; }
 
@@ -9557,7 +9640,9 @@ details.report-row { display: block; padding: 0; }
     box-shadow: 0 18px 50px rgba(23, 19, 38, .22);
   }
   .store-mobile-filter-head { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .store-sort-filter { grid-column: 1 / -1; min-width: 0; }
+  .store-sort-menu { grid-column: 1 / -1; min-width: 0; }
+  .store-sort-filter { min-width: 0; }
+  .store-sort-options { top: auto; bottom: calc(100% + 6px); }
   .store-filter-backdrop:not([hidden]) { position: fixed; inset: 0; z-index: 94; display: block; border: 0; background: rgba(23, 19, 38, .36); }
   .mobile-filter-button b { min-width: 20px; height: 20px; display: grid; place-items: center; border-radius: 10px; background: var(--brand-purple); color: #fff; font-size: 10px; }
   .stock-filter, .favorites-filter { width: 100%; min-width: 0; justify-content: center; }

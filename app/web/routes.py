@@ -19,7 +19,13 @@ MINIAPP_INDEX = STATIC_ROOT / "miniapp" / "index.html"
 
 @router.get("/miniapp", include_in_schema=False)
 async def miniapp_index() -> FileResponse:
-    return FileResponse(MINIAPP_INDEX)
+    return FileResponse(
+        MINIAPP_INDEX,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @router.get("/miniapp/import-template.xlsx", include_in_schema=False)

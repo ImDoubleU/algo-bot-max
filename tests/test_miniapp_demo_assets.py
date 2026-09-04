@@ -23,7 +23,7 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.86.1"}
+    assert set(versions) == {"0.86.2"}
 
 
 def test_shared_warehouse_controls_are_explicit() -> None:
@@ -143,6 +143,7 @@ def test_product_editor_does_not_resubmit_immutable_imported_sku() -> None:
 
 
 def test_birthday_accrual_rule_is_system_managed_in_ui() -> None:
+    index_source = (MINIAPP / "index.html").read_text(encoding="utf-8")
     core_source = (MINIAPP / "app-core.js").read_text(encoding="utf-8")
     store_source = (MINIAPP / "app-store.js").read_text(encoding="utf-8")
     app_source = (MINIAPP / "app.js").read_text(encoding="utf-8")
@@ -151,10 +152,32 @@ def test_birthday_accrual_rule_is_system_managed_in_ui() -> None:
     assert "function isBirthdayAccrualRule" in store_source
     assert "function normalizeAccrualRulesDraft" in store_source
     assert "state.accrualRulesDraft = normalizeAccrualRulesDraft" in store_source
+    assert 'id="birthdayAccrualRuleEditor"' in index_source
+    assert 'const systemEditor = qs("#birthdayAccrualRuleEditor")' in store_source
+    assert "systemEditor.innerHTML = accrualRuleRowTemplate(birthdayRule, 0, true)" in store_source
     assert "rule.isActive && !isBirthdayAccrualRule(rule)" in store_source
     assert 'system_key: rule.systemKey || null' in store_source
     assert "if (isBirthdayAccrualRule(selectedRule))" in app_source
     assert "Можно изменить только сумму" in app_source
+
+
+def test_store_uses_custom_sort_menu_and_normalized_category_keys() -> None:
+    index_source = (MINIAPP / "index.html").read_text(encoding="utf-8")
+    core_source = (MINIAPP / "app-core.js").read_text(encoding="utf-8")
+    store_source = (MINIAPP / "app-store.js").read_text(encoding="utf-8")
+    admin_source = (MINIAPP / "app-admin.js").read_text(encoding="utf-8")
+    app_source = (MINIAPP / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="productSortMenu"' in index_source
+    assert '<select id="productSort"' not in index_source
+    assert 'data-product-sort="recommended"' in index_source
+    assert "function normalizeProductCategoryName" in core_source
+    assert "function productCategoryKey" in core_source
+    assert "const categoryMap = new Map()" in store_source
+    assert "productCategoryKey(product.category) === category" in store_source
+    assert "const productCategoryMap = new Map()" in admin_source
+    assert "productCategoryKey(product.category) === state.productCategoryFilter" in admin_source
+    assert "const productSort = target.dataset.productSort" in app_source
 
 
 def test_student_registry_shows_linked_max_teacher() -> None:

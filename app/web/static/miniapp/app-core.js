@@ -883,6 +883,17 @@ function slugify(value) {
     .replace(/^-+|-+$/g, "") || "warehouse";
 }
 
+function normalizeProductCategoryName(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/\s*\/\s*/g, " / ") || "Без категории";
+}
+
+function productCategoryKey(value) {
+  return normalizeProductCategoryName(value).toLocaleLowerCase("ru-RU");
+}
+
 function formatDate(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -1688,7 +1699,7 @@ function parseDemoImport(text) {
       sku: row.sku,
       name: row.name,
       description: row.description || "",
-      category: row.category || "Без категории",
+      category: normalizeProductCategoryName(row.category),
       price,
       stock,
       warehouse: row.warehouse || "Общий склад",
@@ -2409,7 +2420,7 @@ function applyCatalog(catalog) {
       photoUrl: product.photo_url || "",
       status: product.status || "active",
       fulfillmentType: product.fulfillment_type || "warehouse",
-      category: product.category_name || "Без категории",
+      category: normalizeProductCategoryName(product.category_name),
       categorySlug: product.category_slug || "",
       price: product.price_astrocoins,
       stock: product.available_quantity,

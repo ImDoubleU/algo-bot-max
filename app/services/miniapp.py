@@ -167,8 +167,10 @@ from app.services.order_sheets import order_item_mapping, upsert_order_sheet_row
 from app.services.product_import import (
     ProductImportError,
     generate_product_sku,
+    get_or_create_product_category,
     import_products_for_tenant,
     localize_product_import_photos,
+    normalize_product_category_name,
     parse_product_rows,
 )
 from app.services.product_media import remove_product_image, remove_product_image_url
@@ -794,7 +796,7 @@ def _product_to_read(
         description=product.description,
         photo_url=product.photo_url,
         category_slug=category.slug if category else None,
-        category_name=category.name if category else None,
+        category_name=normalize_product_category_name(category.name) if category else None,
         price_astrocoins=product.price_astrocoins,
         status=product.status,
         fulfillment_type=product.fulfillment_type,
@@ -2387,26 +2389,12 @@ async def upsert_miniapp_product(
         product = None
 
     category_tenant_id = product.tenant_id if product is not None else tenant.id
-    category_slug = _slugify(payload.category_slug or payload.category_name)
-    category = await db.scalar(
-        select(ProductCategory).where(
-            ProductCategory.tenant_id == category_tenant_id,
-            ProductCategory.slug == category_slug,
-        )
+    category, category_created = await get_or_create_product_category(
+        db,
+        tenant_id=UUID(str(category_tenant_id)),
+        category_name=payload.category_name,
+        category_slug=payload.category_slug,
     )
-    category_created = False
-    if category is None:
-        category = ProductCategory(
-            tenant_id=category_tenant_id,
-            slug=category_slug,
-            name=payload.category_name.strip(),
-            sort_order=100,
-        )
-        db.add(category)
-        await db.flush()
-        category_created = True
-    else:
-        category.name = payload.category_name.strip()
 
     product_created = False
     if product is None:
