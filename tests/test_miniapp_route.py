@@ -1,12 +1,16 @@
 import asyncio
 
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.db.base  # noqa: F401
+from app.api.routes.miniapp import _product_validation_message
 from app.db.session import get_db_session
 from app.main import create_app
 from app.models.base import Base
+from app.schemas.miniapp import MiniAppProductUpsert
 
 
 def test_miniapp_route_serves_html() -> None:
@@ -48,6 +52,18 @@ def test_product_import_template_is_publicly_downloadable() -> None:
     )
     assert "algo-max-products-template.xlsx" in response.headers["content-disposition"]
     assert response.content.startswith(b"PK")
+
+
+def test_product_validation_names_the_invalid_field() -> None:
+    with pytest.raises(ValidationError) as error:
+        MiniAppProductUpsert(
+            max_user_id=1,
+            sku="X" * 121,
+            name="Товар",
+            price_astrocoins=100,
+        )
+
+    assert _product_validation_message(error.value) == "Проверьте поле «Артикул»"
 
 
 def test_ready_route_returns_safe_config_report() -> None:

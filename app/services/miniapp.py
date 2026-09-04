@@ -413,12 +413,17 @@ async def _accrual_rules_for_tenant(
             )
         ).all()
     )
+    persisted_manual_rules = [
+        rule
+        for rule in rules
+        if rule.reason.strip().casefold() != BIRTHDAY_GIFT_REASON.casefold()
+    ]
     manual_rules = (
         [
             MiniAppAccrualRuleRead(reason=reason, amount=amount, sort_order=index * 10)
             for index, (reason, amount) in enumerate(DEFAULT_ACCRUAL_RULES, start=1)
         ]
-        if not rules
+        if not persisted_manual_rules
         else [
             MiniAppAccrualRuleRead(
                 id=UUID(str(rule.id)),
@@ -427,7 +432,7 @@ async def _accrual_rules_for_tenant(
                 is_active=rule.is_active,
                 sort_order=rule.sort_order,
             )
-            for rule in rules
+            for rule in persisted_manual_rules
         ]
     )
     return [
@@ -463,14 +468,15 @@ async def update_miniapp_accrual_rules(
     ]
     if len(birthday_rules) > 1:
         raise MiniAppStoreError("Настройка дня рождения не должна повторяться", status_code=409)
+    if not birthday_rules:
+        raise MiniAppStoreError("Настройка «С днем рождения» обязательна")
     manual_rules = [rule for rule in payload.rules if rule not in birthday_rules]
     if not manual_rules:
         raise MiniAppStoreError("Добавьте хотя бы одну обычную причину начисления")
     normalized_reasons = [rule.reason.strip() for rule in manual_rules]
     if len({reason.casefold() for reason in normalized_reasons}) != len(normalized_reasons):
         raise MiniAppStoreError("Причины начислений не должны повторяться", status_code=409)
-    if birthday_rules:
-        tenant.birthday_reward_amount = birthday_rules[0].amount
+    tenant.birthday_reward_amount = birthday_rules[0].amount
     await db.execute(
         delete(AstrocoinAccrualRule).where(AstrocoinAccrualRule.tenant_id == tenant.id)
     )
@@ -1502,6 +1508,26 @@ async def list_miniapp_student_registry(
         staff_roles=staff_roles,
         students=students,
     )
+    teacher_accounts = list(
+        (
+            await db.scalars(
+                select(MaxAccount)
+                .join(
+                    StaffRoleAssignment,
+                    StaffRoleAssignment.account_id == MaxAccount.id,
+                )
+                .where(
+                    StaffRoleAssignment.tenant_id == tenant.id,
+                    StaffRoleAssignment.role == StaffRole.TEACHER,
+                    StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+                )
+                .order_by(MaxAccount.display_name, MaxAccount.max_user_id)
+            )
+        ).all()
+    )
+    active_teacher_names = [
+        name for teacher in teacher_accounts if (name := teacher_staff_name(teacher))
+    ]
     student_ids = [student.id for student in students]
     balances = await _wallet_balances(db, student_ids)
     contact_ids_by_student: dict[UUID, list[str]] = {}
@@ -1620,6 +1646,14 @@ async def list_miniapp_student_registry(
                 course_name=student.course_name,
                 venue_name=student.venue_name,
                 teacher_name=student.teacher_name,
+                linked_teacher_names=sorted(
+                    {
+                        teacher_name
+                        for teacher_name in active_teacher_names
+                        if staff_names_match(teacher_name, student.teacher_name)
+                    },
+                    key=str.casefold,
+                ),
                 status=student.status,
                 balance=balances.get(student.id, 0),
                 imported_at=student.created_at,

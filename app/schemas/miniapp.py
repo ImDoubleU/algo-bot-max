@@ -91,6 +91,7 @@ class MiniAppAdminStudentRead(BaseModel):
     course_name: str | None = None
     venue_name: str | None = None
     teacher_name: str | None = None
+    linked_teacher_names: list[str] = Field(default_factory=list)
     status: StudentStatus
     balance: int
     imported_at: datetime
@@ -311,7 +312,7 @@ class MiniAppProductUpsert(BaseModel):
     max_user_id: int = Field(gt=0)
     tenant_slug: str | None = None
     product_id: UUID | None = None
-    sku: str | None = Field(default=None, min_length=2, max_length=120)
+    sku: str | None = Field(default=None, min_length=1, max_length=120)
     name: str = Field(min_length=2, max_length=200)
     category_name: str = Field(default="Без категории", min_length=2, max_length=160)
     category_slug: str | None = Field(default=None, min_length=2, max_length=100)

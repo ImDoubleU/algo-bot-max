@@ -2195,7 +2195,7 @@ function renderAccrual() {
   const effectiveReason = customSelected ? customReason : selectedGroupReason;
   groupReason.innerHTML = [
     '<option value="">Выберите причину</option>',
-    ...state.accrualRules.filter((rule) => rule.isActive && !rule.systemKey).map(
+    ...state.accrualRules.filter((rule) => rule.isActive && !isBirthdayAccrualRule(rule)).map(
       (rule) => `<option value="${escapeHtml(rule.reason)}">${escapeHtml(rule.reason)} · +${rule.amount} AC</option>`,
     ),
     '<option value="__custom__">Своя причина и сумма</option>',
@@ -2285,8 +2285,31 @@ function renderAccrual() {
   refreshIcons();
 }
 
+function isBirthdayAccrualRule(rule) {
+  return (
+    rule?.systemKey === "birthday" ||
+    String(rule?.reason || "").trim().toLocaleLowerCase("ru-RU") === "с днем рождения"
+  );
+}
+
+function normalizeAccrualRulesDraft(rules) {
+  const source = Array.isArray(rules) ? rules : [];
+  const birthdayRule = source.find(isBirthdayAccrualRule);
+  const birthdayAmount = Number(birthdayRule?.amount);
+  return [
+    {
+      ...(birthdayRule || {}),
+      reason: "С днем рождения",
+      amount: Number.isFinite(birthdayAmount) ? birthdayAmount : 50,
+      isActive: true,
+      systemKey: "birthday",
+    },
+    ...source.filter((rule) => !isBirthdayAccrualRule(rule)).map((rule) => ({ ...rule })),
+  ];
+}
+
 function readAccrualRulesEditor() {
-  return qsa("[data-accrual-rule-row]").map((row) => ({
+  const rules = qsa("[data-accrual-rule-row]").map((row) => ({
     reason: row.querySelector("[data-accrual-rule-reason]")?.value.trim() || "",
     amount: Number.parseInt(
       row.querySelector("[data-accrual-rule-amount]")?.value || "0",
@@ -2295,14 +2318,16 @@ function readAccrualRulesEditor() {
     isActive: true,
     systemKey: row.dataset.accrualRuleSystemKey || "",
   }));
+  return normalizeAccrualRulesDraft(rules);
 }
 
 function renderAccrualRulesEditor() {
   const editor = qs("#accrualRulesEditor");
   if (!editor) return;
+  state.accrualRulesDraft = normalizeAccrualRulesDraft(state.accrualRulesDraft);
   editor.innerHTML = state.accrualRulesDraft.map((rule, index) => {
-    const systemKey = rule.systemKey || "";
-    const systemRule = systemKey === "birthday";
+    const systemRule = isBirthdayAccrualRule(rule);
+    const systemKey = systemRule ? "birthday" : (rule.systemKey || "");
     return `
       <div class="accrual-rule-row ${systemRule ? "is-system" : ""}" data-accrual-rule-row="${index}" data-accrual-rule-system-key="${escapeHtml(systemKey)}">
         <input data-accrual-rule-reason type="text" maxlength="160" value="${escapeHtml(rule.reason || "")}" placeholder="Причина начисления" aria-label="Причина начисления" ${systemRule ? "readonly" : ""} />
@@ -2318,7 +2343,7 @@ function renderAccrualRulesEditor() {
 
 function openAccrualRulesDialog() {
   if (!["superadmin", "partner_director", "admin"].includes(primaryStaffRole())) return;
-  state.accrualRulesDraft = state.accrualRules.map((rule) => ({ ...rule }));
+  state.accrualRulesDraft = normalizeAccrualRulesDraft(state.accrualRules);
   renderAccrualRulesEditor();
   const dialog = qs("#accrualRulesDialog");
   if (dialog) dialog.hidden = false;
@@ -2333,7 +2358,7 @@ function closeAccrualRulesDialog() {
 async function saveAccrualRules() {
   if (state.accrualRulesSaving) return;
   const rules = readAccrualRulesEditor();
-  const manualRules = rules.filter((rule) => !rule.systemKey);
+  const manualRules = rules.filter((rule) => !isBirthdayAccrualRule(rule));
   if (!manualRules.length) {
     showNotice("Добавьте хотя бы одну причину начисления", "danger");
     return;
@@ -2367,13 +2392,13 @@ async function saveAccrualRules() {
     });
     if (!response.ok) throw new Error(await parseApiError(response));
     const result = await response.json();
-    state.accrualRules = result.map((rule) => ({
+    state.accrualRules = normalizeAccrualRulesDraft(result.map((rule) => ({
       id: rule.id ? String(rule.id) : "",
       reason: rule.reason,
       amount: Number(rule.amount),
       isActive: rule.is_active !== false,
       systemKey: rule.system_key || "",
-    }));
+    })));
     closeAccrualRulesDialog();
     renderAccrual();
     showNotice("Причины начислений сохранены");

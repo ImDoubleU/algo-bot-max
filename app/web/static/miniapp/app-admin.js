@@ -534,6 +534,7 @@ function renderStudentRegistry() {
         student.course,
         student.venue,
         student.teacher,
+        ...(student.linkedTeachers || []),
       ].join(" ").toLowerCase();
       return matchesStatus && matchesGroup && (!query || searchText.includes(query));
     })
@@ -642,6 +643,8 @@ function renderStudentRegistry() {
                 <span><small>ID ученика</small><strong>${escapeHtml(student.lmsId || "Не указан")}</strong></span>
                 <span><small>Группа</small><strong>${escapeHtml(student.group || "Не указана")}</strong></span>
                 <span><small>Дата рождения</small><strong>${formatStudentBirthDate(student.birthDate)}</strong></span>
+                <span><small>Преподаватель из LMS</small><strong>${escapeHtml(student.teacher || "Не указан")}</strong></span>
+                <span><small>Преподаватель в MAX</small><strong>${escapeHtml((student.linkedTeachers || []).join(", ") || "Не привязан")}</strong></span>
                 <span><small>Родитель</small><strong>${escapeHtml(student.parentNames.join(", ") || "Не указан")}</strong></span>
                 <span><small>Contact ID</small><strong>${escapeHtml(student.parentContactIds.join(", ") || "Не указан")}</strong></span>
                 <span><small>Связь с MAX</small><strong>${student.parentMaxUserIds.length ? "Подключено: " + student.parentMaxUserIds.length : "Ожидает входа"}</strong></span>
