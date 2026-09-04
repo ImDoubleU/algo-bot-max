@@ -2222,9 +2222,14 @@ function renderTeacherProfileMatches() {
     return;
   }
   const groups = profile.matchedGroupNames || [];
+  const hasBroaderGroupAccess = state.staffRoles.some((role) =>
+    ["superadmin", "partner_director", "admin", "curator"].includes(role),
+  );
   const groupText = groups.length
     ? groups.map((group) => escapeHtml(group)).join(" · ")
-    : "Группы пока не найдены. Они появятся автоматически после импорта CRM.";
+    : hasBroaderGroupAccess
+      ? "По ФИО преподавателя группы не найдены. По другой роли доступны группы филиала."
+      : "Группы пока не найдены. Проверьте ФИО преподавателя в данных LMS.";
   container.hidden = false;
   container.innerHTML = `
     <strong>Найдено учеников: ${escapeHtml(profile.matchedStudentCount)}</strong>
@@ -2319,12 +2324,17 @@ async function saveTeacherProfile(event) {
     if (hasTeacherCapabilities()) await loadTeacherInvitations(true);
     renderAll();
     const groupCount = Number(profile.matched_group_names?.length || 0);
+    const hasBroaderGroupAccess = state.staffRoles.some((role) =>
+      ["superadmin", "partner_director", "admin", "curator"].includes(role),
+    );
     showNotice(
       !hasTeacherCapabilities()
         ? "ФИО сохранено"
         : groupCount > 0
         ? `Профиль сохранен. Подключено групп: ${groupCount}`
-        : "Профиль сохранен. Группы появятся после импорта CRM.",
+        : hasBroaderGroupAccess
+          ? "ФИО сохранено. По другой роли доступны группы филиала."
+          : "ФИО сохранено. Проверьте преподавателя в данных LMS.",
     );
   } catch (saveError) {
     if (error) {
@@ -2952,6 +2962,7 @@ document.addEventListener("click", (event) => {
     state.adminEntitySearch = "";
     state.productStatusFilter = "all";
     state.productCategoryFilter = "all";
+    state.productWarehouseFilter = "all";
     state.accessStatusFilter = "all";
     state.accessRoleFilter = "all";
     state.staffRoleFilter = "all";
@@ -3237,6 +3248,10 @@ document.addEventListener("change", (event) => {
   }
   if (target.id === "productCategoryFilter") {
     state.productCategoryFilter = target.value;
+    renderAdminPanel();
+  }
+  if (target.id === "productWarehouseFilter") {
+    state.productWarehouseFilter = target.value;
     renderAdminPanel();
   }
   if (target.id === "accessStatusFilter") {

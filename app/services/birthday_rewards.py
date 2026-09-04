@@ -15,8 +15,9 @@ from app.models.student import AstrocoinLedgerEntry, Student, Wallet
 from app.models.tenant import Tenant
 from app.services.crm_sync import ensure_wallet
 
-BIRTHDAY_GIFT_AMOUNT = 50
-BIRTHDAY_GIFT_REASON = "Подарок на день рождения"
+BIRTHDAY_GIFT_SYSTEM_KEY = "birthday"
+BIRTHDAY_GIFT_DEFAULT_AMOUNT = 50
+BIRTHDAY_GIFT_REASON = "С днем рождения"
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,13 @@ async def grant_birthday_rewards(
             already_credited += 1
             continue
 
+        configured_amount = tenant.birthday_reward_amount
+        reward_amount = (
+            configured_amount
+            if 1 <= configured_amount <= 10_000
+            else BIRTHDAY_GIFT_DEFAULT_AMOUNT
+        )
+
         await ensure_wallet(db, tenant=tenant, student=student)
         wallet = await db.scalar(
             select(Wallet).where(Wallet.student_id == student.id).with_for_update()
@@ -109,7 +117,7 @@ async def grant_birthday_rewards(
                         student_id=student.id,
                         idempotency_key=key,
                         direction=LedgerDirection.CREDIT,
-                        amount=BIRTHDAY_GIFT_AMOUNT,
+                        amount=reward_amount,
                         reason=BIRTHDAY_GIFT_REASON,
                         comment=f"Подарок за {reward_date.year} год",
                     )
@@ -119,7 +127,7 @@ async def grant_birthday_rewards(
             already_credited += 1
             continue
 
-        wallet.balance += BIRTHDAY_GIFT_AMOUNT
+        wallet.balance += reward_amount
         credited_ids.append(UUID(str(student.id)))
         db.add(
             AuditLog(
@@ -131,7 +139,7 @@ async def grant_birthday_rewards(
                     "student_name": student.display_name,
                     "birth_date": student.birth_date.isoformat(),
                     "reward_date": reward_date.isoformat(),
-                    "amount": BIRTHDAY_GIFT_AMOUNT,
+                    "amount": reward_amount,
                 },
             )
         )

@@ -23,7 +23,7 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.85.0"}
+    assert set(versions) == {"0.86.0"}
 
 
 def test_shared_warehouse_controls_are_explicit() -> None:
@@ -81,6 +81,13 @@ def test_combined_teacher_role_keeps_teacher_features() -> None:
     assert "hasTeacherCapabilities()" in app_source
 
 
+def test_tenant_switcher_is_available_for_any_multi_tenant_account() -> None:
+    shell_source = (MINIAPP / "app-shell.js").read_text(encoding="utf-8")
+
+    assert "state.canManageTenants" in shell_source
+    assert "!state.canCreateTenants || !apiContext.maxUserId" in shell_source
+
+
 def test_admin_products_and_warehouses_have_delete_actions() -> None:
     admin_source = (MINIAPP / "app-admin.js").read_text(encoding="utf-8")
     app_source = (MINIAPP / "app.js").read_text(encoding="utf-8")
@@ -115,3 +122,24 @@ def test_accrual_rules_dialog_keeps_actions_outside_scroll_area() -> None:
     assert 'id="saveAccrualRulesButton"' not in scroll_content
     assert ".accrual-rules-content" in styles_source
     assert "overflow-y: auto" in styles_source
+
+
+def test_product_catalog_can_filter_by_warehouse() -> None:
+    core_source = (MINIAPP / "app-core.js").read_text(encoding="utf-8")
+    admin_source = (MINIAPP / "app-admin.js").read_text(encoding="utf-8")
+    app_source = (MINIAPP / "app.js").read_text(encoding="utf-8")
+
+    assert 'productWarehouseFilter: "all"' in core_source
+    assert 'id="productWarehouseFilter"' in admin_source
+    assert "productWarehouses(product).some" in admin_source
+    assert 'target.id === "productWarehouseFilter"' in app_source
+
+
+def test_birthday_accrual_rule_is_system_managed_in_ui() -> None:
+    core_source = (MINIAPP / "app-core.js").read_text(encoding="utf-8")
+    store_source = (MINIAPP / "app-store.js").read_text(encoding="utf-8")
+
+    assert 'systemKey: "birthday"' in core_source
+    assert 'systemRule = systemKey === "birthday"' in store_source
+    assert 'rule.isActive && !rule.systemKey' in store_source
+    assert 'system_key: rule.systemKey || null' in store_source
