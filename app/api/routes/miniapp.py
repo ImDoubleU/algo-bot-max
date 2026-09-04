@@ -165,6 +165,19 @@ router = APIRouter()
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
 MiniAppIdentityDep = Annotated[MiniAppIdentity | None, Depends(get_miniapp_identity)]
 MAX_IMPORT_FILE_BYTES = 20 * 1024 * 1024
+PRODUCT_FIELD_LABELS = {
+    "sku": "Артикул",
+    "name": "Название",
+    "category_name": "Категория",
+    "category_slug": "Категория",
+    "price_astrocoins": "Цена",
+    "description": "Описание",
+    "photo_url": "Фото",
+    "status": "Статус",
+    "fulfillment_type": "Способ выдачи",
+    "new_codes": "Коды автовыдачи",
+    "inventories": "Склады и остатки",
+}
 
 
 async def _read_import_file(upload: UploadFile) -> bytes:
@@ -177,6 +190,21 @@ async def _read_import_file(upload: UploadFile) -> bytes:
     if len(content) > MAX_IMPORT_FILE_BYTES:
         raise HTTPException(status_code=413, detail="Файл импорта должен быть не больше 20 МБ")
     return content
+
+
+def _product_validation_message(exc: ValidationError) -> str:
+    fields: list[str] = []
+    for error in exc.errors():
+        location = error.get("loc") or ()
+        field_name = str(location[0]) if location else ""
+        label = PRODUCT_FIELD_LABELS.get(field_name)
+        if label and label not in fields:
+            fields.append(label)
+    if not fields:
+        return "Проверьте заполнение карточки товара"
+    if len(fields) == 1:
+        return f"Проверьте поле «{fields[0]}»"
+    return f"Проверьте поля: {', '.join(fields)}"
 
 
 def _authorized_tenant_slug(
@@ -896,8 +924,16 @@ async def miniapp_save_product(
             new_codes=(new_codes or "").splitlines(),
             inventories=json.loads(inventories) if inventories is not None else None,
         )
-    except (json.JSONDecodeError, TypeError, ValidationError) as exc:
-        raise HTTPException(status_code=422, detail="Проверьте поля товара") from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=_product_validation_message(exc),
+        ) from exc
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Проверьте склады и остатки товара",
+        ) from exc
 
     previous_photo_url = None
     if photo is not None:

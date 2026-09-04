@@ -295,7 +295,6 @@ async function saveProductFromForm() {
     stock_quantity,
   }));
   const payload = {
-    sku: editing?.sku || undefined,
     name,
     category_name: category,
     category_slug: slugify(category),
@@ -388,7 +387,6 @@ async function saveProductFromForm() {
     formData.set("max_user_id", apiContext.maxUserId);
     if (apiContext.tenantSlug) formData.set("tenant_slug", apiContext.tenantSlug);
     if (state.editingProductId) formData.set("product_id", state.editingProductId);
-    if (payload.sku) formData.set("sku", payload.sku);
     formData.set("name", payload.name);
     formData.set("category_name", payload.category_name);
     formData.set("category_slug", payload.category_slug);
@@ -542,7 +540,6 @@ async function toggleProductStatus(productId) {
     formData.set("max_user_id", String(apiContext.maxUserId));
     if (apiContext.tenantSlug) formData.set("tenant_slug", apiContext.tenantSlug);
     formData.set("product_id", product.id);
-    formData.set("sku", product.sku || product.id);
     formData.set("name", product.name);
     formData.set("category_name", product.category || "Без категории");
     formData.set("category_slug", product.categorySlug || slugify(product.category || "Без категории"));
@@ -2779,8 +2776,17 @@ document.addEventListener("click", (event) => {
 
   const removeAccrualRule = target.closest("[data-remove-accrual-rule]");
   if (removeAccrualRule) {
+    const ruleRow = removeAccrualRule.closest("[data-accrual-rule-row]");
+    const selectedRule = {
+      reason: ruleRow?.querySelector("[data-accrual-rule-reason]")?.value || "",
+      systemKey: ruleRow?.dataset.accrualRuleSystemKey || "",
+    };
+    if (isBirthdayAccrualRule(selectedRule)) {
+      showNotice("Причина «С днем рождения» обязательна. Можно изменить только сумму.", "danger");
+    } else {
+      ruleRow?.remove();
+    }
     state.accrualRulesDraft = readAccrualRulesEditor();
-    state.accrualRulesDraft.splice(Number(removeAccrualRule.dataset.removeAccrualRule), 1);
     renderAccrualRulesEditor();
   }
 

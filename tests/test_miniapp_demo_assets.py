@@ -23,7 +23,7 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.86.0"}
+    assert set(versions) == {"0.86.1"}
 
 
 def test_shared_warehouse_controls_are_explicit() -> None:
@@ -135,11 +135,33 @@ def test_product_catalog_can_filter_by_warehouse() -> None:
     assert 'target.id === "productWarehouseFilter"' in app_source
 
 
+def test_product_editor_does_not_resubmit_immutable_imported_sku() -> None:
+    app_source = (MINIAPP / "app.js").read_text(encoding="utf-8")
+
+    assert 'sku: editing?.sku' not in app_source
+    assert 'formData.set("sku"' not in app_source
+
+
 def test_birthday_accrual_rule_is_system_managed_in_ui() -> None:
     core_source = (MINIAPP / "app-core.js").read_text(encoding="utf-8")
     store_source = (MINIAPP / "app-store.js").read_text(encoding="utf-8")
+    app_source = (MINIAPP / "app.js").read_text(encoding="utf-8")
 
     assert 'systemKey: "birthday"' in core_source
-    assert 'systemRule = systemKey === "birthday"' in store_source
-    assert 'rule.isActive && !rule.systemKey' in store_source
+    assert "function isBirthdayAccrualRule" in store_source
+    assert "function normalizeAccrualRulesDraft" in store_source
+    assert "state.accrualRulesDraft = normalizeAccrualRulesDraft" in store_source
+    assert "rule.isActive && !isBirthdayAccrualRule(rule)" in store_source
     assert 'system_key: rule.systemKey || null' in store_source
+    assert "if (isBirthdayAccrualRule(selectedRule))" in app_source
+    assert "Можно изменить только сумму" in app_source
+
+
+def test_student_registry_shows_linked_max_teacher() -> None:
+    shell_source = (MINIAPP / "app-shell.js").read_text(encoding="utf-8")
+    admin_source = (MINIAPP / "app-admin.js").read_text(encoding="utf-8")
+
+    assert "linkedTeachers: Array.isArray(item.linked_teacher_names)" in shell_source
+    assert "Преподаватель из LMS" in admin_source
+    assert "Преподаватель в MAX" in admin_source
+    assert '(student.linkedTeachers || []).join(", ") || "Не привязан"' in admin_source

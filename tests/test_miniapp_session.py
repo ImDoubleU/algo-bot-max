@@ -272,6 +272,7 @@ async def test_staff_session_returns_tenant_students_sorted_by_group(db_session)
         tenant_slug="nizhniy-novgorod-partner-a",
     )
     assert [item.display_name for item in teacher_registry.students] == ["Васильева Алиса"]
+    assert teacher_registry.students[0].linked_teacher_names == ["Олейник Д"]
     assert (
         await list_miniapp_student_ledger(
             db_session,
@@ -315,6 +316,9 @@ async def test_staff_session_returns_tenant_students_sorted_by_group(db_session)
         "Васильева Алиса",
         "Петров Борис",
     }
+    curator_students = {item.display_name: item for item in curator_registry.students}
+    assert curator_students["Васильева Алиса"].linked_teacher_names == ["Олейник Д"]
+    assert curator_students["Петров Борис"].linked_teacher_names == []
 
 
 async def test_scoped_director_sees_access_links_only_for_own_venue(db_session) -> None:
@@ -1572,6 +1576,17 @@ async def test_birthday_reward_uses_tenant_accrual_setting(db_session) -> None:
         )
     )
     await db_session.commit()
+
+    with pytest.raises(MiniAppStoreError, match="обязательна"):
+        await update_miniapp_accrual_rules(
+            db_session,
+            payload=MiniAppAccrualRulesUpdate(
+                max_user_id=9293,
+                tenant_slug="nizhniy-novgorod-partner-a",
+                rules=[MiniAppAccrualRuleWrite(reason="Активность на уроке", amount=10)],
+            ),
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
 
     rules = await update_miniapp_accrual_rules(
         db_session,

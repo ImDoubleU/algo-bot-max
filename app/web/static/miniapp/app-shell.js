@@ -61,6 +61,9 @@ function normalizeRegistryStudent(item) {
     course: item.course_name || "",
     venue: item.venue_name || "",
     teacher: item.teacher_name || "",
+    linkedTeachers: Array.isArray(item.linked_teacher_names)
+      ? item.linked_teacher_names.filter(Boolean)
+      : [],
     status: item.status || "active",
     balance: Number(item.balance || 0),
     importedAt: item.imported_at || "",
@@ -99,6 +102,7 @@ function demoAdminStudentRegistry() {
       course_name: student.course || null,
       venue_name: student.venue || null,
       teacher_name: student.teacher || null,
+      linked_teacher_names: student.teacher ? [student.teacher] : [],
       status: student.status || "active",
       balance: Number(student.balance || 0),
       imported_at: student.importedAt || now,

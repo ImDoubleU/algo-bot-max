@@ -1525,7 +1525,7 @@ async def test_admin_can_create_and_update_product_from_miniapp(db_session) -> N
         payload=MiniAppProductUpsert(
             max_user_id=53364725,
             tenant_slug="nizhniy-novgorod-partner-a",
-            sku="book-1",
+            sku="7",
             name="Книга Python",
             category_name="Книги",
             price_astrocoins=500,
@@ -1549,7 +1549,6 @@ async def test_admin_can_create_and_update_product_from_miniapp(db_session) -> N
             max_user_id=53364725,
             tenant_slug="nizhniy-novgorod-partner-a",
             product_id=created.id,
-            sku="book-1",
             name="Книга Python 2",
             category_name="Книги",
             price_astrocoins=650,
@@ -1568,7 +1567,7 @@ async def test_admin_can_create_and_update_product_from_miniapp(db_session) -> N
     category = await db_session.scalar(
         select(ProductCategory).where(ProductCategory.name == "Книги")
     )
-    assert created.sku == "BOOK-1"
+    assert created.sku == "7"
     assert created.category_name == "Книги"
     assert updated.name == "Книга Python 2"
     assert updated.price_astrocoins == 650
@@ -1578,6 +1577,7 @@ async def test_admin_can_create_and_update_product_from_miniapp(db_session) -> N
         "Резервный склад"
     ]
     assert product is not None
+    assert product.sku == "7"
     assert product.status == ProductStatus.HIDDEN
     assert category is not None
 
