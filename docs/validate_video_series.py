@@ -1,8 +1,8 @@
-"""Compatibility entrypoint for the measured video-series audit."""
+"""Compatibility entrypoint for the current training-material audit."""
 
-from audit_video_series_strict import main
+from audit_training_materials import main
 
 
 if __name__ == "__main__":
-    print("Legacy command redirected to docs/audit_video_series_strict.py")
+    print("Legacy command redirected to docs/audit_training_materials.py")
     main()

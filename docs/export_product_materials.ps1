@@ -3,7 +3,8 @@
     [ValidateSet("Piper", "Sapi")]
     [string]$TtsProvider = "Piper",
     [string]$PiperModel = "",
-    [switch]$SkipVideo
+    [switch]$SkipVideo,
+    [switch]$SyntheticVoice
 )
 
 $ErrorActionPreference = "Stop"
@@ -273,7 +274,7 @@ try {
     Export-PresentationPdf -PowerPoint $powerPoint -Source $ProductPptx -Target $ProductPdf
     Export-PresentationSlides -PowerPoint $powerPoint -Source $ProductPptx -TargetDirectory $SlideDir
 
-    if (-not $SkipVideo) {
+    if (-not $SkipVideo -and $SyntheticVoice) {
         # Windows PowerShell 5.1 may preserve the top-level JSON array as one
         # nested object inside @(...). Sending it through the pipeline expands
         # every slide entry reliably.
@@ -307,6 +308,6 @@ finally {
 Write-Host "Готово:"
 Write-Host "  $GuidePdf"
 Write-Host "  $ProductPdf"
-if (-not $SkipVideo) {
+if (-not $SkipVideo -and $SyntheticVoice) {
     Write-Host "  $VideoPath"
 }

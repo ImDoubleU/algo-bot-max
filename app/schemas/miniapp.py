@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
@@ -6,6 +7,9 @@ from pydantic import BaseModel, Field
 
 from app.models.enums import (
     AssignmentStatus,
+    BankDepositStatus,
+    BankOperationType,
+    LedgerCategory,
     LedgerDirection,
     OrderStatus,
     ProductCodeStatus,
@@ -200,11 +204,156 @@ class MiniAppStudentAccessPolicyUpdate(BaseModel):
 class MiniAppLedgerRead(BaseModel):
     id: UUID
     student_id: UUID
-    direction: LedgerDirection
+    direction: LedgerDirection | None = None
+    category: LedgerCategory = LedgerCategory.ACCRUAL
+    entry_type: str | None = None
+    correlation_key: str | None = None
     amount: int
     reason: str
     comment: str | None = None
     created_at: datetime
+
+
+class MiniAppBankDepositRead(BaseModel):
+    id: UUID
+    status: BankDepositStatus
+    opened_on: date
+    maturity_on: date
+    closed_at: datetime | None = None
+    close_reason: str | None = None
+    principal_amount: int
+    capitalized_interest: int
+    pending_interest: Decimal
+    pending_interest_rounded: int
+    bank_balance: int
+    returned_amount: int = 0
+    forfeited_interest: int = 0
+    days_remaining: int = 0
+
+
+class MiniAppBankHistoryEntryRead(BaseModel):
+    id: UUID
+    operation_type: BankOperationType
+    title: str
+    amount: int
+    direction: LedgerDirection | None = None
+    principal_after: int
+    interest_after: int
+    bank_balance_after: int
+    wallet_after: int | None = None
+    annual_rate_bps: int | None = None
+    effective_on: date | None = None
+    comment: str | None = None
+    created_at: datetime
+
+
+class MiniAppBankSummaryRead(BaseModel):
+    tenant_slug: str
+    student_id: UUID
+    student_name: str
+    student_status: StudentStatus
+    personal_balance: int
+    bank_balance: int
+    total_balance: int
+    annual_rate_bps: int
+    can_open: bool = False
+    can_top_up: bool = False
+    can_close_early: bool = False
+    deposit: MiniAppBankDepositRead | None = None
+    history: list[MiniAppBankHistoryEntryRead] = Field(default_factory=list)
+
+
+class MiniAppBankDepositPreview(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    student_id: UUID
+    amount: int = Field(ge=1, le=10_000_000)
+    maturity_on: date
+
+
+class MiniAppBankDepositPreviewRead(BaseModel):
+    opened_on: date
+    maturity_on: date
+    amount: int
+    annual_rate_bps: int
+    accrual_days: int
+    projected_interest: int
+    projected_balance: int
+
+
+class MiniAppBankDepositOpen(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    student_id: UUID
+    amount: int = Field(ge=1, le=10_000_000)
+    maturity_on: date
+    request_key: str = Field(
+        min_length=12,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+
+
+class MiniAppBankDepositTopUp(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    amount: int = Field(ge=1, le=10_000_000)
+    request_key: str = Field(
+        min_length=12,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+
+
+class MiniAppBankDepositEarlyClose(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    expected_return_amount: int = Field(ge=1, le=10_000_000)
+    request_key: str = Field(
+        min_length=12,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+
+
+class MiniAppBankSettingsRead(BaseModel):
+    tenant_slug: str
+    annual_rate_bps: int
+    effective_on: date
+    updated_at: datetime | None = None
+
+
+class MiniAppBankSettingsUpdate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    annual_rate_bps: int = Field(ge=0, le=10_000)
+
+
+class MiniAppBankReportEntryRead(BaseModel):
+    student_id: UUID
+    student_name: str
+    group_name: str | None = None
+    teacher_name: str | None = None
+    personal_balance: int
+    principal_amount: int
+    capitalized_interest: int
+    pending_interest: Decimal
+    bank_balance: int
+    total_balance: int
+    annual_rate_bps: int
+    opened_on: date
+    maturity_on: date
+    status: BankDepositStatus
+
+
+class MiniAppBankReportRead(BaseModel):
+    tenant_slug: str
+    annual_rate_bps: int
+    active_deposits: int
+    total_principal: int
+    total_capitalized_interest: int
+    total_bank_balance: int
+    entries: list[MiniAppBankReportEntryRead] = Field(default_factory=list)
 
 
 class MiniAppProductWarehouseRead(BaseModel):

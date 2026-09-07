@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Algo MAX student bank processing
+
+[Timer]
+OnCalendar=*-*-* 00:10:00 Europe/Moscow
+Persistent=true
+RandomizedDelaySec=2m
+
+[Install]
+WantedBy=timers.target

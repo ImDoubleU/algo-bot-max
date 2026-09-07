@@ -23,7 +23,17 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.86.2"}
+    assert set(versions) == {"0.86.4"}
+
+
+def test_bank_opening_shows_projected_income_and_demo_history_survives_refresh() -> None:
+    bank_source = (MINIAPP / "app-bank.js").read_text(encoding="utf-8")
+
+    assert "/api/v1/miniapp/bank/deposits/preview" in bank_source
+    assert "Расчетный доход" in bank_source
+    assert "projection.projectedInterest" in bank_source
+    assert "projection.projectedBalance" in bank_source
+    assert "state.bankSummary && state.bankSummary.studentId === studentId" in bank_source
 
 
 def test_shared_warehouse_controls_are_explicit() -> None:

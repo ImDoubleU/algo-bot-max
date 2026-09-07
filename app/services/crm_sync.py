@@ -17,6 +17,7 @@ from app.models.student import (
 )
 from app.models.tenant import City, Partner, Tenant, Venue
 from app.services.access import normalize_contact_id, normalize_student_code
+from app.services.bank import bank_local_date, close_bank_deposit_for_inactive_student
 from app.services.crm_import import CrmStudentRow
 
 
@@ -521,6 +522,17 @@ async def upsert_crm_student_rows(
         )
         if await ensure_wallet(db, tenant=tenant, student=student):
             result = result.add(created_wallets=result.created_wallets + 1)
+        if (
+            previous_status == StudentStatus.ACTIVE
+            and student_status != StudentStatus.ACTIVE
+        ):
+            await close_bank_deposit_for_inactive_student(
+                db,
+                tenant=tenant,
+                student=student,
+                closed_on=bank_local_date(imported_at),
+                close_reason=f"student_{student_status.value}",
+            )
 
         for contact_id in split_contact_ids(row.contact_ids):
             contact, created_contact = await get_or_create_contact(

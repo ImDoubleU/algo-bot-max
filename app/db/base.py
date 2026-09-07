@@ -7,6 +7,7 @@ from app.models.account import (
     StaffWarehousePreference,
 )
 from app.models.audit import AuditLog
+from app.models.bank import BankDailyAccrual, BankDeposit, BankOperation, BankRateHistory
 from app.models.communication import SchoolBroadcast
 from app.models.store import (
     Order,
@@ -46,6 +47,10 @@ __all__ = [
     "AstrocoinAccrualRule",
     "AttendanceRecord",
     "AuditLog",
+    "BankDailyAccrual",
+    "BankDeposit",
+    "BankOperation",
+    "BankRateHistory",
     "City",
     "Contact",
     "ContactStudentLink",

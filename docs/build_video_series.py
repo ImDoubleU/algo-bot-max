@@ -71,6 +71,7 @@ ROLE_VIDEOS: tuple[RoleVideo, ...] = (
         (
             "student-dashboard-mobile.png",
             "store-mobile.png",
+            "store-sort-desktop.png",
             "product-dialog-mobile.png",
             "cart-mobile.png",
             "checkout-dialog-mobile.png",
@@ -78,9 +79,9 @@ ROLE_VIDEOS: tuple[RoleVideo, ...] = (
             "family-order-dialog-mobile.png",
             "visual/order-digital-mobile.png",
         ),
-        "В этом видео показан весь путь ученика: от проверки баланса до получения физической или цифровой награды. Все операции выполняются только в собственном профиле ученика.",
-        "После просмотра ученик умеет проверить свой профиль, выбрать награду, оформить заказ и найти его текущее состояние. Отмену уже созданного заказа выполняет только администратор или директор.",
-        "2:30–3:15",
+        "Сейчас покажу кабинет ученика. Проверим баланс, найдем награду, оформим заказ и посмотрим, где получить цифровой код.",
+        "Мы прошли весь путь ученика: от баланса до полученного заказа. Ученик не отменяет созданный заказ сам; это делает администратор или директор.",
+        "3:30–4:15",
     ),
     RoleVideo(
         4,
@@ -106,9 +107,9 @@ ROLE_VIDEOS: tuple[RoleVideo, ...] = (
             "family-orders-mobile.png",
             "family-order-dialog-mobile.png",
         ),
-        "Родитель работает с несколькими детскими профилями из одного кабинета. Важно каждый раз проверять выбранного ребенка: вместе с именем переключаются баланс, корзина, история и заказы.",
-        "После просмотра родитель умеет выбрать ребенка, дать ему отдельный доступ, оформить покупку и проверить движение заказа. Детскую ссылку нельзя открывать в родительском аккаунте MAX.",
-        "2:45–3:30",
+        "Сейчас покажу кабинет родителя. Сначала выберем ребенка, затем откроем QR-доступ, оформим покупку и проверим заказ.",
+        "Главная проверка для родителя — имя выбранного ребенка. Вместе с ним переключаются баланс, корзина, история и заказы. Детскую ссылку не открываем в родительском аккаунте MAX.",
+        "3:30–4:00",
     ),
     RoleVideo(
         5,
@@ -125,6 +126,8 @@ ROLE_VIDEOS: tuple[RoleVideo, ...] = (
             "принимать комплект и отмечать фактическую выдачу.",
         ),
         (
+            "teacher-profile-first-login-desktop.png",
+            "teacher-profile-groups-desktop.png",
             "teacher-dashboard-mobile.png",
             "teacher-student-registry-desktop.png",
             "accrual-mobile.png",
@@ -135,9 +138,9 @@ ROLE_VIDEOS: tuple[RoleVideo, ...] = (
             "teacher-orders-teacher-mobile.png",
             "teacher-order-issued-history-mobile.png",
         ),
-        "Преподаватель видит только назначенные ему группы. В видео показаны поиск ученика, начисление астрокоинов, детские QR-коды и два фактических действия с заказом: принять и передать ребенку.",
-        "После просмотра преподаватель умеет начислять астрокоины и выдавать заказы своих учеников. Состояние заказа меняется только после реального действия; отменять заказ преподаватель не может.",
-        "2:45–3:30",
+        "Сейчас покажу первый вход преподавателя и ежедневную работу. Введем ФИО как в LMS, проверим найденные группы, начислим AC и пройдем выдачу заказа.",
+        "Группы преподавателя находятся по ФИО из LMS. Заказ меняем только после реального приема или выдачи. Отменять заказ преподаватель не может.",
+        "4:30–5:30",
     ),
     RoleVideo(
         6,
@@ -156,13 +159,14 @@ ROLE_VIDEOS: tuple[RoleVideo, ...] = (
         (
             "curator-dashboard-desktop.png",
             "curator-accrual-desktop.png",
+            "curator-ac-report-desktop.png",
             "curator-broadcast-targets-desktop.png",
             "broadcast-news-mobile.png",
             "broadcast-news-emoji-mobile.png",
             "broadcast-review-mobile.png",
         ),
-        "Куратор координирует учеников доступных ему групп. Основные операции — начисления, контроль движения заказов и новости с точным выбором формата занятий, площадок и групп.",
-        "После просмотра куратор умеет выбрать аудиторию, подготовить новость, проверить число получателей и отправить сообщение. Заказы можно контролировать, но отмена доступна только администратору и директору.",
+        "Сейчас покажу работу куратора: доступные группы, начисления, контроль заказов и рассылку по точной аудитории.",
+        "Перед отправкой куратор всегда проверяет группы и число получателей. Заказы он контролирует, но отмена доступна только администратору и директору.",
         "2:30–3:15",
     ),
     RoleVideo(
@@ -180,6 +184,7 @@ ROLE_VIDEOS: tuple[RoleVideo, ...] = (
             "работать со складами, импортом, сотрудниками, рассылками и историей.",
         ),
         (
+            "combined-role-profile-desktop.png",
             "student-registry-desktop.png",
             "student-card-desktop.png",
             "student-create-desktop.png",
@@ -189,23 +194,31 @@ ROLE_VIDEOS: tuple[RoleVideo, ...] = (
             "orders-route-desktop.png",
             "order-cancel-form-desktop.png",
             "products-desktop.png",
+            "product-warehouse-filter-desktop.png",
+            "product-filtered-by-warehouse-desktop.png",
             "product-editor-desktop.png",
             "digital-product-editor-desktop.png",
             "product-import-desktop.png",
+            "product-delete-confirmation-desktop.png",
             "warehouses-desktop.png",
+            "warehouse-connected-desktop.png",
             "crm-import-desktop.png",
             "contacts-desktop.png",
             "admin-staff-invite-desktop.png",
+            "staff-actions-desktop.png",
+            "staff-add-role-desktop.png",
+            "staff-edit-name-desktop.png",
             "admin-history-desktop.png",
             "admin-accrual-desktop.png",
+            "birthday-accrual-rule-desktop.png",
             "admin-ac-report-desktop.png",
             "admin-broadcast-targets-desktop.png",
             "broadcast-news-mobile.png",
             "broadcast-review-mobile.png",
         ),
-        "Администратор отвечает за ежедневную операционную работу одного города. В видео последовательно показаны ученики, начисления и отчет AC, комплектация заказов, каталог, склады, импорт, связи, приглашения, рассылки и аудит.",
-        "После просмотра администратор умеет провести заказ по рабочим этапам, изменить данные ученика с записью в историю, вести товары и остатки, начислять и проверять AC, импортировать данные, отправлять новости и контролировать действия сотрудников.",
-        "7–8 минут",
+        "Сейчас покажу ежедневную работу администратора: ученики, AC, заказы, сотрудники, товары, склады, импорт, связи, рассылки и история.",
+        "Администратор проводит заказ по фактическим этапам, ведет данные города и проверяет результат каждого изменения через обновление и историю.",
+        "12–14 минут",
     ),
     RoleVideo(
         8,
@@ -222,25 +235,37 @@ ROLE_VIDEOS: tuple[RoleVideo, ...] = (
             "проверять отчет AC и адресные коммуникации.",
         ),
         (
+            "director-city-switcher-desktop.png",
+            "combined-role-profile-desktop.png",
             "director-management-summary-desktop.png",
             "director-staff-list-desktop.png",
             "staff-invite-mobile.png",
+            "staff-actions-desktop.png",
+            "staff-add-role-desktop.png",
+            "staff-edit-name-desktop.png",
             "director-orders-tabs-desktop.png",
             "director-orders-assign-desktop.png",
             "director-orders-collect-desktop.png",
             "director-orders-route-desktop.png",
             "director-order-cancel-form-desktop.png",
             "director-products-desktop.png",
+            "product-warehouse-filter-desktop.png",
+            "product-import-desktop.png",
+            "product-delete-confirmation-desktop.png",
             "director-warehouses-desktop.png",
+            "warehouse-connected-desktop.png",
             "director-crm-import-desktop.png",
+            "director-accrual-desktop.png",
             "director-ac-report-desktop.png",
+            "birthday-accrual-rule-desktop.png",
+            "director-admin-history-desktop.png",
             "director-broadcast-targets-desktop.png",
             "broadcast-news-mobile.png",
             "broadcast-review-mobile.png",
         ),
-        "Директор управляет одним или несколькими назначенными городами. Перед каждым изменением нужно проверить текущий город, затем работать с командой, заказами, остатками, отчетами и коммуникациями выбранного филиала.",
-        "После просмотра директор умеет приглашать и отключать сотрудников, контролировать операционный цикл, отменять проблемные заказы с причиной и оценивать начисления и остатки по выбранному городу.",
-        "5–6 минут",
+        "Сейчас покажу кабинет директора. Начнем с выбора города, затем проверим сотрудников, роли, заказы, товары, склады, импорт, отчеты и рассылки.",
+        "Перед каждым изменением директор проверяет город. После работы он обновляет список и сверяет сотрудника, заказ, остаток или начисление в истории.",
+        "10–12 минут",
     ),
 )
 
@@ -279,6 +304,13 @@ ROLE_ERRORS: dict[str, dict[str, tuple[RoleError, ...]]] = {
         ),
     },
     "teacher": {
+        "teacher-profile-groups-desktop.png": (
+            RoleError(
+                "Группы не найдены",
+                "ФИО не совпало с именем преподавателя в данных LMS.",
+                "Нажмите «Изменить ФИО», перепишите фамилию и имя как в LMS и снова выберите «Сохранить и найти группы».",
+            ),
+        ),
         "teacher-qr-mobile.png": (
             RoleError(
                 "QR-код недоступен",
@@ -325,6 +357,20 @@ ROLE_ERRORS: dict[str, dict[str, tuple[RoleError, ...]]] = {
                 "Исправьте отмеченную строку в таблице и загрузите файл повторно до записи данных.",
             ),
         ),
+        "product-import-desktop.png": (
+            RoleError(
+                "Фотография не загрузилась",
+                "Облачная ссылка закрыта, временная или ведет на страницу без публичного доступа.",
+                "Откройте ссылку в приватном окне, включите просмотр по ссылке и повторно импортируйте товар.",
+            ),
+        ),
+        "product-delete-confirmation-desktop.png": (
+            RoleError(
+                "Удаление недоступно",
+                "У товара есть защищенная история движения остатков или заказов.",
+                "Закройте подтверждение и скройте товар обычной кнопкой глаза, чтобы сохранить историю.",
+            ),
+        ),
     },
     "director": {
         "director-management-summary-desktop.png": (
@@ -337,6 +383,13 @@ ROLE_ERRORS: dict[str, dict[str, tuple[RoleError, ...]]] = {
                 "Действие недоступно",
                 "Город не назначен директору или роль не дает нужного права.",
                 "Не обходите ограничение; проверьте назначенные города и полномочия сотрудника.",
+            ),
+        ),
+        "product-import-desktop.png": (
+            RoleError(
+                "Фотография не загрузилась",
+                "Ссылка на Яндекс Диск или Google Drive недоступна без авторизации.",
+                "Откройте общий доступ, проверьте ссылку в приватном окне и повторите импорт строки.",
             ),
         ),
     },
@@ -362,11 +415,11 @@ ROLE_FINAL_ACTIONS: dict[str, tuple[tuple[tuple[str, str], ...], str]] = {
     ),
     "teacher": (
         (
-            ("Открыть свою группу", "Убедитесь, что в списке только ваши ученики."),
+            ("Связать группы", "Введите ФИО как в LMS и проверьте найденных учеников."),
             ("Начислить AC", "Проведите одну операцию и проверьте историю."),
             ("Проверить выдачу", "Откройте заказы, доставленные на площадку."),
         ),
-        "Откройте свою группу, начислите AC одному ученику и проверьте историю. Затем откройте заказы, доставленные на площадку.",
+        "Сначала проверьте ФИО и найденные группы. Затем начислите AC одному ученику, откройте историю и проверьте заказы, доставленные на площадку.",
     ),
     "curator": (
         (
@@ -387,7 +440,7 @@ ROLE_FINAL_ACTIONS: dict[str, tuple[tuple[tuple[str, str], ...], str]] = {
     "director": (
         (
             ("Выбрать город", "Сверьте филиал в верхней панели."),
-            ("Проверить сотрудников", "Откройте активные и отозванные роли."),
+            ("Проверить сотрудников", "Откройте единые карточки и активные роли."),
             ("Проверить операции", "Сверьте заказы и отчет AC города."),
         ),
         "Выберите рабочий город и откройте список сотрудников. Проверьте активные роли, затем сверьте заказы и отчет AC этого филиала.",
@@ -402,11 +455,15 @@ def add_narration(
     *,
     screen_type: str = "information",
     chapter: str | None = None,
+    cursor_action: str = "Без нажатия: показать экран",
+    screen_text: str = "",
 ) -> None:
     item = {
         "title": title,
         "text": " ".join(text.split()),
         "screen_type": screen_type,
+        "cursor_action": " ".join(cursor_action.split()),
+        "screen_text": " ".join((screen_text or title).split()),
     }
     if chapter:
         item["chapter"] = chapter
@@ -519,61 +576,50 @@ def visual_step_narration(
     task_index: int,
     final_step: bool,
 ) -> str:
-    action = f"{point.title.rstrip('.!?')}: {_lower_first(point.text)}"
-    scopes = {
-        "student": "профиль текущего ученика",
-        "parent": "имя выбранного ребенка",
-        "teacher": "назначенную преподавателю группу",
-        "curator": "доступную аудиторию филиала",
-        "administrator": "текущий город в верхней панели",
-        "director": "назначенный директору город",
-    }
-    scope = scopes[role.video_id]
-    templates = (
-        f"Перед началом задачи «{spec.title}» проверьте {scope}.",
-        f"На экране «{spec.title}» сначала сверьте {scope}.",
-        f"До первого действия в задаче «{spec.title}» проверьте {scope}.",
-        f"Операция «{spec.title}» относится к контексту: {scope}.",
-        f"Данные экрана «{spec.title}» должны соответствовать контексту: {scope}.",
-        f"Для задачи «{spec.title}» сначала подтвердите {scope}.",
-        f"Перед изменением в экране «{spec.title}» еще раз сверьте {scope}.",
-        f"В задаче «{spec.title}» важно не перепутать {scope}.",
-        f"Открыв «{spec.title}», проверьте рабочий контекст: {scope}.",
-        f"Переходите к задаче «{spec.title}» после проверки: {scope}.",
-        f"Начните работу с экраном «{spec.title}» с проверки: {scope}.",
-        f"Перед сохранением в задаче «{spec.title}» повторно сверьте {scope}.",
-    )
-    role_offset = (role.order - 3) * 3
-    context = templates[(task_index + role_offset) % len(templates)] if step_index == 1 else ""
-    if role.video_id == "administrator" and task_index % 3 == 2:
-        context = ""
-    if role.video_id == "curator" and step_index == 2:
-        context = (
-            "Список останется в пределах доступной аудитории филиала.",
-            "Начисление затронет только отмеченных учеников.",
-            "Фильтры изменят только текущую аудиторию.",
-            "Текст новости не расширяет выбранную аудиторию.",
-            "Эмодзи меняет сообщение, но не список получателей.",
-            "Итоговый список остается ограниченным выбранными группами.",
-        )[task_index]
-    if role.video_id == "teacher" and task_index % 3 == 0 and step_index == 2:
-        context = {
-            0: "Выбранная группа ограничивает список учеников.",
-            3: "После ввода причины проверьте ученика и будущую запись истории.",
-            6: "Состав заказа должен совпасть с доставленным комплектом.",
-        }[task_index]
-    if role.video_id == "director" and task_index % 3 == 0 and step_index == 2:
-        context = {
-            0: "После обновления показатели должны относиться к выбранному городу.",
-            3: "Состояния заказов загружаются только для текущего города.",
-            6: "Отметка доставки изменит выбранные заказы этого филиала.",
-            9: "Новый склад появится только в текущем городе.",
-            12: "Фильтры рассылки ограничивают аудиторию выбранного филиала.",
-        }[task_index]
-    parts = [value for value in (context, action) if value]
-    if not final_step:
-        return " ".join(parts)
-    return " ".join((*parts, spec.note))
+    action = f"{point.title.rstrip('.!?')}. {point.text}"
+    if step_index == 1:
+        lead_templates = (
+            f"Открываю «{spec.title}».",
+            f"Переходим к задаче «{spec.title}».",
+            f"Следующая задача — «{spec.title}».",
+            f"Теперь разбираю «{spec.title}».",
+            f"Для этой операции открываю «{spec.title}».",
+            f"На экране «{spec.title}» начинаю с первого действия.",
+        )
+        lead = lead_templates[task_index % len(lead_templates)]
+    elif final_step:
+        lead_templates = (
+            "Завершаю операцию.",
+            "Остается последнее действие.",
+            "Последний шаг.",
+            "В конце.",
+            "Теперь завершаю.",
+            "Финальное действие.",
+        )
+        lead = lead_templates[task_index % len(lead_templates)]
+    else:
+        lead_templates = (
+            "Дальше.",
+            "Затем.",
+            "После этого.",
+            "Следующее действие.",
+            "Продолжаю.",
+            "Теперь.",
+        )
+        lead = lead_templates[task_index % len(lead_templates)]
+    if step_index == 1:
+        parts = [lead, action]
+    else:
+        parts = [f"{lead.rstrip('.')} — {_lower_first(action)}"]
+    if final_step:
+        result_templates = (
+            "Проверяю результат: {}",
+            "После этого убеждаюсь: {}",
+            "Готово: {}",
+            "Контроль результата: {}",
+        )
+        parts.append(result_templates[task_index % len(result_templates)].format(_lower_first(spec.note)))
+    return " ".join(parts)
 
 
 def error_narration(error: RoleError) -> str:
@@ -626,6 +672,10 @@ def all_visual_specs() -> dict[str, visual.VisualSlide]:
             "broadcast-targets-desktop.png",
             "Куратор видит только доступные ему группы и проверяет итоговое число получателей.",
         ),
+        "curator-ac-report-desktop.png": (
+            "ac-report-desktop.png",
+            "Куратор проверяет операции только по доступным ему группам и ученикам.",
+        ),
         "admin-ac-report-desktop.png": (
             "ac-report-desktop.png",
             "Администратор сверяет период, ученика, причину, сумму и автора операции.",
@@ -657,6 +707,10 @@ def all_visual_specs() -> dict[str, visual.VisualSlide]:
             "Директор подтверждает импорт только после проверки городов и строк предпросмотра.",
         ),
         "director-ac-report-desktop.png": ("ac-report-desktop.png", None),
+        "director-admin-history-desktop.png": (
+            "admin-history-desktop.png",
+            "История показывает действия сотрудников выбранного директором города.",
+        ),
         "director-broadcast-targets-desktop.png": ("broadcast-targets-desktop.png", None),
     }
     for asset, (base_asset, note) in role_variants.items():
@@ -666,6 +720,7 @@ def all_visual_specs() -> dict[str, visual.VisualSlide]:
     for role_name, asset in (
         ("Куратор", "curator-accrual-desktop.png"),
         ("Администратор", "admin-accrual-desktop.png"),
+        ("Директор", "director-accrual-desktop.png"),
     ):
         specs[asset] = visual.VisualSlide(
             "Начисления",
@@ -709,15 +764,15 @@ def build_role_video(role: RoleVideo, specs: dict[str, visual.VisualSlide]) -> t
         asset=role.cover_asset,
         label=f"Интерфейс роли: {role.role.lower()}",
     )
-    cover_narration = f"{role.role}. Перейдем к первой задаче."
-    if role.video_id == "curator":
-        cover_narration = f"{role.role}. Сразу перейдем к первой задаче."
+    cover_narration = role.intro
     add_narration(
         narration,
         role.role,
         cover_narration,
         screen_type="cover",
         chapter="Начало",
+        cursor_action="Показать название роли и первый экран кабинета",
+        screen_text=role.subtitle,
     )
 
     previous_section = ""
@@ -751,6 +806,8 @@ def build_role_video(role: RoleVideo, specs: dict[str, visual.VisualSlide]) -> t
                 ),
                 screen_type="action",
                 chapter=chapter if index == 1 else None,
+                cursor_action=f"Подвести курсор к метке {index}: {point.title}",
+                screen_text=f"Шаг {index}. {point.title}",
             )
 
         for error in ROLE_ERRORS.get(role.video_id, {}).get(asset, ()):
@@ -767,6 +824,8 @@ def build_role_video(role: RoleVideo, specs: dict[str, visual.VisualSlide]) -> t
                 error.title,
                 error_narration(error),
                 screen_type="error",
+                cursor_action="Показать проблемное состояние и выделить способ исправления",
+                screen_text=f"Если не получилось: {error.title}",
             )
 
     final_items, final_narration = ROLE_FINAL_ACTIONS[role.video_id]
@@ -779,9 +838,11 @@ def build_role_video(role: RoleVideo, specs: dict[str, visual.VisualSlide]) -> t
     add_narration(
         narration,
         "Итог",
-        final_narration,
+        f"{role.outro} Практика после просмотра: {final_narration}",
         screen_type="outro",
         chapter="Итог",
+        cursor_action="Показать итоговый чек-лист роли",
+        screen_text="Повторите одну операцию и проверьте результат",
     )
     return prs, narration
 
@@ -949,9 +1010,11 @@ def build_promo_video() -> tuple[Presentation, list[dict[str, str]]]:
     add_narration(
         narration,
         "Следующее действие",
-        "Откройте Algo MAX внутри MAX и проверьте свой кабинет. Для обучения выберите подробный обзор или видео своей роли. Начните с одной операции и сразу сверьте результат.",
+        "Откройте Algo MAX и проверьте свой кабинет. Затем выберите обзор или видео своей роли. Выполните одну операцию и сверьте результат.",
         screen_type="outro",
         chapter="Начать работу",
+        cursor_action="Показать варианты продолжения обучения",
+        screen_text="Откройте кабинет и выберите видео своей роли",
     )
     return prs, narration
 
@@ -1006,9 +1069,26 @@ def build_detailed_video() -> tuple[Presentation, list[dict[str, str]]]:
     return prs, narration
 
 
-def estimate_seconds(narration: list[dict[str, str]]) -> int:
-    word_count = sum(len(item["text"].split()) for item in narration)
-    return max(1, round(word_count / 2.25 + len(narration) * 0.35))
+def narration_duration(item: dict[str, str]) -> float:
+    words = max(len(item["text"].split()), 1)
+    spoken = words / 132 * 60
+    minimums = {
+        "cover": 5.5,
+        "action": 5.0,
+        "error": 7.0,
+        "information": 6.0,
+        "overview": 7.0,
+        "outro": 7.0,
+    }
+    return round(max(spoken + 0.8, minimums.get(item.get("screen_type", "information"), 6.0)), 2)
+
+
+def prepare_narration(narration: list[dict[str, str]]) -> list[dict[str, str | float]]:
+    return [dict(item, duration_seconds=narration_duration(item)) for item in narration]
+
+
+def estimate_seconds(narration: list[dict[str, object]]) -> int:
+    return max(1, round(sum(float(item.get("duration_seconds") or narration_duration(item)) for item in narration)))
 
 
 def format_duration(seconds: int) -> str:
@@ -1016,18 +1096,64 @@ def format_duration(seconds: int) -> str:
     return f"{minutes}:{remainder:02d}"
 
 
-def write_script(path: Path, title: str, purpose: str, narration: list[dict[str, str]]) -> None:
+def format_timecode(seconds: float) -> str:
+    minutes, remainder = divmod(round(seconds), 60)
+    return f"{minutes:02d}:{remainder:02d}"
+
+
+def table_cell(value: object) -> str:
+    return " ".join(str(value).split()).replace("|", "\\|")
+
+
+def link_from_docs(value: object) -> str:
+    normalized = str(value).replace("\\", "/")
+    if normalized.startswith("docs/"):
+        return normalized.removeprefix("docs/")
+    return f"../{normalized}"
+
+
+def write_script(path: Path, title: str, purpose: str, narration: list[dict[str, object]]) -> None:
     lines = [
         f"# {title}",
         "",
         f"**Назначение:** {purpose}",
         f"**Оценочная длительность:** {format_duration(estimate_seconds(narration))}",
         "",
-        "## Текст по слайдам",
+        "Темп чтения: 125–140 слов в минуту. Пауза между смысловыми блоками — около одной секунды.",
+        "",
+        "## Покадровый план",
+        "",
+        "| Таймкод | Экран | Действие курсора | Текст диктора | Текст на экране |",
+        "|---|---|---|---|---|",
         "",
     ]
+    elapsed = 0.0
+    for item in narration:
+        duration = float(item["duration_seconds"])
+        timecode = f"{format_timecode(elapsed)}–{format_timecode(elapsed + duration)}"
+        lines.append(
+            "| "
+            + " | ".join(
+                (
+                    timecode,
+                    table_cell(item["title"]),
+                    table_cell(item.get("cursor_action", "Без нажатия")),
+                    table_cell(item["text"]),
+                    table_cell(item.get("screen_text", item["title"])),
+                )
+            )
+            + " |"
+        )
+        elapsed += duration
+    lines.extend(
+        (
+            "",
+            "## Текст для чтения",
+            "",
+        )
+    )
     for index, item in enumerate(narration, start=1):
-        lines.extend((f"### {index}. {item['title']}", "", item["text"], ""))
+        lines.extend((f"### {index}. {item['title']}", "", str(item["text"]), ""))
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -1043,18 +1169,20 @@ def save_video_source(
     prs: Presentation,
     narration: list[dict[str, str]],
 ) -> dict[str, object]:
-    if len(prs.slides) != len(narration):
+    prepared_narration = prepare_narration(narration)
+    if len(prs.slides) != len(prepared_narration):
         raise ValueError(f"{video_id}: {len(prs.slides)} slides, {len(narration)} narration items")
     pptx_path = SERIES_DIR / f"{order:02d}_{filename}.pptx"
     narration_path = SERIES_DIR / f"{order:02d}_{filename}.narration.json"
     script_path = SERIES_DIR / f"{order:02d}_{filename}.script.md"
     video_path = VIDEO_OUTPUT_DIR / f"{order:02d}_{filename}.mp4"
+    pdf_path = ROOT / "output" / "pdf" / "video-series" / f"{order:02d}_{filename}.pdf"
     subtitle_srt_path = video_path.with_suffix(".srt")
     subtitle_vtt_path = video_path.with_suffix(".vtt")
     chapters_path = video_path.with_suffix(".chapters.txt")
     prs.save(pptx_path)
-    narration_path.write_text(json.dumps(narration, ensure_ascii=False, indent=2), encoding="utf-8")
-    write_script(script_path, title, purpose, narration)
+    narration_path.write_text(json.dumps(prepared_narration, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_script(script_path, title, purpose, prepared_narration)
     return {
         "order": order,
         "id": video_id,
@@ -1062,9 +1190,10 @@ def save_video_source(
         "title": title,
         "purpose": purpose,
         "target_duration": target_duration,
-        "estimated_seconds": estimate_seconds(narration),
+        "estimated_seconds": estimate_seconds(prepared_narration),
         "slides": len(prs.slides),
         "presentation": str(pptx_path.relative_to(ROOT)),
+        "pdf": str(pdf_path.relative_to(ROOT)),
         "narration": str(narration_path.relative_to(ROOT)),
         "script": str(script_path.relative_to(ROOT)),
         "video": str(video_path.relative_to(ROOT)),
@@ -1088,7 +1217,9 @@ def write_overview(entries: list[dict[str, object]]) -> None:
     for entry in entries:
         lines.append(
             f"| {entry['order']} | {entry['title']} | {entry['purpose']} | {entry['slides']} | {format_duration(int(entry['estimated_seconds']))} | {entry['target_duration']} | "
-            f"[MP4](../{entry['video']}) · [SRT](../{entry['subtitles_srt']}) · [VTT](../{entry['subtitles_vtt']}) · [главы](../{entry['chapters']}) |"
+            f"[PPTX]({link_from_docs(entry['presentation'])}) · [PDF]({link_from_docs(entry['pdf'])}) · "
+            f"[сценарий]({link_from_docs(entry['script'])}) · [MP4 без голоса]({link_from_docs(entry['video'])}) · "
+            f"[SRT]({link_from_docs(entry['subtitles_srt'])}) |"
         )
     lines.extend(
         (
@@ -1106,14 +1237,43 @@ def write_overview(entries: list[dict[str, object]]) -> None:
             "max_bot_venv\\Scripts\\python.exe docs\\build_video_series.py",
             "powershell.exe -NoProfile -ExecutionPolicy Bypass -File docs\\export_video_series.ps1",
             "powershell.exe -NoProfile -ExecutionPolicy Bypass -File docs\\build_video_contact_sheets.ps1",
-            "max_bot_venv\\Scripts\\python.exe docs\\audit_video_series_strict.py",
+            "max_bot_venv\\Scripts\\python.exe docs\\audit_training_materials.py",
             "```",
             "",
-            "Готовые MP4, SRT, VTT и главы создаются в `output/video-series`. Редактируемые презентации, тексты диктора и JSON озвучки находятся в `docs/video-series`.",
+            "MP4 создаются без звуковой дорожки и готовы для записи живого голоса. SRT, VTT и главы находятся в `output/video-series`; PPTX и тексты диктора — в `docs/video-series`; PDF — в `output/pdf/video-series`.",
             "",
         )
     )
     OVERVIEW_PATH.write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_output_readme(entries: list[dict[str, object]]) -> None:
+    lines = [
+        "# Готовые видео Algo MAX",
+        "",
+        "В каталоге находятся восемь мастер-видео без звуковой дорожки. Они рассчитаны на запись живого голоса по готовым таймкодам.",
+        "",
+        "| № | Видео | Длительность | Материалы |",
+        "|---:|---|---:|---|",
+    ]
+    for entry in entries:
+        video_name = Path(str(entry["video"])).name
+        pdf_name = Path(str(entry["pdf"])).name
+        script_name = Path(str(entry["script"])).name
+        pptx_name = Path(str(entry["presentation"])).name
+        lines.append(
+            f"| {entry['order']} | [{entry['title']}]({video_name}) | {format_duration(int(entry['estimated_seconds']))} | "
+            f"[PDF](../pdf/video-series/{pdf_name}) · [PPTX](../../docs/video-series/{pptx_name}) · "
+            f"[текст диктора](../../docs/video-series/{script_name}) |"
+        )
+    lines.extend(
+        (
+            "",
+            "Для каждого MP4 рядом находятся SRT, VTT и файл глав. Полный итог проверки: `../../docs/QA_REPORT_RU.md`.",
+            "",
+        )
+    )
+    (VIDEO_OUTPUT_DIR / "README.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 def main() -> None:
@@ -1148,7 +1308,7 @@ def main() -> None:
             title="Algo MAX — подробный обзор продукта",
             kind="overview",
             purpose="Показать роли, данные и полный цикл от начисления до выдачи награды.",
-            target_duration="5–7 минут",
+            target_duration="6–8 минут",
             prs=detailed_prs,
             narration=detailed_narration,
         )
@@ -1176,7 +1336,8 @@ def main() -> None:
             {
                 "series": "Algo MAX",
                 "version": date.today().isoformat(),
-                "voice": "ru_RU-dmitri-medium",
+                "voice": "manual",
+                "audio_mode": "silent_master_for_human_voiceover",
                 "videos": entries,
             },
             ensure_ascii=False,
@@ -1185,12 +1346,14 @@ def main() -> None:
         encoding="utf-8",
     )
     write_overview(entries)
+    write_output_readme(entries)
 
     active_source_paths = {
         ROOT / str(entry[key])
         for entry in entries
         for key in (
             "presentation",
+            "pdf",
             "narration",
             "script",
             "video",

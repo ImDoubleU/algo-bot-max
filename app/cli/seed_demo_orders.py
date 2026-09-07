@@ -15,6 +15,7 @@ import app.db.base  # noqa: F401
 from app.db.session import AsyncSessionLocal
 from app.models.audit import AuditLog
 from app.models.enums import (
+    LedgerCategory,
     LedgerDirection,
     OrderStatus,
     ProductFulfillmentType,
@@ -490,6 +491,7 @@ async def seed_demo_orders(
                     actor_account_id=None,
                     idempotency_key=f"demo:{run_slug}:order:{index:03d}",
                     direction=LedgerDirection.DEBIT,
+                    category=LedgerCategory.PURCHASE.value,
                     amount=product.price_astrocoins,
                     reason=f"Покупка в магазине, заказ №{order_number}",
                     comment=marker,

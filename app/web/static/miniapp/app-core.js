@@ -27,10 +27,10 @@ const STAFF_ROLE_PRIORITY = Object.freeze([
 ]);
 
 const ROLE_VIEWS = Object.freeze({
-  student: ["dashboard", "store", "cart", "orders", "wallet", "help"],
-  parent: ["dashboard", "store", "cart", "orders", "wallet", "help"],
+  student: ["dashboard", "store", "cart", "orders", "wallet", "bank", "help"],
+  parent: ["dashboard", "store", "cart", "orders", "wallet", "bank", "help"],
   teacher: ["dashboard", "store", "orders", "wallet", "report", "accrual", "broadcasts", "help"],
-  admin: ["dashboard", "store", "orders", "wallet", "report", "accrual", "broadcasts", "admin", "help"],
+  admin: ["dashboard", "store", "orders", "wallet", "bank", "report", "accrual", "broadcasts", "admin", "help"],
 });
 
 const VIEW_META = Object.freeze({
@@ -39,6 +39,7 @@ const VIEW_META = Object.freeze({
   cart: { label: "Корзина", icon: "shopping-bag" },
   orders: { label: "Заказы", icon: "package-check" },
   wallet: { label: "История AC", icon: "wallet-cards" },
+  bank: { label: "Банк", icon: "landmark" },
   report: { label: "Отчет AC", icon: "file-chart-column" },
   accrual: { label: "Начисления", icon: "circle-plus" },
   broadcasts: { label: "Рассылки", icon: "megaphone" },
@@ -81,7 +82,7 @@ const state = {
   tenantSaving: false,
   tenantSearch: "",
   availableRoles: ["student", "parent", "teacher", "admin"],
-  view: ["dashboard", "store", "cart", "orders", "wallet", "report", "accrual", "broadcasts", "admin", "help"].includes(
+  view: ["dashboard", "store", "cart", "orders", "wallet", "bank", "report", "accrual", "broadcasts", "admin", "help"].includes(
     queryParam("view"),
   )
     ? queryParam("view")
@@ -196,6 +197,26 @@ const state = {
   studentLedgerById: new Map(),
   studentLedgerLoading: new Set(),
   studentLedgerErrors: new Map(),
+  studentLedgerFilterById: new Map(),
+  studentBankById: new Map(),
+  studentBankLoading: new Set(),
+  studentBankErrors: new Map(),
+  bankSummary: null,
+  bankLoadedStudentId: "",
+  bankLoading: false,
+  bankError: "",
+  bankMutationSaving: false,
+  bankRequestKeys: new Map(),
+  bankConfirmation: null,
+  bankConfirmationReturnFocus: null,
+  bankSettings: null,
+  bankReport: null,
+  bankManagementLoading: false,
+  bankManagementError: "",
+  bankRateSaving: false,
+  bankReportSearch: "",
+  bankReportGroupFilter: "all",
+  bankReportStatusFilter: "all",
   studentCreateOpen: false,
   studentMutationSaving: "",
   studentAccessPolicy: {
@@ -697,10 +718,11 @@ if (apiContext.demoMode) {
 }
 
 let ledger = [
-  ["16.06", "Начисление за проект на уроке", "+120 AC", "demo-alisa"],
-  ["14.06", "Покупка: ручка металл с лого", "-120 AC", "demo-alisa"],
-  ["12.06", "Бонус за домашнее задание", "+80 AC", "demo-ivan"],
-  ["10.06", "Корректировка администратора", "+40 AC", "demo-mark"],
+  ["16.06", "Начисление за проект на уроке", "+120 AC", "demo-alisa", "accrual"],
+  ["15.06", "Начисление процентов", "+18 AC", "demo-alisa", "bank"],
+  ["14.06", "Покупка: ручка металл с лого", "-120 AC", "demo-alisa", "purchase"],
+  ["12.06", "Бонус за домашнее задание", "+80 AC", "demo-ivan", "accrual"],
+  ["10.06", "Корректировка администратора", "+40 AC", "demo-mark", "accrual"],
 ];
 
 if (apiContext.demoMode) {
@@ -2062,9 +2084,17 @@ function orderStatusHistoryDetails(order) {
 function applySession(session) {
   if (!session || !Array.isArray(session.students)) return;
 
+  const previousTenantSlug = apiContext.tenantSlug;
   state.hasAccess = apiContext.demoMode || Boolean(session.has_access);
   state.accessMessage = session.access_message || "";
   apiContext.tenantSlug = session.tenant_slug || apiContext.tenantSlug;
+  if (
+    previousTenantSlug &&
+    apiContext.tenantSlug !== previousTenantSlug &&
+    typeof resetBankData === "function"
+  ) {
+    resetBankData();
+  }
   state.currentTenant = session.tenant || null;
   state.availableTenants = Array.isArray(session.available_tenants)
     ? session.available_tenants
@@ -2116,6 +2146,8 @@ function applySession(session) {
     state.studentLedgerById = new Map();
     state.studentLedgerLoading = new Set();
     state.studentLedgerErrors = new Map();
+    state.studentLedgerFilterById = new Map();
+    if (typeof resetBankData === "function") resetBankData();
     state.studentRegistrySearch = "";
     state.studentRegistryVisibleCount = STUDENT_REGISTRY_PAGE_SIZE;
     state.sessionLoaded = true;
@@ -2214,6 +2246,7 @@ function applySession(session) {
     entry.reason,
     ledgerAmount(entry),
     String(entry.student_id),
+    entry.category || "accrual",
   ]);
 
   const staffRole = staffRoleToUiRole(session.staff_roles || []);

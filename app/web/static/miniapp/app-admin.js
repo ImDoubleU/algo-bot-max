@@ -373,6 +373,7 @@ async function updateAdminStudentBalance(event) {
 }
 
 function studentLedgerDate(value) {
+  if (/^\d{2}\.\d{2}$/.test(String(value || ""))) return String(value);
   const formatted = formatRegistryDate(value);
   return formatted === "Не указана" ? String(value || "Дата не указана") : formatted;
 }
@@ -400,14 +401,32 @@ function studentLedgerMarkup(studentId) {
     return '<div class="student-ledger-state">Операции загрузятся после открытия карточки.</div>';
   }
   const entries = state.studentLedgerById.get(normalizedStudentId) || [];
-  if (!entries.length) {
-    return '<div class="student-ledger-state">Операций с астрокоинами пока нет.</div>';
-  }
+  const selectedFilter = state.studentLedgerFilterById.get(normalizedStudentId) || "all";
+  const filters = [
+    ["all", "Все"],
+    ["accrual", "Начисления"],
+    ["purchase", "Покупки"],
+    ["bank", "Банк"],
+  ];
+  const visibleEntries = selectedFilter === "all"
+    ? entries
+    : entries.filter((entry) => entry.category === selectedFilter);
   return `
+    <div class="student-ledger-filters" role="group" aria-label="Фильтр истории астрокоинов">
+      ${filters.map(([value, label]) => `
+        <button
+          class="student-ledger-filter ${selectedFilter === value ? "is-active" : ""}"
+          type="button"
+          data-student-ledger-filter="${value}"
+          data-student-id="${escapeHtml(normalizedStudentId)}"
+          aria-pressed="${selectedFilter === value}"
+        >${label}</button>
+      `).join("")}
+    </div>
     <div class="student-ledger-list">
-      ${entries.map((entry) => `
+      ${visibleEntries.length ? visibleEntries.map((entry) => `
         <article class="student-ledger-entry is-${entry.direction}">
-          <span class="student-ledger-sign" aria-hidden="true">${entry.direction === "debit" ? "−" : "+"}</span>
+          <span class="student-ledger-sign" aria-hidden="true">${entry.direction === "debit" ? "−" : entry.direction === "credit" ? "+" : "·"}</span>
           <span class="student-ledger-copy">
             <strong>${escapeHtml(entry.reason)}</strong>
             ${entry.comment ? `<span>${escapeHtml(entry.comment)}</span>` : ""}
@@ -415,7 +434,7 @@ function studentLedgerMarkup(studentId) {
           </span>
           <strong class="student-ledger-amount">${escapeHtml(entry.amountLabel)}</strong>
         </article>
-      `).join("")}
+      `).join("") : '<div class="student-ledger-state">Операций по выбранному фильтру пока нет.</div>'}
     </div>
   `;
 }
@@ -650,6 +669,17 @@ function renderStudentRegistry() {
                 <span><small>Связь с MAX</small><strong>${student.parentMaxUserIds.length ? "Подключено: " + student.parentMaxUserIds.length : "Ожидает входа"}</strong></span>
               </div>
               ${studentCardManagement(student)}
+              <section class="student-bank-history">
+                <div class="student-history-head">
+                  <h4>Банк</h4>
+                  <span>Остаток и параметры вклада</span>
+                </div>
+                <div data-student-bank-panel="${escapeHtml(student.id)}">
+                  ${typeof studentBankCardMarkup === "function"
+                    ? studentBankCardMarkup(student.id)
+                    : '<div class="student-ledger-state">Данные загрузятся после открытия карточки.</div>'}
+                </div>
+              </section>
               <section class="student-ledger-history">
                 <div class="student-history-head">
                   <h4>История астрокоинов</h4>
