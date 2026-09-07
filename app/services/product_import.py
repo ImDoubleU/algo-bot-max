@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import re
@@ -26,6 +27,7 @@ from app.services.crm_sync import slugify
 from app.services.product_media import (
     ProductMediaError,
     SavedProductImage,
+    create_remote_product_image_client,
     remove_product_image,
     save_remote_product_image,
 )
@@ -87,6 +89,7 @@ PRODUCT_TEMPLATE_COLUMNS = (
     "Описание",
     "Ссылка на фото",
 )
+MAX_CONCURRENT_PRODUCT_IMAGE_DOWNLOADS = 8
 
 
 class ProductImportError(RuntimeError):
@@ -310,36 +313,73 @@ async def localize_product_import_photos(
     media_root: str,
     media_base_url: str,
 ) -> tuple[list[ProductImportRow], list[SavedProductImage]]:
-    localized_rows: list[ProductImportRow] = []
     saved_images: list[SavedProductImage] = []
     localized_urls: dict[tuple[str, str], str] = {}
     base_url = media_base_url.rstrip("/")
+    jobs: dict[tuple[str, str], ProductImportRow] = {}
+    for row in rows:
+        if not row.photo_url:
+            continue
+        product_key = row.sku or f"{row.category_slug}:{row.name.casefold()}"
+        jobs.setdefault((product_key, row.photo_url), row)
 
-    try:
-        for row in rows:
-            if not row.photo_url:
-                localized_rows.append(row)
-                continue
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_PRODUCT_IMAGE_DOWNLOADS)
 
-            product_key = row.sku or f"{row.category_slug}:{row.name.casefold()}"
-            cache_key = (product_key, row.photo_url)
-            local_url = localized_urls.get(cache_key)
-            if local_url is None:
-                saved_image = await save_remote_product_image(
-                    row.photo_url,
+    async def download(
+        cache_key: tuple[str, str],
+        row: ProductImportRow,
+        *,
+        client,
+    ) -> tuple[tuple[str, str], ProductImportRow, SavedProductImage | None, Exception | None]:
+        try:
+            async with semaphore:
+                image = await save_remote_product_image(
+                    row.photo_url or "",
                     media_root=media_root,
+                    client=client,
                 )
-                saved_images.append(saved_image)
-                local_url = f"{base_url}{saved_image.url_path}"
-                localized_urls[cache_key] = local_url
-            localized_rows.append(replace(row, photo_url=local_url))
-    except ProductMediaError as exc:
-        for saved_image in saved_images:
-            await remove_product_image(saved_image)
-        raise ProductImportError(
-            f"Строка {row.row_number}: не удалось загрузить фото: {exc}"
-        ) from exc
+            return cache_key, row, image, None
+        except Exception as exc:
+            return cache_key, row, None, exc
 
+    if jobs:
+        async with create_remote_product_image_client() as client:
+            outcomes = await asyncio.gather(
+                *(
+                    download(cache_key, row, client=client)
+                    for cache_key, row in jobs.items()
+                )
+            )
+
+        failures: list[tuple[ProductImportRow, Exception]] = []
+        for cache_key, row, saved_image, error in outcomes:
+            if error is not None:
+                failures.append((row, error))
+                continue
+            if saved_image is None:
+                failures.append((row, ProductMediaError("Файл изображения не сохранен")))
+                continue
+            saved_images.append(saved_image)
+            localized_urls[cache_key] = f"{base_url}{saved_image.url_path}"
+
+        if failures:
+            await asyncio.gather(*(remove_product_image(image) for image in saved_images))
+            failed_row, error = failures[0]
+            if isinstance(error, ProductMediaError):
+                raise ProductImportError(
+                    f"Строка {failed_row.row_number}: не удалось загрузить фото: {error}"
+                ) from error
+            raise error
+
+    localized_rows: list[ProductImportRow] = []
+    for row in rows:
+        if not row.photo_url:
+            localized_rows.append(row)
+            continue
+        product_key = row.sku or f"{row.category_slug}:{row.name.casefold()}"
+        localized_rows.append(
+            replace(row, photo_url=localized_urls[(product_key, row.photo_url)])
+        )
     return localized_rows, saved_images
 
 

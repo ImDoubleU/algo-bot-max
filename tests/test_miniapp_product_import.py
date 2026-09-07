@@ -1,3 +1,4 @@
+import asyncio
 import io
 
 import pytest
@@ -21,6 +22,7 @@ from app.services.miniapp import import_miniapp_products
 from app.services.product_import import (
     ProductImportError,
     build_product_import_template,
+    localize_product_import_photos,
     parse_product_rows,
 )
 from app.services.product_media import SavedProductImage
@@ -64,8 +66,32 @@ async def seed_admin(db_session) -> None:
     await db_session.commit()
 
 
-async def test_admin_imports_products_from_miniapp_csv(db_session, tmp_path) -> None:
+async def test_admin_imports_products_from_miniapp_csv(
+    db_session,
+    tmp_path,
+    monkeypatch,
+) -> None:
     await seed_admin(db_session)
+    import_notifications: list[int] = []
+
+    async def fake_import_notification(*args, products_count: int, **kwargs) -> None:
+        import_notifications.append(products_count)
+
+    async def unexpected_item_notification(*args, **kwargs) -> None:
+        raise AssertionError("Массовый импорт не должен отправлять уведомление на каждый товар")
+
+    monkeypatch.setattr(
+        "app.services.miniapp.schedule_product_import_notification",
+        fake_import_notification,
+    )
+    monkeypatch.setattr(
+        "app.services.miniapp.schedule_new_product_notification",
+        unexpected_item_notification,
+    )
+    monkeypatch.setattr(
+        "app.services.miniapp.schedule_low_stock_notification",
+        unexpected_item_notification,
+    )
     content = (
         "sku,name,category,price_astrocoins,quantity,warehouse\n"
         "PEN-LOGO,Ручка металл с лого,Канцелярия,120,18,Союзный 45\n"
@@ -85,6 +111,7 @@ async def test_admin_imports_products_from_miniapp_csv(db_session, tmp_path) -> 
     assert result.created_categories == 1
     assert result.created_warehouses == 1
     assert result.updated_inventory == 1
+    assert import_notifications == [1]
 
     product = await db_session.scalar(select(Product).where(Product.sku == "PEN-LOGO"))
     category = await db_session.scalar(select(ProductCategory))
@@ -285,6 +312,7 @@ async def test_admin_imports_public_product_photo_url(
         value: str,
         *,
         media_root: str,
+        client=None,
     ) -> SavedProductImage:
         assert value == photo_url
         assert media_root == str(tmp_path)
@@ -317,6 +345,64 @@ async def test_admin_imports_public_product_photo_url(
     assert product is not None
     assert product.photo_url == "https://algo.test/media/products/imported.png"
     assert saved_path.exists()
+
+
+async def test_product_import_downloads_remote_images_concurrently(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    image_count = 12
+    csv_rows = "\n".join(
+        f"PHOTO-{index},Фото {index},100,1,Склад,https://cdn.example.org/{index}.png"
+        for index in range(1, image_count + 1)
+    )
+    rows = parse_product_rows(
+        "products.csv",
+        (
+            "sku,name,price,quantity,warehouse,photo_url\n"
+            f"{csv_rows}\n"
+        ).encode(),
+    )
+    active_downloads = 0
+    peak_downloads = 0
+    client_ids: set[int] = set()
+
+    async def fake_save_remote_product_image(
+        value: str,
+        *,
+        media_root: str,
+        client=None,
+    ) -> SavedProductImage:
+        nonlocal active_downloads, peak_downloads
+        assert media_root == str(tmp_path)
+        assert client is not None
+        client_ids.add(id(client))
+        active_downloads += 1
+        peak_downloads = max(peak_downloads, active_downloads)
+        await asyncio.sleep(0.02)
+        active_downloads -= 1
+        filename = value.rsplit("/", 1)[-1]
+        return SavedProductImage(
+            path=tmp_path / filename,
+            url_path=f"/media/products/{filename}",
+        )
+
+    monkeypatch.setattr(
+        "app.services.product_import.save_remote_product_image",
+        fake_save_remote_product_image,
+    )
+
+    localized, saved = await localize_product_import_photos(
+        rows,
+        media_root=str(tmp_path),
+        media_base_url="https://algo.test",
+    )
+
+    assert peak_downloads == 8
+    assert len(client_ids) == 1
+    assert len(saved) == image_count
+    assert localized[0].photo_url == "https://algo.test/media/products/1.png"
+    assert localized[-1].photo_url == "https://algo.test/media/products/12.png"
 
 
 async def test_admin_imports_product_without_sku_from_template(db_session, tmp_path) -> None:

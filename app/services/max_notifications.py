@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import select
@@ -418,6 +419,37 @@ async def schedule_new_product_notification(
     )
 
 
+async def schedule_product_import_notification(
+    db: AsyncSession,
+    *,
+    tenant: Tenant,
+    products_count: int,
+) -> None:
+    settings = get_settings()
+    if (
+        products_count < 1
+        or not settings.max_order_notifications_enabled
+        or is_placeholder(settings.max_bot_token)
+    ):
+        return
+    try:
+        user_ids = await _tenant_customer_user_ids(db, tenant_id=UUID(str(tenant.id)))
+    except Exception as exc:
+        logger.warning("Не удалось определить получателей уведомления об импорте: %s", exc)
+        return
+    _schedule_direct_notification(
+        user_ids=user_ids,
+        tenant_slug=tenant.slug,
+        text=_notification_text(
+            "Каталог магазина обновлен",
+            message="В магазине появились новые товары.",
+            facts=[("Добавлено товаров", str(products_count))],
+        ),
+        view="store",
+        button_label="Открыть магазин",
+    )
+
+
 async def schedule_low_stock_notification(
     db: AsyncSession,
     *,
@@ -526,3 +558,116 @@ def _log_notification_task_error(task: asyncio.Task[None]) -> None:
     error = task.exception()
     if error is not None:
         logger.warning("Ошибка фоновой отправки MAX-уведомления: %s", error)
+
+
+async def _bank_recipient_user_ids(
+    db: AsyncSession,
+    *,
+    tenant: Tenant,
+    students: list[Student],
+) -> set[int]:
+    user_ids: set[int] = set()
+    for student in students:
+        user_ids.update(await _recipient_user_ids(db, tenant=tenant, student=student))
+    return user_ids
+
+
+def _rate_label(rate_bps: int) -> str:
+    return f"{rate_bps // 100},{rate_bps % 100:02d}% годовых"
+
+
+async def schedule_bank_top_up_notification(
+    db: AsyncSession,
+    *,
+    tenant: Tenant,
+    student: Student,
+    amount: int,
+    personal_balance: int,
+    bank_balance: int,
+    maturity_on: date,
+) -> None:
+    settings = get_settings()
+    if not settings.max_order_notifications_enabled or is_placeholder(settings.max_bot_token):
+        return
+    user_ids = await _bank_recipient_user_ids(db, tenant=tenant, students=[student])
+    _schedule_direct_notification(
+        user_ids=user_ids,
+        tenant_slug=tenant.slug,
+        text=_notification_text(
+            "Вклад пополнен",
+            message="Пополнение начнет приносить доход со следующего дня.",
+            facts=[
+                ("Ученик", student.display_name),
+                ("Пополнение", f"{amount} AC"),
+                ("Личный счет", f"{personal_balance} AC"),
+                ("В банке", f"{bank_balance} AC"),
+                ("Срок", maturity_on.strftime("%d.%m.%Y")),
+            ],
+        ),
+        view="bank",
+        button_label="Открыть банк",
+    )
+
+
+async def schedule_bank_rate_change_notification(
+    db: AsyncSession,
+    *,
+    tenant: Tenant,
+    students: list[Student],
+    old_rate_bps: int,
+    new_rate_bps: int,
+    effective_on: date,
+) -> None:
+    settings = get_settings()
+    if (
+        not students
+        or not settings.max_order_notifications_enabled
+        or is_placeholder(settings.max_bot_token)
+    ):
+        return
+    user_ids = await _bank_recipient_user_ids(db, tenant=tenant, students=students)
+    _schedule_direct_notification(
+        user_ids=user_ids,
+        tenant_slug=tenant.slug,
+        text=_notification_text(
+            "Изменилась ставка по вкладу",
+            facts=[
+                ("Было", _rate_label(old_rate_bps)),
+                ("Стало", _rate_label(new_rate_bps)),
+                ("Действует с", effective_on.strftime("%d.%m.%Y")),
+            ],
+        ),
+        view="bank",
+        button_label="Открыть банк",
+    )
+
+
+async def schedule_bank_early_close_notification(
+    db: AsyncSession,
+    *,
+    tenant: Tenant,
+    student: Student,
+    returned_principal: int,
+    forfeited_interest: int,
+    personal_balance: int,
+) -> None:
+    settings = get_settings()
+    if not settings.max_order_notifications_enabled or is_placeholder(settings.max_bot_token):
+        return
+    user_ids = await _bank_recipient_user_ids(db, tenant=tenant, students=[student])
+    _schedule_direct_notification(
+        user_ids=user_ids,
+        tenant_slug=tenant.slug,
+        text=_notification_text(
+            "Вклад закрыт досрочно",
+            message="Непричисленный доход не выплачен.",
+            facts=[
+                ("Ученик", student.display_name),
+                ("Возвращено", f"{returned_principal} AC"),
+                ("Аннулировано процентов", f"{forfeited_interest} AC"),
+                ("Личный счет", f"{personal_balance} AC"),
+            ],
+        ),
+        view="bank",
+        button_label="Открыть банк",
+    )

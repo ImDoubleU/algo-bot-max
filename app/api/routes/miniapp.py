@@ -47,6 +47,15 @@ from app.schemas.miniapp import (
     MiniAppAccrualRulesUpdate,
     MiniAppAccrualUndoCreate,
     MiniAppAdminHistoryRead,
+    MiniAppBankDepositEarlyClose,
+    MiniAppBankDepositOpen,
+    MiniAppBankDepositPreview,
+    MiniAppBankDepositPreviewRead,
+    MiniAppBankDepositTopUp,
+    MiniAppBankReportRead,
+    MiniAppBankSettingsRead,
+    MiniAppBankSettingsUpdate,
+    MiniAppBankSummaryRead,
     MiniAppCartRead,
     MiniAppCartWrite,
     MiniAppCatalogRead,
@@ -94,6 +103,17 @@ from app.schemas.miniapp import (
     MiniAppWarehousePreferenceUpdate,
     MiniAppWarehouseRead,
     MiniAppWarehouseUpsert,
+)
+from app.services.bank import (
+    BankServiceError,
+    early_close_bank_deposit,
+    get_bank_report,
+    get_bank_settings,
+    get_bank_summary,
+    open_bank_deposit,
+    preview_bank_deposit,
+    top_up_bank_deposit,
+    update_bank_settings,
 )
 from app.services.broadcasts import (
     BroadcastServiceError,
@@ -509,6 +529,227 @@ async def miniapp_student_ledger(
             limit=limit,
         )
     except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/bank", response_model=MiniAppBankSummaryRead)
+async def miniapp_bank_summary(
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    student_id: UUID,
+    tenant_slug: str | None = None,
+    history_limit: Annotated[int, Query(ge=1, le=200)] = 100,
+) -> MiniAppBankSummaryRead:
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        return await get_bank_summary(
+            db,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+            student_id=student_id,
+            history_limit=history_limit,
+        )
+    except BankServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get(
+    "/students/{student_id}/bank",
+    response_model=MiniAppBankSummaryRead,
+)
+async def miniapp_student_bank_summary(
+    student_id: UUID,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: str | None = None,
+    history_limit: Annotated[int, Query(ge=1, le=200)] = 100,
+) -> MiniAppBankSummaryRead:
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        return await get_bank_summary(
+            db,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+            student_id=student_id,
+            history_limit=history_limit,
+        )
+    except BankServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post(
+    "/bank/deposits/preview",
+    response_model=MiniAppBankDepositPreviewRead,
+)
+async def miniapp_bank_deposit_preview(
+    payload: MiniAppBankDepositPreview,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppBankDepositPreviewRead:
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await preview_bank_deposit(
+            db,
+            payload=payload,
+            tenant_slug=resolved_tenant,
+        )
+    except BankServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post(
+    "/bank/deposits",
+    response_model=MiniAppBankSummaryRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def miniapp_bank_deposit_open(
+    payload: MiniAppBankDepositOpen,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppBankSummaryRead:
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await open_bank_deposit(
+            db,
+            payload=payload,
+            tenant_slug=resolved_tenant,
+        )
+    except BankServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post(
+    "/bank/deposits/{deposit_id}/top-ups",
+    response_model=MiniAppBankSummaryRead,
+)
+async def miniapp_bank_deposit_top_up(
+    deposit_id: UUID,
+    payload: MiniAppBankDepositTopUp,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppBankSummaryRead:
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await top_up_bank_deposit(
+            db,
+            deposit_id=deposit_id,
+            payload=payload,
+            tenant_slug=resolved_tenant,
+        )
+    except BankServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post(
+    "/bank/deposits/{deposit_id}/early-close",
+    response_model=MiniAppBankSummaryRead,
+)
+async def miniapp_bank_deposit_early_close(
+    deposit_id: UUID,
+    payload: MiniAppBankDepositEarlyClose,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppBankSummaryRead:
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await early_close_bank_deposit(
+            db,
+            deposit_id=deposit_id,
+            payload=payload,
+            tenant_slug=resolved_tenant,
+        )
+    except BankServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/bank/settings", response_model=MiniAppBankSettingsRead)
+async def miniapp_bank_settings(
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: str | None = None,
+) -> MiniAppBankSettingsRead:
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        return await get_bank_settings(
+            db,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+        )
+    except BankServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.put("/bank/settings", response_model=MiniAppBankSettingsRead)
+async def miniapp_bank_settings_update(
+    payload: MiniAppBankSettingsUpdate,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> MiniAppBankSettingsRead:
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=payload.max_user_id,
+        tenant_slug=payload.tenant_slug,
+    )
+    try:
+        return await update_bank_settings(
+            db,
+            payload=payload,
+            tenant_slug=resolved_tenant,
+        )
+    except BankServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/bank/report", response_model=MiniAppBankReportRead)
+async def miniapp_bank_report(
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)],
+    tenant_slug: str | None = None,
+) -> MiniAppBankReportRead:
+    resolved_tenant = _authorized_tenant_slug(
+        identity,
+        max_user_id=max_user_id,
+        tenant_slug=tenant_slug,
+    )
+    try:
+        return await get_bank_report(
+            db,
+            max_user_id=max_user_id,
+            tenant_slug=resolved_tenant,
+        )
+    except BankServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 

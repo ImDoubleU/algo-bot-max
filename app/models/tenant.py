@@ -1,7 +1,16 @@
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import JSON, Boolean, Date, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    Date,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, uuid_pk
@@ -30,7 +39,13 @@ class Partner(TimestampMixin, Base):
 
 class Tenant(TimestampMixin, Base):
     __tablename__ = "tenants"
-    __table_args__ = (UniqueConstraint("city_id", "partner_id", name="uq_tenants_city_partner"),)
+    __table_args__ = (
+        UniqueConstraint("city_id", "partner_id", name="uq_tenants_city_partner"),
+        CheckConstraint(
+            "bank_annual_rate_bps >= 0 AND bank_annual_rate_bps <= 10000",
+            name="bank_rate_range",
+        ),
+    )
 
     id: Mapped[UUID] = uuid_pk()
     city_id: Mapped[UUID] = mapped_column(ForeignKey("cities.id"), index=True, nullable=False)
@@ -42,6 +57,7 @@ class Tenant(TimestampMixin, Base):
     access_freeze_from: Mapped[date | None] = mapped_column(Date)
     access_freeze_until: Mapped[date | None] = mapped_column(Date)
     birthday_reward_amount: Mapped[int] = mapped_column(Integer, default=50, nullable=False)
+    bank_annual_rate_bps: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     city = relationship("City", back_populates="tenants")
     partner = relationship("Partner", back_populates="tenants")
@@ -59,6 +75,12 @@ class Tenant(TimestampMixin, Base):
         back_populates="tenant",
         cascade="all, delete-orphan",
     )
+    bank_rate_history = relationship(
+        "BankRateHistory",
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+    )
+    bank_deposits = relationship("BankDeposit", back_populates="tenant")
 
 
 class AstrocoinAccrualRule(TimestampMixin, Base):

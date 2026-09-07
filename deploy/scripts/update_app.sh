@@ -33,11 +33,14 @@ install -m 0644 deploy/systemd/algo-max-backup.service /etc/systemd/system/algo-
 install -m 0644 deploy/systemd/algo-max-backup.timer /etc/systemd/system/algo-max-backup.timer
 install -m 0644 deploy/systemd/algo-max-birthday.service /etc/systemd/system/algo-max-birthday.service
 install -m 0644 deploy/systemd/algo-max-birthday.timer /etc/systemd/system/algo-max-birthday.timer
+install -m 0644 deploy/systemd/algo-max-bank.service /etc/systemd/system/algo-max-bank.service
+install -m 0644 deploy/systemd/algo-max-bank.timer /etc/systemd/system/algo-max-bank.timer
 install -m 0755 deploy/scripts/backup_postgres.sh /usr/local/sbin/algo-max-backup
 systemctl disable --now algo-max-feedback.service 2>/dev/null || true
 systemctl daemon-reload
 sudo --preserve-env -u algomax env HOME=/home/algomax "$project_dir/.venv/bin/python" -m alembic upgrade head
 systemctl enable --now algo-max-birthday.timer
+systemctl enable --now algo-max-bank.timer
 sudo --preserve-env -u algomax env HOME=/home/algomax "$project_dir/.venv/bin/python" -m app.cli.doctor --production
 systemctl restart algo-max-api
 sleep 2

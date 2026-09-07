@@ -17,8 +17,11 @@ from app.models.account import (
     StaffWarehousePreference,
 )
 from app.models.audit import AuditLog
+from app.models.bank import BankOperation
 from app.models.enums import (
     AssignmentStatus,
+    BankOperationType,
+    LedgerCategory,
     LedgerDirection,
     OrderStatus,
     ProductCodeStatus,
@@ -134,6 +137,7 @@ from app.schemas.miniapp import (
     MiniAppWarehouseUpsert,
 )
 from app.services.access import normalize_student_code, revoke_dependent_student_links
+from app.services.bank import bank_local_date, close_bank_deposit_for_inactive_student
 from app.services.birthday_rewards import (
     BIRTHDAY_GIFT_DEFAULT_AMOUNT,
     BIRTHDAY_GIFT_REASON,
@@ -159,6 +163,7 @@ from app.services.max_notifications import (
     schedule_low_stock_notification,
     schedule_new_product_notification,
     schedule_order_notification,
+    schedule_product_import_notification,
     schedule_staff_notification,
     schedule_staff_order_notification,
     schedule_teacher_order_transfer_notification,
@@ -1148,15 +1153,11 @@ async def import_miniapp_products(
 
     for photo_url in set(result.obsolete_photo_urls):
         await remove_product_image_url(photo_url, media_root=media_root)
-    for product in result.new_active_products:
-        await schedule_new_product_notification(db, tenant=tenant, product=product)
-    for product, inventory in result.low_stock_items:
-        await schedule_low_stock_notification(
-            db,
-            tenant=tenant,
-            product=product,
-            inventory=inventory,
-        )
+    await schedule_product_import_notification(
+        db,
+        tenant=tenant,
+        products_count=len(result.new_active_products),
+    )
 
     return MiniAppProductImportRead(
         tenant_slug=result.tenant_slug,
@@ -1704,22 +1705,26 @@ async def list_miniapp_student_ledger(
             raise MiniAppStoreError("Нет доступа к ученику другой группы", status_code=403)
         raise MiniAppStoreError("Нет доступа к выбранному ученику", status_code=403)
 
-    entries = (
-        await db.scalars(
-            select(AstrocoinLedgerEntry)
-            .where(
-                AstrocoinLedgerEntry.tenant_id == tenant.id,
-                AstrocoinLedgerEntry.student_id == student.id,
+    entries = list(
+        (
+            await db.scalars(
+                select(AstrocoinLedgerEntry)
+                .where(
+                    AstrocoinLedgerEntry.tenant_id == tenant.id,
+                    AstrocoinLedgerEntry.student_id == student.id,
+                )
+                .order_by(AstrocoinLedgerEntry.created_at.desc())
+                .limit(limit)
             )
-            .order_by(AstrocoinLedgerEntry.created_at.desc())
-            .limit(limit)
-        )
-    ).all()
-    return [
+        ).all()
+    )
+    result = [
         MiniAppLedgerRead(
             id=UUID(str(entry.id)),
             student_id=UUID(str(entry.student_id)),
             direction=entry.direction,
+            category=LedgerCategory(entry.category),
+            entry_type=None,
             amount=entry.amount,
             reason=entry.reason,
             comment=entry.comment,
@@ -1727,6 +1732,48 @@ async def list_miniapp_student_ledger(
         )
         for entry in entries
     ]
+    bank_only_operations = list(
+        (
+            await db.scalars(
+                select(BankOperation)
+                .where(
+                    BankOperation.tenant_id == tenant.id,
+                    BankOperation.student_id == student.id,
+                    BankOperation.operation_type.in_(
+                        {
+                            BankOperationType.INTEREST_CAPITALIZED.value,
+                            BankOperationType.RATE_CHANGED.value,
+                        }
+                    ),
+                )
+                .order_by(BankOperation.created_at.desc())
+                .limit(limit)
+            )
+        ).all()
+    )
+    for operation in bank_only_operations:
+        operation_type = BankOperationType(operation.operation_type)
+        is_interest = operation_type == BankOperationType.INTEREST_CAPITALIZED
+        result.append(
+            MiniAppLedgerRead(
+                id=UUID(str(operation.id)),
+                student_id=UUID(str(operation.student_id)),
+                direction=LedgerDirection.CREDIT if is_interest else None,
+                category=LedgerCategory.BANK,
+                entry_type=operation.operation_type,
+                correlation_key=operation.correlation_key,
+                amount=operation.amount,
+                reason=(
+                    "Начисление процентов"
+                    if is_interest
+                    else "Изменение процентной ставки"
+                ),
+                comment=operation.comment,
+                created_at=operation.created_at,
+            )
+        )
+    result.sort(key=lambda entry: entry.created_at, reverse=True)
+    return result[:limit]
 
 
 def _clean_student_field(value: str | None) -> str | None:
@@ -1891,6 +1938,7 @@ async def create_miniapp_student(
                 actor_account_id=account.id,
                 idempotency_key=f"student_initial_balance:{student.id}",
                 direction=LedgerDirection.CREDIT,
+                category=LedgerCategory.ACCRUAL.value,
                 amount=payload.initial_balance,
                 reason="Начальный баланс",
                 comment="Указан при создании ученика",
@@ -2114,6 +2162,14 @@ async def update_miniapp_student_status(
             },
         )
     )
+    if previous_status == StudentStatus.ACTIVE and payload.status != StudentStatus.ACTIVE:
+        await close_bank_deposit_for_inactive_student(
+            db,
+            tenant=tenant,
+            student=student,
+            closed_on=bank_local_date(now),
+            close_reason=f"student_{payload.status.value}",
+        )
     await db.commit()
     return await list_miniapp_student_registry(
         db,
@@ -2166,6 +2222,7 @@ async def set_miniapp_student_balance(
             actor_account_id=account.id,
             idempotency_key=f"manual_balance:{student.id}:{uuid4()}",
             direction=LedgerDirection.CREDIT if delta > 0 else LedgerDirection.DEBIT,
+            category=LedgerCategory.ACCRUAL.value,
             amount=abs(delta),
             reason=reason,
             comment=(
@@ -4192,6 +4249,7 @@ async def create_miniapp_order(
             actor_account_id=account.id,
             idempotency_key=f"order:{order.id}:debit",
             direction=LedgerDirection.DEBIT,
+            category=LedgerCategory.PURCHASE.value,
             amount=total_astrocoins,
             reason=f"Покупка в магазине, заказ №{order_number}",
             comment=payload.comment,
@@ -4937,6 +4995,7 @@ async def cancel_miniapp_order(
             actor_account_id=account.id,
             idempotency_key=f"order:{order.id}:refund",
             direction=LedgerDirection.REVERSAL,
+            category=LedgerCategory.PURCHASE.value,
             amount=order.total_astrocoins,
             reason=f"Возврат за отмену заказа №{order.order_number}",
             comment=cancellation_reason,
@@ -5365,6 +5424,7 @@ async def accrue_miniapp_astrocoins(
                     else f"miniapp_accrual:{wallet.id}:{uuid4()}"
                 ),
                 direction=LedgerDirection.CREDIT,
+                category=LedgerCategory.ACCRUAL.value,
                 amount=payload.amount,
                 reason=payload.reason,
                 comment=payload.comment,
@@ -5493,6 +5553,7 @@ async def undo_miniapp_astrocoins(
                 actor_account_id=account.id,
                 idempotency_key=f"{undo_prefix}{credit.student_id}",
                 direction=LedgerDirection.DEBIT,
+                category=LedgerCategory.ACCRUAL.value,
                 amount=credit.amount,
                 reason=f"Отмена: {credit.reason}"[:240],
                 comment="Быстрая отмена начисления",
@@ -5570,6 +5631,7 @@ async def get_miniapp_accrual_report(
             .where(
                 AstrocoinLedgerEntry.tenant_id == tenant.id,
                 AstrocoinLedgerEntry.direction == LedgerDirection.CREDIT,
+                AstrocoinLedgerEntry.category == LedgerCategory.ACCRUAL.value,
                 AstrocoinLedgerEntry.created_at >= started_at,
                 AstrocoinLedgerEntry.created_at < ended_at,
             )
@@ -7469,11 +7531,13 @@ async def _ledger_for_students(
             .limit(50)
         )
     ).all()
-    return [
+    result = [
         MiniAppLedgerRead(
             id=UUID(str(entry.id)),
             student_id=UUID(str(entry.student_id)),
             direction=entry.direction,
+            category=LedgerCategory(entry.category),
+            entry_type=None,
             amount=entry.amount,
             reason=entry.reason,
             comment=entry.comment,
@@ -7481,3 +7545,45 @@ async def _ledger_for_students(
         )
         for entry in entries
     ]
+    bank_only_operations = list(
+        (
+            await db.scalars(
+                select(BankOperation)
+                .where(
+                    BankOperation.tenant_id == tenant_id,
+                    BankOperation.student_id.in_(student_ids),
+                    BankOperation.operation_type.in_(
+                        {
+                            BankOperationType.INTEREST_CAPITALIZED.value,
+                            BankOperationType.RATE_CHANGED.value,
+                        }
+                    ),
+                )
+                .order_by(BankOperation.created_at.desc())
+                .limit(50)
+            )
+        ).all()
+    )
+    for operation in bank_only_operations:
+        operation_type = BankOperationType(operation.operation_type)
+        is_interest = operation_type == BankOperationType.INTEREST_CAPITALIZED
+        result.append(
+            MiniAppLedgerRead(
+                id=UUID(str(operation.id)),
+                student_id=UUID(str(operation.student_id)),
+                direction=LedgerDirection.CREDIT if is_interest else None,
+                category=LedgerCategory.BANK,
+                entry_type=operation.operation_type,
+                correlation_key=operation.correlation_key,
+                amount=operation.amount,
+                reason=(
+                    "Начисление процентов"
+                    if is_interest
+                    else "Изменение процентной ставки"
+                ),
+                comment=operation.comment,
+                created_at=operation.created_at,
+            )
+        )
+    result.sort(key=lambda entry: entry.created_at, reverse=True)
+    return result[:50]

@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit import AuditLog
-from app.models.enums import LedgerDirection, StudentStatus
+from app.models.enums import LedgerCategory, LedgerDirection, StudentStatus
 from app.models.student import AstrocoinLedgerEntry, Student, Wallet
 from app.models.tenant import Tenant
 from app.services.crm_sync import ensure_wallet
@@ -117,6 +117,7 @@ async def grant_birthday_rewards(
                         student_id=student.id,
                         idempotency_key=key,
                         direction=LedgerDirection.CREDIT,
+                        category=LedgerCategory.ACCRUAL.value,
                         amount=reward_amount,
                         reason=BIRTHDAY_GIFT_REASON,
                         comment=f"Подарок за {reward_date.year} год",

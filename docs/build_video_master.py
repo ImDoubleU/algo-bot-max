@@ -321,7 +321,26 @@ def verify_video_frame(ffmpeg: Path, video_path: Path) -> None:
         raise RuntimeError(f"Master contains no decodable video frame:\n{details}")
 
 
-def build_master(video_id: str, manifest_path: Path, ffmpeg: Path) -> dict[str, object]:
+def silent_tracks(narration: list[dict[str, object]]) -> list[dict[str, object]]:
+    tracks: list[dict[str, object]] = []
+    for item in narration:
+        duration = max(float(item.get("duration_seconds", 0.0)), 1.0)
+        tracks.append(
+            {
+                "AudioSeconds": max(duration - 0.8, 0.4),
+                "Duration": duration,
+            }
+        )
+    return tracks
+
+
+def build_master(
+    video_id: str,
+    manifest_path: Path,
+    ffmpeg: Path,
+    *,
+    silent: bool = False,
+) -> dict[str, object]:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     try:
         entry = next(item for item in manifest["videos"] if item["id"] == video_id)
@@ -331,7 +350,11 @@ def build_master(video_id: str, manifest_path: Path, ffmpeg: Path) -> dict[str, 
     narration = json.loads(project_path(str(entry["narration"])).read_text(encoding="utf-8"))
     slide_dir = ROOT / "output" / "video-series" / "slides" / video_id
     audio_dir = ROOT / "output" / "video-series" / "audio" / video_id
-    tracks = json.loads((audio_dir / "piper-manifest.json").read_text(encoding="utf-8"))
+    tracks = (
+        silent_tracks(narration)
+        if silent
+        else json.loads((audio_dir / "piper-manifest.json").read_text(encoding="utf-8"))
+    )
     slides = numeric_files(slide_dir, ".png")
     if len(slides) != len(narration) or len(tracks) != len(narration):
         raise ValueError(
@@ -349,11 +372,16 @@ def build_master(video_id: str, manifest_path: Path, ffmpeg: Path) -> dict[str, 
     visual_concat = work_dir / "visual.ffconcat"
     chapter_metadata = work_dir / "chapters.ffmetadata"
 
-    total_seconds, durations = write_audio_master(tracks, audio_master)
+    if silent:
+        durations = [float(item["Duration"]) for item in tracks]
+        total_seconds = sum(durations)
+    else:
+        total_seconds, durations = write_audio_master(tracks, audio_master)
     write_visual_concat(slides, durations, visual_concat)
     write_subtitles(narration, tracks, srt_path, vtt_path)
     write_chapters(narration, durations, chapters_path, chapter_metadata)
-    normalize_audio(ffmpeg, audio_master, normalized_audio)
+    if not silent:
+        normalize_audio(ffmpeg, audio_master, normalized_audio)
     visual_filter = "scale=1920:1080:flags=lanczos,fps=25,format=yuv420p"
     if entry["kind"] == "overview":
         visual_filter = (
@@ -374,24 +402,51 @@ def build_master(video_id: str, manifest_path: Path, ffmpeg: Path) -> dict[str, 
         "0",
         "-i",
         str(visual_concat),
-        "-i",
-        str(normalized_audio),
-        "-i",
-        str(srt_path),
-        "-f",
-        "ffmetadata",
-        "-i",
-        str(chapter_metadata),
-        "-map",
-        "0:v:0",
-        "-map",
-        "1:a:0",
-        "-map",
-        "2:0",
-        "-map_metadata",
-        "3",
-        "-map_chapters",
-        "3",
+    ]
+    if silent:
+        command.extend(
+            [
+                "-i",
+                str(srt_path),
+                "-f",
+                "ffmetadata",
+                "-i",
+                str(chapter_metadata),
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:0",
+                "-map_metadata",
+                "2",
+                "-map_chapters",
+                "2",
+            ]
+        )
+    else:
+        command.extend(
+            [
+                "-i",
+                str(normalized_audio),
+                "-i",
+                str(srt_path),
+                "-f",
+                "ffmetadata",
+                "-i",
+                str(chapter_metadata),
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0",
+                "-map",
+                "2:0",
+                "-map_metadata",
+                "3",
+                "-map_chapters",
+                "3",
+            ]
+        )
+    command.extend(
+        [
         "-vf",
         visual_filter,
         "-t",
@@ -406,14 +461,23 @@ def build_master(video_id: str, manifest_path: Path, ffmpeg: Path) -> dict[str, 
         "25",
         "-fps_mode",
         "cfr",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        "-ac",
-        "1",
-        "-ar",
-        "48000",
+        ]
+    )
+    if not silent:
+        command.extend(
+            [
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-ac",
+                "1",
+                "-ar",
+                "48000",
+            ]
+        )
+    command.extend(
+        [
         "-c:s",
         "mov_text",
         "-metadata:s:s:0",
@@ -425,7 +489,8 @@ def build_master(video_id: str, manifest_path: Path, ffmpeg: Path) -> dict[str, 
         "-movflags",
         "+faststart",
         str(video_path),
-    ]
+        ]
+    )
     result = subprocess.run(
         command,
         cwd=ROOT,
@@ -448,6 +513,7 @@ def build_master(video_id: str, manifest_path: Path, ffmpeg: Path) -> dict[str, 
         "srt": str(srt_path),
         "vtt": str(vtt_path),
         "chapters": str(chapters_path),
+        "audio_mode": "silent" if silent else "narrated",
     }
     print(json.dumps(summary, ensure_ascii=False))
     return summary
@@ -458,12 +524,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--video-id", required=True)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--ffmpeg", default="")
+    parser.add_argument("--silent", action="store_true", help="Build without an audio stream")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    build_master(args.video_id, args.manifest.resolve(), ffmpeg_path(args.ffmpeg))
+    build_master(
+        args.video_id,
+        args.manifest.resolve(),
+        ffmpeg_path(args.ffmpeg),
+        silent=args.silent,
+    )
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ from app.models.audit import AuditLog
 from app.models.enums import StudentStatus
 from app.models.student import Student, StudentHistoryEvent
 from app.models.tenant import Tenant
+from app.services.bank import bank_local_date, close_bank_deposit_for_inactive_student
 from app.services.crm_import import (
     CRM_TEMPLATE_COLUMNS,
     HEADER_ALIASES,
@@ -434,6 +435,14 @@ async def update_student_status_from_amocrm(
                 source="amocrm_webhook",
             )
         )
+        if previous_status == StudentStatus.ACTIVE and student_status != StudentStatus.ACTIVE:
+            await close_bank_deposit_for_inactive_student(
+                db,
+                tenant=tenant,
+                student=student,
+                closed_on=bank_local_date(now),
+                close_reason=f"student_{student_status.value}",
+            )
         updated_students += 1
 
     matched_ids = {student.crm_deal_id for student in students if student.crm_deal_id}

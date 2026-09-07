@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.86.2" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.86.4" />
   </head>
   <body class="is-booting">
     <main id="accessGate" class="access-gate" hidden>
@@ -62,6 +62,9 @@
             </button>
             <button class="nav-button" data-view="wallet">
               <i data-lucide="wallet-cards"></i><span>История AC</span>
+            </button>
+            <button class="nav-button" data-view="bank">
+              <i data-lucide="landmark"></i><span>Банк</span>
             </button>
             <button class="nav-button" data-view="report">
               <i data-lucide="file-chart-column"></i><span>Отчет AC</span>
@@ -343,6 +346,10 @@
               <div id="ledgerList" class="ledger-list"></div>
             </div>
             <div id="staffStudentHistory" class="staff-student-history" hidden></div>
+          </section>
+
+          <section id="bankView" class="view" data-view-panel="bank">
+            <div id="bankContent" class="bank-content" aria-live="polite"></div>
           </section>
 
           <section id="reportView" class="view" data-view-panel="report">
@@ -1050,6 +1057,31 @@
         </section>
       </div>
 
+      <div id="bankConfirmationDialog" class="dialog-backdrop" hidden>
+        <section
+          class="checkout-dialog bank-confirmation-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="bankConfirmationTitle"
+          aria-describedby="bankConfirmationDescription"
+        >
+          <div class="dialog-head">
+            <div>
+              <p class="eyebrow">Банк Algo MAX</p>
+              <h2 id="bankConfirmationTitle">Подтверждение</h2>
+            </div>
+            <button id="closeBankConfirmationButton" class="icon-button dialog-close" type="button" title="Закрыть" aria-label="Закрыть">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div id="bankConfirmationDescription" class="bank-confirmation-content"></div>
+          <div class="dialog-actions bank-confirmation-actions">
+            <button id="cancelBankConfirmationButton" class="secondary-action" type="button">Отмена</button>
+            <button id="confirmBankActionButton" class="primary-action" type="button">Подтвердить</button>
+          </div>
+        </section>
+      </div>
+
       <button
         id="mobileMoreBackdrop"
         class="mobile-more-backdrop"
@@ -1097,11 +1129,12 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app-core.js?v=0.86.2"></script>
-    <script src="/miniapp/static/app-shell.js?v=0.86.2"></script>
-    <script src="/miniapp/static/app-store.js?v=0.86.2"></script>
-    <script src="/miniapp/static/app-admin.js?v=0.86.2"></script>
-    <script src="/miniapp/static/app-communications.js?v=0.86.2"></script>
-    <script src="/miniapp/static/app.js?v=0.86.2"></script>
+    <script src="/miniapp/static/app-core.js?v=0.86.4"></script>
+    <script src="/miniapp/static/app-shell.js?v=0.86.4"></script>
+    <script src="/miniapp/static/app-store.js?v=0.86.4"></script>
+    <script src="/miniapp/static/app-admin.js?v=0.86.4"></script>
+    <script src="/miniapp/static/app-communications.js?v=0.86.4"></script>
+    <script src="/miniapp/static/app-bank.js?v=0.86.4"></script>
+    <script src="/miniapp/static/app.js?v=0.86.4"></script>
   </body>
 </html>

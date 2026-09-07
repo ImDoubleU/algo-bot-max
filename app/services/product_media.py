@@ -40,6 +40,14 @@ class SavedProductImage:
     url_path: str
 
 
+def create_remote_product_image_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(REMOTE_IMAGE_TIMEOUT_SECONDS),
+        follow_redirects=False,
+        trust_env=False,
+    )
+
+
 def _image_extension(content: bytes) -> str | None:
     if content.startswith(b"\xff\xd8\xff"):
         return ".jpg"
@@ -270,11 +278,7 @@ async def save_remote_product_image(
 
     own_client = client is None
     if client is None:
-        client = httpx.AsyncClient(
-            timeout=httpx.Timeout(REMOTE_IMAGE_TIMEOUT_SECONDS),
-            follow_redirects=False,
-            trust_env=False,
-        )
+        client = create_remote_product_image_client()
     try:
         download_url, provider = await _resolve_remote_image_url(client, source_url)
         try:

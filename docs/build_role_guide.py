@@ -473,7 +473,7 @@ def build_presentation() -> Presentation:
     )
     add_rect(slide, 0.64, 5.76, 3.26, 0.48, fill=YELLOW, line=None)
     add_text(slide, "Редактируемая презентация", 0.80, 5.89, 2.95, 0.20, size=11, bold=True)
-    add_text(slide, "Версия 4 · август 2026", 0.64, 6.52, 3.2, 0.25, size=11, fill="CBB9E8")
+    add_text(slide, "Редакция 7 · сентябрь 2026", 0.64, 6.52, 3.2, 0.25, size=11, fill="CBB9E8")
     add_rect(slide, 6.02, 0.60, 6.76, 6.30, fill=PURPLE_LIGHT, line=None)
     cover = ROOT / "app" / "web" / "static" / "miniapp" / "assets" / "dashboard-learning.png"
     slide.shapes.add_picture(str(cover), Inches(6.18), Inches(1.39), width=Inches(6.45))

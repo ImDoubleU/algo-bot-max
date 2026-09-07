@@ -136,13 +136,22 @@ function applyAdminStudentRegistry(result) {
 
 function normalizeStudentLedgerEntry(item) {
   const amount = Number(item.amount || 0);
-  const direction = item.direction === "debit" ? "debit" : "credit";
+  const direction = item.direction === "debit"
+    ? "debit"
+    : item.direction === "credit"
+      ? "credit"
+      : "neutral";
   return {
     id: String(item.id || ""),
     studentId: String(item.student_id || ""),
     direction,
     amount,
-    amountLabel: `${direction === "debit" ? "-" : "+"}${amount} AC`,
+    amountLabel: direction === "neutral"
+      ? "Без движения AC"
+      : `${direction === "debit" ? "-" : "+"}${amount} AC`,
+    category: item.category || "accrual",
+    entryType: item.entry_type || "",
+    correlationKey: item.correlation_key || "",
     reason: item.reason || "Операция с балансом",
     comment: item.comment || "",
     createdAt: item.created_at || "",
@@ -152,7 +161,7 @@ function normalizeStudentLedgerEntry(item) {
 function demoStudentLedger(studentId) {
   return ledger
     .filter(([, , , entryStudentId]) => !entryStudentId || entryStudentId === studentId)
-    .map(([date, reason, amount], index) => {
+    .map(([date, reason, amount, , category = "accrual"], index) => {
       const numericAmount = Number(String(amount).replace(/[^\d,.-]/g, "").replace(",", ".")) || 0;
       return {
         id: `demo-${studentId}-${index}`,
@@ -160,6 +169,9 @@ function demoStudentLedger(studentId) {
         direction: numericAmount < 0 ? "debit" : "credit",
         amount: Math.abs(numericAmount),
         amountLabel: amount,
+        category,
+        entryType: "",
+        correlationKey: "",
         reason,
         comment: "",
         createdAt: date,
@@ -560,6 +572,9 @@ async function refreshAllData() {
     return;
   }
   const refreshTasks = [loadCatalog(), loadOpsSummary()];
+  if (roleViews(state.role).includes("bank") && typeof loadBankData === "function") {
+    refreshTasks.push(loadBankData(true));
+  }
   if (state.adminStudentsLoaded || isStaffStudentHistoryView()) {
     refreshTasks.push(loadAdminStudents(true));
   }
@@ -627,7 +642,7 @@ function setView(view) {
   const mobileMoreButton = qs("#mobileMoreButton");
   mobileMoreButton?.classList.toggle(
     "is-active",
-    ["wallet", "report", "accrual", "broadcasts", "admin", "help"].includes(nextView),
+    ["wallet", "bank", "report", "accrual", "broadcasts", "admin", "help"].includes(nextView),
   );
   closeMobileMorePanel();
   renderMobileNavigation();
@@ -647,6 +662,10 @@ function setView(view) {
   if (nextView === "wallet") {
     renderLedger();
     if (isStaffStudentHistoryView()) void loadAdminStudents();
+  }
+  if (nextView === "bank" && typeof loadBankData === "function") {
+    renderBankView();
+    void loadBankData();
   }
   if (nextView === "report") renderAccrualReport();
   if (nextView === "broadcasts") renderBroadcasts();
@@ -859,6 +878,9 @@ function setActiveStudent(studentId) {
   savePreferences();
   renderAll();
   void loadServerCart(studentId);
+  if (state.view === "bank" && typeof loadBankData === "function") {
+    void loadBankData(true);
+  }
 }
 
 function renderStatus() {

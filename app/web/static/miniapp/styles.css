@@ -1571,6 +1571,743 @@ body.dialog-open {
   overflow: hidden;
 }
 
+/* Bank */
+.bank-content {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+.bank-heading {
+  align-items: flex-end;
+  margin-bottom: 0;
+}
+
+.bank-heading > div {
+  display: grid;
+  gap: 4px;
+}
+
+.bank-heading > div > span,
+.bank-section-head > span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.bank-balances {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.bank-balance-item {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: 2px 10px;
+  min-width: 0;
+  min-height: 92px;
+  align-content: center;
+  padding: 15px 18px;
+  border-right: 1px solid var(--line);
+}
+
+.bank-balance-item:last-child {
+  border-right: 0;
+  background: var(--brand-yellow-soft);
+}
+
+.bank-balance-item > i {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  align-self: center;
+  width: 24px;
+  height: 24px;
+  color: var(--brand-purple);
+}
+
+.bank-balance-item > span,
+.bank-balance-item > strong {
+  grid-column: 2;
+}
+
+.bank-balance-item span,
+.bank-deposit-details small,
+.bank-report-row small,
+.bank-report-metrics small,
+.bank-confirmation-summary small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.bank-balance-item strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.bank-account-section,
+.bank-history-section,
+.bank-rate-section,
+.bank-report-section {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.bank-account-section,
+.bank-history-section,
+.bank-rate-section,
+.bank-report-section {
+  padding-right: 20px;
+  padding-left: 20px;
+}
+
+.bank-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.bank-section-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.bank-section-head h3,
+.bank-action-copy h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.bank-deposit-details {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--line);
+}
+
+.bank-deposit-details > span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  background: var(--surface);
+}
+
+.bank-deposit-details:not(.is-compact) > span:last-child {
+  grid-column: span 2;
+}
+
+.bank-deposit-details strong {
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+.bank-calculation-note {
+  margin: -6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.bank-action-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(140px, 0.35fr) minmax(170px, 0.45fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.bank-action-form.is-inline {
+  grid-template-columns: minmax(260px, 1fr) minmax(150px, 0.35fr) auto;
+}
+
+.bank-action-copy {
+  display: grid;
+  gap: 4px;
+  align-self: center;
+}
+
+.bank-action-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.bank-action-form label,
+.bank-rate-form label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.bank-action-form input,
+.bank-rate-form input,
+.bank-report-filters input,
+.bank-report-filters select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.bank-active-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.bank-readonly-message,
+.bank-closed-summary {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-height: 48px;
+  padding: 11px 13px;
+  color: var(--muted);
+  border-left: 3px solid var(--brand-cyan);
+  background: var(--brand-cyan-soft);
+}
+
+.bank-readonly-message i {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  color: var(--ok);
+}
+
+.bank-closed-summary {
+  flex-wrap: wrap;
+  border-left-color: var(--brand-yellow);
+  background: var(--brand-yellow-soft);
+}
+
+.bank-history-list {
+  display: grid;
+}
+
+.bank-history-entry {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 70px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.bank-history-entry:last-child {
+  border-bottom: 0;
+}
+
+.bank-history-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--ok);
+  background: var(--brand-cyan-soft);
+}
+
+.bank-history-entry.is-debit .bank-history-icon {
+  color: var(--danger);
+  background: var(--brand-coral-soft);
+}
+
+.bank-history-icon i {
+  width: 19px;
+  height: 19px;
+}
+
+.bank-history-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bank-history-copy span,
+.bank-history-copy time {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.bank-history-amount {
+  white-space: nowrap;
+}
+
+.bank-history-entry.is-debit .bank-history-amount {
+  color: var(--danger);
+}
+
+.bank-history-entry.is-credit .bank-history-amount {
+  color: var(--ok);
+}
+
+.bank-rate-form {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+}
+
+.bank-rate-form label {
+  width: min(260px, 100%);
+}
+
+.bank-rate-input {
+  position: relative;
+  display: block;
+}
+
+.bank-rate-input input {
+  padding-right: 38px;
+}
+
+.bank-rate-input b {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  color: var(--muted);
+}
+
+.bank-report-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.bank-report-metrics > span {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 13px;
+  border-right: 1px solid var(--line);
+}
+
+.bank-report-metrics > span:last-child {
+  border-right: 0;
+  background: var(--brand-yellow-soft);
+}
+
+.bank-report-metrics strong {
+  overflow-wrap: anywhere;
+  font-size: 19px;
+}
+
+.bank-report-filters {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(170px, 0.35fr) minmax(180px, 0.35fr);
+  gap: 10px;
+}
+
+.bank-report-filters .search-field {
+  min-width: 0;
+}
+
+.bank-report-list {
+  display: grid;
+}
+
+.bank-report-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.45fr) repeat(6, minmax(70px, 0.55fr)) minmax(170px, 0.9fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.bank-report-row:last-child {
+  border-bottom: 0;
+}
+
+.bank-report-row > span:not(.status-badge) {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bank-report-row strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.bank-report-student > strong {
+  font-size: 15px;
+}
+
+.bank-loading {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  align-items: center;
+  min-height: 240px;
+  color: var(--muted);
+}
+
+.bank-confirmation-dialog {
+  width: min(580px, 100%);
+}
+
+.bank-confirmation-content {
+  display: grid;
+  gap: 15px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px;
+}
+
+.bank-confirmation-content p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.bank-confirmation-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--line);
+}
+
+.bank-confirmation-summary > span {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  background: var(--surface);
+}
+
+.bank-confirmation-summary strong {
+  overflow-wrap: anywhere;
+}
+
+.bank-confirmation-summary.has-projection {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bank-confirmation-projection {
+  background: var(--brand-yellow-soft) !important;
+}
+
+.bank-confirmation-projection em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.bank-confirmation-summary.is-danger {
+  border-color: rgba(183, 36, 79, 0.25);
+  background: rgba(183, 36, 79, 0.25);
+}
+
+.bank-confirmation-actions {
+  grid-template-columns: 1fr 1fr;
+}
+
+#confirmBankActionButton.is-danger {
+  color: #ffffff;
+  background: var(--danger);
+}
+
+.student-bank-history {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+.student-bank-history .bank-balances {
+  box-shadow: none;
+}
+
+.bank-balances.is-compact .bank-balance-item {
+  min-height: 74px;
+  padding: 10px 12px;
+}
+
+.bank-balances.is-compact .bank-balance-item strong {
+  font-size: 17px;
+}
+
+.bank-deposit-details.is-compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.student-ledger-filters {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 10px;
+  scrollbar-width: thin;
+}
+
+.student-ledger-filter {
+  min-height: 36px;
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.student-ledger-filter.is-active {
+  color: #ffffff;
+  border-color: var(--brand-purple);
+  background: var(--brand-purple);
+}
+
+.student-ledger-entry.is-neutral .student-ledger-sign {
+  color: var(--brand-purple);
+  background: var(--brand-purple-soft);
+}
+
+.student-ledger-entry.is-neutral .student-ledger-amount {
+  color: var(--muted);
+}
+
+@media (max-width: 1100px) {
+  .bank-action-form,
+  .bank-action-form.is-inline {
+    grid-template-columns: minmax(0, 1fr) minmax(150px, 0.45fr) auto;
+  }
+
+  .bank-action-form:not(.is-inline) .bank-action-copy {
+    grid-column: 1 / -1;
+  }
+
+  .bank-active-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .bank-early-close-button {
+    justify-self: start;
+  }
+
+  .bank-report-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .bank-report-student {
+    grid-column: 1 / 4;
+  }
+
+  .bank-report-row .status-badge {
+    justify-self: end;
+  }
+}
+
+@media (max-width: 720px) {
+  .bank-content {
+    gap: 14px;
+  }
+
+  .bank-heading {
+    align-items: center;
+  }
+
+  .bank-balances,
+  .bank-balances.is-compact {
+    grid-template-columns: 1fr;
+  }
+
+  .bank-balance-item,
+  .bank-balances.is-compact .bank-balance-item {
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    grid-template-rows: auto;
+    min-height: 56px;
+    padding: 10px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .bank-balance-item:last-child {
+    border-bottom: 0;
+  }
+
+  .bank-balance-item > i {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .bank-balance-item > span {
+    grid-column: 2;
+  }
+
+  .bank-balance-item > strong {
+    grid-column: 3;
+  }
+
+  .bank-balance-item strong,
+  .bank-balances.is-compact .bank-balance-item strong {
+    text-align: right;
+    font-size: 17px;
+  }
+
+  .bank-account-section,
+  .bank-history-section,
+  .bank-rate-section,
+  .bank-report-section {
+    gap: 13px;
+    margin-right: -14px;
+    margin-left: -14px;
+    padding: 16px 14px;
+  }
+
+  .bank-deposit-details,
+  .bank-deposit-details.is-compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bank-action-form,
+  .bank-action-form.is-inline {
+    grid-template-columns: 1fr;
+  }
+
+  .bank-action-form:not(.is-inline) .bank-action-copy {
+    grid-column: auto;
+  }
+
+  .bank-action-form .primary-action,
+  .bank-early-close-button,
+  .bank-rate-form .primary-action {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .bank-rate-form {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .bank-rate-form label {
+    width: 100%;
+  }
+
+  .bank-report-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bank-report-metrics > span {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .bank-report-metrics > span:nth-child(2) {
+    border-right: 0;
+  }
+
+  .bank-report-metrics > span:nth-child(n + 3) {
+    border-bottom: 0;
+  }
+
+  .bank-report-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .bank-report-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    padding: 14px 0;
+  }
+
+  .bank-report-student,
+  .bank-report-row .status-badge {
+    grid-column: 1 / -1;
+  }
+
+  .bank-report-row .status-badge {
+    justify-self: start;
+  }
+
+  .bank-history-entry {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  .bank-history-amount {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .bank-confirmation-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .bank-confirmation-summary.has-projection {
+    grid-template-columns: 1fr;
+  }
+
+  .bank-confirmation-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 380px) {
+  .bank-heading > .secondary-action {
+    width: 44px;
+    min-width: 44px;
+    padding: 0;
+  }
+
+  .bank-heading > .secondary-action span {
+    display: none;
+  }
+
+  .bank-balances.is-compact .bank-balance-item {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    column-gap: 8px;
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .bank-deposit-details,
+  .bank-deposit-details.is-compact,
+  .bank-report-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .bank-report-metrics > span {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .bank-report-metrics > span:nth-child(n + 3) {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .bank-report-metrics > span:last-child {
+    border-bottom: 0;
+  }
+}
+
 .table-row {
   grid-template-columns: 84px minmax(0, 1.3fr) minmax(120px, 0.8fr) minmax(120px, 0.8fr) auto;
 }
@@ -10755,6 +11492,7 @@ details.report-row { display: block; padding: 0; }
 
 .student-registry-details {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   padding: 0 16px 18px 72px;
   border-top: 1px solid rgba(111, 48, 208, 0.12);
@@ -10958,8 +11696,11 @@ details.report-row { display: block; padding: 0; }
 }
 
 .student-history-head > span {
+  min-width: 0;
   color: var(--muted);
   font-size: 12px;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
 .student-history-list {
@@ -11199,6 +11940,16 @@ details.report-row { display: block; padding: 0; }
   .student-card-action:first-child label,
   .student-card-action button {
     grid-column: 1;
+  }
+
+  .student-history-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .student-history-head > span {
+    text-align: left;
   }
 
   .student-registry-metric {

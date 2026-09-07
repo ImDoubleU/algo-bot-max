@@ -49,6 +49,29 @@ class LedgerDirection(StrEnum):
     REVERSAL = "reversal"
 
 
+class LedgerCategory(StrEnum):
+    ACCRUAL = "accrual"
+    PURCHASE = "purchase"
+    BANK = "bank"
+
+
+class BankDepositStatus(StrEnum):
+    ACTIVE = "active"
+    MATURED = "matured"
+    EARLY_CLOSED = "early_closed"
+    STUDENT_INACTIVE_CLOSED = "student_inactive_closed"
+
+
+class BankOperationType(StrEnum):
+    OPENED = "opened"
+    TOPPED_UP = "topped_up"
+    INTEREST_CAPITALIZED = "interest_capitalized"
+    RATE_CHANGED = "rate_changed"
+    MATURED = "matured"
+    EARLY_CLOSED = "early_closed"
+    STUDENT_INACTIVE_CLOSED = "student_inactive_closed"
+
+
 class ProductStatus(StrEnum):
     ACTIVE = "active"
     HIDDEN = "hidden"

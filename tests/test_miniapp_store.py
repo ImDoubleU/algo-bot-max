@@ -1,3 +1,4 @@
+from datetime import timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -16,6 +17,7 @@ from app.models.audit import AuditLog
 from app.models.base import Base
 from app.models.enums import (
     AssignmentStatus,
+    LedgerCategory,
     LedgerDirection,
     OrderStatus,
     ProductCodeStatus,
@@ -45,6 +47,7 @@ from app.models.tenant import City, Tenant, Venue
 from app.schemas.access import AccessLinkCreate
 from app.schemas.miniapp import (
     MiniAppAccrualCreate,
+    MiniAppBankDepositOpen,
     MiniAppInventoryAdjustmentCreate,
     MiniAppInventoryTransferCreate,
     MiniAppOrderActionCreate,
@@ -61,6 +64,7 @@ from app.schemas.miniapp import (
     MiniAppWarehouseUpsert,
 )
 from app.services.access import create_contact_access_links
+from app.services.bank import bank_local_date, open_bank_deposit
 from app.services.crm_import import CrmStudentRow
 from app.services.crm_sync import CrmSyncDefaults, upsert_crm_student_rows
 from app.services.miniapp import (
@@ -460,6 +464,56 @@ async def test_order_waits_for_admin_warehouse_and_debits_wallet(db_session) -> 
     assert len(order_items) == 1
     assert len(ledger_entries) == 1
     assert ledger_entries[0].direction == LedgerDirection.DEBIT
+    assert ledger_entries[0].category == LedgerCategory.PURCHASE.value
+
+
+async def test_order_uses_personal_wallet_balance_not_total_with_bank(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, _inventory = await seed_product(db_session, student)
+    tenant = await db_session.get(Tenant, student.tenant_id)
+    wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
+    access_link = await db_session.scalar(
+        select(StudentAccessLink).where(
+            StudentAccessLink.student_id == student.id,
+            StudentAccessLink.account.has(MaxAccount.max_user_id == 53364725),
+        )
+    )
+    assert tenant is not None
+    assert wallet is not None
+    assert access_link is not None
+    access_link.role = StudentAccessRole.STUDENT
+    wallet.balance = 200
+    await db_session.commit()
+
+    bank_summary = await open_bank_deposit(
+        db_session,
+        tenant_slug=tenant.slug,
+        payload=MiniAppBankDepositOpen(
+            max_user_id=53364725,
+            tenant_slug=tenant.slug,
+            student_id=student.id,
+            amount=150,
+            maturity_on=bank_local_date() + timedelta(days=30),
+            request_key="store-personal-balance-bank-open",
+        ),
+    )
+    assert bank_summary.personal_balance == 50
+    assert bank_summary.bank_balance == 150
+    assert bank_summary.total_balance == 200
+
+    with pytest.raises(MiniAppStoreError, match="Недостаточно астрокоинов"):
+        await create_miniapp_order(
+            db_session,
+            payload=MiniAppOrderCreate(
+                max_user_id=53364725,
+                tenant_slug=tenant.slug,
+                student_id=student.id,
+                items=[MiniAppOrderItemCreate(product_id=product.id, quantity=1)],
+                request_key="store-personal-balance-order",
+            ),
+            default_tenant_slug=tenant.slug,
+        )
+    assert wallet.balance == 50
 
 
 async def test_digital_product_issues_one_retained_code_and_is_idempotent(

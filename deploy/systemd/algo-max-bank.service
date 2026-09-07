@@ -1,0 +1,11 @@
+[Unit]
+Description=Process Algo MAX student bank accounts
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=algomax
+Group=algomax
+WorkingDirectory=/opt/algo-max
+EnvironmentFile=/etc/algo-max/algo-max.env
+ExecStart=/opt/algo-max/.venv/bin/python -m app.cli.process_bank_accounts

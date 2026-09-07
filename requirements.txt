@@ -59,3 +59,8 @@ ruff>=0.15,<0.16
 mypy>=1.14,<2
 pre-commit>=4.0,<5
 playwright>=1.57,<2
+
+# Documentation and training materials
+Pillow>=11,<13
+python-pptx>=1.0,<2
+pypdf>=6,<7

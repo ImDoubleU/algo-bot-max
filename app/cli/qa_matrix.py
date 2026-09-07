@@ -30,6 +30,7 @@ from app.models.audit import AuditLog
 from app.models.communication import SchoolBroadcast
 from app.models.enums import (
     AssignmentStatus,
+    LedgerCategory,
     LedgerDirection,
     OrderStatus,
     ProductStatus,
@@ -960,6 +961,7 @@ async def _seed_wallets_and_orders(
                     actor_account_id=accounts["direct_student"].id,
                     idempotency_key=f"order:{order.id}:debit",
                     direction=LedgerDirection.DEBIT,
+                    category=LedgerCategory.PURCHASE.value,
                     amount=total,
                     reason=f"Покупка в магазине, заказ №{order.order_number}",
                     comment=marker,
@@ -977,6 +979,7 @@ async def _seed_wallets_and_orders(
                     actor_account_id=accounts["admin"].id,
                     idempotency_key=f"order:{order.id}:qa-refund",
                     direction=LedgerDirection.REVERSAL,
+                    category=LedgerCategory.PURCHASE.value,
                     amount=total,
                     reason=f"Возврат по заказу №{order.order_number}",
                     comment=cancellation_reason or marker,

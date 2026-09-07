@@ -1,12 +1,22 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.models.base import Base, TimestampMixin, uuid_pk
 from app.models.enums import (
+    LedgerCategory,
     LedgerDirection,
     StudentAccessRole,
     StudentAccessSource,
@@ -54,6 +64,7 @@ class Student(TimestampMixin, Base):
         cascade="all, delete-orphan",
     )
     wallet = relationship("Wallet", back_populates="student", uselist=False)
+    bank_deposits = relationship("BankDeposit", back_populates="student")
 
     @property
     def display_name(self) -> str:
@@ -169,10 +180,17 @@ class Wallet(TimestampMixin, Base):
 
     student = relationship("Student", back_populates="wallet")
     ledger_entries = relationship("AstrocoinLedgerEntry", back_populates="wallet")
+    bank_deposits = relationship("BankDeposit", back_populates="wallet")
 
 
 class AstrocoinLedgerEntry(TimestampMixin, Base):
     __tablename__ = "astrocoin_ledger_entries"
+    __table_args__ = (
+        CheckConstraint(
+            "category IN ('accrual', 'purchase', 'bank')",
+            name="astrocoin_ledger_entries_category_values",
+        ),
+    )
 
     id: Mapped[UUID] = uuid_pk()
     tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), index=True, nullable=False)
@@ -181,6 +199,12 @@ class AstrocoinLedgerEntry(TimestampMixin, Base):
     actor_account_id: Mapped[UUID | None] = mapped_column(ForeignKey("max_accounts.id"), index=True)
     idempotency_key: Mapped[str] = mapped_column(String(160), unique=True, nullable=False)
     direction: Mapped[LedgerDirection] = mapped_column(nullable=False)
+    category: Mapped[str] = mapped_column(
+        String(20),
+        default=LedgerCategory.ACCRUAL.value,
+        index=True,
+        nullable=False,
+    )
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
     reason: Mapped[str] = mapped_column(String(240), nullable=False)
     comment: Mapped[str | None] = mapped_column(String(500))

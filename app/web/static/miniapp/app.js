@@ -11,6 +11,7 @@ function renderAll() {
   renderCart();
   renderOrders();
   renderLedger();
+  renderBankView();
   renderAccrualReport();
   renderAccrual();
   renderTeacherInvitations();
@@ -3478,7 +3479,7 @@ document.addEventListener("input", (event) => {
   }
 });
 
-document.addEventListener(
+  document.addEventListener(
   "error",
   (event) => {
     const image = event.target;
@@ -3535,7 +3536,12 @@ document.addEventListener(
   (event) => {
     const card = event.target;
     if (!(card instanceof HTMLDetailsElement) || !card.open || !card.dataset.studentCard) return;
-    void loadStudentLedger(card.dataset.studentCard);
+    void Promise.all([
+      loadStudentLedger(card.dataset.studentCard),
+      typeof loadStudentBank === "function"
+        ? loadStudentBank(card.dataset.studentCard)
+        : Promise.resolve(),
+    ]);
   },
   true,
 );

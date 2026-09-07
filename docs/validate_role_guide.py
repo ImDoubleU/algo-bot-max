@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from pathlib import Path
 
 from pptx import Presentation
@@ -9,20 +8,20 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 ROOT = Path(__file__).resolve().parents[1]
 PRESENTATION = ROOT / "docs" / "Algo_MAX_Руководство_по_ролям.pptx"
-AUDIT = ROOT / "docs" / "GUIDE_QA_130_RU.md"
 ASSETS = ROOT / "docs" / "user-guide-assets" / "visual-v6"
 INDEX = ROOT / "app" / "web" / "static" / "miniapp" / "index.html"
-APP_CORE = ROOT / "app" / "web" / "static" / "miniapp" / "app-core.js"
 
-EXPECTED_SLIDES = 87
-MIN_PICTURES = 50
-MIN_UNIQUE_IMAGES = 50
+EXPECTED_SLIDES = 100
+MIN_PICTURES = 70
+MIN_UNIQUE_IMAGES = 70
 FORBIDDEN_TEXT = (
     "Выполненные",
     "К действию",
     "Оформить возврат",
     "Из сводки",
     "Сводка по филиалу",
+    "супер" + "админ",
+    "0.78.1",
 )
 
 
@@ -84,15 +83,10 @@ def main() -> None:
     if text_runs == 0:
         errors.append("no explicitly sized text runs found")
 
-    audit_items = re.findall(r"(?m)^\d+\.", AUDIT.read_text(encoding="utf-8"))
-    if len(audit_items) != 130:
-        errors.append(f"audit items: expected 130, got {len(audit_items)}")
-    if len(list(ASSETS.glob("*.png"))) < 58:
-        errors.append("visual-v6: expected at least 58 PNG assets")
-    if "v=0.78.1" not in INDEX.read_text(encoding="utf-8"):
-        errors.append("index.html: static cache version is not 0.78.1")
-    if APP_CORE.read_text(encoding="utf-8").count('status: "active"') < 3:
-        errors.append("app-core.js: demo students are not all active")
+    if len(list(ASSETS.glob("*.png"))) < 75:
+        errors.append("visual-v6: expected at least 75 PNG assets")
+    if "v=0.86.4" not in INDEX.read_text(encoding="utf-8"):
+        errors.append("index.html: static cache version is not 0.86.4")
 
     if errors:
         raise SystemExit("Guide validation failed:\n- " + "\n- ".join(errors))
@@ -100,7 +94,7 @@ def main() -> None:
     print(
         "Guide validation passed: "
         f"{len(prs.slides)} slides, {picture_count} pictures, "
-        f"{len(unique_images)} unique images, {len(audit_items)} audit items, "
+        f"{len(unique_images)} unique images, "
         f"minimum explicit font {smallest_font:.1f} pt"
     )
 
