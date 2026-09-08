@@ -24,7 +24,8 @@ from app.schemas.access import (
 from app.services.student_access_policy import student_access_window
 from app.services.student_invitations import (
     StudentInvitationError,
-    verify_student_invitation_token,
+    StudentInvitationIssuer,
+    verify_student_invitation_details,
 )
 
 
@@ -235,6 +236,7 @@ async def revoke_dependent_student_links(
                     StudentAccessLink.role == StudentAccessRole.STUDENT,
                     StudentAccessLink.status == StudentAccessStatus.ACTIVE,
                     StudentAccessLink.sponsor_access_link_id.is_(None),
+                    StudentAccessLink.source != StudentAccessSource.TEACHER_QR,
                 )
             )
         ).all()
@@ -434,23 +436,19 @@ async def create_invited_student_access_link(
     payload: StudentInvitationLinkCreate,
 ) -> tuple[Tenant, Student, StudentAccessLink]:
     try:
-        (
-            token_tenant_id,
-            student_id,
-            sponsor_access_link_id,
-        ) = verify_student_invitation_token(payload.token)
+        invitation = verify_student_invitation_details(payload.token)
     except StudentInvitationError as exc:
         raise AccessServiceError(str(exc)) from exc
-    if sponsor_access_link_id is None:
+    if invitation.issuer == StudentInvitationIssuer.LEGACY:
         raise AccessServiceError(
-            "QR-код устарел. Попросите родителя получить новый код в личном кабинете."
+            "QR-код устарел. Попросите преподавателя или родителя получить новый код."
         )
-    tenant = await db.scalar(select(Tenant).where(Tenant.id == token_tenant_id))
+    tenant = await db.scalar(select(Tenant).where(Tenant.id == invitation.tenant_id))
     if tenant is None:
         raise AccessServiceError("Школа из ссылки не найдена")
     student = await db.scalar(
         select(Student).where(
-            Student.id == student_id,
+            Student.id == invitation.student_id,
             Student.tenant_id == tenant.id,
         )
     )
@@ -461,19 +459,21 @@ async def create_invited_student_access_link(
             "Срок доступа после завершения обучения истек. Обратитесь в школу."
         )
 
-    sponsor_link = await db.scalar(
-        select(StudentAccessLink).where(
-            StudentAccessLink.id == sponsor_access_link_id,
-            StudentAccessLink.tenant_id == tenant.id,
-            StudentAccessLink.student_id == student.id,
-            StudentAccessLink.role == StudentAccessRole.PARENT,
-            StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+    sponsor_link: StudentAccessLink | None = None
+    if invitation.issuer == StudentInvitationIssuer.PARENT:
+        sponsor_link = await db.scalar(
+            select(StudentAccessLink).where(
+                StudentAccessLink.id == invitation.sponsor_access_link_id,
+                StudentAccessLink.tenant_id == tenant.id,
+                StudentAccessLink.student_id == student.id,
+                StudentAccessLink.role == StudentAccessRole.PARENT,
+                StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+            )
         )
-    )
-    if sponsor_link is None:
-        raise AccessServiceError(
-            "Родительская связь больше не активна. Получите новый QR-код."
-        )
+        if sponsor_link is None:
+            raise AccessServiceError(
+                "Родительская связь больше не активна. Получите новый QR-код."
+            )
 
     account = await get_or_create_max_account(db, payload)
     active_parent_link_id = await _active_account_role_link_id(
@@ -487,6 +487,11 @@ async def create_invited_student_access_link(
             "Этот MAX-профиль уже используется родителем. "
             "Откройте QR-код с профиля ребенка"
         )
+    link_source = (
+        StudentAccessSource.PARENT_QR
+        if sponsor_link is not None
+        else StudentAccessSource.TEACHER_QR
+    )
     link = await db.scalar(
         select(StudentAccessLink).where(
             StudentAccessLink.tenant_id == tenant.id,
@@ -503,15 +508,15 @@ async def create_invited_student_access_link(
             student_id=student.id,
             role=StudentAccessRole.STUDENT,
             status=StudentAccessStatus.ACTIVE,
-            source=StudentAccessSource.PARENT_QR,
-            sponsor_access_link_id=sponsor_link.id,
+            source=link_source,
+            sponsor_access_link_id=sponsor_link.id if sponsor_link is not None else None,
         )
         db.add(link)
         await db.flush()
     else:
         link.status = StudentAccessStatus.ACTIVE
-        link.source = StudentAccessSource.PARENT_QR
-        link.sponsor_access_link_id = sponsor_link.id
+        link.source = link_source
+        link.sponsor_access_link_id = sponsor_link.id if sponsor_link is not None else None
         link.revoked_at = None
         link.revoked_reason = None
 
@@ -525,8 +530,10 @@ async def create_invited_student_access_link(
             payload={
                 "created": created,
                 "max_user_id": payload.max_user_id,
-                "source": StudentAccessSource.PARENT_QR.value,
-                "sponsor_access_link_id": str(sponsor_link.id),
+                "source": link_source.value,
+                "sponsor_access_link_id": (
+                    str(sponsor_link.id) if sponsor_link is not None else None
+                ),
             },
         )
     )

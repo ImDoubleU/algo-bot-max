@@ -59,6 +59,7 @@ class MiniAppStudentRead(BaseModel):
     staff_visible: bool = False
     staff_order_visible: bool = False
     teacher_visible: bool = False
+    parent_connected: bool = False
     display_name: str
     first_name: str
     birth_date: date | None = None

@@ -18,7 +18,10 @@ from app.services.staff_invitations import (
     parse_staff_invitation_payload,
 )
 from app.services.student_invitations import (
+    StudentInvitationIssuer,
     issue_student_invitation_token,
+    issue_teacher_student_invitation_token,
+    verify_student_invitation_details,
     verify_student_invitation_token,
 )
 
@@ -119,3 +122,16 @@ def test_student_invitation_token_keeps_tenant_and_student_scope() -> None:
         student_id,
         sponsor_access_link_id,
     )
+
+
+def test_teacher_student_invitation_has_explicit_signed_issuer() -> None:
+    tenant_id = uuid4()
+    student_id = uuid4()
+
+    token = issue_teacher_student_invitation_token(tenant_id, student_id)
+    invitation = verify_student_invitation_details(token)
+
+    assert invitation.tenant_id == tenant_id
+    assert invitation.student_id == student_id
+    assert invitation.sponsor_access_link_id is None
+    assert invitation.issuer == StudentInvitationIssuer.TEACHER

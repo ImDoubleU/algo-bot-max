@@ -264,10 +264,42 @@ def test_start_for_unlinked_user_opens_role_selection() -> None:
     )
 
     assert "Вход · шаг 1 из 2" in response["text"]
+    assert "QR-код из кабинета преподавателя или родителя" in response["text"]
     payloads = {button.get("payload") for button in _buttons(response)}
     assert CALLBACK_ROLE_PARENT in payloads
     assert CALLBACK_ROLE_STUDENT in payloads
     assert CALLBACK_MENU in payloads
+
+
+def test_unlinked_parent_is_told_to_use_the_school_email() -> None:
+    client = FakeMaxClient()
+    bot = LongPollingBot(
+        client,
+        backend_client=FakeBackendClient(linked=False),
+        default_tenant_slug="n-novgorod",
+    )
+
+    bot.handle_message_callback(_callback(CALLBACK_ROLE_PARENT))
+
+    response = client.sent_messages[-1]
+    assert "Выбрана роль: родитель" in response["text"]
+    assert "Перейдите по персональной ссылке" in response["text"]
+    assert "отправьте указанный в нем ID" in response["text"]
+
+
+def test_unlinked_student_is_told_to_request_teacher_qr() -> None:
+    client = FakeMaxClient()
+    bot = LongPollingBot(
+        client,
+        backend_client=FakeBackendClient(linked=False),
+        default_tenant_slug="n-novgorod",
+    )
+
+    bot.handle_message_callback(_callback(CALLBACK_ROLE_STUDENT))
+
+    response = client.sent_messages[-1]
+    assert "Попросите преподавателя открыть QR-код ученика" in response["text"]
+    assert "Если родитель уже подключен" in response["text"]
 
 
 def test_start_for_linked_staff_opens_role_menu() -> None:

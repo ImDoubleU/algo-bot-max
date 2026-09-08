@@ -10584,6 +10584,11 @@ details.report-row { display: block; padding: 0; }
   background: #fbfafc;
 }
 
+.teacher-qr-card.is-awaiting-parent {
+  border-color: #e7c34f;
+  background: #fffdf4;
+}
+
 .teacher-qr-preview,
 .teacher-qr-placeholder {
   position: relative;
@@ -10636,6 +10641,14 @@ details.report-row { display: block; padding: 0; }
   font-size: 11px;
 }
 
+.teacher-qr-copy .link-status.is-pending {
+  color: #7a5900;
+}
+
+.teacher-qr-copy .teacher-qr-note {
+  color: #65572d;
+}
+
 /* Departed student access */
 .student-access-notice {
   min-height: 62px;
@@ -10668,6 +10681,16 @@ details.report-row { display: block; padding: 0; }
 
 .student-access-notice small {
   color: var(--muted);
+}
+
+.student-access-notice.requires-parent {
+  border-color: #ead06d;
+  border-left-color: #c59500;
+  background: #fff9df;
+}
+
+.student-access-notice.requires-parent > svg {
+  color: #856100;
 }
 
 .student-access-policy {

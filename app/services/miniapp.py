@@ -208,7 +208,9 @@ from app.services.student_access_policy import StudentAccessWindow, student_acce
 from app.services.student_invitations import (
     StudentInvitationError,
     build_student_invitation_link,
+    build_teacher_student_invitation_link,
     issue_student_invitation_token,
+    issue_teacher_student_invitation_token,
 )
 from app.services.warehouse import (
     WarehouseServiceError,
@@ -3088,6 +3090,11 @@ async def get_miniapp_session(
         student_ids = [student.id for student in tenant_students]
         ledger_student_ids = list(staff_student_ids | set(linked_students_by_id))
         balances = await _wallet_balances(db, student_ids)
+        parent_connected_student_ids = await _active_parent_student_ids(
+            db,
+            tenant_id=UUID(str(tenant.id)),
+            student_ids=student_ids,
+        )
         students = [
             MiniAppStudentRead(
                 student_id=UUID(str(student.id)),
@@ -3100,6 +3107,7 @@ async def get_miniapp_session(
                 staff_visible=student.id in staff_student_ids,
                 staff_order_visible=student.id in staff_order_student_ids,
                 teacher_visible=student.id in teacher_student_ids,
+                parent_connected=student.id in parent_connected_student_ids,
                 display_name=student.display_name,
                 first_name=student.first_name,
                 birth_date=student.birth_date,
@@ -3120,6 +3128,11 @@ async def get_miniapp_session(
         student_ids = [student.id for student in linked_students]
         ledger_student_ids = list(student_ids)
         balances = await _wallet_balances(db, student_ids)
+        parent_connected_student_ids = await _active_parent_student_ids(
+            db,
+            tenant_id=UUID(str(tenant.id)),
+            student_ids=student_ids,
+        )
         students = [
             MiniAppStudentRead(
                 student_id=UUID(str(student.id)),
@@ -3129,6 +3142,7 @@ async def get_miniapp_session(
                     if StudentAccessRole.PARENT in access_roles_by_student.get(student.id, set())
                     else StudentAccessRole.STUDENT
                 ),
+                parent_connected=student.id in parent_connected_student_ids,
                 display_name=student.display_name,
                 first_name=student.first_name,
                 birth_date=student.birth_date,
@@ -3284,17 +3298,7 @@ async def get_miniapp_student_invitation(
             .limit(1)
         )
         if parent_link is None:
-            return MiniAppStudentInvitationRead(
-                student_id=UUID(str(student.id)),
-                student_name=student.display_name,
-                group_name=student.group_name,
-                available=False,
-                parent_connected=False,
-                message=(
-                    "Родитель еще не подключен. Попросите его открыть письмо школы "
-                    "и перейти по персональной ссылке."
-                ),
-            )
+            return _student_invitation_to_read(tenant, student, None)
 
     return _student_invitation_to_read(tenant, student, parent_link)
 
@@ -3302,7 +3306,7 @@ async def get_miniapp_student_invitation(
 def _student_invitation_to_read(
     tenant: Tenant,
     student: Student,
-    parent_link: StudentAccessLink,
+    parent_link: StudentAccessLink | None,
 ) -> MiniAppStudentInvitationRead:
     settings = get_settings()
     if is_placeholder(settings.max_bot_username):
@@ -3311,24 +3315,48 @@ def _student_invitation_to_read(
             status_code=503,
         )
     try:
-        invitation_token = issue_student_invitation_token(
-            UUID(str(tenant.id)),
-            UUID(str(student.id)),
-            UUID(str(parent_link.id)),
-        )
-        bot_url = build_student_invitation_link(
-            str(settings.max_bot_username),
-            UUID(str(tenant.id)),
-            UUID(str(student.id)),
-            UUID(str(parent_link.id)),
-        )
+        tenant_id = UUID(str(tenant.id))
+        student_id = UUID(str(student.id))
+        if parent_link is None:
+            invitation_token = issue_teacher_student_invitation_token(
+                tenant_id,
+                student_id,
+            )
+            bot_url = build_teacher_student_invitation_link(
+                str(settings.max_bot_username),
+                tenant_id,
+                student_id,
+            )
+        else:
+            sponsor_id = UUID(str(parent_link.id))
+            invitation_token = issue_student_invitation_token(
+                tenant_id,
+                student_id,
+                sponsor_id,
+            )
+            bot_url = build_student_invitation_link(
+                str(settings.max_bot_username),
+                tenant_id,
+                student_id,
+                sponsor_id,
+            )
     except StudentInvitationError as exc:
         raise MiniAppStoreError(str(exc), status_code=503) from exc
 
+    parent_connected = parent_link is not None
     return MiniAppStudentInvitationRead(
         student_id=UUID(str(student.id)),
         student_name=student.display_name,
         group_name=student.group_name,
+        parent_connected=parent_connected,
+        message=(
+            None
+            if parent_connected
+            else (
+                "Родитель еще не подключен. Попросите его открыть письмо школы "
+                "и перейти по персональной ссылке."
+            )
+        ),
         bot_url=bot_url,
         qr_data_url=f"/miniapp/qr/{invitation_token}.png?preview=1",
         qr_download_url=f"/miniapp/qr/{invitation_token}.png",
@@ -3394,19 +3422,7 @@ async def list_miniapp_teacher_invitations(
     for student in students:
         parent_link = parent_link_by_student.get(UUID(str(student.id)))
         if parent_link is None:
-            result.append(
-                MiniAppStudentInvitationRead(
-                    student_id=UUID(str(student.id)),
-                    student_name=student.display_name,
-                    group_name=student.group_name,
-                    available=False,
-                    parent_connected=False,
-                    message=(
-                        "Родитель еще не подключен. Попросите его открыть письмо школы "
-                        "и перейти по персональной ссылке."
-                    ),
-                )
-            )
+            result.append(_student_invitation_to_read(tenant, student, None))
             continue
         result.append(_student_invitation_to_read(tenant, student, parent_link))
     return result
@@ -7360,6 +7376,25 @@ async def transfer_miniapp_inventory(
         to_available_quantity=max(available_for_reservation(target), 0),
         quantity=payload.quantity,
     )
+
+
+async def _active_parent_student_ids(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    student_ids: list[UUID],
+) -> set[UUID]:
+    if not student_ids:
+        return set()
+    linked_student_ids = await db.scalars(
+        select(StudentAccessLink.student_id).where(
+            StudentAccessLink.tenant_id == tenant_id,
+            StudentAccessLink.student_id.in_(student_ids),
+            StudentAccessLink.role == StudentAccessRole.PARENT,
+            StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+        )
+    )
+    return {UUID(str(student_id)) for student_id in linked_student_ids}
 
 
 async def _wallet_balances(db: AsyncSession, student_ids: list[UUID]) -> dict[UUID, int]:

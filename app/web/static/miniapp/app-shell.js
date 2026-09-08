@@ -997,9 +997,21 @@ function renderStatus() {
   }
   const accessNotice = qs("#studentAccessNotice");
   if (accessNotice) {
-    const showAccessNotice = !isStaff && student?.status === "departed" && student.accessUntil;
-    accessNotice.hidden = !showAccessNotice;
-    if (showAccessNotice) {
+    const showParentNotice =
+      state.role === "student" && Boolean(student) && !student.parentConnected;
+    const showDepartedNotice =
+      !showParentNotice && !isStaff && student?.status === "departed" && student.accessUntil;
+    accessNotice.hidden = !showParentNotice && !showDepartedNotice;
+    accessNotice.classList.toggle("requires-parent", showParentNotice);
+    if (showParentNotice) {
+      accessNotice.innerHTML = `
+        <i data-lucide="mail-check"></i>
+        <span>
+          <strong>Родителю нужно подтвердить связь</strong>
+          <small>Попросите родителя открыть письмо от школы и перейти по персональной ссылке. Затем нажмите «Обновить».</small>
+        </span>
+      `;
+    } else if (showDepartedNotice) {
       const accessDate = new Intl.DateTimeFormat("ru-RU", {
         day: "numeric",
         month: "long",
