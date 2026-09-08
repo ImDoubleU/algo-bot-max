@@ -85,8 +85,8 @@ def main() -> None:
 
     if len(list(ASSETS.glob("*.png"))) < 75:
         errors.append("visual-v6: expected at least 75 PNG assets")
-    if "v=0.86.4" not in INDEX.read_text(encoding="utf-8"):
-        errors.append("index.html: static cache version is not 0.86.4")
+    if "v=0.86.5" not in INDEX.read_text(encoding="utf-8"):
+        errors.append("index.html: static cache version is not 0.86.5")
 
     if errors:
         raise SystemExit("Guide validation failed:\n- " + "\n- ".join(errors))

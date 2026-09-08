@@ -314,7 +314,7 @@ def audit() -> tuple[list[Check], dict[str, object]]:
 
     summary = {
         "date": date.today().isoformat(),
-        "ui_version": "0.86.4",
+        "ui_version": "0.86.5",
         "scenarios": len(SCENARIOS),
         "screenshots": len(specs),
         "presentations": presentation_metrics,

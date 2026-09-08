@@ -23,7 +23,25 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.86.4"}
+    assert set(versions) == {"0.86.5"}
+
+
+def test_teacher_qr_and_student_notice_cover_missing_parent_connection() -> None:
+    index_source = (MINIAPP / "index.html").read_text(encoding="utf-8")
+    core_source = (MINIAPP / "app-core.js").read_text(encoding="utf-8")
+    shell_source = (MINIAPP / "app-shell.js").read_text(encoding="utf-8")
+    communications_source = (MINIAPP / "app-communications.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert "parentConnected: Boolean(student.parent_connected)" in core_source
+    assert "Родителю нужно подтвердить связь" in shell_source
+    assert "перейти по персональной ссылке" in shell_source
+    assert 'data.parent_connected !== false' in communications_source
+    assert "Ожидается вход родителя" in communications_source
+    assert index_source.index('id="studentAccessNotice"') < index_source.index(
+        'id="dashboardView"'
+    )
 
 
 def test_bank_opening_shows_projected_income_and_demo_history_survives_refresh() -> None:

@@ -3,20 +3,31 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.db.base  # noqa: F401
-from app.models.account import MaxAccount
+from app.core.config import get_settings
+from app.models.account import MaxAccount, StaffRoleAssignment
 from app.models.base import Base
-from app.models.enums import StudentAccessRole, StudentAccessStatus
-from app.models.student import StudentAccessLink
+from app.models.enums import (
+    AssignmentStatus,
+    StaffRole,
+    StudentAccessRole,
+    StudentAccessSource,
+    StudentAccessStatus,
+)
+from app.models.student import Student, StudentAccessLink
 from app.schemas.access import AccessLinkCreate, StudentInvitationLinkCreate, StudentResolveRequest
 from app.services.access import (
     AccessServiceError,
     create_contact_access_links,
     create_invited_student_access_link,
     resolve_students_by_contact_id,
+    revoke_dependent_student_links,
 )
 from app.services.crm_import import CrmStudentRow
 from app.services.crm_sync import CrmSyncDefaults, upsert_crm_student_rows
-from app.services.student_invitations import issue_student_invitation_token
+from app.services.miniapp import get_miniapp_session, list_miniapp_teacher_invitations
+from app.services.student_invitations import (
+    issue_student_invitation_token,
+)
 
 
 @pytest.fixture
@@ -149,6 +160,28 @@ async def test_parent_max_account_cannot_accept_child_qr(db_session) -> None:
         )
 
 
+async def test_legacy_student_qr_without_issuer_remains_rejected(db_session) -> None:
+    await seed_two_students_for_one_contact(db_session)
+    student = await db_session.scalar(
+        select(Student).where(Student.lms_student_id == "ST-001")
+    )
+    assert student is not None
+    token = issue_student_invitation_token(student.tenant_id, student.id)
+
+    with pytest.raises(
+        AccessServiceError,
+        match="Попросите преподавателя или родителя",
+    ):
+        await create_invited_student_access_link(
+            db_session,
+            StudentInvitationLinkCreate(
+                tenant_slug="nizhniy-novgorod-partner-a",
+                token=token,
+                max_user_id=53364725,
+            ),
+        )
+
+
 async def test_revoked_parent_account_can_be_relinked_as_student(db_session) -> None:
     await seed_two_students_for_one_contact(db_session)
     former_parent_links = await create_contact_access_links(
@@ -191,3 +224,98 @@ async def test_revoked_parent_account_can_be_relinked_as_student(db_session) -> 
 
     assert student_link.role == StudentAccessRole.STUDENT
     assert student_link.status == StudentAccessStatus.ACTIVE
+
+
+async def test_teacher_qr_grants_student_access_before_parent_connects(
+    db_session,
+    monkeypatch,
+) -> None:
+    await seed_two_students_for_one_contact(db_session)
+    student = await db_session.scalar(
+        select(Student).where(Student.lms_student_id == "ST-001")
+    )
+    assert student is not None
+    teacher = MaxAccount(max_user_id=8801, display_name="Олейник Д")
+    db_session.add(teacher)
+    await db_session.flush()
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=student.tenant_id,
+            account_id=teacher.id,
+            role=StaffRole.TEACHER,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    monkeypatch.setenv("MAX_BOT_USERNAME", "AlgoBot")
+    get_settings.cache_clear()
+    try:
+        invitations = await list_miniapp_teacher_invitations(
+            db_session,
+            max_user_id=teacher.max_user_id,
+            tenant_slug="nizhniy-novgorod-partner-a",
+        )
+        invitation = next(item for item in invitations if item.student_id == student.id)
+        assert invitation.available is True
+        assert invitation.parent_connected is False
+        assert invitation.qr_data_url
+        assert invitation.bot_url
+
+        token = invitation.bot_url.split("student_", 1)[1]
+        _, _, student_link = await create_invited_student_access_link(
+            db_session,
+            StudentInvitationLinkCreate(
+                tenant_slug="nizhniy-novgorod-partner-a",
+                token=token,
+                max_user_id=9901,
+            ),
+        )
+        assert student_link.source == StudentAccessSource.TEACHER_QR
+        assert student_link.sponsor_access_link_id is None
+
+        child_session = await get_miniapp_session(
+            db_session,
+            max_user_id=9901,
+            tenant_slug="nizhniy-novgorod-partner-a",
+        )
+        assert child_session.has_access is True
+        assert len(child_session.students) == 1
+        assert child_session.students[0].parent_connected is False
+
+        parent_links = await create_contact_access_links(
+            db_session,
+            AccessLinkCreate(
+                tenant_slug="nizhniy-novgorod-partner-a",
+                contact_id="681",
+                max_user_id=9902,
+                role=StudentAccessRole.PARENT,
+            ),
+        )
+        connected_session = await get_miniapp_session(
+            db_session,
+            max_user_id=9901,
+            tenant_slug="nizhniy-novgorod-partner-a",
+        )
+        assert connected_session.students[0].parent_connected is True
+
+        for parent_link in parent_links:
+            parent_link.status = StudentAccessStatus.REVOKED
+        revoked_children = await revoke_dependent_student_links(
+            db_session,
+            parent_links=parent_links,
+        )
+        await db_session.commit()
+        await db_session.refresh(student_link)
+        assert student_link.status == StudentAccessStatus.ACTIVE
+        assert student_link not in revoked_children
+
+        disconnected_session = await get_miniapp_session(
+            db_session,
+            max_user_id=9901,
+            tenant_slug="nizhniy-novgorod-partner-a",
+        )
+        assert disconnected_session.has_access is True
+        assert disconnected_session.students[0].parent_connected is False
+    finally:
+        get_settings.cache_clear()

@@ -43,8 +43,9 @@ function renderTeacherInvitations() {
         const invitation = state.teacherInvitations.get(student.id);
         const data = invitation?.data;
         if (data?.available && data.qr_data_url) {
+          const parentConnected = data.parent_connected !== false;
           return `
-            <article class="teacher-qr-card is-connected">
+            <article class="teacher-qr-card ${parentConnected ? "is-connected" : "is-awaiting-parent"}">
               <button type="button" class="teacher-qr-preview" data-open-student-qr="${escapeHtml(student.id)}" aria-label="Показать QR-код ${escapeHtml(student.name)}">
                 <img src="${escapeHtml(data.qr_data_url)}" alt="QR-код: ${escapeHtml(student.name)}" />
                 ${data.demo ? '<small class="safe-qr-label">Пример, не сканировать</small>' : ""}
@@ -52,7 +53,11 @@ function renderTeacherInvitations() {
               <span class="teacher-qr-copy">
                 <strong>${escapeHtml(student.name)}</strong>
                 <small>${escapeHtml(student.group)}</small>
-                <span class="link-status is-active"><i data-lucide="link"></i> Родитель подключен</span>
+                <span class="link-status ${parentConnected ? "is-active" : "is-pending"}">
+                  <i data-lucide="${parentConnected ? "link" : "mail"}"></i>
+                  ${parentConnected ? "Родитель подключен" : "Ожидается вход родителя"}
+                </span>
+                ${parentConnected || !data.message ? "" : `<span class="teacher-qr-note">${escapeHtml(data.message)}</span>`}
               </span>
               <button type="button" class="secondary-action" data-open-student-qr="${escapeHtml(student.id)}">Показать</button>
             </article>
