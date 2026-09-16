@@ -68,8 +68,6 @@ storage/
 *.xlsx
 *.xls
 *.csv
-!docs/templates/
-!docs/templates/algo-max-students-import-template.xlsx
 
 # Private planning documents
 DIRECTOR_APPROVAL_PLAN_MAX_BOT.md
@@ -89,6 +87,16 @@ blob-report/
 .playwright/
 .playwright-cli/
 .deploy_tmp/
+
+# Documentation and working materials are kept outside the source publication
+docs/
+*.md
+!README.md
+*.docx
+*.pdf
+*.pptx
+model_versions_dataset_handoff_ru.txt
+бот.txt
 
 # OS/editor noise
 .DS_Store
