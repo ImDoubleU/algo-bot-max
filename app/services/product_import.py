@@ -89,7 +89,7 @@ PRODUCT_TEMPLATE_COLUMNS = (
     "Описание",
     "Ссылка на фото",
 )
-MAX_CONCURRENT_PRODUCT_IMAGE_DOWNLOADS = 8
+MAX_CONCURRENT_PRODUCT_IMAGE_DOWNLOADS = 4
 
 
 class ProductImportError(RuntimeError):
@@ -127,6 +127,8 @@ class ProductImportRow:
     warehouse_slug: str
     description: str | None = None
     photo_url: str | None = None
+    photo_thumbnail_url: str | None = None
+    photo_master_url: str | None = None
     status: ProductStatus = ProductStatus.ACTIVE
 
 
@@ -314,7 +316,7 @@ async def localize_product_import_photos(
     media_base_url: str,
 ) -> tuple[list[ProductImportRow], list[SavedProductImage]]:
     saved_images: list[SavedProductImage] = []
-    localized_urls: dict[tuple[str, str], str] = {}
+    localized_images: dict[tuple[str, str], SavedProductImage] = {}
     base_url = media_base_url.rstrip("/")
     jobs: dict[tuple[str, str], ProductImportRow] = {}
     for row in rows:
@@ -360,7 +362,7 @@ async def localize_product_import_photos(
                 failures.append((row, ProductMediaError("Файл изображения не сохранен")))
                 continue
             saved_images.append(saved_image)
-            localized_urls[cache_key] = f"{base_url}{saved_image.url_path}"
+            localized_images[cache_key] = saved_image
 
         if failures:
             await asyncio.gather(*(remove_product_image(image) for image in saved_images))
@@ -377,8 +379,23 @@ async def localize_product_import_photos(
             localized_rows.append(row)
             continue
         product_key = row.sku or f"{row.category_slug}:{row.name.casefold()}"
+        saved_image = localized_images[(product_key, row.photo_url)]
+        detail_url = f"{base_url}{saved_image.url_path}"
         localized_rows.append(
-            replace(row, photo_url=localized_urls[(product_key, row.photo_url)])
+            replace(
+                row,
+                photo_url=detail_url,
+                photo_thumbnail_url=(
+                    f"{base_url}{saved_image.thumbnail_url_path}"
+                    if saved_image.thumbnail_url_path
+                    else detail_url
+                ),
+                photo_master_url=(
+                    f"{base_url}{saved_image.master_url_path}"
+                    if saved_image.master_url_path
+                    else detail_url
+                ),
+            )
         )
     return localized_rows, saved_images
 
@@ -594,6 +611,8 @@ async def import_products_for_tenant(
                 name=row.name,
                 description=row.description,
                 photo_url=row.photo_url,
+                photo_thumbnail_url=row.photo_thumbnail_url,
+                photo_master_url=row.photo_master_url,
                 price_astrocoins=row.price_astrocoins,
                 status=row.status,
             )
@@ -603,12 +622,28 @@ async def import_products_for_tenant(
             if product.status == ProductStatus.ACTIVE:
                 result.new_active_products.append(product)
         else:
-            if product.photo_url and product.photo_url != row.photo_url:
-                result.obsolete_photo_urls.append(product.photo_url)
+            next_photo_urls = {
+                row.photo_url,
+                row.photo_thumbnail_url,
+                row.photo_master_url,
+            }
+            for previous_url in (
+                product.photo_url,
+                product.photo_thumbnail_url,
+                product.photo_master_url,
+            ):
+                if previous_url and previous_url not in next_photo_urls:
+                    result.obsolete_photo_urls.append(previous_url)
             product.category_id = category.id
             product.name = row.name
             product.description = row.description
             product.photo_url = row.photo_url
+            product.photo_thumbnail_url = row.photo_thumbnail_url
+            product.photo_master_url = row.photo_master_url
+            product.photo_crop_x = None
+            product.photo_crop_y = None
+            product.photo_crop_width = None
+            product.photo_crop_height = None
             product.price_astrocoins = row.price_astrocoins
             product.status = row.status
             result.updated_products += 1

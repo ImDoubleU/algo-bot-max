@@ -444,7 +444,7 @@ function renderProducts() {
   }
 
   grid.innerHTML = visible
-    .map((product) => {
+    .map((product, visibleIndex) => {
       const available = productAvailable(product);
       const availableLeft = canUseStoreCart()
         ? cartAddableQuantity(product)
@@ -461,16 +461,14 @@ function renderProducts() {
         product.fulfillmentType === "digital_code"
           ? '<span class="product-auto-issue"><i data-lucide="zap"></i> Цифровой товар</span>'
           : "";
+      const catalogPhotoUrl = product.photoThumbnailUrl || product.photoUrl;
       return `
         <article class="product-card" data-product-card="${escapeHtml(product.id)}" tabindex="0" role="button" aria-label="Открыть ${escapeHtml(product.name)}">
-          <div class="product-visual ${product.photoUrl ? "has-photo" : ""}">
-            ${
-              product.photoUrl
-                ? `<img src="${escapeHtml(product.photoUrl)}" alt="${escapeHtml(product.name)}" loading="lazy" />`
-                : `<div class="product-visual-fallback" aria-hidden="true">
-                    <i data-lucide="${productFallbackIcon(product)}"></i>
-                  </div>`
-            }
+          <div class="product-visual ${catalogPhotoUrl ? "has-photo" : ""}">
+            <div class="product-visual-fallback" aria-hidden="true">
+              <i data-lucide="${productFallbackIcon(product)}"></i>
+            </div>
+            ${catalogPhotoUrl ? `<img src="${escapeHtml(catalogPhotoUrl)}" alt="${escapeHtml(product.name)}" width="480" height="480" decoding="async" loading="${visibleIndex < 4 ? "eager" : "lazy"}" fetchpriority="${visibleIndex < 4 ? "high" : "low"}" data-product-image />` : ""}
             <button
               class="product-visual-open"
               type="button"
@@ -620,8 +618,8 @@ function renderCart() {
             <div class="cart-product">
               <div class="cart-product-visual">
                 ${
-                  product.photoUrl
-                    ? `<img src="${escapeHtml(product.photoUrl)}" alt="" />`
+                  product.photoThumbnailUrl || product.photoUrl
+                    ? `<img src="${escapeHtml(product.photoThumbnailUrl || product.photoUrl)}" alt="" width="480" height="480" loading="lazy" decoding="async" data-product-image />`
                     : `<i data-lucide="${productFallbackIcon(product)}"></i>`
                 }
               </div>
@@ -884,7 +882,7 @@ function openProductDialog(productId) {
     <div class="product-dialog-visual">
       ${
         product.photoUrl
-          ? `<img src="${escapeHtml(product.photoUrl)}" alt="${escapeHtml(product.name)}" />`
+          ? `<img src="${escapeHtml(product.photoUrl)}" alt="${escapeHtml(product.name)}" width="1600" height="1600" decoding="async" data-product-image />`
           : `<div class="product-visual-fallback" aria-hidden="true">
               <i data-lucide="${productFallbackIcon(product)}"></i>
             </div>`

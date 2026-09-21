@@ -20,6 +20,7 @@ from app.models.store import (
 from app.models.tenant import City, Partner, Tenant
 from app.services.miniapp import import_miniapp_products
 from app.services.product_import import (
+    MAX_CONCURRENT_PRODUCT_IMAGE_DOWNLOADS,
     ProductImportError,
     build_product_import_template,
     localize_product_import_photos,
@@ -398,7 +399,7 @@ async def test_product_import_downloads_remote_images_concurrently(
         media_base_url="https://algo.test",
     )
 
-    assert peak_downloads == 8
+    assert peak_downloads == MAX_CONCURRENT_PRODUCT_IMAGE_DOWNLOADS
     assert len(client_ids) == 1
     assert len(saved) == image_count
     assert localized[0].photo_url == "https://algo.test/media/products/1.png"

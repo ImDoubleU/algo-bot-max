@@ -1,17 +1,33 @@
+from __future__ import annotations
+
 import asyncio
 import ipaddress
 import json
 import socket
+import warnings
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 from uuid import uuid4
 
 import httpx
 from fastapi import UploadFile
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 MAX_PRODUCT_IMAGE_BYTES = 10 * 1024 * 1024
 PRODUCT_MEDIA_URL_PREFIX = "/media/products"
+MAX_PRODUCT_IMAGE_PIXELS = 40_000_000
+MASTER_IMAGE_MAX_SIZE = 2500
+DETAIL_IMAGE_MAX_SIZE = 1600
+THUMBNAIL_IMAGE_SIZE = 480
+MASTER_IMAGE_QUALITY = 90
+DETAIL_IMAGE_QUALITY = 84
+THUMBNAIL_IMAGE_QUALITY = 78
+MASTER_IMAGE_MAX_BYTES = 2_500_000
+DETAIL_IMAGE_MAX_BYTES = 600_000
+THUMBNAIL_IMAGE_MAX_BYTES = 200_000
+MIN_CROP_FRACTION = 0.02
 MAX_REMOTE_REDIRECTS = 5
 MAX_REMOTE_METADATA_BYTES = 256 * 1024
 REMOTE_IMAGE_TIMEOUT_SECONDS = 20.0
@@ -38,6 +54,38 @@ class ProductMediaError(ValueError):
 class SavedProductImage:
     path: Path
     url_path: str
+    thumbnail_path: Path | None = None
+    thumbnail_url_path: str | None = None
+    master_path: Path | None = None
+    master_url_path: str | None = None
+
+    @property
+    def paths(self) -> tuple[Path, ...]:
+        return tuple(
+            dict.fromkeys(
+                path
+                for path in (self.path, self.thumbnail_path, self.master_path)
+                if path is not None
+            )
+        )
+
+
+@dataclass(frozen=True)
+class ProductImageCrop:
+    x: float
+    y: float
+    width: float
+    height: float
+
+    def validate(self) -> ProductImageCrop:
+        values = (self.x, self.y, self.width, self.height)
+        if any(not 0 <= value <= 1 for value in values):
+            raise ProductMediaError("Область кадрирования выходит за границы изображения")
+        if self.width < MIN_CROP_FRACTION or self.height < MIN_CROP_FRACTION:
+            raise ProductMediaError("Область кадрирования слишком мала")
+        if self.x + self.width > 1.000001 or self.y + self.height > 1.000001:
+            raise ProductMediaError("Область кадрирования выходит за границы изображения")
+        return self
 
 
 def create_remote_product_image_client() -> httpx.AsyncClient:
@@ -69,28 +117,180 @@ def _resolve_media_target(media_root: str, filename: str) -> tuple[Path, Path]:
     return root, (root / filename).resolve()
 
 
+def _has_alpha(image: Image.Image) -> bool:
+    return image.mode in {"RGBA", "LA"} or (
+        image.mode == "P" and "transparency" in image.info
+    )
+
+
+def _decoded_product_image(content: bytes, *, subject: str) -> Image.Image:
+    if _image_extension(content) is None:
+        raise ProductMediaError("Поддерживаются фотографии JPEG, PNG и WebP")
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(content)) as source:
+                if (source.format or "").upper() not in {"JPEG", "PNG", "WEBP"}:
+                    raise ProductMediaError("Поддерживаются фотографии JPEG, PNG и WebP")
+                if source.width * source.height > MAX_PRODUCT_IMAGE_PIXELS:
+                    raise ProductMediaError(
+                        f"{subject} имеет слишком большое разрешение"
+                    )
+                source.load()
+                image = ImageOps.exif_transpose(source)
+                image = image.convert("RGBA" if _has_alpha(image) else "RGB")
+    except ProductMediaError:
+        raise
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise ProductMediaError(f"{subject} имеет слишком большое разрешение") from exc
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ProductMediaError("Файл поврежден или не является изображением") from exc
+    if image.width < 2 or image.height < 2:
+        raise ProductMediaError(f"{subject} имеет слишком маленькое разрешение")
+    return image
+
+
+def _fit_within(image: Image.Image, max_size: int) -> Image.Image:
+    result = image.copy()
+    if max(result.size) > max_size:
+        result.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+    return result
+
+
+def _crop_box(image: Image.Image, crop: ProductImageCrop) -> tuple[int, int, int, int]:
+    crop.validate()
+    left = max(0, min(image.width - 1, round(crop.x * image.width)))
+    top = max(0, min(image.height - 1, round(crop.y * image.height)))
+    right = max(left + 1, min(image.width, round((crop.x + crop.width) * image.width)))
+    bottom = max(top + 1, min(image.height, round((crop.y + crop.height) * image.height)))
+    return left, top, right, bottom
+
+
+def _encode_webp(
+    image: Image.Image,
+    *,
+    quality: int,
+    max_bytes: int,
+) -> bytes:
+    candidate = image.copy()
+    while True:
+        for current_quality in range(quality, 49, -7):
+            output = BytesIO()
+            candidate.save(
+                output,
+                format="WEBP",
+                quality=current_quality,
+                method=4,
+                exact=_has_alpha(candidate),
+            )
+            encoded = output.getvalue()
+            if len(encoded) <= max_bytes or current_quality <= 50:
+                break
+        if len(encoded) <= max_bytes or max(candidate.size) <= THUMBNAIL_IMAGE_SIZE:
+            return encoded
+        next_size = (
+            max(1, round(candidate.width * 0.88)),
+            max(1, round(candidate.height * 0.88)),
+        )
+        if next_size == candidate.size:
+            return encoded
+        candidate = candidate.resize(next_size, Image.Resampling.LANCZOS)
+
+
+def _write_atomic(path: Path, content: bytes) -> None:
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporary.write_bytes(content)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _save_product_image_set(
+    content: bytes,
+    *,
+    media_root: str,
+    subject: str,
+    crop: ProductImageCrop | None,
+) -> SavedProductImage:
+    root = _prepare_media_root(media_root)
+    image = _decoded_product_image(content, subject=subject)
+    master = _fit_within(image, MASTER_IMAGE_MAX_SIZE)
+    detail_source = master.crop(_crop_box(master, crop)) if crop is not None else master.copy()
+    detail = _fit_within(detail_source, DETAIL_IMAGE_MAX_SIZE)
+    thumbnail = ImageOps.fit(
+        detail_source,
+        (THUMBNAIL_IMAGE_SIZE, THUMBNAIL_IMAGE_SIZE),
+        method=Image.Resampling.LANCZOS,
+        centering=(0.5, 0.5),
+    )
+
+    token = uuid4().hex
+    master_path = root / f"{token}-master.webp"
+    detail_path = root / f"{token}-detail.webp"
+    thumbnail_path = root / f"{token}-thumb.webp"
+    created: list[Path] = []
+    try:
+        for path, encoded in (
+            (
+                master_path,
+                _encode_webp(
+                    master,
+                    quality=MASTER_IMAGE_QUALITY,
+                    max_bytes=MASTER_IMAGE_MAX_BYTES,
+                ),
+            ),
+            (
+                detail_path,
+                _encode_webp(
+                    detail,
+                    quality=DETAIL_IMAGE_QUALITY,
+                    max_bytes=DETAIL_IMAGE_MAX_BYTES,
+                ),
+            ),
+            (
+                thumbnail_path,
+                _encode_webp(
+                    thumbnail,
+                    quality=THUMBNAIL_IMAGE_QUALITY,
+                    max_bytes=THUMBNAIL_IMAGE_MAX_BYTES,
+                ),
+            ),
+        ):
+            _write_atomic(path, encoded)
+            created.append(path)
+    except Exception:
+        for path in created:
+            path.unlink(missing_ok=True)
+        raise
+    return SavedProductImage(
+        path=detail_path,
+        url_path=f"{PRODUCT_MEDIA_URL_PREFIX}/{detail_path.name}",
+        thumbnail_path=thumbnail_path,
+        thumbnail_url_path=f"{PRODUCT_MEDIA_URL_PREFIX}/{thumbnail_path.name}",
+        master_path=master_path,
+        master_url_path=f"{PRODUCT_MEDIA_URL_PREFIX}/{master_path.name}",
+    )
+
+
 async def _save_product_image_content(
     content: bytes,
     *,
     media_root: str,
     subject: str,
+    crop: ProductImageCrop | None = None,
 ) -> SavedProductImage:
     if not content:
         raise ProductMediaError(f"{subject} пусто")
     if len(content) > MAX_PRODUCT_IMAGE_BYTES:
         raise ProductMediaError(f"{subject} должно быть не больше 10 МБ")
 
-    extension = _image_extension(content)
-    if extension is None:
-        raise ProductMediaError("Поддерживаются фотографии JPEG, PNG и WebP")
-
-    root = await asyncio.to_thread(_prepare_media_root, media_root)
-    filename = f"{uuid4().hex}{extension}"
-    target = root / filename
-    await asyncio.to_thread(target.write_bytes, content)
-    return SavedProductImage(
-        path=target,
-        url_path=f"{PRODUCT_MEDIA_URL_PREFIX}/{filename}",
+    return await asyncio.to_thread(
+        _save_product_image_set,
+        content,
+        media_root=media_root,
+        subject=subject,
+        crop=crop,
     )
 
 
@@ -99,6 +299,7 @@ async def save_product_image(
     *,
     media_root: str,
     subject: str = "Фото товара",
+    crop: ProductImageCrop | None = None,
 ) -> SavedProductImage:
     content = await upload.read(MAX_PRODUCT_IMAGE_BYTES + 1)
     if not content:
@@ -107,6 +308,7 @@ async def save_product_image(
         content,
         media_root=media_root,
         subject=subject,
+        crop=crop,
     )
 
 
@@ -271,6 +473,7 @@ async def save_remote_product_image(
     *,
     media_root: str,
     client: httpx.AsyncClient | None = None,
+    crop: ProductImageCrop | None = None,
 ) -> SavedProductImage:
     source_url = photo_url.strip().replace("\\&", "&")
     if not source_url:
@@ -312,6 +515,7 @@ async def save_remote_product_image(
             content,
             media_root=media_root,
             subject="Фото по ссылке",
+            crop=crop,
         )
     finally:
         if own_client:
@@ -321,10 +525,129 @@ async def save_remote_product_image(
 async def remove_product_image(image: SavedProductImage | None) -> None:
     if image is None:
         return
+    for path in image.paths:
+        try:
+            await asyncio.to_thread(path.unlink, missing_ok=True)
+        except OSError:
+            continue
+
+
+def _local_product_image_path(photo_url: str, *, media_root: str) -> Path:
+    path = urlsplit(photo_url).path
+    prefix = f"{PRODUCT_MEDIA_URL_PREFIX}/"
+    if not path.startswith(prefix):
+        raise ProductMediaError("Исходное фото товара недоступно для кадрирования")
+    filename = path.removeprefix(prefix)
+    if not filename or Path(filename).name != filename:
+        raise ProductMediaError("Некорректный адрес исходного фото")
+    root, target = _resolve_media_target(media_root, filename)
+    if target.parent != root or not target.is_file():
+        raise ProductMediaError("Исходное фото товара не найдено")
+    return target
+
+
+def _save_recropped_variants(
+    content: bytes,
+    *,
+    media_root: str,
+    crop: ProductImageCrop | None,
+    master_url_path: str,
+) -> SavedProductImage:
+    root = _prepare_media_root(media_root)
+    master = _decoded_product_image(content, subject="Исходное фото")
+    detail_source = master.crop(_crop_box(master, crop)) if crop is not None else master.copy()
+    detail = _fit_within(detail_source, DETAIL_IMAGE_MAX_SIZE)
+    thumbnail = ImageOps.fit(
+        detail_source,
+        (THUMBNAIL_IMAGE_SIZE, THUMBNAIL_IMAGE_SIZE),
+        method=Image.Resampling.LANCZOS,
+        centering=(0.5, 0.5),
+    )
+    token = uuid4().hex
+    detail_path = root / f"{token}-detail.webp"
+    thumbnail_path = root / f"{token}-thumb.webp"
+    created: list[Path] = []
     try:
-        await asyncio.to_thread(image.path.unlink, missing_ok=True)
-    except OSError:
-        return
+        for path, encoded in (
+            (
+                detail_path,
+                _encode_webp(
+                    detail,
+                    quality=DETAIL_IMAGE_QUALITY,
+                    max_bytes=DETAIL_IMAGE_MAX_BYTES,
+                ),
+            ),
+            (
+                thumbnail_path,
+                _encode_webp(
+                    thumbnail,
+                    quality=THUMBNAIL_IMAGE_QUALITY,
+                    max_bytes=THUMBNAIL_IMAGE_MAX_BYTES,
+                ),
+            ),
+        ):
+            _write_atomic(path, encoded)
+            created.append(path)
+    except Exception:
+        for path in created:
+            path.unlink(missing_ok=True)
+        raise
+    return SavedProductImage(
+        path=detail_path,
+        url_path=f"{PRODUCT_MEDIA_URL_PREFIX}/{detail_path.name}",
+        thumbnail_path=thumbnail_path,
+        thumbnail_url_path=f"{PRODUCT_MEDIA_URL_PREFIX}/{thumbnail_path.name}",
+        master_url_path=master_url_path,
+    )
+
+
+async def recrop_product_image(
+    master_url: str,
+    *,
+    media_root: str,
+    crop: ProductImageCrop | None,
+) -> SavedProductImage:
+    master_path = await asyncio.to_thread(
+        _local_product_image_path,
+        master_url,
+        media_root=media_root,
+    )
+    content = await asyncio.to_thread(master_path.read_bytes)
+    master_url_path = urlsplit(master_url).path
+    return await asyncio.to_thread(
+        _save_recropped_variants,
+        content,
+        media_root=media_root,
+        crop=crop,
+        master_url_path=master_url_path,
+    )
+
+
+async def optimize_existing_product_image(
+    photo_url: str,
+    *,
+    media_root: str,
+    crop: ProductImageCrop | None = None,
+) -> SavedProductImage:
+    path = urlsplit(photo_url).path
+    if path.startswith(f"{PRODUCT_MEDIA_URL_PREFIX}/"):
+        source_path = await asyncio.to_thread(
+            _local_product_image_path,
+            photo_url,
+            media_root=media_root,
+        )
+        content = await asyncio.to_thread(source_path.read_bytes)
+        return await _save_product_image_content(
+            content,
+            media_root=media_root,
+            subject="Фото товара",
+            crop=crop,
+        )
+    return await save_remote_product_image(
+        photo_url,
+        media_root=media_root,
+        crop=crop,
+    )
 
 
 async def remove_product_image_url(photo_url: str | None, *, media_root: str) -> None:
@@ -344,3 +667,12 @@ async def remove_product_image_url(photo_url: str | None, *, media_root: str) ->
         await asyncio.to_thread(target.unlink, missing_ok=True)
     except OSError:
         return
+
+
+async def remove_product_image_urls(
+    photo_urls: list[str | None] | tuple[str | None, ...] | set[str | None],
+    *,
+    media_root: str,
+) -> None:
+    for photo_url in set(photo_urls):
+        await remove_product_image_url(photo_url, media_root=media_root)

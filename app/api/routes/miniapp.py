@@ -16,7 +16,7 @@ from fastapi import (
     status,
 )
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
@@ -174,15 +174,61 @@ from app.services.miniapp import (
 )
 from app.services.product_import import build_product_import_template
 from app.services.product_media import (
+    ProductImageCrop,
     ProductMediaError,
+    SavedProductImage,
+    recrop_product_image,
     remove_product_image,
-    remove_product_image_url,
+    remove_product_image_urls,
     save_product_image,
 )
 from app.services.warehouse_access import accessible_product_filter
 
 router = APIRouter()
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
+
+
+async def _remove_unreferenced_saved_product_image(
+    db: AsyncSession,
+    *,
+    image: SavedProductImage | None,
+    detail_url: str | None,
+    thumbnail_url: str | None,
+    master_url: str | None,
+    media_root: str,
+) -> None:
+    if image is None:
+        return
+    generated_urls = {
+        url
+        for url, path in (
+            (detail_url, image.path),
+            (thumbnail_url, image.thumbnail_path),
+            (master_url, image.master_path),
+        )
+        if url and path is not None
+    }
+    try:
+        await db.rollback()
+        is_referenced = bool(
+            generated_urls
+            and await db.scalar(
+                select(Product.id)
+                .where(
+                    or_(
+                        Product.photo_url.in_(generated_urls),
+                        Product.photo_thumbnail_url.in_(generated_urls),
+                        Product.photo_master_url.in_(generated_urls),
+                    )
+                )
+                .limit(1)
+            )
+        )
+    except Exception:
+        # A leaked replacement is preferable to deleting a file already committed to a product.
+        return
+    if not is_referenced:
+        await remove_product_image(image)
 MiniAppIdentityDep = Annotated[MiniAppIdentity | None, Depends(get_miniapp_identity)]
 MAX_IMPORT_FILE_BYTES = 20 * 1024 * 1024
 PRODUCT_FIELD_LABELS = {
@@ -1134,6 +1180,11 @@ async def miniapp_save_product(
     status_value: Annotated[ProductStatus, Form(alias="status")] = ProductStatus.ACTIVE,
     description: Annotated[str | None, Form(max_length=1000)] = None,
     existing_photo_url: Annotated[str | None, Form(max_length=500)] = None,
+    recrop: Annotated[bool, Form()] = False,
+    crop_x: Annotated[float | None, Form(ge=0, le=1)] = None,
+    crop_y: Annotated[float | None, Form(ge=0, le=1)] = None,
+    crop_width: Annotated[float | None, Form(gt=0, le=1)] = None,
+    crop_height: Annotated[float | None, Form(gt=0, le=1)] = None,
     fulfillment_type: Annotated[
         ProductFulfillmentType,
         Form(),
@@ -1148,6 +1199,122 @@ async def miniapp_save_product(
         max_user_id=max_user_id,
         tenant_slug=tenant_slug,
     )
+    crop_values = (crop_x, crop_y, crop_width, crop_height)
+    if any(value is not None for value in crop_values) and not all(
+        value is not None for value in crop_values
+    ):
+        raise HTTPException(status_code=422, detail="Проверьте область кадрирования фото")
+    try:
+        crop = (
+            ProductImageCrop(
+                x=float(crop_x),
+                y=float(crop_y),
+                width=float(crop_width),
+                height=float(crop_height),
+            ).validate()
+            if all(value is not None for value in crop_values)
+            else None
+        )
+    except ProductMediaError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    tenant = await db.scalar(select(Tenant).where(Tenant.slug == resolved_tenant))
+    existing_product = None
+    if tenant is not None:
+        if product_id is not None:
+            existing_product = await db.scalar(
+                select(Product).where(
+                    Product.id == product_id,
+                    accessible_product_filter(UUID(str(tenant.id))),
+                )
+            )
+        elif sku:
+            existing_product = await db.scalar(
+                select(Product).where(
+                    Product.tenant_id == tenant.id,
+                    Product.sku == sku.strip().upper(),
+                )
+            )
+
+    previous_photo_urls = (
+        (
+            existing_product.photo_url,
+            existing_product.photo_thumbnail_url,
+            existing_product.photo_master_url,
+        )
+        if existing_product is not None
+        else ()
+    )
+    saved_image = None
+    photo_url = existing_photo_url or None
+    thumbnail_url = None
+    master_url = None
+    stored_crop = crop if recrop or photo is not None else None
+
+    if existing_product is not None and photo_url == existing_product.photo_url:
+        thumbnail_url = existing_product.photo_thumbnail_url
+        master_url = existing_product.photo_master_url
+        if not recrop and photo is None:
+            stored_crop = (
+                ProductImageCrop(
+                    x=existing_product.photo_crop_x,
+                    y=existing_product.photo_crop_y,
+                    width=existing_product.photo_crop_width,
+                    height=existing_product.photo_crop_height,
+                )
+                if all(
+                    value is not None
+                    for value in (
+                        existing_product.photo_crop_x,
+                        existing_product.photo_crop_y,
+                        existing_product.photo_crop_width,
+                        existing_product.photo_crop_height,
+                    )
+                )
+                else None
+            )
+
+    try:
+        if photo is not None:
+            saved_image = await save_product_image(
+                photo,
+                media_root=settings.product_media_root,
+                crop=crop,
+            )
+            base_url = str(request.base_url).rstrip("/")
+            photo_url = f"{base_url}{saved_image.url_path}"
+            thumbnail_url = (
+                f"{base_url}{saved_image.thumbnail_url_path}"
+                if saved_image.thumbnail_url_path
+                else photo_url
+            )
+            master_url = (
+                f"{base_url}{saved_image.master_url_path}"
+                if saved_image.master_url_path
+                else photo_url
+            )
+        elif recrop:
+            source_url = None
+            if existing_product is not None:
+                source_url = existing_product.photo_master_url or existing_product.photo_url
+            if not source_url:
+                raise ProductMediaError("Сначала добавьте фото товара")
+            saved_image = await recrop_product_image(
+                source_url,
+                media_root=settings.product_media_root,
+                crop=crop,
+            )
+            base_url = str(request.base_url).rstrip("/")
+            photo_url = f"{base_url}{saved_image.url_path}"
+            thumbnail_url = (
+                f"{base_url}{saved_image.thumbnail_url_path}"
+                if saved_image.thumbnail_url_path
+                else photo_url
+            )
+            master_url = existing_product.photo_master_url or existing_product.photo_url
+    except ProductMediaError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     try:
         payload = MiniAppProductUpsert(
             max_user_id=max_user_id,
@@ -1159,56 +1326,30 @@ async def miniapp_save_product(
             category_slug=category_slug,
             price_astrocoins=price_astrocoins,
             description=description or None,
-            photo_url=existing_photo_url or None,
+            photo_url=photo_url,
+            photo_thumbnail_url=thumbnail_url,
+            photo_master_url=master_url,
+            photo_crop_x=stored_crop.x if stored_crop else None,
+            photo_crop_y=stored_crop.y if stored_crop else None,
+            photo_crop_width=stored_crop.width if stored_crop else None,
+            photo_crop_height=stored_crop.height if stored_crop else None,
             status=status_value,
             fulfillment_type=fulfillment_type,
             new_codes=(new_codes or "").splitlines(),
             inventories=json.loads(inventories) if inventories is not None else None,
         )
     except ValidationError as exc:
+        await remove_product_image(saved_image)
         raise HTTPException(
             status_code=422,
             detail=_product_validation_message(exc),
         ) from exc
     except (json.JSONDecodeError, TypeError) as exc:
+        await remove_product_image(saved_image)
         raise HTTPException(
             status_code=422,
             detail="Проверьте склады и остатки товара",
         ) from exc
-
-    previous_photo_url = None
-    if photo is not None:
-        tenant = await db.scalar(select(Tenant).where(Tenant.slug == resolved_tenant))
-        if tenant is not None:
-            existing_product = None
-            if product_id is not None:
-                existing_product = await db.scalar(
-                    select(Product).where(
-                        Product.id == product_id,
-                        accessible_product_filter(UUID(str(tenant.id))),
-                    )
-                )
-            elif sku:
-                existing_product = await db.scalar(
-                    select(Product).where(
-                        Product.tenant_id == tenant.id,
-                        Product.sku == sku.strip().upper(),
-                    )
-                )
-            if existing_product is not None:
-                previous_photo_url = existing_product.photo_url
-
-    saved_image = None
-    if photo is not None:
-        try:
-            saved_image = await save_product_image(
-                photo,
-                media_root=settings.product_media_root,
-            )
-        except ProductMediaError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        absolute_photo_url = f"{str(request.base_url).rstrip('/')}{saved_image.url_path}"
-        payload = payload.model_copy(update={"photo_url": absolute_photo_url})
 
     try:
         result = await upsert_miniapp_product(
@@ -1216,17 +1357,36 @@ async def miniapp_save_product(
             payload=payload,
             default_tenant_slug=settings.default_tenant_slug,
         )
-        if saved_image is not None and previous_photo_url != result.photo_url:
-            await remove_product_image_url(
-                previous_photo_url,
-                media_root=settings.product_media_root,
-            )
+        current_urls = {
+            result.photo_url,
+            result.photo_thumbnail_url,
+            result.photo_master_url,
+        }
+        obsolete_urls = [url for url in previous_photo_urls if url and url not in current_urls]
+        await remove_product_image_urls(
+            obsolete_urls,
+            media_root=settings.product_media_root,
+        )
         return result
     except MiniAppStoreError as exc:
-        await remove_product_image(saved_image)
+        await _remove_unreferenced_saved_product_image(
+            db,
+            image=saved_image,
+            detail_url=photo_url,
+            thumbnail_url=thumbnail_url,
+            master_url=master_url,
+            media_root=settings.product_media_root,
+        )
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except Exception:
-        await remove_product_image(saved_image)
+        await _remove_unreferenced_saved_product_image(
+            db,
+            image=saved_image,
+            detail_url=photo_url,
+            thumbnail_url=thumbnail_url,
+            master_url=master_url,
+            media_root=settings.product_media_root,
+        )
         raise
 
 
@@ -1245,7 +1405,7 @@ async def miniapp_delete_product(
         tenant_slug=tenant_slug,
     )
     try:
-        photo_url = await delete_miniapp_product(
+        photo_urls = await delete_miniapp_product(
             db,
             product_id=product_id,
             max_user_id=max_user_id,
@@ -1254,7 +1414,7 @@ async def miniapp_delete_product(
         )
     except MiniAppStoreError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    await remove_product_image_url(photo_url, media_root=settings.product_media_root)
+    await remove_product_image_urls(photo_urls, media_root=settings.product_media_root)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

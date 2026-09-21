@@ -802,6 +802,12 @@ def _product_to_read(
         name=product.name,
         description=product.description,
         photo_url=product.photo_url,
+        photo_thumbnail_url=product.photo_thumbnail_url or product.photo_url,
+        photo_master_url=product.photo_master_url or product.photo_url,
+        photo_crop_x=product.photo_crop_x,
+        photo_crop_y=product.photo_crop_y,
+        photo_crop_width=product.photo_crop_width,
+        photo_crop_height=product.photo_crop_height,
         category_slug=category.slug if category else None,
         category_name=normalize_product_category_name(category.name) if category else None,
         price_astrocoins=product.price_astrocoins,
@@ -2464,6 +2470,12 @@ async def upsert_miniapp_product(
             name=payload.name.strip(),
             description=payload.description,
             photo_url=payload.photo_url,
+            photo_thumbnail_url=payload.photo_thumbnail_url,
+            photo_master_url=payload.photo_master_url,
+            photo_crop_x=payload.photo_crop_x,
+            photo_crop_y=payload.photo_crop_y,
+            photo_crop_width=payload.photo_crop_width,
+            photo_crop_height=payload.photo_crop_height,
             price_astrocoins=payload.price_astrocoins,
             status=payload.status,
             fulfillment_type=payload.fulfillment_type,
@@ -2502,6 +2514,12 @@ async def upsert_miniapp_product(
         product.name = payload.name.strip()
         product.description = payload.description
         product.photo_url = payload.photo_url
+        product.photo_thumbnail_url = payload.photo_thumbnail_url
+        product.photo_master_url = payload.photo_master_url
+        product.photo_crop_x = payload.photo_crop_x
+        product.photo_crop_y = payload.photo_crop_y
+        product.photo_crop_width = payload.photo_crop_width
+        product.photo_crop_height = payload.photo_crop_height
         product.price_astrocoins = payload.price_astrocoins
         product.status = payload.status
         product.fulfillment_type = payload.fulfillment_type
@@ -2765,7 +2783,7 @@ async def delete_miniapp_product(
     max_user_id: int,
     tenant_slug: str,
     default_tenant_slug: str,
-) -> str | None:
+) -> tuple[str | None, ...]:
     normalized_tenant_slug = (tenant_slug or default_tenant_slug).strip().lower()
     tenant = await get_tenant_by_slug(db, normalized_tenant_slug)
     if tenant is None:
@@ -2831,7 +2849,11 @@ async def delete_miniapp_product(
 
     product_name = product.name
     product_sku = product.sku
-    photo_url = product.photo_url
+    photo_urls = (
+        product.photo_url,
+        product.photo_thumbnail_url,
+        product.photo_master_url,
+    )
     await db.execute(
         delete(StudentCartItem).where(
             StudentCartItem.product_id == product.id,
@@ -2869,7 +2891,7 @@ async def delete_miniapp_product(
     )
     await db.delete(product)
     await db.commit()
-    return photo_url
+    return photo_urls
 
 
 async def get_miniapp_session(
