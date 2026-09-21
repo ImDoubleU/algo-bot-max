@@ -1236,7 +1236,7 @@ function renderAdminPanel() {
                 : ""
             }
             ${photoPreviewUrl ? `<div class="product-photo-tools">
-              <button type="button" class="secondary-action" data-crop-product-photo><i data-lucide="crop"></i><span>Кадрировать</span></button>
+              <button type="button" class="secondary-action" data-crop-product-photo><i data-lucide="crop"></i><span>Изменить кадрирование</span></button>
               <button type="button" class="secondary-action danger-action" data-remove-product-photo><i data-lucide="trash-2"></i><span>Удалить</span></button>
             </div>` : ""}
           </div>
@@ -1368,8 +1368,8 @@ function renderAdminPanel() {
               <div class="admin-product-thumb">
                 <span>${escapeHtml(product.mark)}</span>
                 ${
-                  product.photoUrl
-                    ? `<img src="${escapeHtml(product.photoUrl)}" alt="" loading="lazy" />`
+                  product.photoThumbnailUrl || product.photoUrl
+                    ? `<img src="${escapeHtml(product.photoThumbnailUrl || product.photoUrl)}" alt="" width="480" height="480" loading="lazy" decoding="async" data-product-image />`
                     : ""
                 }
               </div>

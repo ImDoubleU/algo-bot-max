@@ -391,6 +391,12 @@ class MiniAppProductRead(BaseModel):
     name: str
     description: str | None = None
     photo_url: str | None = None
+    photo_thumbnail_url: str | None = None
+    photo_master_url: str | None = None
+    photo_crop_x: float | None = None
+    photo_crop_y: float | None = None
+    photo_crop_width: float | None = None
+    photo_crop_height: float | None = None
     category_slug: str | None = None
     category_name: str | None = None
     price_astrocoins: int
@@ -469,6 +475,12 @@ class MiniAppProductUpsert(BaseModel):
     price_astrocoins: int = Field(ge=0, le=1_000_000)
     description: str | None = Field(default=None, max_length=1000)
     photo_url: str | None = Field(default=None, max_length=500)
+    photo_thumbnail_url: str | None = Field(default=None, max_length=500)
+    photo_master_url: str | None = Field(default=None, max_length=500)
+    photo_crop_x: float | None = Field(default=None, ge=0, le=1)
+    photo_crop_y: float | None = Field(default=None, ge=0, le=1)
+    photo_crop_width: float | None = Field(default=None, gt=0, le=1)
+    photo_crop_height: float | None = Field(default=None, gt=0, le=1)
     status: ProductStatus = ProductStatus.ACTIVE
     fulfillment_type: ProductFulfillmentType = ProductFulfillmentType.WAREHOUSE
     new_codes: list[str] = Field(default_factory=list, max_length=500)

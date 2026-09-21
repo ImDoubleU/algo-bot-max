@@ -1752,7 +1752,7 @@ async def test_admin_can_delete_unused_product_and_related_drafts(db_session) ->
     )
     await db_session.commit()
 
-    photo_url = await delete_miniapp_product(
+    photo_urls = await delete_miniapp_product(
         db_session,
         product_id=product.id,
         max_user_id=53364725,
@@ -1760,7 +1760,7 @@ async def test_admin_can_delete_unused_product_and_related_drafts(db_session) ->
         default_tenant_slug="nizhniy-novgorod-partner-a",
     )
 
-    assert photo_url == "https://algo.test/media/products/deleted.png"
+    assert photo_urls == ("https://algo.test/media/products/deleted.png", None, None)
     assert await db_session.scalar(select(Product).where(Product.id == product.id)) is None
     assert await db_session.scalar(
         select(WarehouseInventory).where(WarehouseInventory.product_id == product.id)

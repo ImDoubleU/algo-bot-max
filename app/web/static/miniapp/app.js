@@ -156,13 +156,21 @@ async function importDemoProductsFromFile(file) {
 }
 
 function resetProductPhotoSelection() {
-  if (state.productPhotoPreviewUrl.startsWith("blob:")) {
-    URL.revokeObjectURL(state.productPhotoPreviewUrl);
-  }
+  new Set([state.productPhotoPreviewUrl, state.productPhotoSourceUrl]).forEach((url) => {
+    if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+  });
   state.productPhotoFile = null;
   state.productPhotoFileName = "";
   state.productPhotoPreviewUrl = "";
+  state.productPhotoSourceUrl = "";
   state.productPhotoRemoved = false;
+  state.productPhotoCrop = null;
+  state.productPhotoCropRequested = false;
+  state.productPhotoCropOpen = false;
+  state.productPhotoCropZoom = 1;
+  state.productPhotoCropCenterX = 0.5;
+  state.productPhotoCropCenterY = 0.5;
+  qs("#productCropDialog")?.remove();
 }
 
 function selectProductPhoto(file) {
@@ -180,8 +188,57 @@ function selectProductPhoto(file) {
   resetProductPhotoSelection();
   state.productPhotoFile = file;
   state.productPhotoFileName = file.name;
-  state.productPhotoPreviewUrl = URL.createObjectURL(file);
+  state.productPhotoSourceUrl = URL.createObjectURL(file);
+  state.productPhotoPreviewUrl = state.productPhotoSourceUrl;
   return true;
+}
+
+function syncProductPhotoEditor() {
+  const field = qs(".product-photo-field");
+  const picker = field?.querySelector(".product-photo-picker");
+  const action = picker?.querySelector(".product-photo-action");
+  if (!field || !picker || !action) return;
+
+  const editing = products.find((product) => product.id === state.editingProductId);
+  const previewUrl = state.productPhotoRemoved
+    ? ""
+    : state.productPhotoPreviewUrl || editing?.photoUrl || "";
+  picker.classList.toggle("has-preview", Boolean(previewUrl));
+  picker.querySelector("img, .product-photo-placeholder")?.remove();
+  action.insertAdjacentHTML(
+    "beforebegin",
+    previewUrl
+      ? `<img src="${escapeHtml(previewUrl)}" alt="Фото товара" decoding="async" />`
+      : `<span class="product-photo-placeholder">
+          <i data-lucide="image-plus"></i>
+          <strong>Добавить фото</strong>
+          <small>JPEG, PNG или WebP до 10 МБ</small>
+        </span>`,
+  );
+  action.innerHTML = `<i data-lucide="camera"></i>${
+    previewUrl ? "Заменить фото" : "Выбрать фото"
+  }`;
+
+  field.querySelector(".product-photo-name")?.remove();
+  field.querySelector(".product-photo-tools")?.remove();
+  let anchor = picker;
+  if (state.productPhotoFileName) {
+    anchor.insertAdjacentHTML(
+      "afterend",
+      `<small class="product-photo-name">${escapeHtml(state.productPhotoFileName)}</small>`,
+    );
+    anchor = field.querySelector(".product-photo-name") || anchor;
+  }
+  if (previewUrl) {
+    anchor.insertAdjacentHTML(
+      "afterend",
+      `<div class="product-photo-tools">
+        <button type="button" class="secondary-action" data-crop-product-photo><i data-lucide="crop"></i><span>Изменить кадрирование</span></button>
+        <button type="button" class="secondary-action danger-action" data-remove-product-photo><i data-lucide="trash-2"></i><span>Удалить</span></button>
+      </div>`,
+    );
+  }
+  refreshIcons();
 }
 
 function fileAsDataUrl(file) {
@@ -358,6 +415,9 @@ async function saveProductFromForm() {
         (newCodes ? newCodes.split(/\r?\n/).filter((code) => code.trim()).length : 0),
       issuedCodeCount: Number(editing?.issuedCodeCount || 0),
       photoUrl,
+      photoThumbnailUrl: photoUrl,
+      photoMasterUrl: photoUrl,
+      photoCrop: state.productPhotoCropRequested ? state.productPhotoCrop : editing?.photoCrop || null,
       description,
       stock:
         fulfillmentType === "digital_code"
@@ -399,6 +459,15 @@ async function saveProductFromForm() {
     if (payload.description) formData.set("description", payload.description);
     if (existingPhotoUrl) formData.set("existing_photo_url", existingPhotoUrl);
     if (photoFile) formData.set("photo", photoFile);
+    if (state.productPhotoCropRequested) {
+      formData.set("recrop", "true");
+      if (state.productPhotoCrop) {
+        formData.set("crop_x", String(state.productPhotoCrop.x));
+        formData.set("crop_y", String(state.productPhotoCrop.y));
+        formData.set("crop_width", String(state.productPhotoCrop.width));
+        formData.set("crop_height", String(state.productPhotoCrop.height));
+      }
+    }
 
     const response = await apiFetch("/api/v1/miniapp/products/save", {
       method: "POST",
@@ -481,47 +550,218 @@ async function deleteProduct(productId) {
 }
 
 
-async function cropProductPhoto() {
+let productCropImage = null;
+let productCropPointer = null;
+
+function productCropSource() {
   const editing = products.find((product) => product.id === state.editingProductId);
-  const source = state.productPhotoPreviewUrl || editing?.photoUrl || "";
+  return state.productPhotoSourceUrl || editing?.photoMasterUrl || editing?.photoUrl || "";
+}
+
+function currentProductCrop() {
+  if (state.productPhotoCropRequested) return state.productPhotoCrop;
+  const editing = products.find((product) => product.id === state.editingProductId);
+  return editing?.photoCrop || null;
+}
+
+function productCropRect() {
+  if (!productCropImage) return null;
+  const zoom = Math.max(1, Number(state.productPhotoCropZoom) || 1);
+  const side = Math.min(productCropImage.naturalWidth, productCropImage.naturalHeight) / zoom;
+  const half = side / 2;
+  const centerX = Math.max(
+    half,
+    Math.min(productCropImage.naturalWidth - half, state.productPhotoCropCenterX * productCropImage.naturalWidth),
+  );
+  const centerY = Math.max(
+    half,
+    Math.min(productCropImage.naturalHeight - half, state.productPhotoCropCenterY * productCropImage.naturalHeight),
+  );
+  state.productPhotoCropCenterX = centerX / productCropImage.naturalWidth;
+  state.productPhotoCropCenterY = centerY / productCropImage.naturalHeight;
+  return { left: centerX - half, top: centerY - half, side };
+}
+
+function drawProductCropPreview() {
+  const canvas = qs("#productCropCanvas");
+  const rect = productCropRect();
+  if (!(canvas instanceof HTMLCanvasElement) || !productCropImage || !rect) return;
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(
+    productCropImage,
+    rect.left,
+    rect.top,
+    rect.side,
+    rect.side,
+    0,
+    0,
+    canvas.width,
+    canvas.height,
+  );
+  ["#productCropCardPreview", "#productCropDetailPreview"].forEach((selector) => {
+    const preview = qs(selector);
+    if (!(preview instanceof HTMLCanvasElement)) return;
+    const previewContext = preview.getContext("2d");
+    if (!previewContext) return;
+    previewContext.clearRect(0, 0, preview.width, preview.height);
+    previewContext.drawImage(canvas, 0, 0, preview.width, preview.height);
+  });
+  const zoomValue = qs("#productCropZoomValue");
+  if (zoomValue) zoomValue.textContent = `${Math.round(state.productPhotoCropZoom * 100)}%`;
+}
+
+function initializeProductCropEditor() {
+  const source = productCropSource();
+  const canvas = qs("#productCropCanvas");
+  if (!source || !(canvas instanceof HTMLCanvasElement)) return;
+  const image = new Image();
+  image.crossOrigin = "anonymous";
+  image.addEventListener("load", () => {
+    productCropImage = image;
+    const crop = currentProductCrop();
+    if (crop) {
+      const cropWidth = crop.width * image.naturalWidth;
+      const cropHeight = crop.height * image.naturalHeight;
+      const cropSide = Math.max(1, Math.min(cropWidth, cropHeight));
+      state.productPhotoCropZoom = Math.max(
+        1,
+        Math.min(6, Math.min(image.naturalWidth, image.naturalHeight) / cropSide),
+      );
+      state.productPhotoCropCenterX = crop.x + crop.width / 2;
+      state.productPhotoCropCenterY = crop.y + crop.height / 2;
+    } else {
+      state.productPhotoCropZoom = 1;
+      state.productPhotoCropCenterX = 0.5;
+      state.productPhotoCropCenterY = 0.5;
+    }
+    const slider = qs("#productCropZoom");
+    if (slider) slider.value = String(state.productPhotoCropZoom);
+    drawProductCropPreview();
+  }, { once: true });
+  image.addEventListener("error", () => {
+    showNotice("Не удалось открыть исходное фото", "danger");
+    closeProductCropEditor();
+  }, { once: true });
+  image.src = source;
+
+  canvas.addEventListener("pointerdown", (event) => {
+    if (!productCropImage) return;
+    productCropPointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    canvas.setPointerCapture(event.pointerId);
+    canvas.classList.add("is-dragging");
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    if (!productCropPointer || productCropPointer.id !== event.pointerId || !productCropImage) return;
+    const rect = productCropRect();
+    if (!rect) return;
+    const deltaX = event.clientX - productCropPointer.x;
+    const deltaY = event.clientY - productCropPointer.y;
+    state.productPhotoCropCenterX -= (deltaX / canvas.clientWidth) * (rect.side / productCropImage.naturalWidth);
+    state.productPhotoCropCenterY -= (deltaY / canvas.clientHeight) * (rect.side / productCropImage.naturalHeight);
+    productCropPointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    drawProductCropPreview();
+  });
+  const releasePointer = (event) => {
+    if (productCropPointer?.id !== event.pointerId) return;
+    productCropPointer = null;
+    canvas.classList.remove("is-dragging");
+  };
+  canvas.addEventListener("pointerup", releasePointer);
+  canvas.addEventListener("pointercancel", releasePointer);
+}
+
+function closeProductCropEditor() {
+  state.productPhotoCropOpen = false;
+  productCropImage = null;
+  productCropPointer = null;
+  qs("#productCropDialog")?.remove();
+}
+
+function cropProductPhoto() {
+  const source = productCropSource();
   if (!source) return;
-  try {
-    const image = new Image();
-    image.crossOrigin = "anonymous";
-    await new Promise((resolve, reject) => {
-      image.addEventListener("load", resolve, { once: true });
-      image.addEventListener("error", () => reject(new Error("Не удалось открыть фото")), { once: true });
-      image.src = source;
-    });
-    const side = Math.min(image.naturalWidth, image.naturalHeight);
-    const outputSize = Math.min(side, 1200);
-    const canvas = document.createElement("canvas");
-    canvas.width = outputSize;
-    canvas.height = outputSize;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Кадрирование недоступно");
-    context.drawImage(
-      image,
-      (image.naturalWidth - side) / 2,
-      (image.naturalHeight - side) / 2,
-      side,
-      side,
-      0,
-      0,
-      outputSize,
-      outputSize,
-    );
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", 0.9));
-    if (!blob) throw new Error("Не удалось подготовить фото");
-    resetProductPhotoSelection();
-    state.productPhotoFile = new File([blob], `product-${Date.now()}.webp`, { type: "image/webp" });
-    state.productPhotoFileName = state.productPhotoFile.name;
+  qs("#productCropDialog")?.remove();
+  state.productPhotoCropOpen = true;
+  document.body.insertAdjacentHTML("beforeend", `
+    <div id="productCropDialog" class="dialog-backdrop product-crop-backdrop" role="presentation">
+      <section class="product-crop-dialog" role="dialog" aria-modal="true" aria-labelledby="productCropTitle">
+        <div class="dialog-head">
+          <div><p class="eyebrow">Фото товара</p><h2 id="productCropTitle">Настроить кадрирование</h2></div>
+          <button class="icon-button" type="button" data-close-product-crop title="Закрыть" aria-label="Закрыть"><i data-lucide="x"></i></button>
+        </div>
+        <div class="product-crop-content">
+          <div class="product-crop-stage">
+            <canvas id="productCropCanvas" width="720" height="720" aria-label="Предпросмотр кадрирования"></canvas>
+            <span class="product-crop-grid" aria-hidden="true"></span>
+          </div>
+          <p>Перемещайте изображение внутри рамки и настройте масштаб.</p>
+          <label class="product-crop-zoom" for="productCropZoom">
+            <i data-lucide="zoom-out"></i>
+            <input id="productCropZoom" type="range" min="1" max="6" step="0.01" value="1" />
+            <i data-lucide="zoom-in"></i>
+            <strong id="productCropZoomValue">100%</strong>
+          </label>
+          <div class="product-crop-previews">
+            <span><canvas id="productCropCardPreview" width="96" height="96"></canvas><small>Карточка товара</small></span>
+            <span><canvas id="productCropDetailPreview" width="144" height="144"></canvas><small>Крупное изображение</small></span>
+          </div>
+        </div>
+        <div class="dialog-actions product-crop-actions">
+          <button class="secondary-action" type="button" data-reset-product-crop><i data-lucide="rotate-ccw"></i><span>По центру</span></button>
+          <button class="secondary-action" type="button" data-clear-product-crop>Без кадрирования</button>
+          <button class="primary-action" type="button" data-apply-product-crop>Применить</button>
+        </div>
+      </section>
+    </div>
+  `);
+  refreshIcons();
+  initializeProductCropEditor();
+}
+
+async function applyProductCrop() {
+  const canvas = qs("#productCropCanvas");
+  const rect = productCropRect();
+  if (!(canvas instanceof HTMLCanvasElement) || !productCropImage || !rect) return;
+  state.productPhotoCrop = {
+    x: Number((rect.left / productCropImage.naturalWidth).toFixed(6)),
+    y: Number((rect.top / productCropImage.naturalHeight).toFixed(6)),
+    width: Number((rect.side / productCropImage.naturalWidth).toFixed(6)),
+    height: Number((rect.side / productCropImage.naturalHeight).toFixed(6)),
+  };
+  state.productPhotoCropRequested = true;
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", 0.86));
+  if (blob) {
+    if (
+      state.productPhotoPreviewUrl.startsWith("blob:") &&
+      state.productPhotoPreviewUrl !== state.productPhotoSourceUrl
+    ) {
+      URL.revokeObjectURL(state.productPhotoPreviewUrl);
+    }
     state.productPhotoPreviewUrl = URL.createObjectURL(blob);
-    renderAdminPanel();
-    showNotice("Фото обрезано по центру");
-  } catch (error) {
-    showNotice(error.message || "Не удалось кадрировать фото", "danger");
+    const preview = qs(".product-photo-picker img");
+    if (preview) preview.src = state.productPhotoPreviewUrl;
   }
+  closeProductCropEditor();
+  showNotice("Кадрирование применится после сохранения товара");
+}
+
+function clearProductCrop() {
+  state.productPhotoCrop = null;
+  state.productPhotoCropRequested = true;
+  const source = productCropSource();
+  if (
+    state.productPhotoPreviewUrl.startsWith("blob:") &&
+    state.productPhotoPreviewUrl !== state.productPhotoSourceUrl
+  ) {
+    URL.revokeObjectURL(state.productPhotoPreviewUrl);
+  }
+  state.productPhotoPreviewUrl = state.productPhotoSourceUrl || source;
+  const preview = qs(".product-photo-picker img");
+  if (preview && state.productPhotoPreviewUrl) preview.src = state.productPhotoPreviewUrl;
+  closeProductCropEditor();
+  showNotice("Исходное кадрирование восстановится после сохранения товара");
 }
 
 async function toggleProductStatus(productId) {
@@ -2388,6 +2628,28 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  if ("closeProductCrop" in target.dataset) {
+    closeProductCropEditor();
+    return;
+  }
+  if ("applyProductCrop" in target.dataset) {
+    void applyProductCrop();
+    return;
+  }
+  if ("clearProductCrop" in target.dataset) {
+    clearProductCrop();
+    return;
+  }
+  if ("resetProductCrop" in target.dataset) {
+    state.productPhotoCropZoom = 1;
+    state.productPhotoCropCenterX = 0.5;
+    state.productPhotoCropCenterY = 0.5;
+    const slider = qs("#productCropZoom");
+    if (slider) slider.value = "1";
+    drawProductCropPreview();
+    return;
+  }
+
   if (target.id === "railCollapseButton") {
     state.railCollapsed = !state.railCollapsed;
     savePreferences();
@@ -2998,7 +3260,7 @@ document.addEventListener("click", (event) => {
   if ("removeProductPhoto" in target.dataset) {
     resetProductPhotoSelection();
     state.productPhotoRemoved = true;
-    renderAdminPanel();
+    syncProductPhotoEditor();
   }
   if ("cropProductPhoto" in target.dataset) cropProductPhoto();
 
@@ -3197,7 +3459,8 @@ document.addEventListener("change", (event) => {
   if (target.id === "productPhotoFile") {
     const file = target.files?.[0] || null;
     if (file && selectProductPhoto(file)) {
-      renderAdminPanel();
+      target.value = "";
+      syncProductPhotoEditor();
     } else {
       target.value = "";
     }
@@ -3393,6 +3656,12 @@ document.addEventListener("input", (event) => {
   }
   if (!(target instanceof HTMLInputElement)) return;
 
+  if (target.id === "productCropZoom") {
+    state.productPhotoCropZoom = Number(target.value) || 1;
+    drawProductCropPreview();
+    return;
+  }
+
   if (target.dataset.productWarehouseQuantity) {
     syncProductInventoryEditor();
     return;
@@ -3479,7 +3748,7 @@ document.addEventListener("input", (event) => {
   }
 });
 
-  document.addEventListener(
+document.addEventListener(
   "error",
   (event) => {
     const image = event.target;
@@ -3489,6 +3758,7 @@ document.addEventListener("input", (event) => {
         ".product-visual, .product-dialog-visual, .admin-product-thumb, .product-photo-picker",
       )
     ) return;
+    image.closest(".product-visual")?.classList.remove("has-photo");
     image.remove();
   },
   true,

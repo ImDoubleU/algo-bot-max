@@ -5,6 +5,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -52,6 +53,12 @@ class Product(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     photo_url: Mapped[str | None] = mapped_column(String(500))
+    photo_thumbnail_url: Mapped[str | None] = mapped_column(String(500))
+    photo_master_url: Mapped[str | None] = mapped_column(String(500))
+    photo_crop_x: Mapped[float | None] = mapped_column(Float)
+    photo_crop_y: Mapped[float | None] = mapped_column(Float)
+    photo_crop_width: Mapped[float | None] = mapped_column(Float)
+    photo_crop_height: Mapped[float | None] = mapped_column(Float)
     price_astrocoins: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[ProductStatus] = mapped_column(default=ProductStatus.ACTIVE, nullable=False)
     fulfillment_type: Mapped[ProductFulfillmentType] = mapped_column(

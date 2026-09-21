@@ -142,7 +142,14 @@ const state = {
   productPhotoFile: null,
   productPhotoFileName: "",
   productPhotoPreviewUrl: "",
+  productPhotoSourceUrl: "",
   productPhotoRemoved: false,
+  productPhotoCrop: null,
+  productPhotoCropRequested: false,
+  productPhotoCropOpen: false,
+  productPhotoCropZoom: 1,
+  productPhotoCropCenterX: 0.5,
+  productPhotoCropCenterY: 0.5,
   crmImporting: false,
   crmImportFile: null,
   crmImportFileName: "",
@@ -2459,6 +2466,24 @@ function applyCatalog(catalog) {
       name,
       description: product.description || "",
       photoUrl: product.photo_url || "",
+      photoThumbnailUrl: product.photo_thumbnail_url || product.photo_url || "",
+      photoMasterUrl: product.photo_master_url || product.photo_url || "",
+      photoCrop:
+        [
+          product.photo_crop_x,
+          product.photo_crop_y,
+          product.photo_crop_width,
+          product.photo_crop_height,
+        ].every(
+          (value) => value !== null && value !== undefined && Number.isFinite(Number(value)),
+        )
+          ? {
+              x: Number(product.photo_crop_x),
+              y: Number(product.photo_crop_y),
+              width: Number(product.photo_crop_width),
+              height: Number(product.photo_crop_height),
+            }
+          : null,
       status: product.status || "active",
       fulfillmentType: product.fulfillment_type || "warehouse",
       category: normalizeProductCategoryName(product.category_name),
