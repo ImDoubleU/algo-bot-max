@@ -36,6 +36,13 @@ class MiniAppTenantRead(BaseModel):
     partner_name: str
 
 
+class MiniAppShopInvitationTemplateRead(BaseModel):
+    tenant_slug: str
+    tenant_name: str
+    city_name: str
+    invite_url_template: str
+
+
 class MiniAppTenantCreate(BaseModel):
     max_user_id: int = Field(gt=0)
     tenant_slug: str | None = None
@@ -939,6 +946,7 @@ class MiniAppSessionRead(BaseModel):
     teacher_profile: MiniAppTeacherProfileRead | None = None
     tenant: MiniAppTenantRead | None = None
     available_tenants: list[MiniAppTenantRead] = Field(default_factory=list)
+    shop_invitation_templates: list[MiniAppShopInvitationTemplateRead] = Field(default_factory=list)
     can_manage_tenants: bool = False
     can_create_tenants: bool = False
     default_warehouse_id: UUID | None = None

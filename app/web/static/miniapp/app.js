@@ -2608,6 +2608,17 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const shopInvitationTemplate = target.dataset.copyShopInvitation;
+  if (shopInvitationTemplate) {
+    copyTextToClipboard(shopInvitationTemplate).then((copied) =>
+      showNotice(
+        copied ? "Шаблон ссылки скопирован" : "Не удалось скопировать ссылку",
+        copied ? "ok" : "danger",
+      ),
+    );
+    return;
+  }
+
   if (target.id === "cancelConfirmationButton") {
     settleConfirmation(false);
     return;

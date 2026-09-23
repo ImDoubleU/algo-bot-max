@@ -77,6 +77,7 @@ const state = {
   currentTenant: null,
   defaultWarehouseId: "",
   availableTenants: [],
+  shopInvitationTemplates: [],
   canManageTenants: false,
   canCreateTenants: false,
   tenantSaving: false,
@@ -1810,6 +1811,22 @@ function applyDemoRole() {
     state.staffRoles = [requestedRole];
     state.role = staffRoleMap[requestedRole];
     state.availableRoles = [state.role];
+    if (["superadmin", "partner_director", "admin"].includes(requestedRole)) {
+      state.shopInvitationTemplates = [
+        {
+          tenantSlug: "n-novgorod",
+          tenantName: "Нижний Новгород · Algo MAX",
+          cityName: "Нижний Новгород",
+          inviteUrlTemplate: "https://max.ru/id525601030904_3_bot?start=shop_n-novgorod~<ID_родителя>",
+        },
+        {
+          tenantSlug: "bor",
+          tenantName: "Бор · Algo MAX",
+          cityName: "Бор",
+          inviteUrlTemplate: "https://max.ru/id525601030904_3_bot?start=shop_bor~<ID_родителя>",
+        },
+      ];
+    }
     return;
   }
   if (["student", "parent"].includes(requestedRole)) {
@@ -2108,6 +2125,14 @@ function applySession(session) {
   state.currentTenant = session.tenant || null;
   state.availableTenants = Array.isArray(session.available_tenants)
     ? session.available_tenants
+    : [];
+  state.shopInvitationTemplates = Array.isArray(session.shop_invitation_templates)
+    ? session.shop_invitation_templates.map((template) => ({
+        tenantSlug: template.tenant_slug || "",
+        tenantName: template.tenant_name || "",
+        cityName: template.city_name || template.tenant_name || template.tenant_slug || "Город",
+        inviteUrlTemplate: template.invite_url_template || "",
+      })).filter((template) => template.tenantSlug && template.inviteUrlTemplate)
     : [];
   state.canManageTenants = Boolean(session.can_manage_tenants);
   state.canCreateTenants = Boolean(session.can_create_tenants);

@@ -23,7 +23,7 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.87.0"}
+    assert set(versions) == {"0.88.0"}
 
 
 def test_teacher_qr_and_student_notice_cover_missing_parent_connection() -> None:
@@ -114,6 +114,19 @@ def test_tenant_switcher_is_available_for_any_multi_tenant_account() -> None:
 
     assert "state.canManageTenants" in shell_source
     assert "!state.canCreateTenants || !apiContext.maxUserId" in shell_source
+
+
+def test_connections_show_per_city_shop_invitation_templates() -> None:
+    core_source = (MINIAPP / "app-core.js").read_text(encoding="utf-8")
+    admin_source = (MINIAPP / "app-admin.js").read_text(encoding="utf-8")
+    app_source = (MINIAPP / "app.js").read_text(encoding="utf-8")
+
+    assert "session.shop_invitation_templates" in core_source
+    assert "Ссылки приглашения для родителей" in admin_source
+    assert "ID родителя из CRM" in admin_source
+    assert "<ID_родителя>" in core_source
+    assert "data-copy-shop-invitation" in admin_source
+    assert "target.dataset.copyShopInvitation" in app_source
 
 
 def test_admin_products_and_warehouses_have_delete_actions() -> None:

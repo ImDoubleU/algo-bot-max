@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.db.base  # noqa: F401
+from app.core.config import get_settings
 from app.models.account import MaxAccount, StaffRoleAssignment, StaffVenueScope
 from app.models.base import Base
 from app.models.enums import (
@@ -1082,6 +1083,77 @@ async def test_staff_member_can_switch_between_tenants_with_different_active_rol
         "nizhniy-novgorod-partner-a",
     }
     assert bor_session.can_manage_tenants is True
+
+
+async def test_shop_invitation_templates_include_only_managed_tenants(
+    db_session,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("MAX_BOT_USERNAME", "id525601030904_3_bot")
+    get_settings.cache_clear()
+    try:
+        defaults = CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A")
+        await upsert_crm_student_rows(db_session, [crm_row()], defaults=defaults)
+        nizhny_tenant = await db_session.scalar(select(Tenant))
+        assert nizhny_tenant is not None
+
+        bor_tenant = Tenant(
+            city=City(slug="bor", name="Бор"),
+            partner_id=nizhny_tenant.partner_id,
+            slug="bor",
+            name="Бор / Партнер A",
+        )
+        kirov_tenant = Tenant(
+            city=City(slug="kirov", name="Киров"),
+            partner_id=nizhny_tenant.partner_id,
+            slug="kirov",
+            name="Киров / Партнер A",
+        )
+        account = MaxAccount(max_user_id=8820, display_name="Управляющий")
+        db_session.add_all([bor_tenant, kirov_tenant, account])
+        await db_session.flush()
+        db_session.add_all(
+            [
+                StaffRoleAssignment(
+                    tenant_id=nizhny_tenant.id,
+                    account_id=account.id,
+                    role=StaffRole.ADMIN,
+                    status=AssignmentStatus.ACTIVE,
+                ),
+                StaffRoleAssignment(
+                    tenant_id=bor_tenant.id,
+                    account_id=account.id,
+                    role=StaffRole.PARTNER_DIRECTOR,
+                    status=AssignmentStatus.ACTIVE,
+                ),
+                StaffRoleAssignment(
+                    tenant_id=kirov_tenant.id,
+                    account_id=account.id,
+                    role=StaffRole.CURATOR,
+                    status=AssignmentStatus.ACTIVE,
+                ),
+            ]
+        )
+        await db_session.commit()
+
+        session = await get_miniapp_session(
+            db_session,
+            max_user_id=8820,
+            tenant_slug=nizhny_tenant.slug,
+        )
+
+        templates = {
+            template.tenant_slug: template.invite_url_template
+            for template in session.shop_invitation_templates
+        }
+        assert templates == {
+            "bor": ("https://max.ru/id525601030904_3_bot?start=shop_bor~<ID_родителя>"),
+            nizhny_tenant.slug: (
+                f"https://max.ru/id525601030904_3_bot?start=shop_{nizhny_tenant.slug}~<ID_родителя>"
+            ),
+        }
+    finally:
+        get_settings.cache_clear()
 
 
 async def test_scoped_director_and_teacher_roles_union_their_students(db_session) -> None:
