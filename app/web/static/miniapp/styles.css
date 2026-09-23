@@ -416,6 +416,95 @@ select:focus-visible {
   white-space: nowrap;
 }
 
+.shop-invitation-templates {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  background: #ffffff;
+}
+
+.shop-invitation-templates-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.shop-invitation-templates-heading > div,
+.shop-invitation-template-city {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.shop-invitation-templates-heading span,
+.shop-invitation-template-city span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.shop-invitation-templates-icon {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 40px;
+  border-radius: 8px;
+  color: var(--brand-purple);
+  background: var(--brand-purple-soft);
+}
+
+.shop-invitation-templates-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.shop-invitation-template-list {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.shop-invitation-template-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.shop-invitation-template-row:last-child {
+  border-bottom: 0;
+}
+
+.shop-invitation-template-link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.shop-invitation-template-link .secondary-action {
+  gap: 7px;
+}
+
+.shop-invitation-template-link input {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 8px 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: #ffffff;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 640px) {
   .admin-section-actions,
   .admin-section-actions > button,
@@ -431,6 +520,19 @@ select:focus-visible {
 
   .staff-invitation-panel {
     padding: 13px 12px;
+  }
+
+  .shop-invitation-templates {
+    padding: 13px 12px;
+  }
+
+  .shop-invitation-template-row,
+  .shop-invitation-template-link {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shop-invitation-template-link .secondary-action {
+    width: 100%;
   }
 }
 

@@ -105,6 +105,7 @@ from app.schemas.miniapp import (
     MiniAppProductUpsert,
     MiniAppProductWarehouseRead,
     MiniAppSessionRead,
+    MiniAppShopInvitationTemplateRead,
     MiniAppStaffAssignmentRead,
     MiniAppStaffAssignmentUpdate,
     MiniAppStaffInvitationCreate,
@@ -752,6 +753,67 @@ async def _accessible_tenants_for_account(
         )
     )
     return [_tenant_to_read(tenant) for tenant in tenants]
+
+
+async def _shop_invitation_templates_for_account(
+    db: AsyncSession,
+    *,
+    account_id: UUID,
+) -> list[MiniAppShopInvitationTemplateRead]:
+    settings = get_settings()
+    if is_placeholder(settings.max_bot_username):
+        return []
+
+    if await is_global_superadmin(db, account_id=account_id):
+        tenants = await _active_tenants_for_superadmin(db)
+    else:
+        manageable_tenant_ids = set(
+            (
+                await db.scalars(
+                    select(StaffRoleAssignment.tenant_id).where(
+                        StaffRoleAssignment.account_id == account_id,
+                        StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+                        StaffRoleAssignment.role.in_({StaffRole.PARTNER_DIRECTOR, StaffRole.ADMIN}),
+                    )
+                )
+            ).all()
+        )
+        if not manageable_tenant_ids:
+            return []
+        tenant_models = (
+            (
+                await db.scalars(
+                    select(Tenant)
+                    .options(selectinload(Tenant.city), selectinload(Tenant.partner))
+                    .where(
+                        Tenant.id.in_(manageable_tenant_ids),
+                        Tenant.status == TenantStatus.ACTIVE,
+                    )
+                )
+            )
+            .unique()
+            .all()
+        )
+        tenant_models.sort(
+            key=lambda item: (
+                (item.city.name if item.city else item.name).casefold(),
+                (item.partner.name if item.partner else item.name).casefold(),
+            )
+        )
+        tenants = [_tenant_to_read(tenant) for tenant in tenant_models]
+
+    bot_username = str(settings.max_bot_username).strip().lstrip("@")
+    return [
+        MiniAppShopInvitationTemplateRead(
+            tenant_slug=tenant.tenant_slug,
+            tenant_name=tenant.tenant_name,
+            city_name=tenant.city_name,
+            invite_url_template=(
+                f"https://max.ru/{bot_username}?start=shop_{tenant.tenant_slug}~<ID_родителя>"
+            ),
+        )
+        for tenant in tenants
+    ]
 
 
 def _product_to_read(
@@ -3228,6 +3290,10 @@ async def get_miniapp_session(
         db,
         account_id=UUID(str(account.id)),
     )
+    shop_invitation_templates = await _shop_invitation_templates_for_account(
+        db,
+        account_id=UUID(str(account.id)),
+    )
 
     return MiniAppSessionRead(
         tenant_slug=tenant.slug,
@@ -3242,6 +3308,7 @@ async def get_miniapp_session(
         teacher_profile=teacher_profile,
         tenant=_tenant_to_read(tenant),
         available_tenants=available_tenants,
+        shop_invitation_templates=shop_invitation_templates,
         can_manage_tenants=bool(
             len(available_tenants) > 1 or StaffRole.SUPERADMIN in effective_staff_roles
         ),

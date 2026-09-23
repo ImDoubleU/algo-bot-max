@@ -1614,6 +1614,24 @@ function renderAdminPanel() {
 
   if (state.adminTab === "contacts") {
     const activeLinks = accessLinks.filter((link) => link.status === "active").length;
+    const shopInvitationTemplateRows = state.shopInvitationTemplates
+      .map(
+        (template) => `
+          <article class="shop-invitation-template-row">
+            <div class="shop-invitation-template-city">
+              <strong>${escapeHtml(template.cityName)}</strong>
+              <span>${escapeHtml(template.tenantName)}</span>
+            </div>
+            <div class="shop-invitation-template-link">
+              <input type="text" readonly value="${escapeHtml(template.inviteUrlTemplate)}" aria-label="Шаблон ссылки для города ${escapeHtml(template.cityName)}" />
+              <button class="secondary-action" type="button" data-copy-shop-invitation="${escapeHtml(template.inviteUrlTemplate)}">
+                <i data-lucide="copy"></i><span>Скопировать</span>
+              </button>
+            </div>
+          </article>
+        `,
+      )
+      .join("");
     const accessQuery = state.adminEntitySearch.trim().toLowerCase();
     const visibleLinks = accessLinks.filter((link) => {
       const matchesQuery = !accessQuery || `${link.studentName} ${link.group} ${link.maxUserId} ${link.displayName} ${link.username}`.toLowerCase().includes(accessQuery);
@@ -1675,6 +1693,18 @@ function renderAdminPanel() {
           <span>${activeLinks} активных из ${accessLinks.length}</span>
         </div>
       </div>
+      ${shopInvitationTemplateRows ? `
+        <section class="shop-invitation-templates" aria-labelledby="shopInvitationTemplatesTitle">
+          <div class="shop-invitation-templates-heading">
+            <span class="shop-invitation-templates-icon"><i data-lucide="link"></i></span>
+            <div>
+              <strong id="shopInvitationTemplatesTitle">Ссылки приглашения для родителей</strong>
+              <span>Замените &lt;ID_родителя&gt; на ID родителя из CRM перед отправкой.</span>
+            </div>
+          </div>
+          <div class="shop-invitation-template-list">${shopInvitationTemplateRows}</div>
+        </section>
+      ` : ""}
       <div class="admin-filter-toolbar">
         <label class="search-field"><i data-lucide="search"></i><input id="adminEntitySearch" type="search" value="${escapeHtml(state.adminEntitySearch)}" placeholder="Ученик, группа или MAX ID" /><button class="search-clear" type="button" data-clear-admin-search ${state.adminEntitySearch ? "" : "hidden"}><i data-lucide="x"></i></button></label>
         <select id="accessStatusFilter" aria-label="Статус связи"><option value="all">Все статусы</option><option value="active" ${state.accessStatusFilter === "active" ? "selected" : ""}>Активные</option><option value="revoked" ${state.accessStatusFilter === "revoked" ? "selected" : ""}>Отозванные</option></select>
