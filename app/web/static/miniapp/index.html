@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.88.0" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.90.0" />
   </head>
   <body class="is-booting">
     <main id="accessGate" class="access-gate" hidden>
@@ -159,28 +159,55 @@
               <div id="parentInviteList" class="parent-invite-list"></div>
             </section>
 
-            <div class="two-column">
-              <section class="panel">
-                <div class="panel-head student-panel-head">
-                  <h3 id="studentPanelTitle">Дети и группы</h3>
-                  <select id="studentGroupFilter" aria-label="Группа учеников">
-                    <option value="all">Все группы</option>
-                  </select>
-                </div>
-                <div id="studentList" class="student-list">
-                  <div class="initial-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
-                </div>
-              </section>
-
-              <section class="panel">
-                <div class="panel-head">
-                  <h3 id="dashboardOrdersTitle">Заказы к выдаче</h3>
-                </div>
-                <div id="dashboardOrders" class="compact-order-list"></div>
-              </section>
+            <div id="dashboardModeTabs" class="dashboard-mode-tabs" role="tablist" aria-label="Содержимое главной" hidden>
+              <button
+                id="dashboardOverviewTab"
+                class="dashboard-mode-tab is-active"
+                type="button"
+                role="tab"
+                aria-selected="true"
+                aria-controls="dashboardOverviewContent"
+                data-dashboard-mode="overview"
+              >
+                <i data-lucide="users-round"></i><span>Ученики и заказы</span>
+              </button>
+              <button
+                id="dashboardQrTab"
+                class="dashboard-mode-tab"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="teacherQrPanel"
+                data-dashboard-mode="qr"
+              >
+                <i data-lucide="qr-code"></i><span>QR-коды</span>
+              </button>
             </div>
 
-            <section id="teacherQrPanel" class="panel teacher-qr-panel" hidden>
+            <div id="dashboardOverviewContent" role="tabpanel" aria-labelledby="dashboardOverviewTab">
+              <div class="two-column">
+                <section class="panel">
+                  <div class="panel-head student-panel-head">
+                    <h3 id="studentPanelTitle">Дети и группы</h3>
+                    <select id="studentGroupFilter" aria-label="Группа учеников">
+                      <option value="all">Все группы</option>
+                    </select>
+                  </div>
+                  <div id="studentList" class="student-list">
+                    <div class="initial-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
+                  </div>
+                </section>
+
+                <section class="panel">
+                  <div class="panel-head">
+                    <h3 id="dashboardOrdersTitle">Заказы к выдаче</h3>
+                  </div>
+                  <div id="dashboardOrders" class="compact-order-list"></div>
+                </section>
+              </div>
+            </div>
+
+            <section id="teacherQrPanel" class="panel teacher-qr-panel" role="tabpanel" aria-labelledby="dashboardQrTab" hidden>
               <div class="panel-head teacher-qr-head">
                 <div>
                   <p class="eyebrow">Вход учеников</p>
@@ -1129,12 +1156,12 @@
 
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app-core.js?v=0.88.0"></script>
-    <script src="/miniapp/static/app-shell.js?v=0.88.0"></script>
-    <script src="/miniapp/static/app-store.js?v=0.88.0"></script>
-    <script src="/miniapp/static/app-admin.js?v=0.88.0"></script>
-    <script src="/miniapp/static/app-communications.js?v=0.88.0"></script>
-    <script src="/miniapp/static/app-bank.js?v=0.88.0"></script>
-    <script src="/miniapp/static/app.js?v=0.88.0"></script>
+    <script src="/miniapp/static/app-core.js?v=0.90.0"></script>
+    <script src="/miniapp/static/app-shell.js?v=0.90.0"></script>
+    <script src="/miniapp/static/app-store.js?v=0.90.0"></script>
+    <script src="/miniapp/static/app-admin.js?v=0.90.0"></script>
+    <script src="/miniapp/static/app-communications.js?v=0.90.0"></script>
+    <script src="/miniapp/static/app-bank.js?v=0.90.0"></script>
+    <script src="/miniapp/static/app.js?v=0.90.0"></script>
   </body>
 </html>

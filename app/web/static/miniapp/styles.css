@@ -10808,7 +10808,50 @@ details.report-row { display: block; padding: 0; }
   .admin-tab { min-width: 108px; }
 }
 
-/* Teacher QR access */
+/* Dashboard content switcher */
+.dashboard-mode-tabs {
+  width: min(560px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #e9e6ee;
+}
+
+.dashboard-mode-tab {
+  min-width: 0;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+}
+
+.dashboard-mode-tab.is-active {
+  color: #ffffff;
+  background: var(--brand-purple);
+}
+
+.dashboard-mode-tab svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+#dashboardOverviewContent {
+  min-width: 0;
+}
+
+/* Teacher and administrator QR access */
 .teacher-qr-panel {
   margin-bottom: 12px;
   overflow: hidden;

@@ -590,7 +590,7 @@ async function refreshAllData() {
   state.teacherInvitations = new Map();
   state.teacherInvitationsLoaded = false;
   await loadParentInvitations();
-  if (hasTeacherCapabilities()) {
+  if (hasStudentQrCapabilities() && state.dashboardMode === "qr") {
     try {
       await loadTeacherInvitations(true);
     } catch (error) {
@@ -845,7 +845,8 @@ function setRole(role) {
     loadParentInvitations().catch((error) => console.warn(error));
   }
   if (
-    hasTeacherCapabilities() &&
+    hasStudentQrCapabilities() &&
+    state.dashboardMode === "qr" &&
     !state.teacherInvitationsLoaded &&
     !state.teacherInvitationsLoading
   ) {

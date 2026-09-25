@@ -24,7 +24,11 @@ from app.services.access import (
 )
 from app.services.crm_import import CrmStudentRow
 from app.services.crm_sync import CrmSyncDefaults, upsert_crm_student_rows
-from app.services.miniapp import get_miniapp_session, list_miniapp_teacher_invitations
+from app.services.miniapp import (
+    get_miniapp_session,
+    get_miniapp_student_invitation,
+    list_miniapp_teacher_invitations,
+)
 from app.services.student_invitations import (
     issue_student_invitation_token,
 )
@@ -317,5 +321,53 @@ async def test_teacher_qr_grants_student_access_before_parent_connects(
         )
         assert disconnected_session.has_access is True
         assert disconnected_session.students[0].parent_connected is False
+    finally:
+        get_settings.cache_clear()
+
+
+async def test_admin_qr_lists_all_active_students_in_assigned_tenant(
+    db_session,
+    monkeypatch,
+) -> None:
+    await seed_two_students_for_one_contact(db_session)
+    students = list((await db_session.scalars(select(Student))).all())
+    assert len(students) == 2
+    students[1].teacher_name = "Другой преподаватель"
+
+    admin = MaxAccount(max_user_id=8802, display_name="Администратор")
+    db_session.add(admin)
+    await db_session.flush()
+    db_session.add(
+        StaffRoleAssignment(
+            tenant_id=students[0].tenant_id,
+            account_id=admin.id,
+            role=StaffRole.ADMIN,
+            status=AssignmentStatus.ACTIVE,
+        )
+    )
+    await db_session.commit()
+
+    monkeypatch.setenv("MAX_BOT_USERNAME", "AlgoBot")
+    get_settings.cache_clear()
+    try:
+        invitations = await list_miniapp_teacher_invitations(
+            db_session,
+            max_user_id=admin.max_user_id,
+            tenant_slug="nizhniy-novgorod-partner-a",
+        )
+
+        assert {item.student_id for item in invitations} == {
+            student.id for student in students
+        }
+        assert all(item.available and item.qr_data_url for item in invitations)
+
+        invitation = await get_miniapp_student_invitation(
+            db_session,
+            max_user_id=admin.max_user_id,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            student_id=students[1].id,
+        )
+        assert invitation.student_id == students[1].id
+        assert invitation.available is True
     finally:
         get_settings.cache_clear()

@@ -2559,7 +2559,9 @@ async function saveTeacherProfile(event) {
     state.teacherInvitationsLoaded = false;
     await loadSession();
     await loadOpsSummary();
-    if (hasTeacherCapabilities()) await loadTeacherInvitations(true);
+    if (hasStudentQrCapabilities() && state.dashboardMode === "qr") {
+      await loadTeacherInvitations(true);
+    }
     renderAll();
     const groupCount = Number(profile.matched_group_names?.length || 0);
     const hasBroaderGroupAccess = state.staffRoles.some((role) =>
@@ -2671,6 +2673,20 @@ document.addEventListener("click", (event) => {
   const activeStudentId = target.dataset.activeStudent;
   if (activeStudentId) {
     setActiveStudent(activeStudentId);
+    return;
+  }
+
+  const dashboardMode = target.dataset.dashboardMode;
+  if (dashboardMode === "overview" || dashboardMode === "qr") {
+    state.dashboardMode = dashboardMode;
+    renderTeacherInvitations();
+    if (
+      dashboardMode === "qr" &&
+      !state.teacherInvitationsLoaded &&
+      !state.teacherInvitationsLoading
+    ) {
+      void loadTeacherInvitations();
+    }
     return;
   }
 
@@ -3904,7 +3920,9 @@ async function init() {
   if (apiContext.demoMode || state.catalogLoaded) restoreCart();
   await loadServerCart(state.activeStudentId);
   await loadParentInvitations();
-  if (hasTeacherCapabilities()) await loadTeacherInvitations();
+  if (hasStudentQrCapabilities() && state.dashboardMode === "qr") {
+    await loadTeacherInvitations();
+  }
   setView(state.view);
   state.lastSyncAt = new Date();
   renderAll();

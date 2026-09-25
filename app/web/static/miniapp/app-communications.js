@@ -2,14 +2,26 @@ function renderTeacherInvitations() {
   const panel = qs("#teacherQrPanel");
   const list = qs("#teacherQrList");
   const groupSelect = qs("#teacherQrGroupFilter");
-  if (!panel || !list || !groupSelect) return;
+  const tabs = qs("#dashboardModeTabs");
+  const overview = qs("#dashboardOverviewContent");
+  if (!panel || !list || !groupSelect || !tabs || !overview) return;
 
-  const visible = hasTeacherCapabilities();
-  panel.hidden = !visible;
-  if (!visible) return;
+  const available = hasStudentQrCapabilities();
+  if (!available) state.dashboardMode = "overview";
+  const qrSelected = available && state.dashboardMode === "qr";
+  tabs.hidden = !available;
+  overview.hidden = qrSelected;
+  panel.hidden = !qrSelected;
+  qsa("[data-dashboard-mode]").forEach((button) => {
+    const selected = button.dataset.dashboardMode === state.dashboardMode;
+    button.classList.toggle("is-active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  });
+  if (!qrSelected) return;
 
-  const teacherStudents = studentsForTeacherCapabilities();
-  const groups = [...new Set(teacherStudents.map(studentGroupName))].sort((a, b) =>
+  const qrStudents = studentsForStudentQrCapabilities();
+  const groups = [...new Set(qrStudents.map(studentGroupName))].sort((a, b) =>
     a.localeCompare(b, "ru"),
   );
   if (state.teacherInvitationGroup !== "all" && !groups.includes(state.teacherInvitationGroup)) {
@@ -35,7 +47,7 @@ function renderTeacherInvitations() {
     return;
   }
 
-  const visibleStudents = teacherStudents.filter(
+  const visibleStudents = qrStudents.filter(
     (student) => state.teacherInvitationGroup === "all" || studentGroupName(student) === state.teacherInvitationGroup,
   );
   list.innerHTML = visibleStudents.length
