@@ -247,6 +247,8 @@ STORE_ADMIN_ROLES = {
     StaffRole.ADMIN,
 }
 
+STUDENT_QR_STAFF_ROLES = STORE_ADMIN_ROLES | {StaffRole.TEACHER}
+
 ELEVATED_STAFF_ROLES = {
     StaffRole.SUPERADMIN,
     StaffRole.PARTNER_DIRECTOR,
@@ -3360,19 +3362,22 @@ async def get_miniapp_student_invitation(
     if parent_link is not None:
         _require_student_account_access(student, tenant)
     else:
-        teacher_role = await _active_staff_role(
+        qr_roles = await active_staff_roles_for_tenant(
             db,
             tenant_id=tenant.id,
             account_id=account.id,
-            allowed_roles={StaffRole.TEACHER},
+            allowed_roles=STUDENT_QR_STAFF_ROLES,
         )
-        if (
-            teacher_role != StaffRole.TEACHER
-            or student.status != StudentStatus.ACTIVE
-            or not _teacher_owns_student(account, student)
-        ):
+        visible_students = await _students_visible_to_staff_roles(
+            db,
+            tenant_id=tenant.id,
+            account=account,
+            staff_roles=qr_roles,
+            students=[student] if student.status == StudentStatus.ACTIVE else [],
+        )
+        if student not in visible_students:
             raise MiniAppStoreError(
-                "QR-код доступен родителю или преподавателю этой группы",
+                "QR-код доступен родителю или сотруднику с доступом к ученику",
                 status_code=403,
             )
         parent_link = await db.scalar(
@@ -3464,14 +3469,17 @@ async def list_miniapp_teacher_invitations(
     account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == max_user_id))
     if account is None:
         raise MiniAppStoreError("Сначала привяжите профиль в боте", status_code=403)
-    teacher_role = await _active_staff_role(
+    qr_roles = await active_staff_roles_for_tenant(
         db,
         tenant_id=tenant.id,
         account_id=account.id,
-        allowed_roles={StaffRole.TEACHER},
+        allowed_roles=STUDENT_QR_STAFF_ROLES,
     )
-    if teacher_role != StaffRole.TEACHER:
-        raise MiniAppStoreError("Раздел доступен преподавателю", status_code=403)
+    if not qr_roles:
+        raise MiniAppStoreError(
+            "Раздел доступен преподавателю или администратору",
+            status_code=403,
+        )
 
     students = list(
         (
@@ -3485,7 +3493,13 @@ async def list_miniapp_teacher_invitations(
             )
         ).all()
     )
-    students = [student for student in students if _teacher_owns_student(account, student)]
+    students = await _students_visible_to_staff_roles(
+        db,
+        tenant_id=tenant.id,
+        account=account,
+        staff_roles=qr_roles,
+        students=students,
+    )
     if not students:
         return []
 

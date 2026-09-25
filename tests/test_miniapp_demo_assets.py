@@ -23,7 +23,7 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.88.0"}
+    assert set(versions) == {"0.90.0"}
 
 
 def test_teacher_qr_and_student_notice_cover_missing_parent_connection() -> None:
@@ -98,15 +98,33 @@ def test_staff_cards_group_roles_and_expose_profile_management() -> None:
     assert "/profile`" in app_source
 
 
-def test_combined_teacher_role_keeps_teacher_features() -> None:
+def test_staff_qr_capabilities_cover_teachers_and_administrators() -> None:
     core_source = (MINIAPP / "app-core.js").read_text(encoding="utf-8")
     communications_source = (MINIAPP / "app-communications.js").read_text(encoding="utf-8")
     app_source = (MINIAPP / "app.js").read_text(encoding="utf-8")
 
     assert "function hasTeacherCapabilities" in core_source
-    assert "function studentsForTeacherCapabilities" in core_source
-    assert "const visible = hasTeacherCapabilities();" in communications_source
-    assert "hasTeacherCapabilities()" in app_source
+    assert "function hasStudentQrCapabilities" in core_source
+    assert "return hasTeacherCapabilities() || canManageStudentRecords();" in core_source
+    assert "function studentsForStudentQrCapabilities" in core_source
+    assert "const available = hasStudentQrCapabilities();" in communications_source
+    assert "hasStudentQrCapabilities()" in app_source
+
+
+def test_dashboard_switches_between_students_orders_and_qr_codes() -> None:
+    source = (MINIAPP / "index.html").read_text(encoding="utf-8")
+    core_source = (MINIAPP / "app-core.js").read_text(encoding="utf-8")
+    communications_source = (MINIAPP / "app-communications.js").read_text(
+        encoding="utf-8"
+    )
+    app_source = (MINIAPP / "app.js").read_text(encoding="utf-8")
+
+    assert 'data-dashboard-mode="overview"' in source
+    assert 'data-dashboard-mode="qr"' in source
+    assert "Ученики и заказы" in source
+    assert 'dashboardMode: "overview"' in core_source
+    assert "overview.hidden = qrSelected;" in communications_source
+    assert "state.dashboardMode = dashboardMode;" in app_source
 
 
 def test_tenant_switcher_is_available_for_any_multi_tenant_account() -> None:

@@ -89,6 +89,7 @@ const state = {
     ? queryParam("view")
     : "dashboard",
   adminTab: "summary",
+  dashboardMode: "overview",
   studentGroupFilter: "all",
   orderStatusFilter: "all",
   orderSearch: "",
@@ -1007,12 +1008,17 @@ function studentsForCurrentRole() {
   return students.filter((student) => student.role === state.role);
 }
 
-function studentsForTeacherCapabilities() {
+function studentsForStudentQrCapabilities() {
   const activeStudents = students.filter((student) => student.status === "active");
-  if (!hasTeacherCapabilities()) return [];
+  if (!hasStudentQrCapabilities()) return [];
   if (!apiContext.demoMode) {
-    return activeStudents.filter((student) => student.teacherVisible);
+    return activeStudents.filter(
+      (student) =>
+        (canManageStudentRecords() && student.staffVisible) ||
+        (hasTeacherCapabilities() && student.teacherVisible),
+    );
   }
+  if (canManageStudentRecords()) return activeStudents;
   const teacherName = activeStudents[0]?.teacher;
   return activeStudents.filter((student) => student.teacher === teacherName);
 }
@@ -1854,6 +1860,10 @@ function hasTeacherCapabilities() {
   return hasStaffRole("teacher");
 }
 
+function hasStudentQrCapabilities() {
+  return hasTeacherCapabilities() || canManageStudentRecords();
+}
+
 function isStaffStudentHistoryView() {
   return ["teacher", "admin"].includes(state.role) && state.view === "wallet";
 }
@@ -2391,9 +2401,9 @@ async function loadParentInvitations() {
 
 async function loadTeacherInvitations(force = false) {
   if (apiContext.demoMode) {
-    const teacherStudents = studentsForTeacherCapabilities();
+    const qrStudents = studentsForStudentQrCapabilities();
     state.teacherInvitations = new Map(
-      teacherStudents.map((student, index) => [
+      qrStudents.map((student, index) => [
         student.id,
         {
           data: index === 0
@@ -2431,7 +2441,7 @@ async function loadTeacherInvitations(force = false) {
   if (
     !state.hasAccess ||
     !apiContext.maxUserId ||
-    !hasTeacherCapabilities() ||
+    !hasStudentQrCapabilities() ||
     state.teacherInvitationsLoading ||
     (state.teacherInvitationsLoaded && !force)
   ) return;
