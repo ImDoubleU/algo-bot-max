@@ -56,8 +56,10 @@ function renderTeacherInvitations() {
         const data = invitation?.data;
         if (data?.available && data.qr_data_url) {
           const parentConnected = data.parent_connected !== false;
+          const studentConnected = data.student_connected === true;
+          const allConnected = parentConnected && studentConnected;
           return `
-            <article class="teacher-qr-card ${parentConnected ? "is-connected" : "is-awaiting-parent"}">
+            <article class="teacher-qr-card ${allConnected ? "is-connected" : "is-awaiting-access"}">
               <button type="button" class="teacher-qr-preview" data-open-student-qr="${escapeHtml(student.id)}" aria-label="Показать QR-код ${escapeHtml(student.name)}">
                 <img src="${escapeHtml(data.qr_data_url)}" alt="QR-код: ${escapeHtml(student.name)}" />
                 ${data.demo ? '<small class="safe-qr-label">Пример, не сканировать</small>' : ""}
@@ -65,9 +67,15 @@ function renderTeacherInvitations() {
               <span class="teacher-qr-copy">
                 <strong>${escapeHtml(student.name)}</strong>
                 <small>${escapeHtml(student.group)}</small>
-                <span class="link-status ${parentConnected ? "is-active" : "is-pending"}">
-                  <i data-lucide="${parentConnected ? "link" : "mail"}"></i>
-                  ${parentConnected ? "Родитель подключен" : "Ожидается вход родителя"}
+                <span class="teacher-qr-statuses" aria-label="Статусы подключения">
+                  <span class="link-status ${parentConnected ? "is-active" : "is-pending"}">
+                    <i data-lucide="${parentConnected ? "link" : "mail"}"></i>
+                    ${parentConnected ? "Родитель подключен" : "Родитель не подключен"}
+                  </span>
+                  <span class="link-status ${studentConnected ? "is-active" : "is-pending"}">
+                    <i data-lucide="${studentConnected ? "user-check" : "user"}"></i>
+                    ${studentConnected ? "Ученик подключен" : "Ученик не подключен"}
+                  </span>
                 </span>
                 ${parentConnected || !data.message ? "" : `<span class="teacher-qr-note">${escapeHtml(data.message)}</span>`}
               </span>

@@ -23,13 +23,30 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.90.0"}
+    assert set(versions) == {"0.90.2"}
 
 
-def test_teacher_qr_and_student_notice_cover_missing_parent_connection() -> None:
+def test_help_contains_searchable_accordion_and_full_faq() -> None:
+    index_source = (MINIAPP / "index.html").read_text(encoding="utf-8")
+    help_source = (MINIAPP / "app-help.js").read_text(encoding="utf-8")
+    styles_source = (MINIAPP / "styles.css").read_text(encoding="utf-8")
+
+    assert "Скоро..." not in index_source
+    assert 'id="helpSearchInput"' in index_source
+    assert 'id="helpCategoryFilters"' in index_source
+    assert 'app-help.js?v=0.90.2' in index_source
+    assert help_source.count("\n  helpFaq(") >= 150
+    assert "Ожидается вход родителя" in help_source
+    assert '<details class="help-faq-item">' in help_source
+    assert "function renderHelpFaq()" in help_source
+    assert ".help-faq-item[open]" in styles_source
+
+
+def test_teacher_qr_shows_parent_and_student_connections_independently() -> None:
     index_source = (MINIAPP / "index.html").read_text(encoding="utf-8")
     core_source = (MINIAPP / "app-core.js").read_text(encoding="utf-8")
     shell_source = (MINIAPP / "app-shell.js").read_text(encoding="utf-8")
+    styles_source = (MINIAPP / "styles.css").read_text(encoding="utf-8")
     communications_source = (MINIAPP / "app-communications.js").read_text(
         encoding="utf-8"
     )
@@ -38,7 +55,13 @@ def test_teacher_qr_and_student_notice_cover_missing_parent_connection() -> None
     assert "Родителю нужно подтвердить связь" in shell_source
     assert "перейти по персональной ссылке" in shell_source
     assert 'data.parent_connected !== false' in communications_source
-    assert "Ожидается вход родителя" in communications_source
+    assert 'data.student_connected === true' in communications_source
+    assert "Родитель подключен" in communications_source
+    assert "Родитель не подключен" in communications_source
+    assert "Ученик подключен" in communications_source
+    assert "Ученик не подключен" in communications_source
+    assert "teacher-qr-statuses" in communications_source
+    assert ".teacher-qr-statuses" in styles_source
     assert index_source.index('id="studentAccessNotice"') < index_source.index(
         'id="dashboardView"'
     )

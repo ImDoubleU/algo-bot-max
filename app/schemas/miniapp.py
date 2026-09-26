@@ -189,6 +189,7 @@ class MiniAppStudentInvitationRead(BaseModel):
     group_name: str | None = None
     available: bool = True
     parent_connected: bool = True
+    student_connected: bool = False
     message: str | None = None
     bot_url: str | None = None
     qr_data_url: str | None = None

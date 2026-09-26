@@ -3350,6 +3350,19 @@ async def get_miniapp_student_invitation(
     if student is None:
         raise MiniAppStoreError("Ученик не найден", status_code=404)
 
+    student_connected = (
+        await db.scalar(
+            select(StudentAccessLink.id)
+            .where(
+                StudentAccessLink.tenant_id == tenant.id,
+                StudentAccessLink.student_id == student.id,
+                StudentAccessLink.role == StudentAccessRole.STUDENT,
+                StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+            )
+            .limit(1)
+        )
+        is not None
+    )
     parent_link = await db.scalar(
         select(StudentAccessLink).where(
             StudentAccessLink.tenant_id == tenant.id,
@@ -3392,15 +3405,27 @@ async def get_miniapp_student_invitation(
             .limit(1)
         )
         if parent_link is None:
-            return _student_invitation_to_read(tenant, student, None)
+            return _student_invitation_to_read(
+                tenant,
+                student,
+                None,
+                student_connected=student_connected,
+            )
 
-    return _student_invitation_to_read(tenant, student, parent_link)
+    return _student_invitation_to_read(
+        tenant,
+        student,
+        parent_link,
+        student_connected=student_connected,
+    )
 
 
 def _student_invitation_to_read(
     tenant: Tenant,
     student: Student,
     parent_link: StudentAccessLink | None,
+    *,
+    student_connected: bool,
 ) -> MiniAppStudentInvitationRead:
     settings = get_settings()
     if is_placeholder(settings.max_bot_username):
@@ -3443,6 +3468,7 @@ def _student_invitation_to_read(
         student_name=student.display_name,
         group_name=student.group_name,
         parent_connected=parent_connected,
+        student_connected=student_connected,
         message=(
             None
             if parent_connected
@@ -3521,13 +3547,40 @@ async def list_miniapp_teacher_invitations(
     for link in parent_links:
         parent_link_by_student.setdefault(UUID(str(link.student_id)), link)
 
+    student_connected_ids = {
+        UUID(str(student_id))
+        for student_id in await db.scalars(
+            select(StudentAccessLink.student_id).where(
+                StudentAccessLink.tenant_id == tenant.id,
+                StudentAccessLink.student_id.in_([student.id for student in students]),
+                StudentAccessLink.role == StudentAccessRole.STUDENT,
+                StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+            )
+        )
+    }
+
     result: list[MiniAppStudentInvitationRead] = []
     for student in students:
+        student_connected = UUID(str(student.id)) in student_connected_ids
         parent_link = parent_link_by_student.get(UUID(str(student.id)))
         if parent_link is None:
-            result.append(_student_invitation_to_read(tenant, student, None))
+            result.append(
+                _student_invitation_to_read(
+                    tenant,
+                    student,
+                    None,
+                    student_connected=student_connected,
+                )
+            )
             continue
-        result.append(_student_invitation_to_read(tenant, student, parent_link))
+        result.append(
+            _student_invitation_to_read(
+                tenant,
+                student,
+                parent_link,
+                student_connected=student_connected,
+            )
+        )
     return result
 
 
