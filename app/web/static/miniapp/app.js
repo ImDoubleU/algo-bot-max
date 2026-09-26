@@ -17,6 +17,7 @@ function renderAll() {
   renderTeacherInvitations();
   renderBroadcasts();
   renderAdminPanel();
+  renderHelpFaq();
   syncTeacherProfileControl();
   refreshIcons();
 }

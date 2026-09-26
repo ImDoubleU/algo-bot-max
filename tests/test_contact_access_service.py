@@ -263,6 +263,7 @@ async def test_teacher_qr_grants_student_access_before_parent_connects(
         invitation = next(item for item in invitations if item.student_id == student.id)
         assert invitation.available is True
         assert invitation.parent_connected is False
+        assert invitation.student_connected is False
         assert invitation.qr_data_url
         assert invitation.bot_url
 
@@ -277,6 +278,24 @@ async def test_teacher_qr_grants_student_access_before_parent_connects(
         )
         assert student_link.source == StudentAccessSource.TEACHER_QR
         assert student_link.sponsor_access_link_id is None
+
+        invitations = await list_miniapp_teacher_invitations(
+            db_session,
+            max_user_id=teacher.max_user_id,
+            tenant_slug="nizhniy-novgorod-partner-a",
+        )
+        invitation = next(item for item in invitations if item.student_id == student.id)
+        assert invitation.parent_connected is False
+        assert invitation.student_connected is True
+
+        invitation = await get_miniapp_student_invitation(
+            db_session,
+            max_user_id=teacher.max_user_id,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            student_id=student.id,
+        )
+        assert invitation.parent_connected is False
+        assert invitation.student_connected is True
 
         child_session = await get_miniapp_session(
             db_session,
@@ -303,6 +322,20 @@ async def test_teacher_qr_grants_student_access_before_parent_connects(
         )
         assert connected_session.students[0].parent_connected is True
 
+        invitations = await list_miniapp_teacher_invitations(
+            db_session,
+            max_user_id=teacher.max_user_id,
+            tenant_slug="nizhniy-novgorod-partner-a",
+        )
+        invitations_by_student = {item.student_id: item for item in invitations}
+        assert invitations_by_student[student.id].parent_connected is True
+        assert invitations_by_student[student.id].student_connected is True
+        parent_only_invitation = next(
+            item for item in invitations if item.student_id != student.id
+        )
+        assert parent_only_invitation.parent_connected is True
+        assert parent_only_invitation.student_connected is False
+
         for parent_link in parent_links:
             parent_link.status = StudentAccessStatus.REVOKED
         revoked_children = await revoke_dependent_student_links(
@@ -321,6 +354,15 @@ async def test_teacher_qr_grants_student_access_before_parent_connects(
         )
         assert disconnected_session.has_access is True
         assert disconnected_session.students[0].parent_connected is False
+
+        invitations = await list_miniapp_teacher_invitations(
+            db_session,
+            max_user_id=teacher.max_user_id,
+            tenant_slug="nizhniy-novgorod-partner-a",
+        )
+        invitation = next(item for item in invitations if item.student_id == student.id)
+        assert invitation.parent_connected is False
+        assert invitation.student_connected is True
     finally:
         get_settings.cache_clear()
 
@@ -360,6 +402,7 @@ async def test_admin_qr_lists_all_active_students_in_assigned_tenant(
             student.id for student in students
         }
         assert all(item.available and item.qr_data_url for item in invitations)
+        assert all(item.student_connected is False for item in invitations)
 
         invitation = await get_miniapp_student_invitation(
             db_session,
@@ -369,5 +412,6 @@ async def test_admin_qr_lists_all_active_students_in_assigned_tenant(
         )
         assert invitation.student_id == students[1].id
         assert invitation.available is True
+        assert invitation.student_connected is False
     finally:
         get_settings.cache_clear()
