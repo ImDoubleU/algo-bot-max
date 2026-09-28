@@ -615,9 +615,6 @@ function renderCustomerBank(summary) {
         <h2>Банк</h2>
         <span>${escapeHtml(summary.studentName)}</span>
       </div>
-      <button class="secondary-action" type="button" data-bank-refresh aria-label="Обновить банк" title="Обновить банк">
-        <i data-lucide="refresh-cw"></i><span>Обновить</span>
-      </button>
     </div>
     ${bankBalanceMarkup(summary)}
     <section class="bank-account-section">
@@ -678,9 +675,6 @@ function renderBankManagement() {
         <h2>Банк</h2>
         <span>Ставка и остатки по выбранному городу</span>
       </div>
-      <button class="secondary-action" type="button" data-bank-refresh aria-label="Обновить банк" title="Обновить банк">
-        <i data-lucide="refresh-cw"></i><span>Обновить</span>
-      </button>
     </div>
     <section class="bank-rate-section">
       <div class="bank-section-head">

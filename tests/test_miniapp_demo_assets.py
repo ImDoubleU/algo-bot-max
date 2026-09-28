@@ -35,11 +35,43 @@ def test_help_contains_searchable_accordion_and_full_faq() -> None:
     assert 'id="helpSearchInput"' in index_source
     assert 'id="helpCategoryFilters"' in index_source
     assert 'app-help.js?v=0.90.3' in index_source
-    assert help_source.count("\n  helpFaq(") >= 150
-    assert "Ожидается вход родителя" in help_source
+    assert help_source.count("\n  helpFaq(") >= 125
+    assert "Родителю нужно подтвердить связь" in help_source
+    assert "Может ли ученик войти до подключения родителя?" in help_source
+    assert "Состояния «подключён только ученик» быть не должно" in help_source
+    assert "в том числе QR-код, полученный у преподавателя" in help_source
+    assert '{ id: "popular"' not in help_source
+    assert "MAX-профил" not in help_source
+    assert "images: options.images || []" in help_source
+    assert "/miniapp/static/assets/help/" in help_source
+    assert "helpVisibleCount" not in index_source
+    assert "categoryItems.length}" not in help_source
     assert '<details class="help-faq-item">' in help_source
     assert "function renderHelpFaq()" in help_source
     assert ".help-faq-item[open]" in styles_source
+    assert ".help-faq-figure" in styles_source
+
+    category_labels = [
+        "1. С чего начать",
+        "2. Вход и доступ",
+        "3. Астрокоины",
+        "4. Магазин и заказы",
+        "5. Банк",
+        "6. Работа преподавателя",
+        "7. Рассылки и отчёты",
+        "8. Управление",
+        "9. Если что-то не работает",
+    ]
+    assert [help_source.index(label) for label in category_labels] == sorted(
+        help_source.index(label) for label in category_labels
+    )
+
+    screenshot_paths = set(
+        re.findall(r'src: "/miniapp/static/(assets/help/[^"]+)"', help_source)
+    )
+    assert len(screenshot_paths) == 9
+    for screenshot_path in screenshot_paths:
+        assert (MINIAPP / screenshot_path).is_file()
 
 
 def test_teacher_qr_shows_parent_and_student_connections_independently() -> None:
