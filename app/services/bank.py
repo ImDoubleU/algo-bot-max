@@ -25,7 +25,6 @@ from app.models.enums import (
     LedgerDirection,
     StaffRole,
     StudentAccessRole,
-    StudentAccessStatus,
     StudentStatus,
 )
 from app.models.student import AstrocoinLedgerEntry, Student, StudentAccessLink, Wallet
@@ -44,6 +43,7 @@ from app.schemas.miniapp import (
     MiniAppBankSettingsUpdate,
     MiniAppBankSummaryRead,
 )
+from app.services.access import get_effective_customer_access_link
 from app.services.staff import (
     active_staff_roles_for_tenant,
     staff_names_match,
@@ -209,15 +209,13 @@ async def _active_customer_link(
     student_id: UUID,
     required_role: StudentAccessRole | None = None,
 ) -> StudentAccessLink | None:
-    query = select(StudentAccessLink).where(
-        StudentAccessLink.tenant_id == tenant_id,
-        StudentAccessLink.account_id == account_id,
-        StudentAccessLink.student_id == student_id,
-        StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+    return await get_effective_customer_access_link(
+        db,
+        tenant_id=tenant_id,
+        account_id=account_id,
+        student_id=student_id,
+        required_role=required_role,
     )
-    if required_role is not None:
-        query = query.where(StudentAccessLink.role == required_role)
-    return await db.scalar(query)
 
 
 async def _staff_can_view_student(
