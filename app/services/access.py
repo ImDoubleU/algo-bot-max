@@ -33,6 +33,12 @@ class AccessServiceError(RuntimeError):
     pass
 
 
+PARENT_REQUIRED_MESSAGE = (
+    "Сначала должен подключиться родитель. Попросите родителя открыть письмо школы "
+    "и перейти по персональной ссылке."
+)
+
+
 def normalize_contact_id(value: str) -> str:
     return "".join(value.strip().upper().split())
 
@@ -182,6 +188,63 @@ async def _active_account_role_link_id(
     return UUID(str(link_id)) if link_id is not None else None
 
 
+async def get_active_parent_access_link(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    student_id: UUID,
+    sponsor_access_link_id: UUID | None = None,
+) -> StudentAccessLink | None:
+    query = select(StudentAccessLink).where(
+        StudentAccessLink.tenant_id == tenant_id,
+        StudentAccessLink.student_id == student_id,
+        StudentAccessLink.role == StudentAccessRole.PARENT,
+        StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+    )
+    if sponsor_access_link_id is not None:
+        query = query.where(StudentAccessLink.id == sponsor_access_link_id)
+    return await db.scalar(query.order_by(StudentAccessLink.created_at).limit(1))
+
+
+async def get_effective_customer_access_link(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    account_id: UUID,
+    student_id: UUID,
+    required_role: StudentAccessRole | None = None,
+) -> StudentAccessLink | None:
+    query = select(StudentAccessLink).where(
+        StudentAccessLink.tenant_id == tenant_id,
+        StudentAccessLink.account_id == account_id,
+        StudentAccessLink.student_id == student_id,
+        StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+    )
+    if required_role is not None:
+        query = query.where(StudentAccessLink.role == required_role)
+    links = list((await db.scalars(query.order_by(StudentAccessLink.created_at))).all())
+    parent_link = next(
+        (link for link in links if link.role == StudentAccessRole.PARENT),
+        None,
+    )
+    if parent_link is not None:
+        return parent_link
+
+    student_link = next(
+        (link for link in links if link.role == StudentAccessRole.STUDENT),
+        None,
+    )
+    if student_link is None:
+        return None
+    active_parent = await get_active_parent_access_link(
+        db,
+        tenant_id=tenant_id,
+        student_id=student_id,
+        sponsor_access_link_id=student_link.sponsor_access_link_id,
+    )
+    return student_link if active_parent is not None else None
+
+
 async def revoke_dependent_student_links(
     db: AsyncSession,
     *,
@@ -236,7 +299,6 @@ async def revoke_dependent_student_links(
                     StudentAccessLink.role == StudentAccessRole.STUDENT,
                     StudentAccessLink.status == StudentAccessStatus.ACTIVE,
                     StudentAccessLink.sponsor_access_link_id.is_(None),
-                    StudentAccessLink.source != StudentAccessSource.TEACHER_QR,
                 )
             )
         ).all()
@@ -461,19 +523,24 @@ async def create_invited_student_access_link(
 
     sponsor_link: StudentAccessLink | None = None
     if invitation.issuer == StudentInvitationIssuer.PARENT:
-        sponsor_link = await db.scalar(
-            select(StudentAccessLink).where(
-                StudentAccessLink.id == invitation.sponsor_access_link_id,
-                StudentAccessLink.tenant_id == tenant.id,
-                StudentAccessLink.student_id == student.id,
-                StudentAccessLink.role == StudentAccessRole.PARENT,
-                StudentAccessLink.status == StudentAccessStatus.ACTIVE,
-            )
+        sponsor_link = await get_active_parent_access_link(
+            db,
+            tenant_id=UUID(str(tenant.id)),
+            student_id=UUID(str(student.id)),
+            sponsor_access_link_id=invitation.sponsor_access_link_id,
         )
         if sponsor_link is None:
             raise AccessServiceError(
                 "Родительская связь больше не активна. Получите новый QR-код."
             )
+    else:
+        sponsor_link = await get_active_parent_access_link(
+            db,
+            tenant_id=UUID(str(tenant.id)),
+            student_id=UUID(str(student.id)),
+        )
+        if sponsor_link is None:
+            raise AccessServiceError(PARENT_REQUIRED_MESSAGE)
 
     account = await get_or_create_max_account(db, payload)
     active_parent_link_id = await _active_account_role_link_id(
@@ -489,7 +556,7 @@ async def create_invited_student_access_link(
         )
     link_source = (
         StudentAccessSource.PARENT_QR
-        if sponsor_link is not None
+        if invitation.issuer == StudentInvitationIssuer.PARENT
         else StudentAccessSource.TEACHER_QR
     )
     link = await db.scalar(
@@ -509,14 +576,14 @@ async def create_invited_student_access_link(
             role=StudentAccessRole.STUDENT,
             status=StudentAccessStatus.ACTIVE,
             source=link_source,
-            sponsor_access_link_id=sponsor_link.id if sponsor_link is not None else None,
+            sponsor_access_link_id=sponsor_link.id,
         )
         db.add(link)
         await db.flush()
     else:
         link.status = StudentAccessStatus.ACTIVE
         link.source = link_source
-        link.sponsor_access_link_id = sponsor_link.id if sponsor_link is not None else None
+        link.sponsor_access_link_id = sponsor_link.id
         link.revoked_at = None
         link.revoked_reason = None
 
@@ -531,9 +598,7 @@ async def create_invited_student_access_link(
                 "created": created,
                 "max_user_id": payload.max_user_id,
                 "source": link_source.value,
-                "sponsor_access_link_id": (
-                    str(sponsor_link.id) if sponsor_link is not None else None
-                ),
+                "sponsor_access_link_id": str(sponsor_link.id),
             },
         )
     )

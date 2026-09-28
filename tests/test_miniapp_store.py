@@ -229,7 +229,7 @@ async def seed_second_city_student(
                 tenant_id=tenant.id,
                 account_id=account.id,
                 student_id=student.id,
-                role=StudentAccessRole.STUDENT,
+                role=StudentAccessRole.PARENT,
                 status=StudentAccessStatus.ACTIVE,
                 source=StudentAccessSource.ADMIN,
             ),
@@ -467,6 +467,59 @@ async def test_order_waits_for_admin_warehouse_and_debits_wallet(db_session) -> 
     assert ledger_entries[0].category == LedgerCategory.PURCHASE.value
 
 
+async def test_student_order_requires_active_parent_link(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    product, inventory = await seed_product(db_session, student)
+    parent_links = list(
+        (
+            await db_session.scalars(
+                select(StudentAccessLink).where(
+                    StudentAccessLink.tenant_id == student.tenant_id,
+                    StudentAccessLink.student_id == student.id,
+                    StudentAccessLink.role == StudentAccessRole.PARENT,
+                )
+            )
+        ).all()
+    )
+    for parent_link in parent_links:
+        parent_link.status = StudentAccessStatus.REVOKED
+
+    child = MaxAccount(max_user_id=9904, display_name="Ученик")
+    db_session.add(child)
+    await db_session.flush()
+    db_session.add(
+        StudentAccessLink(
+            tenant_id=student.tenant_id,
+            account_id=child.id,
+            student_id=student.id,
+            role=StudentAccessRole.STUDENT,
+            status=StudentAccessStatus.ACTIVE,
+            source=StudentAccessSource.TEACHER_QR,
+        )
+    )
+    await db_session.commit()
+
+    with pytest.raises(MiniAppStoreError, match="Сначала должен подключиться родитель"):
+        await create_miniapp_order(
+            db_session,
+            payload=MiniAppOrderCreate(
+                max_user_id=child.max_user_id,
+                tenant_slug="nizhniy-novgorod-partner-a",
+                student_id=student.id,
+                items=[MiniAppOrderItemCreate(product_id=product.id, quantity=1)],
+            ),
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
+
+    wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
+    orders = list((await db_session.scalars(select(Order))).all())
+    await db_session.refresh(inventory)
+    assert wallet is not None
+    assert wallet.balance == 1000
+    assert orders == []
+    assert inventory.reserved_quantity == 0
+
+
 async def test_order_uses_personal_wallet_balance_not_total_with_bank(db_session) -> None:
     student = await seed_linked_student(db_session)
     product, _inventory = await seed_product(db_session, student)
@@ -482,6 +535,20 @@ async def test_order_uses_personal_wallet_balance_not_total_with_bank(db_session
     assert wallet is not None
     assert access_link is not None
     access_link.role = StudentAccessRole.STUDENT
+    parent_account = MaxAccount(max_user_id=9905, display_name="Родитель")
+    db_session.add(parent_account)
+    await db_session.flush()
+    parent_link = StudentAccessLink(
+        tenant_id=student.tenant_id,
+        account_id=parent_account.id,
+        student_id=student.id,
+        role=StudentAccessRole.PARENT,
+        status=StudentAccessStatus.ACTIVE,
+        source=StudentAccessSource.ADMIN,
+    )
+    db_session.add(parent_link)
+    await db_session.flush()
+    access_link.sponsor_access_link_id = parent_link.id
     wallet.balance = 200
     await db_session.commit()
 
