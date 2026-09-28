@@ -137,7 +137,12 @@ from app.schemas.miniapp import (
     MiniAppWarehouseRead,
     MiniAppWarehouseUpsert,
 )
-from app.services.access import normalize_student_code, revoke_dependent_student_links
+from app.services.access import (
+    PARENT_REQUIRED_MESSAGE,
+    get_effective_customer_access_link,
+    normalize_student_code,
+    revoke_dependent_student_links,
+)
 from app.services.bank import bank_local_date, close_bank_deposit_for_inactive_student
 from app.services.birthday_rewards import (
     BIRTHDAY_GIFT_DEFAULT_AMOUNT,
@@ -342,11 +347,60 @@ async def _effective_student_access_rows(
             )
         ).all()
     )
+    parent_scope_query = select(
+        StudentAccessLink.tenant_id,
+        StudentAccessLink.student_id,
+    ).where(
+        StudentAccessLink.role == StudentAccessRole.PARENT,
+        StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+    )
+    if tenant_id is not None:
+        parent_scope_query = parent_scope_query.where(
+            StudentAccessLink.tenant_id == tenant_id
+        )
+    parent_scopes = {
+        (UUID(str(parent_tenant_id)), UUID(str(student_id)))
+        for parent_tenant_id, student_id in (await db.execute(parent_scope_query)).all()
+    }
     return [
         (link, student, row_tenant)
         for link, student, row_tenant in rows
         if student_access_window(student, row_tenant).allowed
+        and (
+            link.role == StudentAccessRole.PARENT
+            or (UUID(str(link.tenant_id)), UUID(str(link.student_id))) in parent_scopes
+        )
     ]
+
+
+async def _require_effective_customer_access_link(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    account_id: UUID,
+    student_id: UUID,
+    missing_message: str,
+) -> StudentAccessLink:
+    link = await get_effective_customer_access_link(
+        db,
+        tenant_id=tenant_id,
+        account_id=account_id,
+        student_id=student_id,
+    )
+    if link is not None:
+        return link
+    orphan_student_link = await db.scalar(
+        select(StudentAccessLink.id).where(
+            StudentAccessLink.tenant_id == tenant_id,
+            StudentAccessLink.account_id == account_id,
+            StudentAccessLink.student_id == student_id,
+            StudentAccessLink.role == StudentAccessRole.STUDENT,
+            StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+        )
+    )
+    if orphan_student_link is not None:
+        raise MiniAppStoreError(PARENT_REQUIRED_MESSAGE, status_code=403)
+    raise MiniAppStoreError(missing_message, status_code=403)
 
 
 async def update_miniapp_student_access_policy(
@@ -3056,6 +3110,18 @@ async def get_miniapp_session(
         access_roles_by_student.setdefault(linked_student.id, set()).add(link.role)
 
     if not staff_roles and not explicit_student_roles:
+        waiting_for_parent = bool(
+            await db.scalar(
+                select(StudentAccessLink.id)
+                .where(
+                    StudentAccessLink.tenant_id == tenant.id,
+                    StudentAccessLink.account_id == account.id,
+                    StudentAccessLink.role == StudentAccessRole.STUDENT,
+                    StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+                )
+                .limit(1)
+            )
+        )
         has_expired_link = bool(
             await db.scalar(
                 select(StudentAccessLink.id)
@@ -3070,10 +3136,14 @@ async def get_miniapp_session(
         return MiniAppSessionRead(
             tenant_slug=normalized_tenant_slug,
             access_message=(
-                "Срок доступа после завершения обучения истек. Данные сохранены; "
-                "для восстановления обратитесь в школу."
-                if has_expired_link
-                else None
+                PARENT_REQUIRED_MESSAGE
+                if waiting_for_parent
+                else (
+                    "Срок доступа после завершения обучения истек. Данные сохранены; "
+                    "для восстановления обратитесь в школу."
+                    if has_expired_link
+                    else None
+                )
             ),
             account=MiniAppAccountRead(
                 max_user_id=account.max_user_id,
@@ -3558,19 +3628,13 @@ async def _student_cart_context(
         raise MiniAppStoreError("Ученик не найден", status_code=404)
     _require_student_account_access(student, tenant)
 
-    active_link = await db.scalar(
-        select(StudentAccessLink.id).where(
-            StudentAccessLink.tenant_id == tenant.id,
-            StudentAccessLink.account_id == account.id,
-            StudentAccessLink.student_id == student.id,
-            StudentAccessLink.status == StudentAccessStatus.ACTIVE,
-        )
+    await _require_effective_customer_access_link(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+        account_id=UUID(str(account.id)),
+        student_id=UUID(str(student.id)),
+        missing_message="Нет доступа к корзине выбранного ученика",
     )
-    if active_link is None:
-        raise MiniAppStoreError(
-            "Нет доступа к корзине выбранного ученика",
-            status_code=403,
-        )
     return tenant, account, student
 
 
@@ -3947,16 +4011,13 @@ async def _load_order_action_context(
     if require_manager:
         raise MiniAppStoreError("Нет прав на управление заказом", status_code=403)
 
-    active_student_link = await db.scalar(
-        select(StudentAccessLink.id).where(
-            StudentAccessLink.tenant_id == tenant.id,
-            StudentAccessLink.account_id == account.id,
-            StudentAccessLink.student_id == order.student_id,
-            StudentAccessLink.status == StudentAccessStatus.ACTIVE,
-        )
+    await _require_effective_customer_access_link(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+        account_id=UUID(str(account.id)),
+        student_id=UUID(str(order.student_id)),
+        missing_message="Нет доступа к выбранному заказу",
     )
-    if active_student_link is None:
-        raise MiniAppStoreError("Нет доступа к выбранному заказу", status_code=403)
     _require_student_account_access(student, tenant)
 
     return tenant, account, order, student, None
@@ -4019,19 +4080,13 @@ async def create_miniapp_order(
         raise MiniAppStoreError("Ученик не найден у выбранного партнера", status_code=404)
     _require_student_account_access(student, tenant)
 
-    active_student_link = await db.scalar(
-        select(StudentAccessLink.id).where(
-            StudentAccessLink.tenant_id == tenant.id,
-            StudentAccessLink.account_id == account.id,
-            StudentAccessLink.student_id == student.id,
-            StudentAccessLink.status == StudentAccessStatus.ACTIVE,
-        )
+    await _require_effective_customer_access_link(
+        db,
+        tenant_id=UUID(str(tenant.id)),
+        account_id=UUID(str(account.id)),
+        student_id=UUID(str(student.id)),
+        missing_message="Покупки доступны только ученикам и родителям",
     )
-    if active_student_link is None:
-        raise MiniAppStoreError(
-            "Покупки доступны только ученикам и родителям",
-            status_code=403,
-        )
 
     quantities = _merge_order_items(payload)
     request_key = payload.request_key.strip() if payload.request_key else None
