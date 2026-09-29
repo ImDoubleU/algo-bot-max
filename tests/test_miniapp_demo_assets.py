@@ -23,7 +23,7 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.90.3"}
+    assert set(versions) == {"0.90.4"}
 
 
 def test_help_contains_searchable_accordion_and_full_faq() -> None:
@@ -34,12 +34,12 @@ def test_help_contains_searchable_accordion_and_full_faq() -> None:
     assert "Скоро..." not in index_source
     assert 'id="helpSearchInput"' in index_source
     assert 'id="helpCategoryFilters"' in index_source
-    assert 'app-help.js?v=0.90.3' in index_source
+    assert 'app-help.js?v=0.90.4' in index_source
     assert help_source.count("\n  helpFaq(") >= 125
     assert "Родителю нужно подтвердить связь" in help_source
     assert "Может ли ученик войти до подключения родителя?" in help_source
     assert "Состояния «подключён только ученик» быть не должно" in help_source
-    assert "в том числе QR-код, полученный у преподавателя" in help_source
+    assert "Что произойдёт после отзыва родительской связи?" in help_source
     assert '{ id: "popular"' not in help_source
     assert "MAX-профил" not in help_source
     assert "images: options.images || []" in help_source

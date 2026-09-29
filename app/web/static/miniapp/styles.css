@@ -842,7 +842,7 @@ select:focus-visible {
   height: 17px;
 }
 
-.help-topic-heading h2 {
+.help-topic .help-topic-heading h2 {
   min-width: 0;
   font-size: 18px;
 }
@@ -1034,7 +1034,7 @@ select:focus-visible {
     margin-inline: -1px;
   }
 
-  .help-topic-heading h2 {
+  .help-topic .help-topic-heading h2 {
     font-size: 16px;
   }
 
