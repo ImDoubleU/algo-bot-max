@@ -1049,7 +1049,9 @@ function renderOrderDialog(order) {
     <div class="order-dialog-summary ${isDigitalOrder ? "is-digital" : ""}">
       <div>
         <span class="status-badge ${escapeHtml(orderStatusTone(order.rawStatus))}">${escapeHtml(orderStatusLabel(order.rawStatus))}</span>
-        <h3>${escapeHtml(order.student)}</h3>
+        ${canManageStudentRecords()
+          ? `<button class="student-name-link student-name-link-large" type="button" data-open-student-profile="${escapeHtml(order.studentId)}">${escapeHtml(order.student)}</button>`
+          : `<h3>${escapeHtml(order.student)}</h3>`}
         <div class="student-meta">
           ${
             isDigitalOrder
@@ -2924,6 +2926,27 @@ document.addEventListener("click", (event) => {
     void loadAdminStudents(true);
   }
 
+  const studentProfileId = target.dataset.openStudentProfile;
+  if (studentProfileId) {
+    void openAdminStudentProfile(studentProfileId);
+  }
+
+  if ("closeStudentProfile" in target.dataset) {
+    state.studentProfileId = "";
+    renderStudentRegistry();
+  }
+
+  const refreshStudentProfileId = target.dataset.refreshStudentProfile;
+  if (refreshStudentProfileId) {
+    void Promise.all([
+      loadAdminStudents(true),
+      loadStudentLedger(refreshStudentProfileId, true),
+      typeof loadStudentBank === "function"
+        ? loadStudentBank(refreshStudentProfileId, true)
+        : Promise.resolve(),
+    ]);
+  }
+
   const studentLedgerId = target.dataset.retryStudentLedger;
   if (studentLedgerId) {
     void loadStudentLedger(studentLedgerId, true);
@@ -3821,28 +3844,12 @@ document.addEventListener("submit", (event) => {
     void saveStudentAccessPolicy(event);
   } else if (event.target?.id === "studentCreateForm") {
     void createAdminStudent(event);
-  } else if (event.target?.dataset?.studentBirthDateForm) {
-    void updateAdminStudentBirthDate(event);
-  } else if (event.target?.dataset?.studentStatusForm) {
-    void updateAdminStudentStatus(event);
+  } else if (event.target?.dataset?.studentProfileForm) {
+    void updateAdminStudent(event);
   } else if (event.target?.dataset?.studentBalanceForm) {
     void updateAdminStudentBalance(event);
   }
 });
-document.addEventListener(
-  "toggle",
-  (event) => {
-    const card = event.target;
-    if (!(card instanceof HTMLDetailsElement) || !card.open || !card.dataset.studentCard) return;
-    void Promise.all([
-      loadStudentLedger(card.dataset.studentCard),
-      typeof loadStudentBank === "function"
-        ? loadStudentBank(card.dataset.studentCard)
-        : Promise.resolve(),
-    ]);
-  },
-  true,
-);
 qs("#tenantDialog")?.addEventListener("click", (event) => {
   if (event.target === event.currentTarget) closeTenantDialog();
 });

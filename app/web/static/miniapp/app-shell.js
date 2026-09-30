@@ -56,7 +56,11 @@ function normalizeRegistryStudent(item) {
     id: String(item.student_id || ""),
     lmsId: item.lms_student_id || "",
     name: item.display_name || "Без имени",
+    firstName: item.first_name || "",
+    lastName: item.last_name || "",
     birthDate: item.birth_date || "",
+    crmDealId: item.crm_deal_id || "",
+    crmUuid: item.crm_uuid || "",
     group: item.group_name || "",
     course: item.course_name || "",
     venue: item.venue_name || "",
@@ -73,6 +77,8 @@ function normalizeRegistryStudent(item) {
     parentContactIds: Array.isArray(item.parent_contact_ids) ? item.parent_contact_ids : [],
     parentNames: Array.isArray(item.parent_names) ? item.parent_names : [],
     parentMaxUserIds: Array.isArray(item.parent_max_user_ids) ? item.parent_max_user_ids : [],
+    studentMaxUserIds: Array.isArray(item.student_max_user_ids) ? item.student_max_user_ids : [],
+    studentMaxNames: Array.isArray(item.student_max_names) ? item.student_max_names : [],
     history: Array.isArray(item.history)
       ? item.history.map((event) => ({
           id: event.id ? String(event.id) : "",
@@ -97,7 +103,11 @@ function demoAdminStudentRegistry() {
       student_id: student.id,
       lms_student_id: student.lmsId || null,
       display_name: student.name,
+      first_name: student.name.split(" ").slice(1).join(" ") || student.name,
+      last_name: student.name.split(" ")[0] || "",
       birth_date: student.birthDate || null,
+      crm_deal_id: null,
+      crm_uuid: null,
       group_name: student.group || null,
       course_name: student.course || null,
       venue_name: student.venue || null,
@@ -112,6 +122,8 @@ function demoAdminStudentRegistry() {
       parent_contact_ids: student.parentContactIds || [],
       parent_names: student.parentNames || [],
       parent_max_user_ids: student.parentMaxUserIds || [],
+      student_max_user_ids: [],
+      student_max_names: [],
       history: [
         {
           event_type: "imported",
@@ -429,6 +441,7 @@ async function switchTenant(tenantSlug) {
   state.studentLedgerLoading = new Set();
   state.studentLedgerErrors = new Map();
   state.studentCreateOpen = false;
+  state.studentProfileId = "";
   state.studentMutationSaving = "";
   state.adminHistory = [];
   state.adminHistoryLoaded = false;

@@ -7,11 +7,6 @@ function studentRegistryStatus(status) {
   return statuses[status] || statuses.active;
 }
 
-function formatStudentBirthDate(value) {
-  const parts = String(value || "").split("-");
-  return parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : "Не указана";
-}
-
 function studentHistoryChangedFields(fields) {
   const labels = {
     crm_deal_id: "данные импорта",
@@ -24,6 +19,7 @@ function studentHistoryChangedFields(fields) {
     course_name: "курс",
     venue_name: "площадка",
     teacher_name: "преподаватель",
+    status: "состояние",
   };
   return [...new Set((fields || []).map((field) => labels[field] || field))];
 }
@@ -270,62 +266,47 @@ async function createAdminStudent(event) {
   }
 }
 
-async function updateAdminStudentBirthDate(event) {
+async function updateAdminStudent(event) {
   event.preventDefault();
   if (state.studentMutationSaving || !apiContext.maxUserId) return;
   const form = event.target;
-  const studentId = form.dataset.studentBirthDateForm || "";
-  const birthDate = String(new FormData(form).get("birth_date") || "");
-  const submitButton = form.querySelector('button[type="submit"]');
-  state.studentMutationSaving = studentId;
-  if (submitButton) submitButton.disabled = true;
-  try {
-    const response = await apiFetch(`/api/v1/miniapp/students/${encodeURIComponent(studentId)}/birth-date`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        max_user_id: Number(apiContext.maxUserId),
-        tenant_slug: apiContext.tenantSlug || undefined,
-        birth_date: birthDate || null,
-      }),
-    });
-    if (!response.ok) throw new Error(await parseApiError(response));
-    applyAdminStudentRegistry(await response.json());
-    showNotice("Дата рождения сохранена");
-    renderStudentRegistry();
-  } catch (error) {
-    showNotice(error.message || "Не удалось сохранить дату рождения", "danger");
-  } finally {
-    state.studentMutationSaving = "";
-    if (submitButton?.isConnected) submitButton.disabled = false;
+  const studentId = form.dataset.studentProfileForm || "";
+  const data = new FormData(form);
+  const firstName = String(data.get("first_name") || "").trim();
+  const lastName = String(data.get("last_name") || "").trim();
+  if (!firstName || !lastName) {
+    showNotice("Укажите имя и фамилию ученика", "danger");
+    return;
   }
-}
-
-async function updateAdminStudentStatus(event) {
-  event.preventDefault();
-  if (state.studentMutationSaving || !apiContext.maxUserId) return;
-  const form = event.target;
-  const studentId = form.dataset.studentStatusForm || "";
-  const status = new FormData(form).get("status");
   const submitButton = form.querySelector('button[type="submit"]');
   state.studentMutationSaving = studentId;
   if (submitButton) submitButton.disabled = true;
   try {
-    const response = await apiFetch(`/api/v1/miniapp/students/${encodeURIComponent(studentId)}/status`, {
-      method: "PATCH",
+    const response = await apiFetch(`/api/v1/miniapp/students/${encodeURIComponent(studentId)}`, {
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         max_user_id: Number(apiContext.maxUserId),
         tenant_slug: apiContext.tenantSlug || undefined,
-        status,
+        first_name: firstName,
+        last_name: lastName,
+        birth_date: String(data.get("birth_date") || "") || null,
+        lms_student_id: String(data.get("lms_student_id") || "").trim() || null,
+        crm_deal_id: String(data.get("crm_deal_id") || "").trim() || null,
+        crm_uuid: String(data.get("crm_uuid") || "").trim() || null,
+        group_name: String(data.get("group_name") || "").trim() || null,
+        course_name: String(data.get("course_name") || "").trim() || null,
+        venue_name: String(data.get("venue_name") || "").trim() || null,
+        teacher_name: String(data.get("teacher_name") || "").trim() || null,
+        status: String(data.get("status") || "active"),
       }),
     });
     if (!response.ok) throw new Error(await parseApiError(response));
     applyAdminStudentRegistry(await response.json());
-    showNotice("Состояние ученика обновлено");
+    showNotice("Данные ученика сохранены");
     renderStudentRegistry();
   } catch (error) {
-    showNotice(error.message || "Не удалось изменить состояние ученика", "danger");
+    showNotice(error.message || "Не удалось сохранить данные ученика", "danger");
   } finally {
     state.studentMutationSaving = "";
     if (submitButton?.isConnected) submitButton.disabled = false;
@@ -448,52 +429,146 @@ function renderStudentLedgerPanel(studentId) {
   panel.innerHTML = studentLedgerMarkup(normalizedStudentId);
 }
 
-function studentCardManagement(student) {
-  if (!canManageStudentRecords()) return "";
+function studentProfileFact(label, value, description = "") {
   return `
-    <section class="student-card-management" aria-label="Управление учеником">
-      <form class="student-card-action" data-student-birth-date-form="${escapeHtml(student.id)}">
-        <div>
-          <strong>Дата рождения</strong>
-          <small>В этот день активному ученику автоматически начисляется 50 AC.</small>
+    <span class="student-profile-fact">
+      <small>${escapeHtml(label)}</small>
+      <strong>${escapeHtml(value || "Не указано")}</strong>
+      ${description ? `<span>${escapeHtml(description)}</span>` : ""}
+    </span>
+  `;
+}
+
+function studentProfileMarkup(student) {
+  const status = studentRegistryStatus(student.status);
+  const history = [...student.history].sort(
+    (left, right) => new Date(right.occurredAt) - new Date(left.occurredAt),
+  );
+  const parentMax = student.parentMaxUserIds.length
+    ? student.parentMaxUserIds.map((id) => `MAX ID ${id}`).join(", ")
+    : "Родитель ещё не вошёл";
+  const studentMax = student.studentMaxUserIds.length
+    ? student.studentMaxUserIds.map((id, index) => {
+        const name = student.studentMaxNames[index];
+        return `${name ? `${name}, ` : ""}MAX ID ${id}`;
+      }).join("; ")
+    : "Ученик ещё не вошёл";
+  return `
+    <div class="student-profile-page">
+      <div class="student-profile-topbar">
+        <button class="secondary-action" type="button" data-close-student-profile>
+          <i data-lucide="arrow-left"></i><span>К списку учеников</span>
+        </button>
+        <button class="secondary-action" type="button" data-refresh-student-profile="${escapeHtml(student.id)}">
+          <i data-lucide="refresh-cw"></i><span>Обновить</span>
+        </button>
+      </div>
+      <header class="student-profile-header">
+        <span class="student-registry-mark">${escapeHtml(student.name.trim().slice(0, 1).toUpperCase() || "У")}</span>
+        <span>
+          <small>Личная страница ученика</small>
+          <h3>${escapeHtml(student.name)}</h3>
+          <span class="student-registry-status is-${status.tone}">${status.label}</span>
+        </span>
+        <strong>${student.balance} AC</strong>
+      </header>
+
+      <form class="student-profile-form" data-student-profile-form="${escapeHtml(student.id)}">
+        <section class="student-profile-section">
+          <div class="student-profile-section-heading">
+            <div><h4>Основные данные</h4><p>ФИО используется во всех списках, заказах и уведомлениях. Дата рождения нужна для автоматического поздравительного начисления.</p></div>
+          </div>
+          <div class="student-profile-fields">
+            <label><span>Фамилия</span><input name="last_name" maxlength="120" value="${escapeHtml(student.lastName)}" required /><small>Как в LMS и учебных документах.</small></label>
+            <label><span>Имя</span><input name="first_name" maxlength="120" value="${escapeHtml(student.firstName)}" required /><small>Без сокращений, если они не используются в LMS.</small></label>
+            <label><span>Дата рождения</span><input name="birth_date" type="date" value="${escapeHtml(student.birthDate)}" /><small>Используется для начисления «С днём рождения».</small></label>
+            <label><span>Состояние</span><select name="status"><option value="active" ${student.status === "active" ? "selected" : ""}>Обучается</option><option value="departed" ${student.status === "departed" ? "selected" : ""}>Выбыл</option><option value="archived" ${student.status === "archived" ? "selected" : ""}>Архив</option></select><small>Выбытие закрывает доступ и вклад по правилам системы.</small></label>
+          </div>
+        </section>
+
+        <section class="student-profile-section">
+          <div class="student-profile-section-heading">
+            <div><h4>Обучение</h4><p>Эти поля определяют группу, площадку и преподавателя. По ним сотрудники видят своих учеников.</p></div>
+          </div>
+          <div class="student-profile-fields">
+            <label><span>ID ученика в LMS</span><input name="lms_student_id" maxlength="120" value="${escapeHtml(student.lmsId)}" /><small>Уникальный идентификатор для повторного импорта.</small></label>
+            <label><span>Группа</span><input name="group_name" maxlength="160" value="${escapeHtml(student.group)}" /><small>Название должно совпадать с LMS.</small></label>
+            <label><span>Курс</span><input name="course_name" maxlength="160" value="${escapeHtml(student.course)}" /><small>Учебная программа или направление.</small></label>
+            <label><span>Помещение</span><input name="venue_name" maxlength="160" value="${escapeHtml(student.venue)}" /><small>Определяет область видимости директора и куратора.</small></label>
+            <label class="student-profile-field-wide"><span>Преподаватель в LMS</span><input name="teacher_name" maxlength="160" value="${escapeHtml(student.teacher)}" /><small>По этому ФИО система автоматически связывает преподавателя с группой.</small></label>
+          </div>
+          <div class="student-profile-facts">
+            ${studentProfileFact("Преподаватели, связанные через MAX", (student.linkedTeachers || []).join(", ") || "Не привязаны", "Связь формируется по ФИО преподавателя и данным группы.")}
+          </div>
+        </section>
+
+        <section class="student-profile-section">
+          <div class="student-profile-section-heading">
+            <div><h4>Системные идентификаторы</h4><p>Нужны для сопоставления строк при следующих импортах. Меняйте их только при исправлении ошибочных исходных данных.</p></div>
+          </div>
+          <div class="student-profile-fields">
+            <label><span>ID сделки CRM</span><input name="crm_deal_id" maxlength="120" value="${escapeHtml(student.crmDealId)}" /><small>Идентификатор карточки ученика в исходной CRM.</small></label>
+            <label><span>UUID CRM</span><input name="crm_uuid" maxlength="180" value="${escapeHtml(student.crmUuid)}" /><small>Дополнительный уникальный ключ импорта.</small></label>
+          </div>
+        </section>
+
+        <div class="student-profile-savebar">
+          <span>Сохранение создаст запись в истории карточки.</span>
+          <button class="primary-action" type="submit" ${state.studentMutationSaving === student.id ? "disabled" : ""}>
+            <i data-lucide="save"></i><span>${state.studentMutationSaving === student.id ? "Сохраняем" : "Сохранить данные"}</span>
+          </button>
         </div>
-        <label>
-          <span>Дата</span>
-          <input name="birth_date" type="date" value="${escapeHtml(student.birthDate)}" />
-        </label>
-        <button class="secondary-action" type="submit">Сохранить дату</button>
       </form>
-      <form class="student-card-action" data-student-status-form="${escapeHtml(student.id)}">
-        <div>
-          <strong>Состояние ученика</strong>
-          <small>Возврат в обучение восстанавливает доступ с прежней историей и балансом.</small>
+
+      <section class="student-profile-section">
+        <div class="student-profile-section-heading"><div><h4>Связи и доступ</h4><p>Контакт из CRM используется в ссылке родителя. MAX ID появляется только после входа соответствующего пользователя в бота.</p></div></div>
+        <div class="student-profile-facts">
+          ${studentProfileFact("Родитель", student.parentNames.join(", ") || "Не указан")}
+          ${studentProfileFact("ID родителя из CRM", student.parentContactIds.join(", ") || "Не указан", "Именно этот ID должен быть в ссылке приглашения.")}
+          ${studentProfileFact("Вход родителя", parentMax)}
+          ${studentProfileFact("Вход ученика", studentMax)}
         </div>
-        <label>
-          <span>Новое состояние</span>
-          <select name="status">
-            <option value="active" ${student.status === "active" ? "selected" : ""}>Обучается</option>
-            <option value="departed" ${student.status === "departed" ? "selected" : ""}>Выбыл</option>
-            <option value="archived" ${student.status === "archived" ? "selected" : ""}>Архив</option>
-          </select>
-        </label>
-        <button class="secondary-action" type="submit">Сохранить состояние</button>
-      </form>
-      <form class="student-card-action" data-student-balance-form="${escapeHtml(student.id)}">
-        <div>
-          <strong>Баланс астрокоинов</strong>
-          <small>Введите итоговое количество. Разница сохранится отдельной операцией.</small>
+      </section>
+
+      <section class="student-profile-section">
+        <div class="student-profile-section-heading"><div><h4>Астрокоины</h4><p>Укажите итоговый личный баланс. Разница будет записана отдельной операцией с ответственным сотрудником.</p></div></div>
+        <form class="student-balance-form" data-student-balance-form="${escapeHtml(student.id)}">
+          <label><span>Итоговый баланс, AC</span><input name="balance" type="number" min="0" max="10000000" inputmode="numeric" value="${student.balance}" required /></label>
+          <label><span>Комментарий</span><input name="comment" maxlength="500" placeholder="Причина корректировки" /></label>
+          <button class="primary-action" type="submit">Обновить баланс</button>
+        </form>
+      </section>
+
+      <section class="student-profile-section student-bank-history">
+        <div class="student-history-head"><div><h4>Банк</h4><span>Личный счёт, вклад, ставка и начисленные проценты.</span></div></div>
+        <div data-student-bank-panel="${escapeHtml(student.id)}">${typeof studentBankCardMarkup === "function" ? studentBankCardMarkup(student.id) : '<div class="student-ledger-state">Загружаем банковские данные.</div>'}</div>
+      </section>
+
+      <section class="student-profile-section student-ledger-history">
+        <div class="student-history-head"><div><h4>История астрокоинов</h4><span>Начисления, покупки и банковские операции за последние 100 записей.</span></div></div>
+        <div data-student-ledger-panel="${escapeHtml(student.id)}">${studentLedgerMarkup(student.id)}</div>
+      </section>
+
+      <section class="student-profile-section">
+        <div class="student-profile-section-heading"><div><h4>Служебная информация</h4><p>Помогает понять, когда карточка появилась, обновлялась и меняла состояние.</p></div></div>
+        <div class="student-profile-facts">
+          ${studentProfileFact("Добавлен", formatRegistryDate(student.importedAt))}
+          ${studentProfileFact("Данные обновлены", formatRegistryDate(student.updatedAt))}
+          ${studentProfileFact("Состояние обновлено", formatRegistryDate(student.statusUpdatedAt))}
+          ${studentProfileFact("Дата выбытия", student.departedAt ? formatRegistryDate(student.departedAt) : "Нет")}
         </div>
-        <label>
-          <span>Итоговый баланс</span>
-          <input name="balance" type="number" min="0" max="10000000" inputmode="numeric" value="${student.balance}" required />
-        </label>
-        <label>
-          <span>Комментарий</span>
-          <input name="comment" maxlength="500" placeholder="Необязательно" />
-        </label>
-        <button class="primary-action" type="submit">Обновить баланс</button>
-      </form>
-    </section>
+      </section>
+
+      <section class="student-profile-section student-history">
+        <div class="student-history-head"><div><h4>История карточки</h4><span>Импорт и ручные изменения данных.</span></div><span>${history.length} ${history.length === 1 ? "событие" : "событий"}</span></div>
+        <div class="student-history-list">
+          ${history.length ? history.map((event) => {
+            const copy = studentHistoryCopy(event);
+            return `<article class="student-history-item is-${escapeHtml(event.eventType)}"><span class="student-history-dot" aria-hidden="true"></span><span class="student-history-copy"><strong>${escapeHtml(copy.title)}</strong><span>${escapeHtml(copy.detail)}</span>${event.actorName ? `<small>Ответственный: ${escapeHtml(event.actorName)}</small>` : ""}</span><time datetime="${escapeHtml(event.occurredAt)}">${formatRegistryDate(event.occurredAt)}</time></article>`;
+          }).join("") : '<div class="empty-state compact-empty">История пока пуста</div>'}
+        </div>
+      </section>
+    </div>
   `;
 }
 
@@ -527,6 +602,16 @@ function renderStudentRegistry() {
   }
 
   const allStudents = state.adminStudents;
+  if (state.studentProfileId) {
+    const selectedStudent = allStudents.find((student) => student.id === state.studentProfileId);
+    if (!selectedStudent || !canManageStudentRecords()) {
+      state.studentProfileId = "";
+    } else {
+      panel.innerHTML = studentProfileMarkup(selectedStudent);
+      refreshIcons();
+      return;
+    }
+  }
   const statusCounts = allStudents.reduce(
     (counts, student) => {
       counts.all += 1;
@@ -632,14 +717,10 @@ function renderStudentRegistry() {
     <div class="student-registry-list">
       ${visibleStudents.length ? visibleStudents.map((student) => {
         const status = studentRegistryStatus(student.status);
-        const history = [...student.history].sort(
-          (left, right) => new Date(right.occurredAt) - new Date(left.occurredAt),
-        );
-        const meta = [student.group, student.course, student.venue, student.teacher]
+        const meta = [student.group, student.teacher, student.venue]
           .filter(Boolean);
         return `
-          <details class="student-registry-card" data-student-card="${escapeHtml(student.id)}">
-            <summary>
+          <button class="student-registry-card" type="button" ${canManage ? `data-open-student-profile="${escapeHtml(student.id)}"` : "disabled"}>
               <span class="student-registry-mark">${escapeHtml(student.name.trim().slice(0, 1).toUpperCase() || "У")}</span>
               <span class="student-registry-main">
                 <span class="student-registry-name-row">
@@ -649,70 +730,8 @@ function renderStudentRegistry() {
                 <span class="student-registry-meta">${meta.map((item) => `<span>${escapeHtml(item)}</span>`).join("") || "Данные группы не указаны"}</span>
               </span>
               <span class="student-registry-balance">${student.balance} AC</span>
-              <span class="student-registry-chevron"><i data-lucide="chevron-down"></i></span>
-            </summary>
-            <div class="student-registry-details">
-              <div class="student-registry-dates">
-                <span><small>Импортирован</small><strong>${formatRegistryDate(student.importedAt)}</strong></span>
-                <span><small>Данные обновлены</small><strong>${formatRegistryDate(student.updatedAt)}</strong></span>
-                <span><small>Статус обновлен</small><strong>${formatRegistryDate(student.statusUpdatedAt)}</strong></span>
-                <span class="${student.departedAt ? "is-departed" : ""}"><small>Дата выбытия</small><strong>${student.departedAt ? formatRegistryDate(student.departedAt) : "Нет"}</strong></span>
-              </div>
-              <div class="student-registry-identifiers">
-                <span><small>ID ученика</small><strong>${escapeHtml(student.lmsId || "Не указан")}</strong></span>
-                <span><small>Группа</small><strong>${escapeHtml(student.group || "Не указана")}</strong></span>
-                <span><small>Дата рождения</small><strong>${formatStudentBirthDate(student.birthDate)}</strong></span>
-                <span><small>Преподаватель из LMS</small><strong>${escapeHtml(student.teacher || "Не указан")}</strong></span>
-                <span><small>Преподаватель в MAX</small><strong>${escapeHtml((student.linkedTeachers || []).join(", ") || "Не привязан")}</strong></span>
-                <span><small>Родитель</small><strong>${escapeHtml(student.parentNames.join(", ") || "Не указан")}</strong></span>
-                <span><small>Contact ID</small><strong>${escapeHtml(student.parentContactIds.join(", ") || "Не указан")}</strong></span>
-                <span><small>Связь с MAX</small><strong>${student.parentMaxUserIds.length ? "Подключено: " + student.parentMaxUserIds.length : "Ожидает входа"}</strong></span>
-              </div>
-              ${studentCardManagement(student)}
-              <section class="student-bank-history">
-                <div class="student-history-head">
-                  <h4>Банк</h4>
-                  <span>Остаток и параметры вклада</span>
-                </div>
-                <div data-student-bank-panel="${escapeHtml(student.id)}">
-                  ${typeof studentBankCardMarkup === "function"
-                    ? studentBankCardMarkup(student.id)
-                    : '<div class="student-ledger-state">Данные загрузятся после открытия карточки.</div>'}
-                </div>
-              </section>
-              <section class="student-ledger-history">
-                <div class="student-history-head">
-                  <h4>История астрокоинов</h4>
-                  <span>Последние 100 операций</span>
-                </div>
-                <div data-student-ledger-panel="${escapeHtml(student.id)}">
-                  ${studentLedgerMarkup(student.id)}
-                </div>
-              </section>
-              <section class="student-history">
-                <div class="student-history-head">
-                  <h4>История карточки</h4>
-                  <span>${history.length} ${history.length === 1 ? "событие" : "событий"}</span>
-                </div>
-                <div class="student-history-list">
-                  ${history.length ? history.map((event) => {
-                    const copy = studentHistoryCopy(event);
-                    return `
-                      <article class="student-history-item is-${escapeHtml(event.eventType)}">
-                        <span class="student-history-dot" aria-hidden="true"></span>
-                        <span class="student-history-copy">
-                          <strong>${escapeHtml(copy.title)}</strong>
-                          <span>${escapeHtml(copy.detail)}</span>
-                          ${event.actorName ? `<small>Ответственный: ${escapeHtml(event.actorName)}</small>` : ""}
-                        </span>
-                        <time datetime="${escapeHtml(event.occurredAt)}">${formatRegistryDate(event.occurredAt)}</time>
-                      </article>
-                    `;
-                  }).join("") : '<div class="empty-state compact-empty">История пока пуста</div>'}
-                </div>
-              </section>
-            </div>
-          </details>
+              <span class="student-registry-chevron"><i data-lucide="chevron-right"></i></span>
+          </button>
         `;
       }).join("") : `
         <div class="empty-state student-registry-empty">
@@ -734,6 +753,25 @@ function renderStudentRegistry() {
     ` : ""}
   `;
   refreshIcons();
+}
+
+async function openAdminStudentProfile(studentId) {
+  if (!canManageStudentRecords()) return;
+  const normalizedId = String(studentId || "");
+  if (!normalizedId) return;
+  if (!state.adminStudentsLoaded) await loadAdminStudents();
+  if (!state.adminStudents.some((student) => student.id === normalizedId)) {
+    showNotice("Ученик не найден в выбранном городе", "danger");
+    return;
+  }
+  state.studentProfileId = normalizedId;
+  if (typeof closeOrderDialog === "function") closeOrderDialog();
+  if (state.view !== "wallet") setView("wallet");
+  else renderStudentRegistry();
+  await Promise.all([
+    loadStudentLedger(normalizedId),
+    typeof loadStudentBank === "function" ? loadStudentBank(normalizedId) : Promise.resolve(),
+  ]);
 }
 
 function adminHistoryStatus(status) {
