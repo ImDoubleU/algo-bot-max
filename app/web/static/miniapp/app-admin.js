@@ -440,7 +440,28 @@ function studentProfileFact(label, value, description = "") {
   `;
 }
 
+function studentProfileChoice(name, label, value, choices, description) {
+  const options = [...new Set(choices.map((item) => String(item || "").trim()).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, "ru"));
+  const manual = Boolean(value) && !options.includes(value);
+  return `<label><span>${escapeHtml(label)}</span>
+    <select data-student-profile-choice="${name}" aria-label="${escapeHtml(label)}: выбор">
+      <option value="" ${!value ? "selected" : ""}>Не указано</option>
+      ${options.map((item) => `<option value="${escapeHtml(item)}" ${item === value ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+      <option value="__manual__" ${manual ? "selected" : ""}>Указать вручную</option>
+    </select>
+    <input name="${name}" maxlength="160" value="${escapeHtml(value || "")}" aria-label="${escapeHtml(label)}: вручную" ${manual ? "" : "hidden"} />
+    <small>${escapeHtml(description)}</small>
+  </label>`;
+}
+
 function studentProfileMarkup(student) {
+  const groups = state.adminStudents.map((item) => item.group);
+  const teachers = [
+    ...state.adminStudents.map((item) => item.teacher),
+    ...staffAssignments.filter((item) => item.role === "teacher" && item.status === "active")
+      .map((item) => [item.lastName, item.firstName].filter(Boolean).join(" ") || item.displayName),
+  ];
   const tabs = [["overview", "Обзор", "user-round"], ["data", "Данные", "pencil"], ["access", "Связи", "link"], ["finance", "Астрокоины", "wallet"], ["history", "История", "history"]];
   const activeTab = state.studentProfileTab || "overview";
   const panel = (name) => `data-profile-panel="${name}" ${activeTab === name ? "" : "hidden"}`;
@@ -514,10 +535,10 @@ function studentProfileMarkup(student) {
           </div>
           <div class="student-profile-fields">
             <label><span>ID ученика в LMS</span><input name="lms_student_id" maxlength="120" value="${escapeHtml(student.lmsId)}" /><small>Уникальный идентификатор для повторного импорта.</small></label>
-            <label><span>Группа</span><input name="group_name" maxlength="160" value="${escapeHtml(student.group)}" /><small>Название должно совпадать с LMS.</small></label>
+            ${studentProfileChoice("group_name", "Группа", student.group, groups, "Название должно совпадать с LMS.")}
             <label><span>Курс</span><input name="course_name" maxlength="160" value="${escapeHtml(student.course)}" /><small>Учебная программа или направление.</small></label>
             <label><span>Помещение</span><input name="venue_name" maxlength="160" value="${escapeHtml(student.venue)}" /><small>Определяет область видимости директора и куратора.</small></label>
-            <label class="student-profile-field-wide"><span>Преподаватель в LMS</span><input name="teacher_name" maxlength="160" value="${escapeHtml(student.teacher)}" /><small>По этому ФИО система автоматически связывает преподавателя с группой.</small></label>
+            <div class="student-profile-field-wide">${studentProfileChoice("teacher_name", "Преподаватель в LMS", student.teacher, teachers, "По этому ФИО система автоматически связывает преподавателя с группой.")}</div>
           </div>
           <div class="student-profile-facts">
             ${studentProfileFact("Преподаватели, связанные через MAX", (student.linkedTeachers || []).join(", ") || "Не привязаны", "Связь формируется по ФИО преподавателя и данным группы.")}

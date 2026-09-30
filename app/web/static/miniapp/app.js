@@ -3471,6 +3471,16 @@ document.addEventListener("change", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLSelectElement)) return;
 
+  if (target.dataset.studentProfileChoice) {
+    const input = target.closest("label")?.querySelector("input");
+    if (!input) return;
+    const manual = target.value === "__manual__";
+    input.hidden = !manual;
+    if (manual) input.focus();
+    else input.value = target.value;
+    return;
+  }
+
   if (target.id === "orderCancelReason") {
     syncCancelOrderForm();
     if (target.value === "Другое") qs("#orderCancelCustomReason")?.focus();
