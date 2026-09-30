@@ -12190,7 +12190,76 @@ details.report-row { display: block; padding: 0; }
   display: grid;
   gap: 14px;
   padding: 16px;
-  background: #f8f7fa;
+  background: #ffffff;
+}
+
+.student-profile-page [hidden] { display: none !important; }
+.student-profile-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 1px;
+}
+.student-profile-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 10px 18px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.student-profile-tabs button[aria-pressed="true"] {
+  border-bottom-color: var(--brand-purple);
+  color: var(--brand-purple);
+  background: #f7f3ff;
+}
+.student-profile-tabs svg { width: 18px; height: 18px; flex: none; }
+.student-profile-overview { display: grid; gap: 22px; padding: 12px 4px; }
+.student-profile-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; }
+.student-profile-summary .student-profile-fact {
+  padding: 16px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  gap: 7px;
+}
+.student-profile-summary .student-profile-fact strong { font-size: 15px; line-height: 1.5; }
+.student-profile-summary .student-profile-fact small { font-size: 12px; }
+.student-profile-connections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.student-profile-connections button {
+  display: flex; align-items: center; gap: 12px; padding: 16px;
+  border: 1px solid #bee7dc; border-radius: 8px;
+  background: #effaf6; color: #086956; text-align: left; font: inherit; cursor: pointer;
+}
+.student-profile-connections button.is-pending { background: #fffbec; border-color: #ebdca5; color: #795711; }
+.student-profile-connections button span { display: grid; gap: 5px; flex: 1; min-width: 0; }
+.student-profile-connections svg { width: 20px; height: 20px; flex: none; }
+.student-profile-connections strong { font-size: 14px; overflow-wrap: anywhere; }
+.student-profile-fields input, .student-profile-fields select,
+.student-profile-page .student-balance-form input {
+  box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px;
+  padding: 10px 12px; border: 1px solid #d7d4e2; border-radius: 6px;
+  background: #fff; color: var(--text); font: inherit; font-size: 14px;
+}
+.student-profile-fields input:focus, .student-profile-fields select:focus,
+.student-profile-page .student-balance-form input:focus {
+  outline: 2px solid var(--brand-purple); outline-offset: 2px;
+}
+.student-profile-page .student-profile-section { border: 0; border-bottom: 1px solid var(--line); padding: 18px 4px; }
+@media (max-width: 640px) {
+  .student-profile-tabs { flex-wrap: wrap; overflow: visible; }
+  .student-profile-tabs button { flex: 1 0 28%; padding: 10px 8px; font-size: 13px; }
+  .student-profile-summary, .student-profile-connections { grid-template-columns: minmax(0, 1fr); }
+  .student-profile-overview { gap: 16px; }
+  .student-profile-section-heading { flex-wrap: wrap; }
 }
 
 .student-profile-topbar,
@@ -12697,6 +12766,7 @@ details.report-row { display: block; padding: 0; }
   }
 
   .student-profile-savebar {
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
     align-items: stretch;
     flex-direction: column;
   }

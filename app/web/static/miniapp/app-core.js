@@ -228,6 +228,7 @@ const state = {
   bankReportStatusFilter: "all",
   studentCreateOpen: false,
   studentProfileId: "",
+  studentProfileTab: "overview",
   studentMutationSaving: "",
   studentAccessPolicy: {
     departedAccessDays: 30,

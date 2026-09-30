@@ -2927,6 +2927,19 @@ document.addEventListener("click", (event) => {
   }
 
   const studentProfileId = target.dataset.openStudentProfile;
+  if (target.dataset.profileTab) {
+    const tab = target.dataset.profileTab;
+    const page = target.closest(".student-profile-page");
+    if (page && ["overview", "data", "access", "finance", "history"].includes(tab)) {
+      state.studentProfileTab = tab;
+      page.querySelectorAll("[data-profile-panel]").forEach((section) => {
+        section.hidden = section.dataset.profilePanel !== tab;
+      });
+      page.querySelectorAll(".student-profile-tabs button").forEach((button) => {
+        button.setAttribute("aria-pressed", String(button.dataset.profileTab === tab));
+      });
+    }
+  }
   if (studentProfileId) {
     void openAdminStudentProfile(studentProfileId);
   }
