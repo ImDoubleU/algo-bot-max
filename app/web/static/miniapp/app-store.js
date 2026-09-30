@@ -2041,6 +2041,10 @@ function renderAccrualReportFilters(entries) {
   if (!teacherSelect || !groupSelect) return;
 
   const teachers = new Map();
+  staffAssignments.filter((assignment) => assignment.status === "active" && assignment.role === "teacher")
+    .forEach((assignment) => {
+      teachers.set(String(assignment.accountId), [assignment.lastName, assignment.firstName].filter(Boolean).join(" ") || assignment.displayName || String(assignment.maxUserId));
+    });
   entries.forEach((entry) => {
     const key = accrualReportTeacherKey(entry);
     if (key) teachers.set(key, entry.teacher_name || "Преподаватель не указан");
@@ -2063,6 +2067,8 @@ function renderAccrualReportFilters(entries) {
   teacherSelect.value = state.accrualReportTeacherFilter;
 
   const groupLabels = new Map();
+  [...studentGroups(), ...state.adminStudents.map((student) => student.group)]
+    .filter(Boolean).forEach((group) => groupLabels.set(group, group));
   entries.forEach((entry) => {
     const key = accrualReportGroupKey(entry);
     groupLabels.set(key, entry.group_name || "Без группы");
@@ -2096,6 +2102,7 @@ function renderAccrualReport() {
   if (!fromInput.value) {
     fromInput.value = reportDateValue(new Date(today.getFullYear(), today.getMonth(), 1));
   }
+  renderAccrualReportFilters(state.accrualReport?.entries || []);
   if (state.accrualReportLoading) {
     summary.innerHTML = '<div class="skeleton-row"></div><div class="skeleton-row"></div>';
     list.innerHTML = '<div class="report-skeleton"><div></div><div></div><div></div></div>';
@@ -2107,7 +2114,6 @@ function renderAccrualReport() {
     list.innerHTML = "";
     return;
   }
-  renderAccrualReportFilters(report.entries);
   const entries = filteredAccrualReportEntries();
   const totalAstrocoins = entries.reduce((total, entry) => total + Number(entry.amount || 0), 0);
   const teacherCount = new Set(entries.map(accrualReportTeacherKey)).size;
