@@ -310,6 +310,17 @@ def build_crm_import_template() -> bytes:
     instruction["A5"].alignment = Alignment(wrap_text=True, vertical="top")
     instruction.row_dimensions[5].height = 34
 
+    instruction.merge_cells("A6:D6")
+    instruction["A6"] = (
+        "Если переносите шаблон в Google Таблицы или другой редактор, заранее задайте "
+        "колонкам «ID ученика», «ID сделки amoCRM» и «ID контакта» формат «Обычный "
+        "текст». Иначе редактор может добавить .0, округлить ID или показать его в "
+        "экспоненциальном виде."
+    )
+    instruction["A6"].fill = PatternFill("solid", fgColor="FFF4C2")
+    instruction["A6"].alignment = Alignment(wrap_text=True, vertical="top")
+    instruction.row_dimensions[6].height = 52
+
     instruction_headers = (
         "Колонка",
         "Обязательно",
@@ -317,14 +328,14 @@ def build_crm_import_template() -> bytes:
         "Пример",
     )
     for column_index, value in enumerate(instruction_headers, start=1):
-        cell = instruction.cell(row=6, column=column_index, value=value)
+        cell = instruction.cell(row=7, column=column_index, value=value)
         cell.font = Font(bold=True, color="24152F")
         cell.fill = PatternFill("solid", fgColor="FFD43B")
         cell.alignment = Alignment(wrap_text=True, vertical="center")
 
     for row_index, (_, header, required, description, example) in enumerate(
         CRM_TEMPLATE_COLUMNS,
-        start=7,
+        start=8,
     ):
         values = (
             header,
@@ -338,8 +349,8 @@ def build_crm_import_template() -> bytes:
             if row_index % 2:
                 cell.fill = PatternFill("solid", fgColor="F5F0FF")
 
-    instruction.freeze_panes = "A7"
-    instruction.auto_filter.ref = f"A6:D{6 + len(CRM_TEMPLATE_COLUMNS)}"
+    instruction.freeze_panes = "A8"
+    instruction.auto_filter.ref = f"A7:D{7 + len(CRM_TEMPLATE_COLUMNS)}"
     for column_letter, width in {"A": 24, "B": 16, "C": 58, "D": 38}.items():
         instruction.column_dimensions[column_letter].width = width
 

@@ -173,11 +173,19 @@ def test_standard_template_ignores_other_sheets_and_columns() -> None:
 def test_standard_template_formats_identifier_columns_as_text() -> None:
     workbook = load_workbook(BytesIO(build_crm_import_template()))
     sheet = workbook[CRM_TEMPLATE_SHEET_NAME]
+    instruction = workbook["Инструкция"]
 
     for column_index, (field, *_) in enumerate(CRM_TEMPLATE_COLUMNS, start=1):
         if field in {"lms_student_id", "deal_id", "contact_ids"}:
             column_letter = sheet.cell(row=1, column=column_index).column_letter
             assert sheet.column_dimensions[column_letter].number_format == "@"
+
+    identifier_guidance = str(instruction["A6"].value)
+    assert "Google Таблицы" in identifier_guidance
+    assert "Обычный текст" in identifier_guidance
+    assert "ID ученика" in identifier_guidance
+    assert "ID сделки amoCRM" in identifier_guidance
+    assert "ID контакта" in identifier_guidance
 
     workbook.close()
 
