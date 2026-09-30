@@ -585,6 +585,12 @@ async function refreshAllData() {
     return;
   }
   const refreshTasks = [loadCatalog(), loadOpsSummary()];
+  if (state.studentProfileId && canManageStudentRecords()) {
+    refreshTasks.push(loadStudentLedger(state.studentProfileId, true));
+    if (typeof loadStudentBank === "function") {
+      refreshTasks.push(loadStudentBank(state.studentProfileId, true));
+    }
+  }
   if (roleViews(state.role).includes("bank") && typeof loadBankData === "function") {
     refreshTasks.push(loadBankData(true));
   }

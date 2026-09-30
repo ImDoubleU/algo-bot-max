@@ -814,6 +814,7 @@ select:focus-visible {
 }
 
 .help-topic {
+  scroll-margin-top: 100px;
   min-width: 0;
   display: grid;
   gap: 8px;
@@ -843,6 +844,7 @@ select:focus-visible {
 }
 
 .help-topic .help-topic-heading h2 {
+  scroll-margin-top: 100px;
   min-width: 0;
   font-size: 18px;
 }

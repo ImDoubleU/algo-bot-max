@@ -484,9 +484,6 @@ function studentProfileMarkup(student) {
         <button class="secondary-action" type="button" data-close-student-profile>
           <i data-lucide="arrow-left"></i><span>К списку учеников</span>
         </button>
-        <button class="secondary-action" type="button" data-refresh-student-profile="${escapeHtml(student.id)}">
-          <i data-lucide="refresh-cw"></i><span>Обновить</span>
-        </button>
       </div>
       <header class="student-profile-header">
         <span class="student-registry-mark">${escapeHtml(student.name.trim().slice(0, 1).toUpperCase() || "У")}</span>

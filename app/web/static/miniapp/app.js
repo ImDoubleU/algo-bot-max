@@ -2949,17 +2949,6 @@ document.addEventListener("click", (event) => {
     renderStudentRegistry();
   }
 
-  const refreshStudentProfileId = target.dataset.refreshStudentProfile;
-  if (refreshStudentProfileId) {
-    void Promise.all([
-      loadAdminStudents(true),
-      loadStudentLedger(refreshStudentProfileId, true),
-      typeof loadStudentBank === "function"
-        ? loadStudentBank(refreshStudentProfileId, true)
-        : Promise.resolve(),
-    ]);
-  }
-
   const studentLedgerId = target.dataset.retryStudentLedger;
   if (studentLedgerId) {
     void loadStudentLedger(studentLedgerId, true);

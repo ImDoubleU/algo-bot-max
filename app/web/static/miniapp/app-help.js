@@ -1041,8 +1041,8 @@ const HELP_FAQ_ITEMS = Object.freeze([
   ),
   helpFaq(
     "management",
-    "Как открыть и отредактировать личную страницу ученика?",
-    "Личная страница объединяет учебные данные, идентификаторы импорта, связи с родителем и учеником, баланс, вклад и историю изменений. Редактирование доступно администратору и директору в пределах доступного города и площадок.",
+    "Как редактировать ученика?",
+    "В карточке ученика можно исправить ФИО, дату рождения, группу, преподавателя и другие учебные данные. Редактирование доступно администратору и директору в пределах доступного города и площадок.",
     {
       steps: [
         "Откройте «История учеников».",
@@ -1948,8 +1948,20 @@ function initializeHelpFaq() {
     const button = event.target.closest("[data-help-category]");
     if (!button) return;
     helpFaqState.category = button.dataset.helpCategory || "all";
-    helpFaqState.renderKey = "";
-    renderHelpFaq();
+    if (helpFaqState.query) {
+      helpFaqState.query = "";
+      helpFaqState.renderKey = "";
+      renderHelpFaq();
+    }
+    filters.querySelectorAll("[data-help-category]").forEach((item) => {
+      const selected = item === button;
+      item.classList.toggle("is-active", selected);
+      item.setAttribute("aria-pressed", String(selected));
+    });
+    const destination = helpFaqState.category === "all"
+      ? qs("#helpFaqContent")
+      : document.getElementById(`help-topic-${helpFaqState.category}`);
+    destination?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
   empty.addEventListener("click", (event) => {
     if (!event.target.closest("[data-reset-help-search]")) return;
@@ -1991,7 +2003,6 @@ function renderHelpFaq() {
 
   const queryWords = query.split(" ").filter(Boolean);
   const visibleItems = HELP_FAQ_ITEMS
-    .filter((item) => helpFaqState.category === "all" || item.category === helpFaqState.category)
     .filter((item) => {
       const searchText = helpItemSearchText(item);
       return queryWords.every((word) => searchText.includes(word));
