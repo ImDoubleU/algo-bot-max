@@ -304,6 +304,7 @@ async function updateAdminStudent(event) {
     if (!response.ok) throw new Error(await parseApiError(response));
     applyAdminStudentRegistry(await response.json());
     showNotice("Данные ученика сохранены");
+    state.studentMutationSaving = "";
     renderStudentRegistry();
   } catch (error) {
     showNotice(error.message || "Не удалось сохранить данные ученика", "danger");
@@ -440,6 +441,9 @@ function studentProfileFact(label, value, description = "") {
 }
 
 function studentProfileMarkup(student) {
+  const tabs = [["overview", "Обзор", "user-round"], ["data", "Данные", "pencil"], ["access", "Связи", "link"], ["finance", "Астрокоины", "wallet"], ["history", "История", "history"]];
+  const activeTab = state.studentProfileTab || "overview";
+  const panel = (name) => `data-profile-panel="${name}" ${activeTab === name ? "" : "hidden"}`;
   const status = studentRegistryStatus(student.status);
   const history = [...student.history].sort(
     (left, right) => new Date(right.occurredAt) - new Date(left.occurredAt),
@@ -473,7 +477,25 @@ function studentProfileMarkup(student) {
         <strong>${student.balance} AC</strong>
       </header>
 
-      <form class="student-profile-form" data-student-profile-form="${escapeHtml(student.id)}">
+      <nav class="student-profile-tabs" aria-label="Разделы карточки ученика">
+        ${tabs.map(([key, label, icon]) => `<button type="button" data-profile-tab="${key}" aria-pressed="${activeTab === key}"><i data-lucide="${icon}"></i><span>${label}</span></button>`).join("")}
+      </nav>
+      <section class="student-profile-overview" ${panel("overview")}>
+        <div class="student-profile-section-heading"><h4>Обучение</h4><button class="secondary-action" type="button" data-profile-tab="data"><i data-lucide="pencil"></i><span>Редактировать</span></button></div>
+        <div class="student-profile-summary">
+          ${studentProfileFact("Группа", student.group)}
+          ${studentProfileFact("Курс", student.course)}
+          ${studentProfileFact("Преподаватель", (student.linkedTeachers || []).join(", ") || student.teacher)}
+          ${studentProfileFact("Помещение", student.venue)}
+          ${studentProfileFact("Дата рождения", student.birthDate ? new Date(`${student.birthDate.slice(0, 10)}T12:00:00`).toLocaleDateString("ru-RU") : "Не указана")}
+          ${studentProfileFact("Родитель", student.parentNames.join(", ") || "Не указан")}
+        </div>
+        <div class="student-profile-connections">
+          <button type="button" data-profile-tab="access" class="${student.parentMaxUserIds.length ? "is-connected" : "is-pending"}"><i data-lucide="users"></i><span><small>Родитель</small><strong>${student.parentMaxUserIds.length ? "Подключён" : "Ожидается вход"}</strong></span><i data-lucide="chevron-right"></i></button>
+          <button type="button" data-profile-tab="access" class="${student.studentMaxUserIds.length ? "is-connected" : "is-pending"}"><i data-lucide="user-round"></i><span><small>Ученик</small><strong>${student.studentMaxUserIds.length ? "Подключён" : "Ожидается вход"}</strong></span><i data-lucide="chevron-right"></i></button>
+        </div>
+      </section>
+      <form class="student-profile-form" ${panel("data")} data-student-profile-form="${escapeHtml(student.id)}">
         <section class="student-profile-section">
           <div class="student-profile-section-heading">
             <div><h4>Основные данные</h4><p>ФИО используется во всех списках, заказах и уведомлениях. Дата рождения нужна для автоматического поздравительного начисления.</p></div>
@@ -520,7 +542,7 @@ function studentProfileMarkup(student) {
         </div>
       </form>
 
-      <section class="student-profile-section">
+      <section class="student-profile-section" ${panel("access")}>
         <div class="student-profile-section-heading"><div><h4>Связи и доступ</h4><p>Контакт из CRM используется в ссылке родителя. MAX ID появляется только после входа соответствующего пользователя в бота.</p></div></div>
         <div class="student-profile-facts">
           ${studentProfileFact("Родитель", student.parentNames.join(", ") || "Не указан")}
@@ -530,7 +552,7 @@ function studentProfileMarkup(student) {
         </div>
       </section>
 
-      <section class="student-profile-section">
+      <section class="student-profile-section" ${panel("finance")}>
         <div class="student-profile-section-heading"><div><h4>Астрокоины</h4><p>Укажите итоговый личный баланс. Разница будет записана отдельной операцией с ответственным сотрудником.</p></div></div>
         <form class="student-balance-form" data-student-balance-form="${escapeHtml(student.id)}">
           <label><span>Итоговый баланс, AC</span><input name="balance" type="number" min="0" max="10000000" inputmode="numeric" value="${student.balance}" required /></label>
@@ -539,17 +561,17 @@ function studentProfileMarkup(student) {
         </form>
       </section>
 
-      <section class="student-profile-section student-bank-history">
+      <section class="student-profile-section student-bank-history" ${panel("finance")}>
         <div class="student-history-head"><div><h4>Банк</h4><span>Личный счёт, вклад, ставка и начисленные проценты.</span></div></div>
         <div data-student-bank-panel="${escapeHtml(student.id)}">${typeof studentBankCardMarkup === "function" ? studentBankCardMarkup(student.id) : '<div class="student-ledger-state">Загружаем банковские данные.</div>'}</div>
       </section>
 
-      <section class="student-profile-section student-ledger-history">
+      <section class="student-profile-section student-ledger-history" ${panel("finance")}>
         <div class="student-history-head"><div><h4>История астрокоинов</h4><span>Начисления, покупки и банковские операции за последние 100 записей.</span></div></div>
         <div data-student-ledger-panel="${escapeHtml(student.id)}">${studentLedgerMarkup(student.id)}</div>
       </section>
 
-      <section class="student-profile-section">
+      <section class="student-profile-section" ${panel("history")}>
         <div class="student-profile-section-heading"><div><h4>Служебная информация</h4><p>Помогает понять, когда карточка появилась, обновлялась и меняла состояние.</p></div></div>
         <div class="student-profile-facts">
           ${studentProfileFact("Добавлен", formatRegistryDate(student.importedAt))}
@@ -559,7 +581,7 @@ function studentProfileMarkup(student) {
         </div>
       </section>
 
-      <section class="student-profile-section student-history">
+      <section class="student-profile-section student-history" ${panel("history")}>
         <div class="student-history-head"><div><h4>История карточки</h4><span>Импорт и ручные изменения данных.</span></div><span>${history.length} ${history.length === 1 ? "событие" : "событий"}</span></div>
         <div class="student-history-list">
           ${history.length ? history.map((event) => {
@@ -764,6 +786,7 @@ async function openAdminStudentProfile(studentId) {
     showNotice("Ученик не найден в выбранном городе", "danger");
     return;
   }
+  state.studentProfileTab = "overview";
   state.studentProfileId = normalizedId;
   if (typeof closeOrderDialog === "function") closeOrderDialog();
   if (state.view !== "wallet") setView("wallet");
