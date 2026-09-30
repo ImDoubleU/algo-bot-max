@@ -127,6 +127,7 @@ from app.schemas.miniapp import (
     MiniAppStudentRead,
     MiniAppStudentRegistryRead,
     MiniAppStudentStatusUpdate,
+    MiniAppStudentUpdate,
     MiniAppTeacherProfileRead,
     MiniAppTeacherProfileUpdate,
     MiniAppTenantCreate,
@@ -1662,6 +1663,8 @@ async def list_miniapp_student_registry(
     contact_ids_by_student: dict[UUID, list[str]] = {}
     contact_names_by_student: dict[UUID, list[str]] = {}
     parent_max_ids_by_student: dict[UUID, list[int]] = {}
+    student_max_ids_by_student: dict[UUID, list[int]] = {}
+    student_max_names_by_student: dict[UUID, list[str]] = {}
     if student_ids:
         contact_rows = (
             await db.execute(
@@ -1700,6 +1703,29 @@ async def list_miniapp_student_registry(
         ).all()
         for student_id, parent_max_user_id in parent_account_rows:
             parent_max_ids_by_student.setdefault(student_id, []).append(parent_max_user_id)
+
+        student_account_rows = (
+            await db.execute(
+                select(
+                    StudentAccessLink.student_id,
+                    MaxAccount.max_user_id,
+                    MaxAccount.display_name,
+                    MaxAccount.username,
+                )
+                .join(MaxAccount, MaxAccount.id == StudentAccessLink.account_id)
+                .where(
+                    StudentAccessLink.tenant_id == tenant.id,
+                    StudentAccessLink.student_id.in_(student_ids),
+                    StudentAccessLink.role == StudentAccessRole.STUDENT,
+                    StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+                )
+                .order_by(MaxAccount.max_user_id)
+            )
+        ).all()
+        for student_id, student_max_user_id, display_name, username in student_account_rows:
+            student_max_ids_by_student.setdefault(student_id, []).append(student_max_user_id)
+            account_name = display_name or (f"@{username}" if username else None)
+            student_max_names_by_student.setdefault(student_id, []).append(account_name or "")
     events_by_student: dict[UUID, list[MiniAppStudentHistoryEventRead]] = {}
     if student_ids:
         event_rows = (
@@ -1770,7 +1796,10 @@ async def list_miniapp_student_registry(
                 lms_student_id=student.lms_student_id,
                 display_name=student.display_name,
                 first_name=student.first_name,
+                last_name=student.last_name,
                 birth_date=student.birth_date,
+                crm_deal_id=student.crm_deal_id,
+                crm_uuid=student.crm_uuid,
                 group_name=student.group_name,
                 course_name=student.course_name,
                 venue_name=student.venue_name,
@@ -1792,6 +1821,8 @@ async def list_miniapp_student_registry(
                 parent_contact_ids=contact_ids_by_student.get(student.id, []),
                 parent_names=contact_names_by_student.get(student.id, []),
                 parent_max_user_ids=parent_max_ids_by_student.get(student.id, []),
+                student_max_user_ids=student_max_ids_by_student.get(student.id, []),
+                student_max_names=student_max_names_by_student.get(student.id, []),
                 history=history[-50:],
             )
         )
@@ -2157,6 +2188,177 @@ async def create_miniapp_student(
                 "parent_contact_id": parent_contact.external_contact_id if parent_contact else None,
                 "parent_max_user_id": payload.parent_max_user_id,
                 "initial_balance": payload.initial_balance,
+            },
+        )
+    )
+    await db.commit()
+    return await list_miniapp_student_registry(
+        db,
+        max_user_id=payload.max_user_id,
+        tenant_slug=tenant.slug,
+    )
+
+
+async def update_miniapp_student(
+    db: AsyncSession,
+    *,
+    student_id: UUID,
+    payload: MiniAppStudentUpdate,
+    default_tenant_slug: str,
+) -> MiniAppStudentRegistryRead:
+    tenant_slug = (payload.tenant_slug or default_tenant_slug).strip().lower()
+    tenant, account, admin_role, student = await _admin_student_context(
+        db,
+        max_user_id=payload.max_user_id,
+        tenant_slug=tenant_slug,
+        student_id=student_id,
+    )
+    first_name = payload.first_name.strip()
+    last_name = payload.last_name.strip()
+    if not first_name or not last_name:
+        raise MiniAppStoreError("Укажите имя и фамилию ученика")
+    if payload.birth_date and payload.birth_date > date.today():
+        raise MiniAppStoreError("Дата рождения не может быть в будущем")
+
+    lms_student_id = _clean_student_field(payload.lms_student_id)
+    if lms_student_id:
+        lms_student_id = normalize_student_code(lms_student_id)
+    crm_deal_id = _clean_student_field(payload.crm_deal_id)
+    crm_uuid = _clean_student_field(payload.crm_uuid)
+    for field, value, label in (
+        (Student.lms_student_id, lms_student_id, "ID ученика"),
+        (Student.crm_deal_id, crm_deal_id, "ID сделки CRM"),
+        (Student.crm_uuid, crm_uuid, "UUID CRM"),
+    ):
+        if value is None:
+            continue
+        duplicate = await db.scalar(
+            select(Student.id).where(
+                Student.tenant_id == tenant.id,
+                Student.id != student.id,
+                field == value,
+            )
+        )
+        if duplicate is not None:
+            raise MiniAppStoreError(
+                f"Ученик с таким {label} уже есть в этом городе",
+                status_code=409,
+            )
+
+    venue_name = _clean_student_field(payload.venue_name)
+    venue, _ = await get_or_create_venue(db, tenant=tenant, name=venue_name)
+    venue_scope_ids = await staff_venue_scope_ids(
+        db,
+        tenant_id=tenant.id,
+        account_id=account.id,
+        role=admin_role,
+    )
+    if venue_scope_ids is not None and (venue is None or venue.id not in venue_scope_ids):
+        raise MiniAppStoreError(
+            "Выберите площадку, которой управляет директор",
+            status_code=403,
+        )
+
+    previous_status = student.status
+    previous_group = student.group_name
+    before = {
+        "first_name": student.first_name,
+        "last_name": student.last_name,
+        "birth_date": student.birth_date,
+        "lms_student_id": student.lms_student_id,
+        "crm_deal_id": student.crm_deal_id,
+        "crm_uuid": student.crm_uuid,
+        "group_name": student.group_name,
+        "course_name": student.course_name,
+        "venue_name": student.venue_name,
+        "teacher_name": student.teacher_name,
+        "status": student.status.value,
+    }
+    after = {
+        "first_name": first_name,
+        "last_name": last_name,
+        "birth_date": payload.birth_date,
+        "lms_student_id": lms_student_id,
+        "crm_deal_id": crm_deal_id,
+        "crm_uuid": crm_uuid,
+        "group_name": _clean_student_field(payload.group_name),
+        "course_name": _clean_student_field(payload.course_name),
+        "venue_name": venue.name if venue else None,
+        "teacher_name": _clean_student_field(payload.teacher_name),
+        "status": payload.status.value,
+    }
+    changed_fields = [field for field, value in after.items() if before[field] != value]
+    if not changed_fields:
+        await db.commit()
+        return await list_miniapp_student_registry(
+            db,
+            max_user_id=payload.max_user_id,
+            tenant_slug=tenant.slug,
+        )
+
+    student.first_name = first_name
+    student.last_name = last_name
+    student.birth_date = payload.birth_date
+    student.lms_student_id = lms_student_id
+    student.crm_deal_id = crm_deal_id
+    student.crm_uuid = crm_uuid
+    student.group_name = after["group_name"]
+    student.course_name = after["course_name"]
+    student.venue_id = venue.id if venue else None
+    student.venue_name = after["venue_name"]
+    student.teacher_name = after["teacher_name"]
+    student.status = payload.status
+
+    now = datetime.now(UTC)
+    if previous_status != payload.status:
+        student.status_updated_at = now
+        if payload.status == StudentStatus.ACTIVE:
+            student.departed_at = None
+        elif student.departed_at is None:
+            student.departed_at = now
+        if previous_status == StudentStatus.ACTIVE:
+            await close_bank_deposit_for_inactive_student(
+                db,
+                tenant=tenant,
+                student=student,
+                closed_on=bank_local_date(now),
+                close_reason=f"student_{payload.status.value}",
+            )
+
+    db.add(
+        StudentHistoryEvent(
+            tenant_id=tenant.id,
+            student_id=student.id,
+            actor_account_id=account.id,
+            event_type=("status_changed" if "status" in changed_fields else "updated"),
+            from_status=previous_status.value,
+            to_status=payload.status.value,
+            from_group_name=previous_group,
+            to_group_name=student.group_name,
+            changed_fields=changed_fields,
+            source="manual",
+        )
+    )
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_account_id=account.id,
+            action="student.updated",
+            entity_type="student",
+            entity_id=str(student.id),
+            payload={
+                "student_name": student.display_name,
+                "changed_fields": changed_fields,
+                "before": {
+                    key: value.isoformat() if isinstance(value, date) else value
+                    for key, value in before.items()
+                    if key in changed_fields
+                },
+                "after": {
+                    key: value.isoformat() if isinstance(value, date) else value
+                    for key, value in after.items()
+                    if key in changed_fields
+                },
             },
         )
     )

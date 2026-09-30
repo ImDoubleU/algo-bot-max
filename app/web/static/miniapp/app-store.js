@@ -25,7 +25,9 @@ function renderStudents() {
               return `
                 <div class="student-row">
                   <div>
-                    <strong>${escapeHtml(student.name)}</strong>
+                    ${canManageStudentRecords()
+                      ? `<button class="student-name-link" type="button" data-open-student-profile="${escapeHtml(student.id)}">${escapeHtml(student.name)}</button>`
+                      : `<strong>${escapeHtml(student.name)}</strong>`}
                     ${
                       state.role === "teacher"
                         ? ""
@@ -1912,7 +1914,9 @@ function renderOrders() {
               <strong class="order-number">Заказ №${escapeHtml(order.id)}</strong>
               <span class="status-badge ${orderStatusTone(order.rawStatus)}">${escapeHtml(displayStatus)}</span>
             </div>
-            <strong class="order-card-student">${escapeHtml(order.student)}</strong>
+            ${canManageStudentRecords()
+              ? `<button class="student-name-link order-card-student" type="button" data-open-student-profile="${escapeHtml(order.studentId)}">${escapeHtml(order.student)}</button>`
+              : `<strong class="order-card-student">${escapeHtml(order.student)}</strong>`}
             <div class="order-card-items">${escapeHtml(order.item)}</div>
             <div class="order-card-meta">
               ${
@@ -2128,7 +2132,9 @@ function renderAccrualReport() {
                 <span>${escapeHtml(new Date(entry.created_at).toLocaleString("ru-RU"))}</span>
               </div>
               <div>
-                <strong>${escapeHtml(entry.student_name)}</strong>
+                ${canManageStudentRecords()
+                  ? `<button class="student-name-link" type="button" data-open-student-profile="${escapeHtml(entry.student_id)}">${escapeHtml(entry.student_name)}</button>`
+                  : `<strong>${escapeHtml(entry.student_name)}</strong>`}
                 <span>${escapeHtml(entry.group_name || "Без группы")}</span>
               </div>
               <div>

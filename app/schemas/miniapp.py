@@ -98,7 +98,11 @@ class MiniAppAdminStudentRead(BaseModel):
     student_id: UUID
     lms_student_id: str | None = None
     display_name: str
+    first_name: str
+    last_name: str | None = None
     birth_date: date | None = None
+    crm_deal_id: str | None = None
+    crm_uuid: str | None = None
     group_name: str | None = None
     course_name: str | None = None
     venue_name: str | None = None
@@ -113,6 +117,8 @@ class MiniAppAdminStudentRead(BaseModel):
     parent_contact_ids: list[str] = Field(default_factory=list)
     parent_names: list[str] = Field(default_factory=list)
     parent_max_user_ids: list[int] = Field(default_factory=list)
+    student_max_user_ids: list[int] = Field(default_factory=list)
+    student_max_names: list[str] = Field(default_factory=list)
     history: list[MiniAppStudentHistoryEventRead] = Field(default_factory=list)
 
 
@@ -140,6 +146,22 @@ class MiniAppStudentCreate(BaseModel):
     parent_max_user_id: int | None = Field(default=None, gt=0)
     parent_max_username: str | None = Field(default=None, max_length=120)
     initial_balance: int = Field(default=0, ge=0, le=10_000_000)
+
+
+class MiniAppStudentUpdate(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    first_name: str = Field(min_length=1, max_length=120)
+    last_name: str = Field(min_length=1, max_length=120)
+    birth_date: date | None = None
+    lms_student_id: str | None = Field(default=None, max_length=120)
+    crm_deal_id: str | None = Field(default=None, max_length=120)
+    crm_uuid: str | None = Field(default=None, max_length=180)
+    group_name: str | None = Field(default=None, max_length=160)
+    course_name: str | None = Field(default=None, max_length=160)
+    venue_name: str | None = Field(default=None, max_length=160)
+    teacher_name: str | None = Field(default=None, max_length=160)
+    status: StudentStatus
 
 
 class MiniAppStudentBirthDateUpdate(BaseModel):

@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -60,6 +60,7 @@ from app.schemas.miniapp import (
     MiniAppOrderWarehouseAssignmentItem,
     MiniAppProductInventoryWrite,
     MiniAppProductUpsert,
+    MiniAppStudentUpdate,
     MiniAppWarehousePreferenceUpdate,
     MiniAppWarehouseUpsert,
 )
@@ -80,10 +81,12 @@ from app.services.miniapp import (
     issue_miniapp_order,
     list_miniapp_admin_history,
     list_miniapp_catalog,
+    list_miniapp_student_registry,
     mark_miniapp_order_delivered_to_venue,
     set_miniapp_order_items_picked,
     set_miniapp_warehouse_preference,
     transfer_miniapp_inventory,
+    update_miniapp_student,
     upsert_miniapp_product,
     upsert_miniapp_warehouse,
 )
@@ -180,6 +183,90 @@ async def seed_product(db_session, student: Student) -> tuple[Product, Warehouse
     db_session.add(inventory)
     await db_session.commit()
     return product, inventory
+
+
+async def test_admin_can_update_complete_student_profile(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    account = await grant_store_admin(db_session, tenant_id=student.tenant_id)
+
+    registry = await update_miniapp_student(
+        db_session,
+        student_id=student.id,
+        payload=MiniAppStudentUpdate(
+            max_user_id=account.max_user_id,
+            tenant_slug="nizhniy-novgorod-partner-a",
+            first_name="Алина",
+            last_name="Смирнова",
+            birth_date=date(2013, 4, 15),
+            lms_student_id=" ST-UPDATED ",
+            crm_deal_id="deal-updated",
+            crm_uuid="uuid-updated",
+            group_name="Python Pro",
+            course_name="Python",
+            venue_name="Союзный 45",
+            teacher_name="Олейник Дмитрий",
+            status="departed",
+        ),
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+
+    updated = registry.students[0]
+    assert updated.display_name == "Смирнова Алина"
+    assert updated.first_name == "Алина"
+    assert updated.last_name == "Смирнова"
+    assert updated.birth_date == date(2013, 4, 15)
+    assert updated.lms_student_id == "ST-UPDATED"
+    assert updated.crm_deal_id == "deal-updated"
+    assert updated.crm_uuid == "uuid-updated"
+    assert updated.group_name == "Python Pro"
+    assert updated.course_name == "Python"
+    assert updated.venue_name == "Союзный 45"
+    assert updated.teacher_name == "Олейник Дмитрий"
+    assert updated.status.value == "departed"
+    assert set(updated.history[-1].changed_fields) >= {
+        "first_name",
+        "last_name",
+        "lms_student_id",
+        "status",
+    }
+
+
+async def test_admin_student_profile_rejects_duplicate_lms_id(db_session) -> None:
+    student = await seed_linked_student(db_session)
+    account = await grant_store_admin(db_session, tenant_id=student.tenant_id)
+    admin_max_user_id = account.max_user_id
+    second = Student(
+        tenant_id=student.tenant_id,
+        student_access_code="SECOND-STUDENT",
+        lms_student_id="ST-002",
+        first_name="Второй",
+        last_name="Ученик",
+    )
+    db_session.add(second)
+    await db_session.commit()
+
+    with pytest.raises(MiniAppStoreError, match="таким ID ученика уже есть"):
+        await update_miniapp_student(
+            db_session,
+            student_id=second.id,
+            payload=MiniAppStudentUpdate(
+                max_user_id=admin_max_user_id,
+                tenant_slug="nizhniy-novgorod-partner-a",
+                first_name="Второй",
+                last_name="Ученик",
+                lms_student_id="ST-001",
+                status="active",
+            ),
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
+
+    await db_session.rollback()
+    registry = await list_miniapp_student_registry(
+        db_session,
+        max_user_id=admin_max_user_id,
+        tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    assert len(registry.students) == 2
 
 
 async def grant_store_admin(db_session, *, tenant_id: UUID) -> MaxAccount:

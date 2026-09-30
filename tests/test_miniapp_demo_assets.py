@@ -23,7 +23,7 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.90.4"}
+    assert set(versions) == {"0.91.0"}
 
 
 def test_help_contains_searchable_accordion_and_full_faq() -> None:
@@ -34,7 +34,7 @@ def test_help_contains_searchable_accordion_and_full_faq() -> None:
     assert "Скоро..." not in index_source
     assert 'id="helpSearchInput"' in index_source
     assert 'id="helpCategoryFilters"' in index_source
-    assert 'app-help.js?v=0.90.4' in index_source
+    assert 'app-help.js?v=0.91.0' in index_source
     assert help_source.count("\n  helpFaq(") >= 125
     assert "Родителю нужно подтвердить связь" in help_source
     assert "Может ли ученик войти до подключения родителя?" in help_source
@@ -50,6 +50,10 @@ def test_help_contains_searchable_accordion_and_full_faq() -> None:
     assert "function renderHelpFaq()" in help_source
     assert ".help-faq-item[open]" in styles_source
     assert ".help-faq-figure" in styles_source
+    assert "Как открыть и отредактировать личную страницу ученика?" in help_source
+    assert "Что означают ошибки 401, 403 и «Нет прав»?" in help_source
+    assert "Что означают ошибки 400, 422 и «Проверьте поля»?" in help_source
+    assert "Почему не сохраняется карточка ученика?" in help_source
 
     category_labels = [
         "1. С чего начать",
@@ -97,6 +101,19 @@ def test_teacher_qr_shows_parent_and_student_connections_independently() -> None
     assert index_source.index('id="studentAccessNotice"') < index_source.index(
         'id="dashboardView"'
     )
+
+
+def test_student_registry_opens_dedicated_editable_profile() -> None:
+    admin_source = (MINIAPP / "app-admin.js").read_text(encoding="utf-8")
+    app_source = (MINIAPP / "app.js").read_text(encoding="utf-8")
+
+    assert 'data-open-student-profile="${escapeHtml(student.id)}"' in admin_source
+    assert "function studentProfileMarkup(student)" in admin_source
+    assert "data-student-profile-form" in admin_source
+    assert "Системные идентификаторы" in admin_source
+    assert "Связи и доступ" in admin_source
+    assert '<details class="student-registry-card"' not in admin_source
+    assert "openAdminStudentProfile" in app_source
 
 
 def test_bank_opening_shows_projected_income_and_demo_history_survives_refresh() -> None:
@@ -299,6 +316,6 @@ def test_student_registry_shows_linked_max_teacher() -> None:
     admin_source = (MINIAPP / "app-admin.js").read_text(encoding="utf-8")
 
     assert "linkedTeachers: Array.isArray(item.linked_teacher_names)" in shell_source
-    assert "Преподаватель из LMS" in admin_source
-    assert "Преподаватель в MAX" in admin_source
-    assert '(student.linkedTeachers || []).join(", ") || "Не привязан"' in admin_source
+    assert "Преподаватель в LMS" in admin_source
+    assert "Преподаватели, связанные через MAX" in admin_source
+    assert '(student.linkedTeachers || []).join(", ") || "Не привязаны"' in admin_source
