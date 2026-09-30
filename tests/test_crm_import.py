@@ -104,6 +104,37 @@ def test_parse_crm_students_marks_missing_contact_id(tmp_path: Path) -> None:
     assert rows[0].needs_generated_access_code is True
 
 
+def test_parse_crm_workbook_normalizes_excel_float_identifiers() -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = SHEET_DEALS
+    sheet.append(
+        [
+            "ID \u0441\u0434\u0435\u043b\u043a\u0438",
+            "ID \u0443\u0447\u0435\u043d\u0438\u043a\u0430",
+            "\u0418\u043c\u044f \u0440\u0435\u0431\u0435\u043d\u043a\u0430 \u0438\u0437 LMS",
+            "\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u0433\u0440\u0443\u043f\u043f\u044b LMS",  # noqa: E501
+            "ID \u043a\u043e\u043d\u0442\u0430\u043a\u0442\u043e\u0432",
+        ]
+    )
+    sheet.append(
+        [
+            30694947.0,
+            70768525.0,
+            "\u0414\u0430\u043c\u0438\u0440",
+            "\u0413\u0414 \u0422\u0426 \u0420\u0418\u041e",
+            33480967.0,
+        ]
+    )
+
+    rows = parse_crm_workbook(workbook, sheet_name=SHEET_DEALS)
+
+    assert len(rows) == 1
+    assert rows[0].deal_id == "30694947"
+    assert rows[0].lms_student_id == "70768525"
+    assert rows[0].contact_ids == "33480967"
+
+
 def test_standard_template_ignores_other_sheets_and_columns() -> None:
     workbook = load_workbook(BytesIO(build_crm_import_template()))
     sheet = workbook[CRM_TEMPLATE_SHEET_NAME]
@@ -137,6 +168,18 @@ def test_standard_template_ignores_other_sheets_and_columns() -> None:
     assert rows[0].deal_id == "1357"
     assert rows[0].birth_date == date(2015, 4, 15)
     assert rows[0].city == "Нижний Новгород"
+
+
+def test_standard_template_formats_identifier_columns_as_text() -> None:
+    workbook = load_workbook(BytesIO(build_crm_import_template()))
+    sheet = workbook[CRM_TEMPLATE_SHEET_NAME]
+
+    for column_index, (field, *_) in enumerate(CRM_TEMPLATE_COLUMNS, start=1):
+        if field in {"lms_student_id", "deal_id", "contact_ids"}:
+            column_letter = sheet.cell(row=1, column=column_index).column_letter
+            assert sheet.column_dimensions[column_letter].number_format == "@"
+
+    workbook.close()
 
 
 def test_standard_template_skips_empty_rows_without_trailing_cells() -> None:

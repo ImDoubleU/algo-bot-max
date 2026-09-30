@@ -1,4 +1,5 @@
 import hashlib
+import re
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -40,7 +41,9 @@ PARENT_REQUIRED_MESSAGE = (
 
 
 def normalize_contact_id(value: str) -> str:
-    return "".join(value.strip().upper().split())
+    normalized = "".join(value.strip().upper().split())
+    match = re.fullmatch(r"([0-9]+)[.]0+", normalized)
+    return match.group(1) if match else normalized
 
 
 def normalize_student_code(value: str) -> str:
