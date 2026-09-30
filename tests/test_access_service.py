@@ -30,6 +30,12 @@ def test_normalize_contact_id_strips_spaces_and_uppercases() -> None:
     assert normalize_contact_id(" 681 ab ") == "681AB"
 
 
+def test_normalize_contact_id_strips_excel_integer_suffix() -> None:
+    assert normalize_contact_id("33480967.0") == "33480967"
+    assert normalize_contact_id("33480967.000") == "33480967"
+    assert normalize_contact_id("CONTACT.0") == "CONTACT.0"
+
+
 def test_hash_contact_id_does_not_expose_raw_id() -> None:
     hashed = hash_contact_id("681")
 

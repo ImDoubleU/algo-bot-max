@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from io import BytesIO
@@ -215,6 +216,13 @@ def normalize_text(value: Any) -> str | None:
     return " ".join(text.split())
 
 
+def normalize_identifier_text(value: Any) -> str | None:
+    text = normalize_text(value)
+    if text is None:
+        return None
+    return re.sub(r"(?<![0-9A-Za-z.])([0-9]+)[.]0+(?![0-9A-Za-z.])", r"\1", text)
+
+
 def normalize_header(value: Any) -> str:
     text = normalize_text(value) or ""
     return text.lower().replace("\u0451", "\u0435")
@@ -351,9 +359,15 @@ def build_crm_import_template() -> bytes:
     template.auto_filter.ref = f"A1:{last_column}1"
     template_widths = (18, 22, 24, 22, 18, 24, 38, 22, 28, 34, 20, 34)
     for column_index, width in enumerate(template_widths, start=1):
-        template.column_dimensions[
-            template.cell(row=1, column=column_index).column_letter
-        ].width = width
+        column_letter = template.cell(row=1, column=column_index).column_letter
+        column = template.column_dimensions[column_letter]
+        column.width = width
+        if CRM_TEMPLATE_COLUMNS[column_index - 1][0] in {
+            "lms_student_id",
+            "deal_id",
+            "contact_ids",
+        }:
+            column.number_format = "@"
 
     output = BytesIO()
     workbook.save(output)
@@ -462,6 +476,8 @@ def parse_crm_workbook(
             for index, field in header_mapping.items()
         }
         row = {field: normalize_text(value) for field, value in raw_row.items()}
+        for identifier_field in ("deal_id", "lms_student_id", "contact_ids"):
+            row[identifier_field] = normalize_identifier_text(raw_row.get(identifier_field))
         first_name = row.get("first_name")
         last_name = row.get("last_name")
         group_name = row.get("group_name")
