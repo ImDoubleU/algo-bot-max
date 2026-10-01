@@ -9993,20 +9993,6 @@ body[data-active-role="teacher"] .dashboard-spotlight {
 .report-summary article span { color: var(--muted); font-size: 11px; }
 .report-summary article strong { color: var(--ink); font-size: 18px; }
 
-details.report-row { display: block; padding: 0; }
-.report-row > summary {
-  display: grid;
-  grid-template-columns: minmax(170px, .8fr) minmax(210px, 1fr) minmax(170px, .8fr) 24px;
-  gap: 14px;
-  align-items: center;
-  padding: 13px 15px;
-  list-style: none;
-}
-.report-row > summary::-webkit-details-marker { display: none; }
-.report-row > summary > div { display: grid; gap: 3px; }
-.report-row > summary > svg { width: 17px; height: 17px; color: var(--muted); transition: transform 160ms ease; }
-.report-row[open] > summary > svg { transform: rotate(180deg); }
-.report-row-details { display: flex; gap: 18px; padding: 0 15px 13px; color: var(--muted); font-size: 12px; }
 
 .accrual-filters {
   grid-template-columns: minmax(250px, 1fr) minmax(250px, 1fr);
@@ -11038,10 +11024,6 @@ details.report-row { display: block; padding: 0; }
   .report-dimension-filters { grid-template-columns: 1fr; }
   .report-dimension-filters .secondary-action { width: 100%; justify-content: center; }
   .report-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .report-row > summary { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
-  .report-row > summary > div:nth-child(2), .report-row > summary > div:nth-child(3) { grid-column: 1; }
-  .report-row > summary > svg { grid-column: 2; grid-row: 1; }
-  .report-row-details { display: grid; gap: 4px; }
 
   .accrual-page-head { padding: 14px; }
   .accrual-filters { grid-template-columns: 1fr; padding: 12px; }
