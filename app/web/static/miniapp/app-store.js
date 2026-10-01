@@ -2131,8 +2131,7 @@ function renderAccrualReport() {
     ? entries
         .map(
           (entry) => `
-            <details class="report-row">
-              <summary>
+            <article class="report-row">
               <div>
                 <strong>${escapeHtml(entry.teacher_name)}</strong>
                 <span>${escapeHtml(new Date(entry.created_at).toLocaleString("ru-RU"))}</span>
@@ -2147,13 +2146,7 @@ function renderAccrualReport() {
                 <strong>+${Number(entry.amount)} AC</strong>
                 <span>${escapeHtml(entry.reason)}</span>
               </div>
-              <i data-lucide="chevron-down"></i>
-              </summary>
-              <div class="report-row-details">
-                <span>Группа: ${escapeHtml(entry.group_name || "Без группы")}</span>
-                <span>Дата: ${escapeHtml(new Date(entry.created_at).toLocaleString("ru-RU"))}</span>
-              </div>
-            </details>
+            </article>
           `,
         )
         .join("")
