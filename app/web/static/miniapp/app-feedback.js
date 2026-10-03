@@ -1,11 +1,11 @@
-// Superadministrator preview. Drafts stay on this device; no parent delivery.
-const feedbackStorageKey = `algo-max-feedback-preview-v2:${apiContext.tenantSlug || "demo"}:${apiContext.maxUserId || apiContext.demoRole || "teacher"}`;
+// Teacher-owned server schedules. Message drafts stay on this device.
+let feedbackStorageKey = `algo-max-feedback-preview-v2:${apiContext.tenantSlug || "demo"}:${apiContext.maxUserId || apiContext.demoRole || "teacher"}`;
 const feedbackState = {
-  tab: "groups", catalog: null, loading: false, error: "", restored: false,
+  tab: "groups", contextKey: "", legacyStorageKey: "", catalog: null, loading: false, scheduleSaving: false, error: "", restored: false,
   group: "", rowId: "", course: "", lesson: 1, date: feedbackToday(), offset: 0,
   mode: "group", repeat: false, coins: false, absent: [], extraAbsent: "",
   text: "", draftId: "", generated: null, edited: false, stale: false,
-  schedules: Object.create(null), drafts: [], editor: null, editorDirty: false,
+  schedules: Object.create(null), serverVersions: Object.create(null), drafts: [], editor: null, editorDirty: false,
   editorUndo: null, historySearch: "", groupSearch: "", autosaveTimer: null,
 };
 
@@ -49,6 +49,60 @@ function feedbackPersist() {
     showNotice("Не удалось сохранить данные на этом устройстве. Скопируйте текст или скачайте файл.", "danger");
     return false;
   }
+}
+
+async function feedbackScheduleRequest(payload = null, tenantSlug = apiContext.tenantSlug) {
+  const response = await apiFetch(apiUrl("/api/v1/miniapp/feedback/schedules", {
+    tenant_slug: tenantSlug,
+  }), payload ? { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) } : {});
+  const data = await response.json();
+  if (!response.ok) {
+    const error = new Error(typeof data.detail === "string" ? data.detail : "Не удалось сохранить расписание на сервере");
+    error.status = response.status; throw error;
+  }
+  return data;
+}
+
+async function feedbackLoadServerSchedules() {
+  if (apiContext.demoMode) return;
+  const tenant = apiContext.tenantSlug;
+  const groups = feedbackGroups();
+  const local = Object.fromEntries(groups.map((group) => [group, structuredClone(feedbackSchedule(group))]));
+  let remote = await feedbackScheduleRequest(null, tenant);
+  if (tenant !== apiContext.tenantSlug) throw new Error("Школа изменилась. Откройте вкладку заново.");
+  for (const group of groups) {
+    if (!Object.hasOwn(remote.schedules, group)) {
+      const schedule = local[group];
+      try {
+        const saved = await feedbackScheduleRequest({ group_name: group, revision: 0, schedule }, tenant);
+        remote.schedules[group] = saved;
+      } catch (error) {
+        if (error.status !== 409) throw error;
+        remote = await feedbackScheduleRequest(null, tenant);
+        if (!Object.hasOwn(remote.schedules, group)) throw error;
+      }
+    }
+    if (tenant !== apiContext.tenantSlug) throw new Error("Школа изменилась. Откройте вкладку заново.");
+  }
+  for (const [group, entry] of Object.entries(remote.schedules)) {
+    feedbackValidateSchedule(entry.schedule, feedbackState.catalog);
+    feedbackState.schedules[group] = entry.schedule;
+    feedbackState.serverVersions[group] = entry.revision;
+  }
+  feedbackPersist();
+}
+
+async function feedbackSaveSchedule(group, schedule) {
+  if (apiContext.demoMode) return schedule;
+  const context = feedbackState.contextKey;
+  const tenant = apiContext.tenantSlug;
+  const saved = await feedbackScheduleRequest({ group_name: group,
+    revision: feedbackState.serverVersions[group] || 0, schedule }, tenant);
+  if (context !== feedbackState.contextKey || tenant !== apiContext.tenantSlug) {
+    throw new Error("Расписание сохранено в прежней школе. Откройте вкладку выбранной школы заново.");
+  }
+  feedbackState.serverVersions[group] = saved.revision;
+  return saved.schedule;
 }
 
 function feedbackSchedule(group) {
@@ -119,6 +173,17 @@ function feedbackSelectGroup(group, rowId = "") {
 
 async function renderFeedback() {
   if (!canAccessFeedback()) return;
+  const key = `algo-max-feedback-preview-v2:${apiContext.tenantSlug || "demo"}:${apiContext.maxUserId || apiContext.demoRole || "teacher"}`;
+  if (feedbackState.contextKey !== key) {
+    const legacy = feedbackState.contextKey ? "" : feedbackStorageKey;
+    if (feedbackState.contextKey) feedbackSaveDraft();
+    window.clearTimeout(feedbackState.autosaveTimer);
+    feedbackStorageKey = key;
+    Object.assign(feedbackState, { contextKey: key, legacyStorageKey: legacy, catalog: null,
+      schedules: Object.create(null), serverVersions: Object.create(null), drafts: [],
+      group: "", rowId: "", text: "", generated: null, draftId: "", edited: false,
+      editor: null, editorDirty: false, editorUndo: null, restored: false });
+  }
   const root = qs("#feedbackWorkspace");
   if (!root) return;
   if (!feedbackState.catalog) {
@@ -138,7 +203,7 @@ async function renderFeedback() {
       let saved = {};
       let recovered = false;
       try {
-        const current = localStorage.getItem(feedbackStorageKey);
+        const current = localStorage.getItem(feedbackStorageKey) || (feedbackState.legacyStorageKey ? localStorage.getItem(feedbackState.legacyStorageKey) : null);
         const legacy = !current && apiContext.demoRole === "teacher" ? localStorage.getItem("algo-max-feedback-preview-v1") : null;
         saved = JSON.parse(current || legacy || "{}");
       } catch { recovered = true; }
@@ -146,9 +211,11 @@ async function renderFeedback() {
       const storedGroups = [...new Set(studentsForCurrentRole().map(studentGroupName).filter(Boolean))];
       const restored = feedbackRestore(saved, feedbackState.catalog, storedGroups);
       feedbackState.schedules = restored.schedules; feedbackState.drafts = restored.drafts;
+      await feedbackLoadServerSchedules();
       feedbackState.restored = true; feedbackState.error = "";
       if (recovered || restored.recovered) showNotice("Повреждённые записи пропущены. Остальные черновики и настройки сохранены.", "danger");
     } catch (error) {
+      feedbackState.catalog = null;
       feedbackState.error = error.message;
       root.innerHTML = `<div class="empty-state compact-empty"><span>${escapeHtml(error.message)}</span>
         <button class="secondary-action" data-feedback-retry>Попробовать ещё раз</button></div>`;
@@ -371,6 +438,7 @@ async function feedbackCanLeaveEditor() {
 document.addEventListener("submit", async (event) => {
   if (!canAccessFeedback() || !event.target.id.startsWith("feedback")) return;
   event.preventDefault();
+  if (feedbackState.scheduleSaving) return;
   try {
     if (event.target.id === "feedbackComposeForm") {
       if (!feedbackReadForm(true)) return;
@@ -389,12 +457,19 @@ document.addEventListener("submit", async (event) => {
       if (!event.target.reportValidity()) return;
       const schedule = feedbackCaptureSchedule();
       feedbackValidateSchedule(schedule, feedbackState.catalog);
-      feedbackState.schedules[feedbackState.group] = structuredClone(schedule);
+      const group = feedbackState.group;
+      const controls = [...event.target.elements].map((element) => [element, element.disabled]);
+      feedbackState.scheduleSaving = true;
+      controls.forEach(([element]) => { element.disabled = true; });
+      let saved;
+      try { saved = await feedbackSaveSchedule(group, schedule); }
+      finally { controls.forEach(([element, disabled]) => { element.disabled = disabled; }); feedbackState.scheduleSaving = false; }
+      feedbackState.schedules[group] = structuredClone(saved);
       feedbackState.editorDirty = false;
       const rowId = feedbackState.rowId;
       const persisted = feedbackPersist();
       feedbackSelectGroup(feedbackState.group, rowId); await renderFeedback();
-      if (persisted) showNotice("Уроки и даты сохранены на этом устройстве");
+      if (!apiContext.demoMode || persisted) showNotice(apiContext.demoMode ? "Уроки и даты сохранены на этом устройстве" : "Расписание сохранено на сервере и привязано к вашему аккаунту преподавателя");
     } else if (event.target.id === "feedbackSeriesForm") {
       if (!event.target.reportValidity()) return;
       const values = new FormData(event.target);
@@ -415,7 +490,7 @@ document.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("change", (event) => {
-  if (!canAccessFeedback()) return;
+  if (!canAccessFeedback() || feedbackState.scheduleSaving) return;
   if (event.target.closest("#feedbackScheduleForm")) {
     if (event.target.name === "course") {
       try {
@@ -455,7 +530,7 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("input", (event) => {
-  if (!canAccessFeedback()) return;
+  if (!canAccessFeedback() || feedbackState.scheduleSaving) return;
   if (event.target.closest("#feedbackScheduleForm")) {
     if (["firstDate", "skipped", "course"].includes(event.target.name)) return;
     feedbackState.editorDirty = true; feedbackState.editor = feedbackCaptureSchedule();
@@ -475,7 +550,7 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("click", async (event) => {
-  if (!canAccessFeedback()) return;
+  if (!canAccessFeedback() || feedbackState.scheduleSaving) return;
   const button = event.target.closest("button"); if (!button) return;
   const data = button.dataset;
   try {
