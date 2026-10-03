@@ -1359,7 +1359,7 @@ class LongPollingBot:
         if group_name:
             profile_line += f"\nГруппа: {group_name}."
         return BotResponse(
-            (f"{profile_line}\n\nТеперь можно открыть магазин и пользоваться личным кабинетом."),
+            (f"{profile_line}\n\nОткройте приложение, чтобы перейти в личный кабинет."),
             inline_keyboard_with_main_menu(rows),
         )
 

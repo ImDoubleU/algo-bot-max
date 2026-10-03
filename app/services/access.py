@@ -542,8 +542,6 @@ async def create_invited_student_access_link(
             tenant_id=UUID(str(tenant.id)),
             student_id=UUID(str(student.id)),
         )
-        if sponsor_link is None:
-            raise AccessServiceError(PARENT_REQUIRED_MESSAGE)
 
     account = await get_or_create_max_account(db, payload)
     active_parent_link_id = await _active_account_role_link_id(
@@ -579,14 +577,14 @@ async def create_invited_student_access_link(
             role=StudentAccessRole.STUDENT,
             status=StudentAccessStatus.ACTIVE,
             source=link_source,
-            sponsor_access_link_id=sponsor_link.id,
+            sponsor_access_link_id=sponsor_link.id if sponsor_link else None,
         )
         db.add(link)
         await db.flush()
     else:
         link.status = StudentAccessStatus.ACTIVE
         link.source = link_source
-        link.sponsor_access_link_id = sponsor_link.id
+        link.sponsor_access_link_id = sponsor_link.id if sponsor_link else None
         link.revoked_at = None
         link.revoked_reason = None
 
@@ -601,7 +599,7 @@ async def create_invited_student_access_link(
                 "created": created,
                 "max_user_id": payload.max_user_id,
                 "source": link_source.value,
-                "sponsor_access_link_id": str(sponsor_link.id),
+                "sponsor_access_link_id": str(sponsor_link.id) if sponsor_link else None,
             },
         )
     )

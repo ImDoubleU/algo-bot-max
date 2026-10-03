@@ -512,6 +512,33 @@ def test_unique_staff_invitation_is_activated_immediately() -> None:
     assert backend.staff_invitation_calls[0]["token"] == token
 
 
+def test_student_invitation_confirms_binding_without_promising_access(monkeypatch) -> None:
+    backend = FakeBackendClient(linked=False)
+    monkeypatch.setattr(
+        backend,
+        "create_student_invite_link",
+        lambda **kwargs: {
+            "tenant_slug": "n-novgorod",
+            "student_name": "Романов Даниил",
+            "group_name": "ВП1 сб 12:30 С БОР",
+        },
+        raising=False,
+    )
+    bot = LongPollingBot(
+        FakeMaxClient(),
+        backend_client=backend,
+        default_tenant_slug="n-novgorod",
+    )
+
+    response = bot.handle_student_invitation_response(token="teacher-token", user_id=9901)
+
+    assert "Профиль Романов Даниил привязан." in response.text
+    assert "Группа: ВП1 сб 12:30 С БОР." in response.text
+    assert "Откройте приложение" in response.text
+    assert "Теперь можно открыть магазин" not in response.text
+    assert bot.user_menu_roles[(9901, "n-novgorod")] == "student"
+
+
 def test_bot_ignores_its_own_messages() -> None:
     client = FakeMaxClient()
     bot = LongPollingBot(

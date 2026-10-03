@@ -2320,6 +2320,12 @@ function applyAccessGate(message = state.accessMessage || "") {
   const shell = qs(".app-shell");
   if (gate) gate.hidden = !locked;
   if (shell) shell.hidden = locked;
+  if (locked) {
+    const title = qs("#accessGateTitle");
+    if (title) title.textContent = message
+      ? "Личный кабинет пока недоступен"
+      : "Сначала привяжите профиль";
+  }
   if (locked && message) {
     const label = qs("#accessGateMessage");
     if (label) label.textContent = message;

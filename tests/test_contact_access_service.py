@@ -230,7 +230,7 @@ async def test_revoked_parent_account_can_be_relinked_as_student(db_session) -> 
     assert student_link.status == StudentAccessStatus.ACTIVE
 
 
-async def test_teacher_qr_requires_parent_before_student_access(
+async def test_teacher_qr_binds_student_before_parent_and_unlocks_after_parent_connects(
     db_session,
     monkeypatch,
 ) -> None:
@@ -268,15 +268,35 @@ async def test_teacher_qr_requires_parent_before_student_access(
         assert invitation.bot_url
 
         token = invitation.bot_url.split("student_", 1)[1]
-        with pytest.raises(AccessServiceError, match="Сначала должен подключиться родитель"):
-            await create_invited_student_access_link(
-                db_session,
-                StudentInvitationLinkCreate(
-                    tenant_slug="nizhniy-novgorod-partner-a",
-                    token=token,
-                    max_user_id=9901,
-                ),
-            )
+        _, _, pending_link = await create_invited_student_access_link(
+            db_session,
+            StudentInvitationLinkCreate(
+                tenant_slug="nizhniy-novgorod-partner-a",
+                token=token,
+                max_user_id=9901,
+            ),
+        )
+        assert pending_link.status == StudentAccessStatus.ACTIVE
+        assert pending_link.source == StudentAccessSource.TEACHER_QR
+        assert pending_link.sponsor_access_link_id is None
+
+        pending_session = await get_miniapp_session(
+            db_session,
+            max_user_id=9901,
+            tenant_slug="nizhniy-novgorod-partner-a",
+        )
+        assert pending_session.has_access is False
+        assert pending_session.students == []
+        assert "открыть письмо школы" in pending_session.access_message
+
+        invitations = await list_miniapp_teacher_invitations(
+            db_session,
+            max_user_id=teacher.max_user_id,
+            tenant_slug="nizhniy-novgorod-partner-a",
+        )
+        invitation = next(item for item in invitations if item.student_id == student.id)
+        assert invitation.student_connected is True
+        assert invitation.parent_connected is False
 
         parent_links = await create_contact_access_links(
             db_session,
@@ -287,6 +307,14 @@ async def test_teacher_qr_requires_parent_before_student_access(
                 role=StudentAccessRole.PARENT,
             ),
         )
+        unlocked_session = await get_miniapp_session(
+            db_session,
+            max_user_id=9901,
+            tenant_slug="nizhniy-novgorod-partner-a",
+        )
+        assert unlocked_session.has_access is True
+        assert unlocked_session.students[0].parent_connected is True
+
         sponsor_link = next(link for link in parent_links if link.student_id == student.id)
         _, _, student_link = await create_invited_student_access_link(
             db_session,
@@ -297,6 +325,7 @@ async def test_teacher_qr_requires_parent_before_student_access(
             ),
         )
         assert student_link.source == StudentAccessSource.TEACHER_QR
+        assert student_link.id == pending_link.id
         assert student_link.sponsor_access_link_id == sponsor_link.id
 
         connected_session = await get_miniapp_session(
