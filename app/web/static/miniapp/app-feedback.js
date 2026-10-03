@@ -35,7 +35,10 @@ function feedbackStudents() {
 }
 
 function feedbackGroups() {
-  return [...new Set(feedbackStudents().map(studentGroupName).filter(Boolean))];
+  return [...new Set(feedbackStudents().map(studentGroupName).filter(Boolean))].sort((a, b) => {
+    const left = feedbackGroupOrder(a), right = feedbackGroupOrder(b);
+    return left[0] - right[0] || left[1] - right[1] || a.localeCompare(b, "ru");
+  });
 }
 
 function feedbackPersist() {
@@ -205,7 +208,7 @@ function feedbackOutputMeta() {
 
 function feedbackGroupMarkup(groups) {
   const schedule = feedbackSchedule(feedbackState.group);
-  const rows = [...schedule.rows].sort((a, b) => a.date.localeCompare(b.date) || a.number - b.number);
+  const rows = schedule.rows.filter((row) => !row.skipped);
   return `<div class="feedback-group-grid">${groups.map((group) => {
     const config = feedbackSchedule(group);
     const count = feedbackStudents().filter((item) => studentGroupName(item) === group).length;
@@ -217,6 +220,7 @@ function feedbackGroupMarkup(groups) {
       const saved = feedbackState.drafts.some((draft) => draft.group === feedbackState.group && draft.rowId === row.id);
       return `<button type="button" data-feedback-row="${escapeHtml(row.id)}" class="${row.id === feedbackState.rowId ? "is-active" : ""} ${row.skipped ? "is-skipped" : ""}">
         <small>${feedbackDateLabel(row.date)}</small><strong>Занятие ${row.number}</strong>
+        <span class="feedback-lesson-topic">${escapeHtml(feedbackLessonTopic(schedule.course, row.lesson))}</span>
         <span>${row.skipped ? "Отменено" : saved ? "Черновик сохранён" : row.repeat ? "Повторение" : row.date > feedbackToday() ? "Впереди" : "Можно подготовить"}</span></button>`;
     }).join("")}</div>
     <details class="feedback-schedule-settings"><summary><i data-lucide="calendar-days"></i>Расписание: уроки и даты</summary>
@@ -231,7 +235,12 @@ function feedbackCourseOptions(selected) {
 function feedbackLessonOptions(course, selected) {
   const lessons = feedbackState.catalog[course] || [];
   const invalid = !Number.isInteger(Number(selected)) || Number(selected) < 1 || Number(selected) > lessons.length;
-  return `${invalid ? '<option value="" selected>Выберите материал</option>' : ""}${lessons.map((lesson, index) => `<option value="${index + 1}" ${index + 1 === Number(selected) ? "selected" : ""}>${escapeHtml(lesson.title)}</option>`).join("")}`;
+  return `${invalid ? '<option value="" selected>Выберите материал</option>' : ""}${lessons.map((lesson, index) => `<option value="${index + 1}" ${index + 1 === Number(selected) ? "selected" : ""}>${escapeHtml(lesson.title)}${lesson.topic ? ` — ${escapeHtml(lesson.topic)}` : ""}</option>`).join("")}`;
+}
+
+function feedbackLessonTopic(course, lesson) {
+  const material = feedbackState.catalog[course]?.[Number(lesson) - 1];
+  return material?.topic || material?.title || "Материал занятия";
 }
 
 function feedbackScheduleEditorMarkup() {
@@ -240,19 +249,27 @@ function feedbackScheduleEditorMarkup() {
   return `<form id="feedbackScheduleForm">
       <div class="feedback-fields-two"><label>Курс группы<select name="course">${feedbackCourseOptions(editor.course)}</select></label>
         <label>Формат<select name="mode"><option value="group" ${editor.mode === "group" ? "selected" : ""}>Группа</option><option value="online" ${editor.mode === "online" ? "selected" : ""}>Онлайн / индивидуально</option></select></label></div>
-      <p>Каждая строка — отдельное занятие. Номер в сообщении и материал курса можно выбирать независимо.</p>
-      <div class="feedback-schedule-table-wrap"><table class="feedback-schedule-table"><thead><tr><th scope="col">№ занятия</th><th scope="col">Дата</th><th scope="col">Материал курса</th><th scope="col">Повторение</th><th scope="col">Отменено</th><th scope="col"><span class="feedback-editor-label">Действия</span></th></tr></thead>
-      <tbody>${editor.rows.map((row) => `<tr data-feedback-schedule-row="${escapeHtml(row.id)}">
-        <td><input name="number" type="number" min="1" max="999" step="1" value="${escapeHtml(row.number)}" required aria-label="Номер занятия"></td>
+      <label class="feedback-first-date">Дата первого занятия<input name="firstDate" type="date" min="2000-01-01" max="2100-12-31" value="${editor.rows.find((row) => !row.skipped)?.date || feedbackToday()}" required><small>От этой даты отсчитываются остальные недели. Изменение сдвинет весь календарь; отдельные даты ниже можно поправить вручную.</small></label>
+      <p>Выключение урока убирает его неделю из календаря: следующие занятия сдвигаются на неделю раньше и перенумеровываются. Их темы сохраняются.</p>
+      <div class="feedback-schedule-table-wrap"><table class="feedback-schedule-table"><thead><tr><th scope="col">№ занятия</th><th scope="col">Дата</th><th scope="col">Материал курса</th><th scope="col">Повторение</th><th scope="col">Выключено</th><th scope="col"><span class="feedback-editor-label">Действия</span></th></tr></thead>
+      <tbody>${editor.rows.map((row) => `<tr class="${row.skipped ? "feedback-disabled-row" : ""}" data-feedback-schedule-row="${escapeHtml(row.id)}">
+        <td><input name="number" type="number" min="1" max="999" step="1" value="${escapeHtml(row.number)}" ${row.skipped ? 'disabled title="Выключенное занятие не имеет номера в календаре"' : ""} required aria-label="Номер занятия">${row.skipped ? '<small>Выключен</small>' : ""}</td>
         <td><input name="date" type="date" min="2000-01-01" max="2100-12-31" value="${escapeHtml(row.date)}" required aria-label="Дата занятия ${escapeHtml(row.number)}"></td>
         <td><select name="lesson" required aria-label="Материал занятия ${escapeHtml(row.number)}">${feedbackLessonOptions(editor.course, row.lesson)}</select></td>
         <td><input name="repeat" type="checkbox" ${row.repeat ? "checked" : ""} aria-label="Повторение на занятии ${escapeHtml(row.number)}"></td>
-        <td><input name="skipped" type="checkbox" ${row.skipped ? "checked" : ""} aria-label="Отменить занятие ${escapeHtml(row.number)}"></td>
+        <td><input name="skipped" type="checkbox" ${row.skipped ? "checked" : ""} aria-label="Выключить занятие ${escapeHtml(row.number)}"></td>
         <td><button class="icon-button" type="button" data-feedback-remove-row="${escapeHtml(row.id)}" aria-label="Удалить занятие ${escapeHtml(row.number)}"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table></div>
       <div class="feedback-schedule-actions"><button class="secondary-action" type="button" data-feedback-add-row><i data-lucide="plus"></i>Добавить занятие</button>
         <button class="secondary-action" type="button" data-feedback-undo ${feedbackState.editorUndo ? "" : "disabled"}><i data-lucide="undo-2"></i>Отменить изменение</button>
         <button class="primary-action" type="submit">Сохранить расписание</button></div>
     </form>
+    <dialog id="feedbackRepeatDialog" class="feedback-repeat-dialog">
+      <form id="feedbackRepeatForm"><h3>Добавить повторение</h3>
+        <label>Номер повторяемого занятия<select name="repeatRow" required>${editor.rows.filter((row) => !row.skipped).map((row) => `<option value="${escapeHtml(row.id)}">№${row.number} — ${escapeHtml(feedbackLessonTopic(editor.course, row.lesson))}</option>`).join("")}</select></label>
+        <p>Повторение появится сразу после выбранного занятия с той же темой. Следующие занятия сдвинутся на неделю позже.</p>
+        <div class="feedback-schedule-actions"><button type="button" class="secondary-action" data-feedback-close-repeat>Отмена</button><button type="submit" class="primary-action">Добавить повторение</button></div>
+      </form>
+    </dialog>
     <details class="feedback-series-settings"><summary>Заполнить даты по интервалу</summary>
       <form id="feedbackSeriesForm"><label>Первая дата<input name="startDate" type="date" min="2000-01-01" max="2100-12-31" value="${editor.rows[0]?.date || feedbackToday()}" required></label>
         <label>Первый материал<input name="firstLesson" type="number" min="1" max="${feedbackState.catalog[editor.course].length}" value="1" required></label>
@@ -384,6 +401,14 @@ document.addEventListener("submit", async (event) => {
       const rows = feedbackSeries(editor.course, values.get("startDate"), values.get("firstLesson"), values.get("firstNumber"), values.get("count"), values.get("interval"), feedbackState.catalog);
       if (!await requestConfirmation({ title: "Заменить таблицу занятий?", message: "Индивидуальные даты и выбранные материалы в таблице будут заменены. Сохранённое расписание изменится только после нажатия «Сохранить расписание».", confirmLabel: "Заполнить таблицу", cancelLabel: "Оставить таблицу" })) return;
       feedbackState.editorUndo = structuredClone(editor); feedbackState.editor = { ...editor, rows }; feedbackState.editorDirty = true; feedbackRedrawEditor();
+    } else if (event.target.id === "feedbackRepeatForm") {
+      const editor = feedbackCaptureSchedule();
+      feedbackValidateSchedule(editor, feedbackState.catalog);
+      const next = feedbackInsertRepeat(editor, new FormData(event.target).get("repeatRow"));
+      feedbackValidateSchedule(next, feedbackState.catalog);
+      qs("#feedbackRepeatDialog").close();
+      feedbackState.editorUndo = structuredClone(editor);
+      feedbackState.editor = next; feedbackState.editorDirty = true; feedbackRedrawEditor();
     }
   } catch (error) { showNotice(error.message, "danger"); }
 });
@@ -391,10 +416,25 @@ document.addEventListener("submit", async (event) => {
 document.addEventListener("change", (event) => {
   if (!canAccessFeedback()) return;
   if (event.target.closest("#feedbackScheduleForm")) {
+    if (["firstDate", "skipped"].includes(event.target.name)) {
+      try {
+        const before = structuredClone(feedbackState.editor);
+        const next = event.target.name === "firstDate"
+          ? feedbackRebaseSchedule(before, event.target.value)
+          : feedbackToggleLesson(before, event.target.closest("[data-feedback-schedule-row]").dataset.feedbackScheduleRow, event.target.checked);
+        feedbackValidateSchedule(next, feedbackState.catalog);
+        feedbackState.editorUndo = before;
+        feedbackState.editor = next; feedbackState.editorDirty = true; feedbackRedrawEditor();
+      } catch (error) { showNotice(error.message, "danger"); feedbackRedrawEditor(); }
+      return;
+    }
     feedbackState.editorDirty = true;
     feedbackState.editor = feedbackCaptureSchedule();
     if (event.target.name === "course") {
       feedbackState.editor = feedbackCaptureSchedule(); feedbackRedrawEditor();
+    }
+    if (event.target.name === "date") {
+      qs('#feedbackScheduleForm [name="firstDate"]').value = feedbackState.editor.rows.find((row) => !row.skipped).date;
     }
   }
   if (event.target.closest("#feedbackComposeForm")) {
@@ -408,6 +448,7 @@ document.addEventListener("change", (event) => {
 document.addEventListener("input", (event) => {
   if (!canAccessFeedback()) return;
   if (event.target.closest("#feedbackScheduleForm")) {
+    if (["firstDate", "skipped"].includes(event.target.name)) return;
     feedbackState.editorDirty = true; feedbackState.editor = feedbackCaptureSchedule();
   }
   if (event.target.id === "feedbackText") {
@@ -465,17 +506,10 @@ document.addEventListener("click", async (event) => {
       const editor = feedbackCaptureSchedule();
       feedbackValidateSchedule(editor, feedbackState.catalog);
       if (editor.rows.length >= 100) throw new Error("Максимум 100 занятий в расписании");
-      const last = editor.rows.at(-1);
-      const number = Math.max(...editor.rows.map((row) => row.number)) + 1;
-      if (number > 999) throw new Error("Максимальный номер занятия — 999");
-      const date = feedbackShiftDate(last.date, 7);
-      const lesson = Math.min(last.lesson + 1, feedbackState.catalog[editor.course].length);
-      feedbackState.editorUndo = structuredClone(editor);
-      const added = feedbackNewRow(date, lesson, number);
-      added.repeat = lesson === last.lesson;
-      editor.rows.push(added);
-      feedbackState.editor = editor; feedbackState.editorDirty = true; feedbackRedrawEditor();
-      const lastInput = qs("#feedbackScheduleForm tbody tr:last-child input"); lastInput?.focus();
+      const dialog = qs("#feedbackRepeatDialog");
+      dialog.showModal(); dialog.querySelector("select")?.focus();
+    } else if ("feedbackCloseRepeat" in data) {
+      qs("#feedbackRepeatDialog")?.close();
     } else if (data.feedbackRemoveRow) {
       const editor = feedbackCaptureSchedule();
       if (editor.rows.length === 1) throw new Error("Оставьте хотя бы одно занятие");

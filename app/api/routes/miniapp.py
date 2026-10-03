@@ -300,9 +300,14 @@ def _authorized_tenant_slug(
 def _feedback_catalog_json() -> str:
     source = Path(__file__).resolve().parents[3] / "data" / "courses.json"
     raw = json.loads(source.read_text(encoding="utf-8"))
+    topics = json.loads((source.parent / "feedback_topics.json").read_text(encoding="utf-8"))
     catalog = {
         course: [
-            {"title": title, "educational_results": lesson["educational_results"]}
+            {
+                "title": title,
+                "educational_results": lesson["educational_results"],
+                "topic": topics[course][title],
+            }
             for title, lesson in lessons.items()
         ]
         for course, lessons in raw.items()

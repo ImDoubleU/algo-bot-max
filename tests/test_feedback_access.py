@@ -54,5 +54,10 @@ async def test_feedback_returns_catalog_only_after_superadmin_check(monkeypatch)
     response = await miniapp.miniapp_feedback_catalog(db, SimpleNamespace(max_user_id=777))
     catalog = json.loads(response.body)
     assert sum(len(lessons) for lessons in catalog.values()) == 736
+    assert all(
+        lesson["topic"] and len(lesson["topic"]) <= 65
+        for lessons in catalog.values()
+        for lesson in lessons
+    )
     assert response.headers["cache-control"] == "private, no-store"
     check.assert_awaited_once_with(db, account_id=account_id)

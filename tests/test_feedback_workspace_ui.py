@@ -32,9 +32,16 @@ def feedback_browser():
             if urlsplit(self.path).path == "/api/v1/miniapp/feedback/catalog":
                 source = MINIAPP.parents[3] / "data" / "courses.json"
                 raw = json.loads(source.read_text(encoding="utf-8"))
+                topics = json.loads(
+                    (source.parent / "feedback_topics.json").read_text(encoding="utf-8")
+                )
                 catalog = {
                     course: [
-                        {"title": title, "educational_results": lesson["educational_results"]}
+                        {
+                            "title": title,
+                            "educational_results": lesson["educational_results"],
+                            "topic": topics[course][title],
+                        }
                         for title, lesson in lessons.items()
                     ]
                     for course, lessons in raw.items()
@@ -135,6 +142,66 @@ def test_feedback_uses_own_teacher_groups_without_changing_admin_scope(feedback_
     assert feedback_page.locator("#feedbackText").input_value()
     feedback_page.locator('[data-feedback-tab="history"]').click()
     assert feedback_page.locator("#feedbackHistorySearch").is_visible()
+
+
+def test_weekday_and_time_group_order(feedback_page):
+    ordered = feedback_page.evaluate("""() => {
+      const groups=['ВП сб 14:00', 'ПП вс 14-00', 'КГ сб 12:00', 'ПС вс 10:00', 'ГД пн 18:00'];
+      return groups.sort((a,b) => {const x=feedbackGroupOrder(a), y=feedbackGroupOrder(b);
+        return x[0]-y[0] || x[1]-y[1];});
+    }""")
+    assert ordered == ["ГД пн 18:00", "КГ сб 12:00", "ВП сб 14:00", "ПС вс 10:00", "ПП вс 14-00"]
+
+
+def test_anchor_date_repeat_insertion_and_disabled_lesson_reflow(feedback_page):
+    page = feedback_page
+    page.locator(".feedback-schedule-settings > summary").click()
+    before = page.evaluate("structuredClone(feedbackState.editor.rows)")
+    page.locator("#feedbackScheduleForm [name=firstDate]").fill("2026-09-05")
+    page.locator("#feedbackScheduleForm [name=firstDate]").press("Tab")
+    assert page.evaluate("feedbackState.editor.rows[1].date") == "2026-09-12"
+    # A manual exception follows the anchor shift while keeping its own offset.
+    page.locator("[data-feedback-schedule-row]").nth(3).locator("[name=date]").fill("2026-09-28")
+    page.locator("[data-feedback-schedule-row]").nth(3).locator("[name=date]").press("Tab")
+    page.locator("[data-feedback-add-row]").click()
+    assert page.locator("#feedbackRepeatDialog").is_visible()
+    page.locator("#feedbackRepeatForm [name=repeatRow]").select_option(before[1]["id"])
+    page.locator("#feedbackRepeatForm [type=submit]").click()
+    inserted = page.evaluate("structuredClone(feedbackState.editor.rows)")
+    assert len(inserted) == len(before) + 1
+    assert inserted[2]["lesson"] == before[1]["lesson"]
+    assert inserted[2]["repeat"] is True
+    assert inserted[2]["date"] == "2026-09-19"
+    assert inserted[3]["id"] == before[2]["id"]
+    assert inserted[3]["date"] == "2026-09-26"
+    assert inserted[4]["date"] == "2026-10-05"
+    assert [row["number"] for row in inserted] == list(range(1, len(inserted) + 1))
+    disabled_id = inserted[1]["id"]
+    page.locator(f'[data-feedback-schedule-row="{disabled_id}"] [name=skipped]').check()
+    disabled = page.evaluate("structuredClone(feedbackState.editor.rows)")
+    assert disabled[1]["skipped"] is True
+    assert disabled[2]["number"] == 2
+    assert disabled[2]["date"] == "2026-09-12"
+    assert [row["lesson"] for row in disabled] == [row["lesson"] for row in inserted]
+    page.locator(f'[data-feedback-schedule-row="{disabled_id}"] [name=skipped]').uncheck()
+    assert page.evaluate("feedbackState.editor.rows") == inserted
+    page.locator("#feedbackScheduleForm [type=submit]").click()
+    assert page.locator(".feedback-lesson-topic").first.inner_text()
+    page.reload(wait_until="networkidle")
+    assert page.evaluate("feedbackSchedule(feedbackState.group).rows") == inserted
+
+
+def test_disable_first_lesson_preserves_anchor_and_can_be_restored(feedback_page):
+    result = feedback_page.evaluate("""() => {
+      const schedule=structuredClone(feedbackSchedule(feedbackState.group));
+      const next=feedbackToggleLesson(schedule,schedule.rows[0].id,true);
+      const restored=feedbackToggleLesson(next,schedule.rows[0].id,false);
+      return {number:next.rows[1].number, date:next.rows[1].date,
+        expected:schedule.rows[0].date, same:JSON.stringify(restored)===JSON.stringify(schedule)};
+    }""")
+    assert result["number"] == 1
+    assert result["date"] == result["expected"]
+    assert result["same"] is True
 
 
 def test_every_source_lesson_generates_the_correct_material(feedback_page):

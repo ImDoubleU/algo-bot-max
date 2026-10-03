@@ -42,6 +42,56 @@ function feedbackNewRow(date, lesson, number = lesson) {
   return { id: crypto.randomUUID(), date, lesson, number, repeat: false, skipped: false };
 }
 
+function feedbackGroupOrder(group) {
+  const day = /(?:^|[\s,])(пн|вт|ср|чт|пт|сб|вс)(?:[\s,]|$)/i.exec(group);
+  const time = /(?:^|\s)(\d{1,2})[:\-](\d{2})(?:\s|$)/.exec(group);
+  return [(day ? ["пн", "вт", "ср", "чт", "пт", "сб", "вс"].indexOf(day[1].toLowerCase()) : 7),
+    time ? Number(time[1]) * 60 + Number(time[2]) : 1440];
+}
+
+function feedbackRenumber(rows, firstNumber = 1) {
+  let number = firstNumber;
+  for (const row of rows) if (!row.skipped) row.number = number++;
+  if (number > 1000) throw new Error("Максимальный номер занятия — 999");
+}
+
+function feedbackRebaseSchedule(schedule, date) {
+  if (!feedbackValidDate(date)) throw new Error("Укажите дату первого занятия");
+  const result = structuredClone(schedule);
+  const first = result.rows.find((row) => !row.skipped);
+  const days = Math.round((new Date(`${date}T12:00:00Z`) - new Date(`${first.date}T12:00:00Z`)) / 86400000);
+  result.rows.forEach((row) => { row.date = feedbackShiftDate(row.date, days); });
+  return result;
+}
+
+function feedbackInsertRepeat(schedule, rowId) {
+  const result = structuredClone(schedule);
+  if (result.rows.length >= 100) throw new Error("Максимум 100 занятий в расписании");
+  const index = result.rows.findIndex((row) => row.id === rowId && !row.skipped);
+  if (index < 0) throw new Error("Выберите включённое занятие для повторения");
+  const firstNumber = result.rows.find((row) => !row.skipped).number;
+  const source = result.rows[index];
+  const added = feedbackNewRow(feedbackShiftDate(source.date, 7), source.lesson);
+  added.repeat = true;
+  result.rows.slice(index + 1).forEach((row) => { row.date = feedbackShiftDate(row.date, 7); });
+  result.rows.splice(index + 1, 0, added);
+  feedbackRenumber(result.rows, firstNumber);
+  return result;
+}
+
+function feedbackToggleLesson(schedule, rowId, skipped) {
+  const result = structuredClone(schedule);
+  const index = result.rows.findIndex((row) => row.id === rowId);
+  if (index < 0) throw new Error("Занятие не найдено");
+  if (result.rows[index].skipped === skipped) return result;
+  const firstNumber = result.rows.find((row) => !row.skipped)?.number || 1;
+  result.rows[index].skipped = skipped;
+  if (result.rows.every((row) => row.skipped)) throw new Error("Оставьте включённым хотя бы одно занятие");
+  result.rows.slice(index + 1).forEach((row) => { row.date = feedbackShiftDate(row.date, skipped ? -7 : 7); });
+  feedbackRenumber(result.rows, firstNumber);
+  return result;
+}
+
 function feedbackSeries(course, startDate, firstLesson, firstNumber, count, interval, catalog) {
   if (!Object.hasOwn(catalog, course)) throw new Error("Выберите курс из списка");
   if (!feedbackValidDate(startDate)) throw new Error("Укажите существующую дату первого занятия");
@@ -74,11 +124,12 @@ function feedbackValidateSchedule(schedule, catalog) {
     ids.add(row.id);
     const number = feedbackInteger(row.number, 1, 999, "Номер занятия");
     feedbackInteger(row.lesson, 1, catalog[schedule.course].length, "Материал урока");
-    if (numbers.has(number)) throw new Error(`Номер занятия ${number} повторяется. Укажите разные номера.`);
-    numbers.add(number);
+    if (!row.skipped && numbers.has(number)) throw new Error(`Номер занятия ${number} повторяется. Укажите разные номера.`);
+    if (!row.skipped) numbers.add(number);
     if (!feedbackValidDate(row.date)) throw new Error(`Проверьте дату занятия №${number}`);
     if (typeof row.repeat !== "boolean" || typeof row.skipped !== "boolean") throw new Error("Проверьте отметки повторения и отмены");
   }
+  if (schedule.rows.every((row) => row.skipped)) throw new Error("Оставьте включённым хотя бы одно занятие");
   return true;
 }
 

@@ -86,6 +86,18 @@
 .feedback-student-chips input:checked + span svg { opacity: 1; }
 .feedback-student-chips input:focus-visible + span { outline: 2px solid var(--brand-purple); outline-offset: 2px; }
 .feedback-checkbox { display: flex; align-items: flex-start; gap: 10px; margin: 4px 0 18px; cursor: pointer; }
+.feedback-weeks .feedback-lesson-topic { white-space: normal; line-height: 1.4; color: var(--ink); min-height: 40px; font-size: 11px; }
+.feedback-disabled-row { background: #f6f4f8; }
+.feedback-disabled-row td > small { color: var(--muted); font-size: 10px; }
+.feedback-first-date { max-width: 420px; margin: 16px 0; }
+.feedback-first-date small { font-weight: 400; color: var(--muted); line-height: 1.5; }
+.feedback-repeat-dialog { width: min(520px, calc(100vw - 32px)); border: 1px solid var(--line); border-radius: 16px; padding: 24px; color: var(--ink); }
+.feedback-repeat-dialog::backdrop { background: #21143388; }
+.feedback-schedule-settings .feedback-repeat-dialog form { display: grid; grid-template-columns: 1fr; gap: 16px; }
+.feedback-repeat-dialog h3, .feedback-repeat-dialog p { margin: 0; }
+.feedback-repeat-dialog p { color: var(--muted); line-height: 1.5; }
+.feedback-repeat-dialog label { display: grid; gap: 8px; }
+.feedback-repeat-dialog select { width: 100%; min-height: 44px; }
 .feedback-checkbox input { margin: 2px 0 0; width: 16px; height: 16px; accent-color: var(--brand-purple); }
 .feedback-checkbox strong { display: block; font-size: 13px; font-weight: 600; }
 .feedback-checkbox small { display: block; margin-top: 5px; font-size: 11px; line-height: 1.5; color: var(--muted); }
