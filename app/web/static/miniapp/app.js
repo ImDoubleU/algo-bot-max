@@ -1446,6 +1446,19 @@ async function deliverSummaryOrders(rawOrderIds, button = null) {
 async function updateOrderAction(orderId, action, cancelData = null) {
   const order = orders.find((item) => item.backendId === orderId || item.id === orderId);
   if (!order) return;
+  if (action === "cancel") {
+    const confirmed = await requestConfirmation({
+      title: `Отменить заказ №${order.id}?`,
+      message: "Астрокоины вернутся ученику. Ученик получит уведомление с причиной отмены."
+        + (cancelData?.reason === "Товар закончился"
+          ? " Остаток выбранного товара будет обнулён на всех складах."
+          : ""),
+      confirmLabel: "Да, отменить заказ",
+      cancelLabel: "Оставить заказ",
+      destructive: true,
+    });
+    if (!confirmed) return;
+  }
 
   if (orderId.startsWith("demo-") || apiContext.demoMode || !apiContext.maxUserId) {
     const previousStatus = order.rawStatus;

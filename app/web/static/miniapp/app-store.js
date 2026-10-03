@@ -1116,7 +1116,10 @@ function orderActionMarkup(order, descriptor, primary = false) {
   const attributes = descriptor.action === "open"
     ? `data-open-order="${orderId}"`
     : `data-order-action="${descriptor.action}" data-order-action-id="${orderId}"`;
-  return `<button class="${primary ? "primary-action" : "order-menu-action"} ${descriptor.danger ? "danger-action" : ""}" type="button" ${attributes}>
+  const buttonClass = descriptor.action === "cancel"
+    ? "secondary-action order-cancel-button"
+    : primary ? "primary-action" : "order-menu-action";
+  return `<button class="${buttonClass} ${descriptor.danger ? "danger-action" : ""}" type="button" ${attributes}>
       <i data-lucide="${descriptor.icon}"></i><span>${descriptor.label}</span>
     </button>`;
 }
@@ -1125,13 +1128,17 @@ function orderActionButtons(order, includeOpen = true) {
   let descriptors = orderActionDescriptors(order);
   if (!includeOpen) descriptors = descriptors.filter((item) => item.action !== "open");
   if (!descriptors.length) return "";
-  const [primary, ...secondary] = descriptors;
+  const cancel = descriptors.find((item) => item.action === "cancel");
+  const [primary, ...secondary] = descriptors.filter((item) => item.action !== "cancel");
   return `<div class="order-actions">
+      ${primary ? `<div class="order-actions-main">
       ${orderActionMarkup(order, primary, true)}
       ${secondary.length ? `<details class="order-more-menu">
         <summary title="Другие действия" aria-label="Другие действия"><i data-lucide="ellipsis"></i></summary>
         <div>${secondary.map((item) => orderActionMarkup(order, item)).join("")}</div>
       </details>` : ""}
+      </div>` : ""}
+      ${cancel ? orderActionMarkup(order, cancel) : ""}
     </div>`;
 }
 
