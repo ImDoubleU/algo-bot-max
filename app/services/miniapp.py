@@ -3740,7 +3740,7 @@ def _student_invitation_to_read(
         student_name=student.display_name,
         group_name=student.group_name,
         parent_connected=parent_connected,
-        student_connected=student_connected and parent_connected,
+        student_connected=student_connected,
         message=(
             None
             if parent_connected
