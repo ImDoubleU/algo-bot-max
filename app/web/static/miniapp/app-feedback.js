@@ -28,8 +28,14 @@ function feedbackDateLabel(value) {
     .format(new Date(`${value}T12:00:00Z`));
 }
 
+function feedbackStudents() {
+  const visible = studentsForCurrentRole();
+  if (apiContext.demoMode) return visible;
+  return visible.filter((student) => student.teacherVisible);
+}
+
 function feedbackGroups() {
-  return [...new Set(studentsForCurrentRole().map(studentGroupName).filter(Boolean))];
+  return [...new Set(feedbackStudents().map(studentGroupName).filter(Boolean))];
 }
 
 function feedbackPersist() {
@@ -44,7 +50,7 @@ function feedbackPersist() {
 
 function feedbackSchedule(group) {
   if (!Object.hasOwn(feedbackState.schedules, group)) {
-    const student = studentsForCurrentRole().find((item) => studentGroupName(item) === group);
+    const student = feedbackStudents().find((item) => studentGroupName(item) === group);
     const names = Object.keys(feedbackState.catalog);
     const course = names.find((name) => name.startsWith(student?.course || "Python Start")) || names[0];
     const today = feedbackToday();
@@ -133,7 +139,9 @@ async function renderFeedback() {
         const legacy = !current && apiContext.demoRole === "teacher" ? localStorage.getItem("algo-max-feedback-preview-v1") : null;
         saved = JSON.parse(current || legacy || "{}");
       } catch { recovered = true; }
-      const restored = feedbackRestore(saved, feedbackState.catalog, feedbackGroups());
+      // Retain existing drafts for other groups, but hide them from this workspace.
+      const storedGroups = [...new Set(studentsForCurrentRole().map(studentGroupName).filter(Boolean))];
+      const restored = feedbackRestore(saved, feedbackState.catalog, storedGroups);
       feedbackState.schedules = restored.schedules; feedbackState.drafts = restored.drafts;
       feedbackState.restored = true; feedbackState.error = "";
       if (recovered || restored.recovered) showNotice("Повреждённые записи пропущены. Остальные черновики и настройки сохранены.", "danger");
@@ -200,7 +208,7 @@ function feedbackGroupMarkup(groups) {
   const rows = [...schedule.rows].sort((a, b) => a.date.localeCompare(b.date) || a.number - b.number);
   return `<div class="feedback-group-grid">${groups.map((group) => {
     const config = feedbackSchedule(group);
-    const count = studentsForCurrentRole().filter((item) => studentGroupName(item) === group).length;
+    const count = feedbackStudents().filter((item) => studentGroupName(item) === group).length;
     return `<button type="button" class="feedback-group-card ${group === feedbackState.group ? "is-active" : ""}" data-feedback-group="${escapeHtml(group)}">
       <span class="feedback-group-icon"><i data-lucide="users"></i></span><span><strong>${escapeHtml(group)}</strong><small>${escapeHtml(config.course)} · учеников: ${count}</small></span><i data-lucide="chevron-right"></i></button>`;
   }).join("")}</div>
@@ -274,7 +282,7 @@ function feedbackRedrawEditor() {
 
 function feedbackFormMarkup() {
   const lesson = feedbackState.catalog[feedbackState.course]?.[feedbackState.lesson - 1];
-  const groupStudents = feedbackState.group ? studentsForCurrentRole().filter((item) => studentGroupName(item) === feedbackState.group) : [];
+  const groupStudents = feedbackState.group ? feedbackStudents().filter((item) => studentGroupName(item) === feedbackState.group) : [];
   return `<label>Курс<select name="course" id="feedbackCourse">${feedbackCourseOptions(feedbackState.course)}</select></label>
     <div class="feedback-fields-two"><label>Материал курса<select name="lesson" id="feedbackLesson">${feedbackLessonOptions(feedbackState.course, feedbackState.lesson)}</select></label>
       <label>Дата занятия<input type="date" name="date" min="2000-01-01" max="2100-12-31" value="${feedbackState.date}" required></label></div>
@@ -343,7 +351,7 @@ async function feedbackCanLeaveEditor() {
 }
 
 document.addEventListener("submit", async (event) => {
-  if (!apiContext.feedbackPreview || !event.target.id.startsWith("feedback")) return;
+  if (!canAccessFeedback() || !event.target.id.startsWith("feedback")) return;
   event.preventDefault();
   try {
     if (event.target.id === "feedbackComposeForm") {
@@ -381,7 +389,7 @@ document.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("change", (event) => {
-  if (!apiContext.feedbackPreview) return;
+  if (!canAccessFeedback()) return;
   if (event.target.closest("#feedbackScheduleForm")) {
     feedbackState.editorDirty = true;
     feedbackState.editor = feedbackCaptureSchedule();
@@ -398,7 +406,7 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("input", (event) => {
-  if (!apiContext.feedbackPreview) return;
+  if (!canAccessFeedback()) return;
   if (event.target.closest("#feedbackScheduleForm")) {
     feedbackState.editorDirty = true; feedbackState.editor = feedbackCaptureSchedule();
   }
@@ -417,7 +425,7 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("click", async (event) => {
-  if (!apiContext.feedbackPreview) return;
+  if (!canAccessFeedback()) return;
   const button = event.target.closest("button"); if (!button) return;
   const data = button.dataset;
   try {
@@ -488,7 +496,7 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (!apiContext.feedbackPreview || !event.target.matches("[data-feedback-tab]") || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  if (!canAccessFeedback() || !event.target.matches("[data-feedback-tab]") || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
   event.preventDefault();
   const tabs = qsa("[data-feedback-tab]"); const index = tabs.indexOf(event.target);
   const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
@@ -496,4 +504,4 @@ document.addEventListener("keydown", (event) => {
   window.setTimeout(() => qs(`[data-feedback-tab="${tab}"]`)?.focus(), 0);
 });
 
-window.addEventListener("pagehide", () => { if (apiContext.feedbackPreview) feedbackSaveDraft(); });
+window.addEventListener("pagehide", () => { if (canAccessFeedback()) feedbackSaveDraft(); });

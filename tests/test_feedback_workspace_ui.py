@@ -105,6 +105,38 @@ def test_production_feedback_is_exclusive_to_superadmin(feedback_page):
     assert results == {"hidden": True, "allowed": True}
 
 
+def test_feedback_uses_own_teacher_groups_without_changing_admin_scope(feedback_page):
+    result = feedback_page.evaluate("""async () => {
+      apiContext.demoMode = false;
+      apiContext.feedbackPreview = false;
+      state.role = 'admin';
+      state.staffRoles = ['superadmin', 'teacher'];
+      students.forEach((student, index) => {
+        student.staffVisible = true;
+        student.teacherVisible = index === 0;
+      });
+      const before = studentsForCurrentRole().map(student => student.id);
+      const ownGroup = studentGroupName(students[0]);
+      const ownStudents = feedbackStudents().map(student => student.id);
+      feedbackState.group = '';
+      await renderFeedback();
+      return {ownStudents, expected:[students[0].id],
+        groups:feedbackGroups(), ownGroup,
+        cards:document.querySelectorAll('[data-feedback-group]').length,
+        unchanged:JSON.stringify(before) ===
+          JSON.stringify(studentsForCurrentRole().map(s => s.id))};
+    }""")
+    assert result["ownStudents"] == result["expected"]
+    assert result["groups"] == [result["ownGroup"]]
+    assert result["cards"] == 1
+    assert result["unchanged"] is True
+    # Production uses the superadmin role, never the localhost preview flag.
+    feedback_page.locator("#feedbackComposeForm button[type=submit]").click()
+    assert feedback_page.locator("#feedbackText").input_value()
+    feedback_page.locator('[data-feedback-tab="history"]').click()
+    assert feedback_page.locator("#feedbackHistorySearch").is_visible()
+
+
 def test_every_source_lesson_generates_the_correct_material(feedback_page):
     results = feedback_page.evaluate("""() => {
       const results = [];
