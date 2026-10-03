@@ -9827,6 +9827,23 @@ body[data-active-role="teacher"] .dashboard-spotlight {
   white-space: nowrap;
 }
 
+.order-actions {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.order-actions-main {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.order-actions .order-cancel-button {
+  width: 100%;
+  justify-content: center;
+}
+
 .order-actions svg { width: 17px; height: 17px; }
 
 .order-more-menu { position: relative; }
