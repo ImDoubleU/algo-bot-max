@@ -9,6 +9,7 @@ from app.models.account import (
 from app.models.audit import AuditLog
 from app.models.bank import BankDailyAccrual, BankDeposit, BankOperation, BankRateHistory
 from app.models.communication import SchoolBroadcast
+from app.models.feedback_schedule import FeedbackSchedule
 from app.models.store import (
     Order,
     OrderItem,
@@ -43,6 +44,7 @@ from app.models.teaching import (
 from app.models.tenant import AstrocoinAccrualRule, City, Partner, Tenant, Venue
 
 __all__ = [
+    "FeedbackSchedule",
     "AstrocoinLedgerEntry",
     "AstrocoinAccrualRule",
     "AttendanceRecord",

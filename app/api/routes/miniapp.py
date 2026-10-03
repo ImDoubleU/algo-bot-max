@@ -17,7 +17,8 @@ from fastapi import (
     status,
 )
 from pydantic import ValidationError
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
@@ -29,8 +30,10 @@ from app.core.config import get_settings
 from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
 from app.models.account import MaxAccount
-from app.models.enums import ProductFulfillmentType, ProductStatus, StudentStatus
+from app.models.enums import ProductFulfillmentType, ProductStatus, StaffRole, StudentStatus
+from app.models.feedback_schedule import FeedbackSchedule
 from app.models.store import Product
+from app.models.student import Student
 from app.models.tenant import Tenant
 from app.schemas.broadcasts import (
     BroadcastAudiencePreviewRead,
@@ -40,6 +43,7 @@ from app.schemas.broadcasts import (
     BroadcastVenueRuleUpsert,
     SchoolBroadcastRead,
 )
+from app.schemas.feedback_schedule import FeedbackScheduleSave
 from app.schemas.miniapp import (
     MiniAppAccessStatusRead,
     MiniAppAccessStatusUpdate,
@@ -187,7 +191,12 @@ from app.services.product_media import (
     remove_product_image_urls,
     save_product_image,
 )
-from app.services.staff import is_global_superadmin
+from app.services.staff import (
+    active_staff_roles_for_tenant,
+    is_global_superadmin,
+    staff_names_match,
+    teacher_staff_name,
+)
 from app.services.warehouse_access import accessible_product_filter
 
 router = APIRouter()
@@ -315,11 +324,7 @@ def _feedback_catalog_json() -> str:
     return json.dumps(catalog, ensure_ascii=False)
 
 
-@router.get("/feedback/catalog")
-async def miniapp_feedback_catalog(
-    db: DbSession,
-    identity: MiniAppIdentityDep,
-) -> Response:
+async def _feedback_owner_id(db: AsyncSession, identity: MiniAppIdentity | None) -> UUID:
     # Never trust a query-string role or user id, including in development.
     if identity is None:
         raise HTTPException(status_code=401, detail="Откройте приложение из бота")
@@ -328,6 +333,127 @@ async def miniapp_feedback_catalog(
     )
     if account_id is None or not await is_global_superadmin(db, account_id=account_id):
         raise HTTPException(status_code=403, detail="Доступ только для суперадминистратора")
+    return account_id
+
+
+async def _feedback_schedule_scope(db, identity, tenant_slug):
+    owner_id = await _feedback_owner_id(db, identity)
+    slug = _authorized_tenant_slug(
+        identity, max_user_id=identity.max_user_id, tenant_slug=tenant_slug
+    )
+    tenant_id = await db.scalar(select(Tenant.id).where(Tenant.slug == slug))
+    if tenant_id is None:
+        raise HTTPException(status_code=404, detail="Школа не найдена")
+    account = await db.get(MaxAccount, owner_id)
+    roles = await active_staff_roles_for_tenant(db, tenant_id=tenant_id, account_id=owner_id)
+    if StaffRole.TEACHER not in roles:
+        return owner_id, tenant_id, set()
+    candidates = (
+        await db.scalars(
+            select(Student).where(
+                Student.tenant_id == tenant_id, Student.status == StudentStatus.ACTIVE
+            )
+        )
+    ).all()
+    name = teacher_staff_name(account)
+    groups = {
+        student.group_name.strip()
+        for student in candidates
+        if student.group_name and staff_names_match(name, student.teacher_name)
+    }
+    return owner_id, tenant_id, groups
+
+
+@router.get("/feedback/schedules")
+async def miniapp_feedback_schedules(
+    db: DbSession, identity: MiniAppIdentityDep, tenant_slug: str | None = None
+) -> Response:
+    owner_id, tenant_id, groups = await _feedback_schedule_scope(db, identity, tenant_slug)
+    records = (
+        await db.scalars(
+            select(FeedbackSchedule).where(
+                FeedbackSchedule.teacher_account_id == owner_id,
+                FeedbackSchedule.tenant_id == tenant_id,
+                FeedbackSchedule.group_name.in_(groups),
+            )
+        )
+    ).all()
+    return Response(
+        content=json.dumps(
+            {
+                "schedules": {
+                    record.group_name: {"schedule": record.schedule, "revision": record.revision}
+                    for record in records
+                }
+            }
+        ),
+        media_type="application/json",
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.put("/feedback/schedules")
+async def miniapp_save_feedback_schedule(
+    payload: FeedbackScheduleSave,
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+    tenant_slug: str | None = None,
+) -> dict:
+    owner_id, tenant_id, groups = await _feedback_schedule_scope(db, identity, tenant_slug)
+    if payload.group_name not in groups:
+        raise HTTPException(
+            status_code=403, detail="Группа не закреплена за вашим профилем преподавателя"
+        )
+    catalog = json.loads(await run_in_threadpool(_feedback_catalog_json))
+    if payload.schedule.course not in catalog or any(
+        row.lesson > len(catalog[payload.schedule.course]) for row in payload.schedule.rows
+    ):
+        raise HTTPException(status_code=422, detail="Материал выходит за пределы выбранного курса")
+    data = payload.schedule.model_dump(mode="json")
+    seen = set()
+    for row in data["rows"]:
+        row["repeat"] = row["lesson"] in seen
+        seen.add(row["lesson"])
+    try:
+        if payload.revision == 0:
+            db.add(
+                FeedbackSchedule(
+                    teacher_account_id=owner_id,
+                    tenant_id=tenant_id,
+                    group_name=payload.group_name,
+                    schedule=data,
+                    revision=1,
+                )
+            )
+        else:
+            result = await db.execute(
+                update(FeedbackSchedule)
+                .where(
+                    FeedbackSchedule.teacher_account_id == owner_id,
+                    FeedbackSchedule.tenant_id == tenant_id,
+                    FeedbackSchedule.group_name == payload.group_name,
+                    FeedbackSchedule.revision == payload.revision,
+                )
+                .values(schedule=data, revision=payload.revision + 1)
+            )
+            if result.rowcount != 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Расписание уже изменено на другом устройстве. "
+                        "Откройте вкладку заново; ваши правки остаются в редакторе."
+                    ),
+                )
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Расписание уже сохранено на сервере") from exc
+    return {"schedule": data, "revision": payload.revision + 1}
+
+
+@router.get("/feedback/catalog")
+async def miniapp_feedback_catalog(db: DbSession, identity: MiniAppIdentityDep) -> Response:
+    await _feedback_owner_id(db, identity)
     return Response(
         content=await run_in_threadpool(_feedback_catalog_json),
         media_type="application/json",

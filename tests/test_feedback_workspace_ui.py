@@ -144,6 +144,79 @@ def test_feedback_uses_own_teacher_groups_without_changing_admin_scope(feedback_
     assert feedback_page.locator("#feedbackHistorySearch").is_visible()
 
 
+def test_switching_school_keeps_separate_feedback_cache(feedback_page):
+    result = feedback_page.evaluate("""async () => {
+      const key=feedbackStorageKey;
+      feedbackState.schedules[feedbackState.group].rows[0].date='2020-01-01';
+      feedbackPersist();
+      apiContext.tenantSlug='another-school';
+      await renderFeedback();
+      return {separate:key!==feedbackStorageKey,
+        date:feedbackSchedule(feedbackState.group).rows[0].date,
+        retained:JSON.parse(localStorage.getItem(key)).schedules};
+    }""")
+    assert result["separate"] is True
+    assert result["date"] != "2020-01-01"
+    assert any(
+        schedule["rows"][0]["date"] == "2020-01-01" for schedule in result["retained"].values()
+    )
+
+
+def test_server_schedule_migration_authority_and_failed_save(feedback_page):
+    page = feedback_page
+    remote = {}
+    calls = []
+    fail_save = False
+
+    def schedules(route):
+        if route.request.method == "GET":
+            route.fulfill(json={"schedules": remote})
+            return
+        data = route.request.post_data_json
+        calls.append(data)
+        if fail_save:
+            route.fulfill(status=503, json={"detail": "Сервер временно недоступен"})
+            return
+        previous = remote.get(data["group_name"], {"revision": 0})
+        if data["revision"] != previous["revision"]:
+            route.fulfill(status=409, json={"detail": "Конфликт версии"})
+            return
+        entry = {"schedule": data["schedule"], "revision": data["revision"] + 1}
+        remote[data["group_name"]] = entry
+        route.fulfill(json=entry)
+
+    page.route("**/miniapp/feedback/schedules*", schedules)
+    page.evaluate("""async () => {
+      apiContext.demoMode=false; state.role='admin'; state.staffRoles=['superadmin','teacher'];
+      students.forEach(student=>{student.staffVisible=true;student.teacherVisible=true;});
+      await feedbackLoadServerSchedules();
+    }""")
+    assert remote
+    assert len(calls) == len(remote)
+    group = page.evaluate("feedbackState.group")
+    remote[group]["schedule"]["rows"][0]["date"] = "2026-09-01"
+    page.evaluate("""async () => {
+      feedbackState.schedules[feedbackState.group].rows[0].date='2026-10-04';
+      await feedbackLoadServerSchedules(); await renderFeedback();
+    }""")
+    assert page.evaluate("feedbackSchedule(feedbackState.group).rows[0].date") == "2026-09-01"
+    assert len(calls) == len(remote)
+    page.locator(".feedback-schedule-settings > summary").click()
+    page.locator('#feedbackScheduleForm [name="firstDate"]').fill("2026-10-04")
+    page.locator('#feedbackScheduleForm [name="firstDate"]').press("Tab")
+    fail_save = True
+    page.locator('#feedbackScheduleForm [type="submit"]').click()
+    page.wait_for_function("!feedbackState.scheduleSaving")
+    assert page.evaluate("feedbackState.editorDirty") is True
+    assert page.evaluate("feedbackState.editor.rows[0].date") == "2026-10-04"
+    assert remote[group]["schedule"]["rows"][0]["date"] == "2026-09-01"
+    fail_save = False
+    page.locator('#feedbackScheduleForm [type="submit"]').click()
+    page.wait_for_function("!feedbackState.editorDirty")
+    assert remote[group]["schedule"]["rows"][0]["date"] == "2026-10-04"
+    assert remote[group]["revision"] == 2
+
+
 def test_switching_courses_resizes_schedule_before_anchor_edit(feedback_page):
     page = feedback_page
     page.locator(".feedback-schedule-settings > summary").click()
