@@ -9840,8 +9840,20 @@ body[data-active-role="teacher"] .dashboard-spotlight {
 }
 
 .order-actions .order-cancel-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   justify-content: center;
+  min-height: 44px;
+  padding: 10px 16px;
+  font-weight: 600;
+}
+
+.order-actions .order-cancel-button svg {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
 }
 
 .order-actions svg { width: 17px; height: 17px; }
