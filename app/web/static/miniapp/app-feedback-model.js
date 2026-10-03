@@ -55,6 +55,35 @@ function feedbackRenumber(rows, firstNumber = 1) {
   if (number > 1000) throw new Error("Максимальный номер занятия — 999");
 }
 
+function feedbackMarkRepeats(schedule) {
+  const seen = new Set();
+  for (const row of schedule.rows) {
+    row.repeat = seen.has(row.lesson);
+    seen.add(row.lesson);
+  }
+  return schedule;
+}
+
+function feedbackChangeCourse(schedule, course, catalog) {
+  if (!Object.hasOwn(catalog, course)) throw new Error("Выберите курс из списка");
+  const result = structuredClone(schedule);
+  result.course = course;
+  const count = catalog[course].length;
+  result.rows = result.rows.filter((row) => Number.isInteger(row.lesson) && row.lesson >= 1 && row.lesson <= count);
+  const present = new Set(result.rows.map((row) => row.lesson));
+  let date = result.rows.at(-1)?.date || schedule.rows.find((row) => !row.skipped)?.date || feedbackToday();
+  for (let lesson = 1; lesson <= count; lesson++) {
+    if (present.has(lesson)) continue;
+    if (result.rows.length) date = feedbackShiftDate(date, 7);
+    result.rows.push(feedbackNewRow(date, lesson));
+  }
+  if (result.rows.every((row) => row.skipped)) result.rows[0].skipped = false;
+  feedbackRenumber(result.rows, schedule.rows.find((row) => !row.skipped)?.number || 1);
+  feedbackMarkRepeats(result);
+  feedbackValidateSchedule(result, catalog);
+  return result;
+}
+
 function feedbackRebaseSchedule(schedule, date) {
   if (!feedbackValidDate(date)) throw new Error("Укажите дату первого занятия");
   const result = structuredClone(schedule);

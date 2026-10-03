@@ -88,6 +88,9 @@
 .feedback-checkbox { display: flex; align-items: flex-start; gap: 10px; margin: 4px 0 18px; cursor: pointer; }
 .feedback-weeks .feedback-lesson-topic { white-space: normal; line-height: 1.4; color: var(--ink); min-height: 40px; font-size: 11px; }
 .feedback-disabled-row { background: #f6f4f8; }
+.feedback-repeat-badge { display: inline-flex; align-items: center; padding: 5px 8px; border-radius: 7px; background: #ede4ff; color: #7134b7; font-size: 11px; font-weight: 600; }
+.feedback-new-material { color: var(--muted); font-size: 11px; }
+.feedback-repeat-note { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
 .feedback-disabled-row td > small { color: var(--muted); font-size: 10px; }
 .feedback-first-date { max-width: 420px; margin: 16px 0; }
 .feedback-first-date small { font-weight: 400; color: var(--muted); line-height: 1.5; }
