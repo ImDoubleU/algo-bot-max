@@ -1,5 +1,6 @@
 """Browser regressions for the local-only feedback workspace; never touch production."""
 
+import json
 import os
 import threading
 from datetime import date
@@ -26,6 +27,26 @@ def feedback_browser():
                 if target.is_relative_to(MINIAPP.resolve()):
                     return str(target)
             return str(MINIAPP / "nonexistent")
+
+        def do_GET(self):
+            if urlsplit(self.path).path == "/api/v1/miniapp/feedback/catalog":
+                source = MINIAPP.parents[3] / "data" / "courses.json"
+                raw = json.loads(source.read_text(encoding="utf-8"))
+                catalog = {
+                    course: [
+                        {"title": title, "educational_results": lesson["educational_results"]}
+                        for title, lesson in lessons.items()
+                    ]
+                    for course, lessons in raw.items()
+                }
+                payload = json.dumps(catalog).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+                return
+            super().do_GET()
 
         def log_message(self, *args):
             pass
@@ -64,6 +85,24 @@ def feedback_page(feedback_browser):
     yield page
     context.close()
     assert not errors, errors
+
+
+def test_production_feedback_is_exclusive_to_superadmin(feedback_page):
+    results = feedback_page.evaluate("""() => {
+      apiContext.demoMode = false;
+      // A manually set preview flag must not bypass the production role check.
+      apiContext.feedbackPreview = true;
+      state.role = 'admin';
+      const denied = ['teacher', 'curator', 'admin', 'partner_director', 'student', 'parent', ''];
+      const hidden = denied.every(role => {
+        state.staffRoles = role ? [role] : [];
+        setView('feedback');
+        return !roleViews('admin').includes('feedback') && state.view === 'dashboard';
+      });
+      state.staffRoles = ['superadmin'];
+      return {hidden, allowed: canAccessFeedback() && roleViews('admin').includes('feedback')};
+    }""")
+    assert results == {"hidden": True, "allowed": True}
 
 
 def test_every_source_lesson_generates_the_correct_material(feedback_page):
@@ -318,7 +357,7 @@ def test_catalog_failure_is_retryable(feedback_page):
         else:
             route.continue_()
 
-    page.route("**/assets/feedback/courses.json", once)
+    page.route("**/miniapp/feedback/catalog", once)
     page.reload(wait_until="networkidle")
     page.locator("[data-feedback-retry]").click()
     page.wait_for_selector("#feedbackComposeForm")

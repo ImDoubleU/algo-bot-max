@@ -691,9 +691,16 @@ function setView(view) {
   if (nextView === "feedback") void renderFeedback();
 }
 
+function canAccessFeedback() {
+  return ["teacher", "admin"].includes(state.role) && (
+    (apiContext.demoMode && apiContext.feedbackPreview) ||
+    (!apiContext.demoMode && primaryStaffRole() === "superadmin")
+  );
+}
+
 function roleViews(role) {
   const views = (ROLE_VIEWS[role] || ROLE_VIEWS.student).filter(
-    (view) => view !== "feedback" || apiContext.feedbackPreview,
+    (view) => view !== "feedback" || canAccessFeedback(),
   );
   if (role === "teacher" && primaryStaffRole() === "teacher") {
     return views.filter((view) => !["report", "broadcasts"].includes(view));
