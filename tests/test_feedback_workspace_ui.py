@@ -144,6 +144,52 @@ def test_feedback_uses_own_teacher_groups_without_changing_admin_scope(feedback_
     assert feedback_page.locator("#feedbackHistorySearch").is_visible()
 
 
+def test_switching_courses_resizes_schedule_before_anchor_edit(feedback_page):
+    page = feedback_page
+    page.locator(".feedback-schedule-settings > summary").click()
+    count = page.evaluate('feedbackState.catalog["ОЛИП"].length')
+    page.locator("#feedbackScheduleForm [name=course]").select_option("ОЛИП")
+    assert page.locator("[data-feedback-schedule-row]").count() == count
+    assert page.locator("#feedbackScheduleForm select[name=lesson]").evaluate_all(
+        '(items) => items.every(item => item.value !== "")'
+    )
+    page.locator("#feedbackScheduleForm [name=firstDate]").fill("2026-10-04")
+    page.locator("#feedbackScheduleForm [name=firstDate]").press("Tab")
+    assert page.evaluate("feedbackState.editor.rows[1].date") == "2026-10-11"
+    page.locator("[data-feedback-add-row]").click()
+    page.locator("#feedbackRepeatForm [type=submit]").click()
+    assert page.locator("#feedbackScheduleForm .feedback-repeat-badge").count() == 1
+    assert page.locator("input[name=repeat]").count() == 0
+    page.locator("#feedbackScheduleForm [type=submit]").click()
+    page.reload(wait_until="networkidle")
+    assert page.evaluate("feedbackSchedule(feedbackState.group).course") == "ОЛИП"
+    assert page.evaluate("feedbackSchedule(feedbackState.group).rows.length") == count + 1
+    page.locator(".feedback-schedule-settings > summary").click()
+    page.locator("#feedbackScheduleForm [name=course]").select_option("Python Start 1 год")
+    assert page.locator("[data-feedback-schedule-row]").count() == 37
+    assert page.locator("#feedbackScheduleForm .feedback-repeat-badge").count() == 1
+    assert page.evaluate("feedbackState.editor.rows[0].date") == "2026-10-04"
+
+
+def test_every_course_pair_has_complete_valid_materials_after_switch(feedback_page):
+    failures = feedback_page.evaluate("""() => {
+      const failures=[];
+      for (const source of Object.keys(feedbackState.catalog)) {
+        const schedule={course:source,mode:'group',rows:feedbackSeries(source,'2026-09-05',
+          1,1,feedbackState.catalog[source].length,7,feedbackState.catalog)};
+        for (const target of Object.keys(feedbackState.catalog)) {
+          const next=feedbackChangeCourse(schedule,target,feedbackState.catalog);
+          if (next.rows.length!==feedbackState.catalog[target].length ||
+            new Set(next.rows.map(row=>row.lesson)).size!==feedbackState.catalog[target].length)
+            failures.push({source,target});
+          feedbackValidateSchedule(next,feedbackState.catalog);
+        }
+      }
+      return failures;
+    }""")
+    assert failures == []
+
+
 def test_weekday_and_time_group_order(feedback_page):
     ordered = feedback_page.evaluate("""() => {
       const groups=['ВП сб 14:00', 'ПП вс 14-00', 'КГ сб 12:00', 'ПС вс 10:00', 'ГД пн 18:00'];
@@ -262,24 +308,29 @@ def test_message_rejects_fractional_nonfinite_and_invalid_context(feedback_page)
 def test_per_lesson_dates_material_numbers_and_repetition_persist(feedback_page):
     page = feedback_page
     page.locator(".feedback-schedule-settings > summary").click()
-    row = page.locator("[data-feedback-schedule-row]").first
+    row = page.locator("[data-feedback-schedule-row]").nth(1)
     row_id = row.get_attribute("data-feedback-schedule-row")
     row.locator('[name="date"]').fill("2026-10-07")
     row.locator('[name="number"]').fill("101")
-    row.locator('[name="lesson"]').select_option("8")
-    row.locator('[name="repeat"]').check()
+    row.locator('[name="lesson"]').select_option("1")
+    assert row.locator(".feedback-repeat-badge").is_visible()
+    assert page.locator('input[name="repeat"]').count() == 0
     page.locator('#feedbackScheduleForm [type="submit"]').click()
     page.locator(f'[data-feedback-row="{row_id}"]').click()
     page.locator('#feedbackComposeForm [type="submit"]').click()
     text = page.locator("#feedbackText").input_value()
     assert "урок №101 от 07.10.2026" in text
     assert "повторяли тему предыдущего занятия" in text
+    assert page.locator(
+        f'.feedback-weeks [data-feedback-row="{row_id}"] .feedback-repeat-badge'
+    ).is_visible()
     page.reload(wait_until="networkidle")
     row = page.locator(f'[data-feedback-schedule-row="{row_id}"]')
+    page.locator(".feedback-schedule-settings > summary").click()
     assert row.locator('[name="date"]').input_value() == "2026-10-07"
     assert row.locator('[name="number"]').input_value() == "101"
-    assert row.locator('[name="lesson"]').input_value() == "8"
-    assert row.locator('[name="repeat"]').is_checked()
+    assert row.locator('[name="lesson"]').input_value() == "1"
+    assert row.locator(".feedback-repeat-badge").is_visible()
 
 
 def test_autosave_preserves_edits_and_regeneration_needs_confirmation(feedback_page):
