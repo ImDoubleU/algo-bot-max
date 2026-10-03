@@ -688,10 +688,13 @@ function setView(view) {
   }
   if (nextView === "report") renderAccrualReport();
   if (nextView === "broadcasts") renderBroadcasts();
+  if (nextView === "feedback") void renderFeedback();
 }
 
 function roleViews(role) {
-  const views = [...(ROLE_VIEWS[role] || ROLE_VIEWS.student)];
+  const views = (ROLE_VIEWS[role] || ROLE_VIEWS.student).filter(
+    (view) => view !== "feedback" || apiContext.feedbackPreview,
+  );
   if (role === "teacher" && primaryStaffRole() === "teacher") {
     return views.filter((view) => !["report", "broadcasts"].includes(view));
   }

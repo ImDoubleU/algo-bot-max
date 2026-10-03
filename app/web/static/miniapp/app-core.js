@@ -9,6 +9,7 @@ const apiContext = {
   maxWebAppData: maxWebAppLaunch.initData,
   demoMode: localDemoHost && queryParam("demo") === "1",
   demoRole: queryParam("demo_role") || "",
+  feedbackPreview: localDemoHost && queryParam("demo") === "1" && queryParam("feedback_preview") === "1",
   productId: queryParam("product") || "",
 };
 if (queryParam("miniapp_token")) {
@@ -29,8 +30,8 @@ const STAFF_ROLE_PRIORITY = Object.freeze([
 const ROLE_VIEWS = Object.freeze({
   student: ["dashboard", "store", "cart", "orders", "wallet", "bank", "help"],
   parent: ["dashboard", "store", "cart", "orders", "wallet", "bank", "help"],
-  teacher: ["dashboard", "store", "orders", "wallet", "report", "accrual", "broadcasts", "help"],
-  admin: ["dashboard", "store", "orders", "wallet", "bank", "report", "accrual", "broadcasts", "admin", "help"],
+  teacher: ["dashboard", "store", "orders", "wallet", "report", "accrual", "feedback", "broadcasts", "help"],
+  admin: ["dashboard", "store", "orders", "wallet", "bank", "report", "accrual", "feedback", "broadcasts", "admin", "help"],
 });
 
 const VIEW_META = Object.freeze({
@@ -42,6 +43,7 @@ const VIEW_META = Object.freeze({
   bank: { label: "Банк", icon: "landmark" },
   report: { label: "Отчет AC", icon: "file-chart-column" },
   accrual: { label: "Начисления", icon: "circle-plus" },
+  feedback: { label: "Обратная связь", icon: "message-square-text" },
   broadcasts: { label: "Рассылки", icon: "megaphone" },
   admin: { label: "Управление", icon: "settings-2" },
   help: { label: "Помощь", icon: "circle-help" },
@@ -83,7 +85,7 @@ const state = {
   tenantSaving: false,
   tenantSearch: "",
   availableRoles: ["student", "parent", "teacher", "admin"],
-  view: ["dashboard", "store", "cart", "orders", "wallet", "bank", "report", "accrual", "broadcasts", "admin", "help"].includes(
+  view: ["dashboard", "store", "cart", "orders", "wallet", "bank", "report", "accrual", "feedback", "broadcasts", "admin", "help"].includes(
     queryParam("view"),
   )
     ? queryParam("view")
