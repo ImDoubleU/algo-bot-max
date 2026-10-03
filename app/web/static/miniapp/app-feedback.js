@@ -1,4 +1,4 @@
-// Review-only workspace. No production data writes or parent delivery.
+// Superadministrator preview. Drafts stay on this device; no parent delivery.
 const feedbackStorageKey = `algo-max-feedback-preview-v2:${apiContext.tenantSlug || "demo"}:${apiContext.maxUserId || apiContext.demoRole || "teacher"}`;
 const feedbackState = {
   tab: "groups", catalog: null, loading: false, error: "", restored: false,
@@ -109,7 +109,7 @@ function feedbackSelectGroup(group, rowId = "") {
 }
 
 async function renderFeedback() {
-  if (!apiContext.feedbackPreview || !["teacher", "admin"].includes(state.role)) return;
+  if (!canAccessFeedback()) return;
   const root = qs("#feedbackWorkspace");
   if (!root) return;
   if (!feedbackState.catalog) {
@@ -117,7 +117,7 @@ async function renderFeedback() {
     feedbackState.loading = true;
     root.innerHTML = '<div class="empty-state compact-empty">Загружаем материалы курсов…</div>';
     try {
-      const response = await fetch("/miniapp/static/assets/feedback/courses.json");
+      const response = await apiFetch(apiUrl("/api/v1/miniapp/feedback/catalog"));
       if (!response.ok) throw new Error("Не удалось загрузить материалы курсов");
       const raw = await response.json();
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Материалы курсов повреждены");

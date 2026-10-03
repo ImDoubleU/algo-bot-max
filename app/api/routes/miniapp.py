@@ -1,5 +1,6 @@
 import json
 from datetime import date
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from fastapi import (
 from pydantic import ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.api.dependencies import (
     get_miniapp_identity,
@@ -26,6 +28,7 @@ from app.api.dependencies import (
 from app.core.config import get_settings
 from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
+from app.models.account import MaxAccount
 from app.models.enums import ProductFulfillmentType, ProductStatus, StudentStatus
 from app.models.store import Product
 from app.models.tenant import Tenant
@@ -184,6 +187,7 @@ from app.services.product_media import (
     remove_product_image_urls,
     save_product_image,
 )
+from app.services.staff import is_global_superadmin
 from app.services.warehouse_access import accessible_product_filter
 
 router = APIRouter()
@@ -231,6 +235,8 @@ async def _remove_unreferenced_saved_product_image(
         return
     if not is_referenced:
         await remove_product_image(image)
+
+
 MiniAppIdentityDep = Annotated[MiniAppIdentity | None, Depends(get_miniapp_identity)]
 MAX_IMPORT_FILE_BYTES = 20 * 1024 * 1024
 PRODUCT_FIELD_LABELS = {
@@ -289,6 +295,39 @@ def _authorized_tenant_slug(
             tenant_slug=resolved_tenant,
         )
     return resolved_tenant
+
+
+def _feedback_catalog_json() -> str:
+    source = Path(__file__).resolve().parents[3] / "data" / "courses.json"
+    raw = json.loads(source.read_text(encoding="utf-8"))
+    catalog = {
+        course: [
+            {"title": title, "educational_results": lesson["educational_results"]}
+            for title, lesson in lessons.items()
+        ]
+        for course, lessons in raw.items()
+    }
+    return json.dumps(catalog, ensure_ascii=False)
+
+
+@router.get("/feedback/catalog")
+async def miniapp_feedback_catalog(
+    db: DbSession,
+    identity: MiniAppIdentityDep,
+) -> Response:
+    # Never trust a query-string role or user id, including in development.
+    if identity is None:
+        raise HTTPException(status_code=401, detail="Откройте приложение из бота")
+    account_id = await db.scalar(
+        select(MaxAccount.id).where(MaxAccount.max_user_id == identity.max_user_id)
+    )
+    if account_id is None or not await is_global_superadmin(db, account_id=account_id):
+        raise HTTPException(status_code=403, detail="Доступ только для суперадминистратора")
+    return Response(
+        content=await run_in_threadpool(_feedback_catalog_json),
+        media_type="application/json",
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @router.get("/session", response_model=MiniAppSessionRead)
