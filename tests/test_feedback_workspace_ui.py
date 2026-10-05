@@ -140,8 +140,7 @@ def test_feedback_uses_own_teacher_groups_without_changing_admin_scope(feedback_
     # Production uses the superadmin role, never the localhost preview flag.
     feedback_page.locator("#feedbackComposeForm button[type=submit]").click()
     assert feedback_page.locator("#feedbackText").input_value()
-    feedback_page.locator('[data-feedback-tab="history"]').click()
-    assert feedback_page.locator("#feedbackHistorySearch").is_visible()
+    assert feedback_page.locator('[data-feedback-tab="history"]').count() == 0
 
 
 def test_switching_school_keeps_separate_feedback_cache(feedback_page):
@@ -310,7 +309,7 @@ def test_group_schedule_uses_imported_course_and_its_actual_lesson_count(feedbac
     assert result["date"] == result["first"]
 
 
-def test_legacy_course_names_keep_saved_dates_and_draft_text(feedback_page):
+def test_legacy_course_names_keep_saved_dates_and_ignore_old_drafts(feedback_page):
     result = feedback_page.evaluate("""() => {
       const group=feedbackState.group;
       const schedule=structuredClone(feedbackSchedule(group));
@@ -320,11 +319,11 @@ def test_legacy_course_names_keep_saved_dates_and_draft_text(feedback_page):
       const restored=feedbackRestore({schedules:{[group]:schedule},drafts:[draft]},
         feedbackState.catalog,[group]);
       return {course:restored.schedules[group].course,date:restored.schedules[group].rows[0].date,
-        original:schedule.rows[0].date,text:restored.drafts[0].text,recovered:restored.recovered};
+        original:schedule.rows[0].date,drafts:Object.hasOwn(restored,"drafts"),recovered:restored.recovered};
     }""")
     assert result["course"] == "Питон Старт 1-й год"
     assert result["date"] == result["original"]
-    assert result["text"] == "Сохранённый текст"
+    assert result["drafts"] is False
     assert result["recovered"] == 0
 
 
@@ -490,30 +489,27 @@ def test_per_lesson_dates_material_numbers_and_repetition_persist(feedback_page)
     assert row.locator(".feedback-repeat-badge").is_visible()
 
 
-def test_autosave_preserves_edits_and_regeneration_needs_confirmation(feedback_page):
+def test_message_edits_need_confirmation_before_regeneration_or_switch(feedback_page):
     page = feedback_page
     row_id = page.evaluate("feedbackState.rowId")
     submit = page.locator('#feedbackComposeForm [type="submit"]')
     submit.click()
-    submit.click()
-    assert page.evaluate("feedbackState.drafts.length") == 1
     text = page.locator("#feedbackText").input_value() + "\n\nМоя ручная правка"
     page.locator("#feedbackText").fill(text)
-    next_row = page.locator(f'.feedback-weeks button:not([data-feedback-row="{row_id}"])').first
-    next_row.click()
-    page.locator(f'[data-feedback-row="{row_id}"]').click()
-    assert page.locator("#feedbackText").input_value() == text
     submit.click()
     assert page.locator("#confirmationDialog").is_visible()
     page.locator("#cancelConfirmationButton").click()
     assert page.locator("#feedbackText").input_value() == text
-    page.reload(wait_until="networkidle")
+    next_row = page.locator(f'.feedback-weeks button:not([data-feedback-row="{row_id}"])').first
+    next_row.click()
+    assert page.locator("#confirmationDialog").is_visible()
+    page.locator("#cancelConfirmationButton").click()
     assert page.locator("#feedbackText").input_value() == text
-    page.locator("#feedbackText").fill("")
-    assert not page.locator("#feedbackText").is_disabled()
-    page.locator("#feedbackText").fill("Текст снова доступен")
-    page.locator("[data-feedback-save]").click()
-    assert page.evaluate("feedbackState.drafts[0].text") == "Текст снова доступен"
+    next_row.click()
+    page.locator("#confirmConfirmationButton").click()
+    assert page.locator("#feedbackText").input_value() == ""
+    page.reload(wait_until="networkidle")
+    assert page.locator("#feedbackText").input_value() == ""
 
 
 def test_schedule_remove_confirmation_undo_and_unsaved_guard(feedback_page):
@@ -528,13 +524,13 @@ def test_schedule_remove_confirmation_undo_and_unsaved_guard(feedback_page):
     assert page.locator("[data-feedback-schedule-row]").count() == count - 1
     page.locator("[data-feedback-undo]").click()
     assert page.locator("[data-feedback-schedule-row]").count() == count
-    page.locator('[data-feedback-tab="history"]').click()
+    page.locator('[data-feedback-tab="manual"]').click()
     assert page.locator("#confirmationDialog").is_visible()
     page.locator("#cancelConfirmationButton").click()
     assert page.locator("#feedbackScheduleForm").is_visible()
-    page.locator('[data-feedback-tab="history"]').click()
+    page.locator('[data-feedback-tab="manual"]').click()
     page.locator("#confirmConfirmationButton").click()
-    assert page.locator("#feedbackHistorySearch").is_visible()
+    assert page.locator("#feedbackComposeForm").is_visible()
     page.locator('[data-feedback-tab="groups"]').click()
     assert not page.locator("#confirmationDialog").is_visible()
 
@@ -550,40 +546,33 @@ def test_cancelled_lesson_cannot_generate_feedback(feedback_page):
     assert page.locator("#feedbackText").input_value() == ""
 
 
-def test_corrupt_storage_recovers_without_losing_valid_draft(feedback_page):
+def test_corrupt_schedule_recovers_and_old_drafts_are_not_restored(feedback_page):
     page = feedback_page
-    page.locator('#feedbackComposeForm [type="submit"]').click()
-    original = page.locator("#feedbackText").input_value()
     page.evaluate("""() => {
+      feedbackPersist();
       const raw=JSON.parse(localStorage.getItem(feedbackStorageKey));
       raw.schedules[feedbackState.group].course='missing';
-      raw.drafts.push(null, {id:'missing-text',group:'',date:'2026-02-31'});
+      raw.drafts=[{text:'Старое сообщение'},null];
       localStorage.setItem(feedbackStorageKey,JSON.stringify(raw));
-      // Disable pagehide save to preserve the corruption for the reload test.
-      feedbackState.generated=null;
     }""")
     page.reload(wait_until="networkidle")
-    page.locator('[data-feedback-tab="history"]').click()
-    assert page.locator("[data-feedback-draft]").count() == 1
-    page.locator("[data-feedback-draft]").click()
-    assert page.locator("#feedbackText").input_value() == original
+    assert page.locator("#feedbackComposeForm").is_visible()
+    assert page.locator("#feedbackText").input_value() == ""
+    assert page.evaluate(
+        '!Object.hasOwn(JSON.parse(localStorage.getItem(feedbackStorageKey)),"drafts")'
+    )
 
 
-def test_history_search_delete_and_text_download(feedback_page):
+def test_message_download_and_drafts_controls_are_removed(feedback_page):
     page = feedback_page
     page.locator('#feedbackComposeForm [type="submit"]').click()
     text = page.locator("#feedbackText").input_value()
     with page.expect_download() as download:
         page.locator("[data-feedback-download]").click()
     assert Path(download.value.path()).read_text(encoding="utf-8") == text
-    page.locator('[data-feedback-tab="history"]').click()
-    page.locator("#feedbackHistorySearch").fill("нет такого текста")
-    assert page.locator("[data-feedback-draft]").count() == 0
-    page.locator("#feedbackHistorySearch").fill("")
-    assert page.locator("[data-feedback-draft]").count() == 1
-    page.locator("[data-feedback-delete-draft]").click()
-    page.locator("#confirmConfirmationButton").click()
-    assert page.locator("[data-feedback-draft]").count() == 0
+    assert page.locator('[data-feedback-tab="history"], [data-feedback-save]').count() == 0
+    assert page.locator('[data-feedback-copy]').is_enabled()
+    assert "Черновик" not in page.locator("#feedbackWorkspace").inner_text()
 
 
 def test_mobile_layout_and_keyboard_tab_navigation(feedback_page):
@@ -610,7 +599,7 @@ def test_absent_name_normalization_and_profile_isolation(feedback_page):
         "?demo=1&demo_role=admin&feedback_preview=1&view=feedback",
         wait_until="networkidle",
     )
-    assert page.evaluate("feedbackState.drafts.length") == 0
+    assert page.locator("#feedbackText").input_value() == ""
     page.goto(
         f"{base.scheme}://{base.netloc}/miniapp?demo=1&demo_role=parent&feedback_preview=1",
         wait_until="networkidle",
@@ -671,37 +660,26 @@ def test_catalog_failure_is_retryable(feedback_page):
     assert page.locator("#feedbackCourse option").count() == 20
 
 
-def test_malformed_storage_variants_are_safe_and_valid_drafts_survive(feedback_page):
-    page = feedback_page
-    page.locator('#feedbackComposeForm [type="submit"]').click()
-    results = page.evaluate("""() => {
-      const catalog=feedbackState.catalog, groups=feedbackGroups(), good=feedbackState.drafts[0];
+def test_malformed_storage_variants_are_safe_and_ignore_old_drafts(feedback_page):
+    results = feedback_page.evaluate("""() => {
+      const catalog=feedbackState.catalog, groups=feedbackGroups();
       const bad=[null,undefined,[],0,true,'bad',{}, {drafts:[null]},
-        {drafts:[{...good,text:null}]}, {drafts:[{...good,offset:Infinity}]},
-        {drafts:[{...good,date:'2026-02-31'}]}, {drafts:[{...good,course:'missing'}]},
         {schedules:[]}, {schedules:true}, {drafts:{}},
-        {drafts:[{...good,id:''}]}, {drafts:[{...good,group:'other school'}]}];
-      const results=bad.map(raw=>{try {const value=feedbackRestore(raw,catalog,groups);
-        return Array.isArray(value.drafts) && typeof value.schedules==='object';
+        {drafts:[{id:'old',text:'Старое сообщение'}]}];
+      return bad.map(raw=>{try {const value=feedbackRestore(raw,catalog,groups);
+        return !Object.hasOwn(value,'drafts') && typeof value.schedules==='object';
       }catch{return false;}});
-      for(let number=0;number<100;number++) {
-        const raw={drafts:[null,{...good,date:'invalid-'+number},good]};
-        const restored=feedbackRestore(raw,catalog,groups);
-        results.push(restored.drafts.length===1 && restored.drafts[0].text===good.text);
-      }
-      return results;
     }""")
     assert all(results)
 
 
-def test_autosave_uses_generated_metadata_until_message_is_regenerated(feedback_page):
+def test_edits_keep_generated_metadata_until_message_is_regenerated(feedback_page):
     page = feedback_page
     page.locator('#feedbackComposeForm [type="submit"]').click()
     original_date = page.evaluate("feedbackState.generated.date")
     page.locator('#feedbackComposeForm [name="date"]').fill("2026-11-01")
     page.locator("#feedbackText").fill("Редакция для прежнего занятия")
-    page.locator("[data-feedback-save]").click()
-    assert page.evaluate("feedbackState.drafts[0].date") == original_date
+    assert page.evaluate("feedbackState.generated.date") == original_date
     assert page.locator(".feedback-stale-note").is_visible()
 
 
@@ -713,3 +691,23 @@ def test_invalid_advanced_control_is_revealed_before_validation(feedback_page):
     # Explicit validation opens the collapsed container before focusing its invalid input.
     page.locator('#feedbackComposeForm [type="submit"]').click()
     assert page.locator(".feedback-advanced").evaluate("element => element.open")
+
+
+def test_astrocoin_balance_info_is_always_present_and_accrual_is_optional(feedback_page):
+    page = feedback_page
+    submit = page.locator('#feedbackComposeForm [type="submit"]')
+    submit.click()
+    text = page.locator("#feedbackText").input_value()
+    assert "Баланс астрокоинов" in text
+    assert "https://max.ru/id525601030904_3_bot" in text
+    assert "Начислены астрокоины" not in text
+    page.locator('#feedbackComposeForm [name="coins"]').check()
+    submit.click()
+    text = page.locator("#feedbackText").input_value()
+    assert "Начислены астрокоины за урок №01" in text
+    assert text.count("https://max.ru/id525601030904_3_bot") == 1
+    row_id = page.evaluate("feedbackState.rowId")
+    page.locator(f'.feedback-weeks button:not([data-feedback-row="{row_id}"])').first.click()
+    assert not page.locator('#feedbackComposeForm [name="coins"]').is_checked()
+    submit.click()
+    assert "Начислены астрокоины" not in page.locator("#feedbackText").input_value()

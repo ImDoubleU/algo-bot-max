@@ -1,12 +1,12 @@
-// Teacher-owned server schedules. Message drafts stay on this device.
+// Teacher-owned server schedules. Message text exists only in the current editor.
 let feedbackStorageKey = `algo-max-feedback-preview-v2:${apiContext.tenantSlug || "demo"}:${apiContext.maxUserId || apiContext.demoRole || "teacher"}`;
 const feedbackState = {
   tab: "groups", contextKey: "", legacyStorageKey: "", catalog: null, loading: false, scheduleSaving: false, error: "", restored: false,
   group: "", rowId: "", course: "", lesson: 1, date: feedbackToday(), offset: 0,
   mode: "group", repeat: false, coins: false, absent: [], extraAbsent: "",
-  text: "", draftId: "", generated: null, edited: false, stale: false,
-  schedules: Object.create(null), serverVersions: Object.create(null), drafts: [], editor: null, editorDirty: false,
-  editorUndo: null, historySearch: "", groupSearch: "", autosaveTimer: null,
+  text: "", generated: null, edited: false, stale: false,
+  schedules: Object.create(null), serverVersions: Object.create(null), editor: null, editorDirty: false,
+  editorUndo: null, groupSearch: "",
 };
 
 function feedbackToday() {
@@ -43,7 +43,7 @@ function feedbackGroups() {
 
 function feedbackPersist() {
   try {
-    localStorage.setItem(feedbackStorageKey, JSON.stringify({ schedules: feedbackState.schedules, drafts: feedbackState.drafts }));
+    localStorage.setItem(feedbackStorageKey, JSON.stringify({ schedules: feedbackState.schedules }));
     return true;
   } catch {
     showNotice("Не удалось сохранить данные на этом устройстве. Скопируйте текст или скачайте файл.", "danger");
@@ -120,37 +120,7 @@ function feedbackSchedule(group) {
   return feedbackState.schedules[group];
 }
 
-function feedbackSaveDraft(notify = false) {
-  window.clearTimeout(feedbackState.autosaveTimer);
-  if (!feedbackState.generated || !feedbackState.text.trim()) return false;
-  if (feedbackState.text.length > 20000) { showNotice("Текст слишком длинный: максимум 20 000 символов", "danger"); return false; }
-  const meta = feedbackState.generated;
-  const existing = feedbackState.drafts.find((draft) => meta.rowId
-    ? draft.group === meta.group && draft.rowId === meta.rowId
-    : !draft.group && draft.course === meta.course && draft.lesson === meta.lesson && draft.date === meta.date && draft.offset === meta.offset);
-  const id = feedbackState.draftId || existing?.id || crypto.randomUUID();
-  if (!feedbackState.drafts.some((draft) => draft.id === id) && feedbackState.drafts.length >= 100) {
-    showNotice("Сохранено 100 черновиков. Удалите ненужный или скачайте текущий текст — старые записи не удаляем.", "danger");
-    return false;
-  }
-  const draft = { ...structuredClone(meta), id, text: feedbackState.text, updatedAt: new Date().toISOString() };
-  feedbackState.drafts = [draft, ...feedbackState.drafts.filter((item) => item.id !== id)].slice(0, 100);
-  feedbackState.draftId = id;
-  const persisted = feedbackPersist();
-  const label = qs("#feedbackSaveState");
-  if (label) label.textContent = persisted ? "Сохранено на этом устройстве" : "Пока сохранено только в открытой вкладке";
-  if (notify && persisted) showNotice("Черновик сохранён на этом устройстве");
-  return persisted;
-}
-
-function feedbackLoadDraft(draft) {
-  Object.assign(feedbackState, structuredClone(draft), {
-    generated: structuredClone(draft), draftId: draft.id, edited: true, stale: false,
-  });
-}
-
 function feedbackSelectGroup(group, rowId = "") {
-  feedbackSaveDraft();
   const schedule = feedbackSchedule(group);
   const rows = schedule.rows;
   const row = rows.find((item) => item.id === rowId)
@@ -158,17 +128,9 @@ function feedbackSelectGroup(group, rowId = "") {
   Object.assign(feedbackState, {
     group, rowId: row.id, course: schedule.course, lesson: Number(row.lesson), date: row.date,
     offset: Number(row.number) - Number(row.lesson), mode: schedule.mode, absent: [], extraAbsent: "",
-    repeat: row.repeat, text: "", draftId: "", generated: null, edited: false, stale: false,
+    repeat: row.repeat, coins: false, text: "", generated: null, edited: false, stale: false,
     editor: structuredClone(schedule), editorDirty: false, editorUndo: null,
   });
-  const draft = feedbackState.drafts.find((item) => item.group === group && item.rowId === row.id);
-  if (draft) {
-    // Keep moved lesson settings distinct from the date in an older draft.
-    const current = { course: schedule.course, lesson: row.lesson, date: row.date, offset: row.number - row.lesson, repeat: row.repeat, mode: schedule.mode };
-    feedbackLoadDraft(draft);
-    Object.assign(feedbackState, current);
-    feedbackState.stale = Object.keys(current).some((key) => current[key] !== draft[key]);
-  }
 }
 
 async function renderFeedback() {
@@ -176,12 +138,10 @@ async function renderFeedback() {
   const key = `algo-max-feedback-preview-v2:${apiContext.tenantSlug || "demo"}:${apiContext.maxUserId || apiContext.demoRole || "teacher"}`;
   if (feedbackState.contextKey !== key) {
     const legacy = feedbackState.contextKey ? "" : feedbackStorageKey;
-    if (feedbackState.contextKey) feedbackSaveDraft();
-    window.clearTimeout(feedbackState.autosaveTimer);
     feedbackStorageKey = key;
     Object.assign(feedbackState, { contextKey: key, legacyStorageKey: legacy, catalog: null,
-      schedules: Object.create(null), serverVersions: Object.create(null), drafts: [],
-      group: "", rowId: "", text: "", generated: null, draftId: "", edited: false,
+      schedules: Object.create(null), serverVersions: Object.create(null),
+      group: "", rowId: "", text: "", generated: null, edited: false,
       editor: null, editorDirty: false, editorUndo: null, restored: false });
   }
   const root = qs("#feedbackWorkspace");
@@ -207,13 +167,13 @@ async function renderFeedback() {
         const legacy = !current && apiContext.demoRole === "teacher" ? localStorage.getItem("algo-max-feedback-preview-v1") : null;
         saved = JSON.parse(current || legacy || "{}");
       } catch { recovered = true; }
-      // Retain existing drafts for other groups, but hide them from this workspace.
       const storedGroups = [...new Set(studentsForCurrentRole().map(studentGroupName).filter(Boolean))];
       const restored = feedbackRestore(saved, feedbackState.catalog, storedGroups);
-      feedbackState.schedules = restored.schedules; feedbackState.drafts = restored.drafts;
+      feedbackState.schedules = restored.schedules;
       await feedbackLoadServerSchedules();
+      if (apiContext.demoMode) feedbackPersist();
       feedbackState.restored = true; feedbackState.error = "";
-      if (recovered || restored.recovered) showNotice("Повреждённые записи пропущены. Остальные черновики и настройки сохранены.", "danger");
+      if (recovered || restored.recovered) showNotice("Повреждённые записи пропущены. Остальные настройки расписания сохранены.", "danger");
     } catch (error) {
       feedbackState.catalog = null;
       feedbackState.error = error.message;
@@ -231,13 +191,12 @@ async function renderFeedback() {
   }
   root.innerHTML = `
     <div class="feedback-tabs" role="tablist" aria-label="Обратная связь">
-      ${[["groups", "По группам", "users"], ["manual", "Создать вручную", "square-pen"], ["history", "Черновики", "files"]]
+      ${[["groups", "По группам", "users"], ["manual", "Создать вручную", "square-pen"]]
         .map(([tab, label, icon]) => `<button id="feedbackTab-${tab}" type="button" role="tab" aria-controls="feedbackTabPanel" aria-selected="${feedbackState.tab === tab}" tabindex="${feedbackState.tab === tab ? 0 : -1}"
           class="${feedbackState.tab === tab ? "is-active" : ""}" data-feedback-tab="${tab}">
-          <i data-lucide="${icon}"></i>${label}${tab === "history" ? `<span>${feedbackState.drafts.filter((draft) => !draft.group || groups.includes(draft.group)).length}</span>` : ""}</button>`).join("")}
+          <i data-lucide="${icon}"></i>${label}</button>`).join("")}
     </div>
     <div id="feedbackTabPanel" role="tabpanel" aria-labelledby="feedbackTab-${feedbackState.tab}">
-    ${feedbackState.tab === "history" ? feedbackHistoryMarkup() : `
       ${feedbackState.tab === "groups" ? feedbackGroupMarkup(groups) : ""}
       <div class="feedback-workspace-grid">
         <form id="feedbackComposeForm" class="feedback-compose-card" novalidate>
@@ -246,18 +205,16 @@ async function renderFeedback() {
           <button class="primary-action feedback-generate" type="submit"><i data-lucide="sparkles"></i>Подготовить сообщение</button>
         </form>
         <section class="feedback-output-card" aria-label="Сообщение родителям">
-          <div class="feedback-card-heading"><span class="feedback-step">2</span><div><h2>Сообщение родителям</h2><p>Текст можно редактировать; правки сохраняются автоматически.</p></div></div>
+          <div class="feedback-card-heading"><span class="feedback-step">2</span><div><h2>Сообщение родителям</h2><p>Отредактируйте текст и скопируйте его или скачайте файл.</p></div></div>
           <div class="feedback-output-meta" id="feedbackOutputMeta">${feedbackOutputMeta()}</div>
           <p class="feedback-stale-note" ${feedbackState.stale ? "" : "hidden"}>Параметры изменены. Текст ниже относится к прежнему занятию — подготовьте сообщение заново.</p>
           <label class="feedback-editor-label" for="feedbackText">Текст сообщения</label>
           <textarea id="feedbackText" class="feedback-text" maxlength="20000" placeholder="Здесь появится сообщение о занятии. Его можно отредактировать перед копированием." ${feedbackState.generated ? "" : "disabled"}>${escapeHtml(feedbackState.text)}</textarea>
           <div class="feedback-output-actions"><button class="primary-action" data-feedback-copy type="button" ${feedbackState.text.trim() ? "" : "disabled"}><i data-lucide="copy"></i>Скопировать</button>
-            <button class="secondary-action" data-feedback-save type="button" ${feedbackState.text.trim() ? "" : "disabled"}><i data-lucide="bookmark"></i>Сохранить</button>
             <button class="secondary-action" data-feedback-download type="button" ${feedbackState.text.trim() ? "" : "disabled"} aria-label="Скачать сообщение текстовым файлом"><i data-lucide="download"></i></button></div>
-          <p id="feedbackSaveState" class="feedback-save-state" role="status" aria-live="polite">${feedbackState.draftId ? "Черновик доступен в истории" : ""}</p>
           <p class="feedback-delivery-note"><i data-lucide="shield-check"></i>Сообщения не отправляются. Вы сами решаете, когда поделиться текстом.</p>
         </section>
-      </div>`}
+      </div>
     </div>`;
   refreshIcons();
   if (scheduleOpen && qs(".feedback-schedule-settings")) qs(".feedback-schedule-settings").open = true;
@@ -284,12 +241,11 @@ function feedbackGroupMarkup(groups) {
   }).join("")}</div>
     <div class="feedback-week-heading"><h2>Занятия группы</h2><span>${rows.length} занятий · свои даты и материалы</span></div>
     <div class="feedback-weeks">${rows.map((row) => {
-      const saved = feedbackState.drafts.some((draft) => draft.group === feedbackState.group && draft.rowId === row.id);
       return `<button type="button" data-feedback-row="${escapeHtml(row.id)}" class="${row.id === feedbackState.rowId ? "is-active" : ""} ${row.skipped ? "is-skipped" : ""}">
         <small>${feedbackDateLabel(row.date)}</small><strong>Занятие ${row.number}</strong>
         <span class="feedback-lesson-topic">${escapeHtml(feedbackLessonTopic(schedule.course, row.lesson))}</span>
         ${row.repeat ? '<span class="feedback-repeat-badge">Повторение</span>' : ""}
-        <span>${row.skipped ? "Отменено" : saved ? "Черновик сохранён" : row.date > feedbackToday() ? "Впереди" : "Можно подготовить"}</span></button>`;
+        <span>${row.skipped ? "Отменено" : row.date > feedbackToday() ? "Впереди" : "Можно подготовить"}</span></button>`;
     }).join("")}</div>
     <details class="feedback-schedule-settings"><summary><i data-lucide="calendar-days"></i>Расписание: уроки и даты</summary>
       <div id="feedbackScheduleEditor">${feedbackScheduleEditorMarkup()}</div>
@@ -376,11 +332,11 @@ function feedbackFormMarkup() {
       <div class="feedback-student-chips">${groupStudents.map((student) => `<label><input type="checkbox" name="absent" value="${escapeHtml(student.name)}" ${feedbackState.absent.includes(student.name) ? "checked" : ""}><span>${escapeHtml(student.name)}<i data-lucide="check"></i></span></label>`).join("")}</div>
       <label class="feedback-add-names">${groupStudents.length ? "Другие имена" : "Отсутствующие ученики"}<input name="extraAbsent" maxlength="2000" value="${escapeHtml(feedbackState.extraAbsent)}" placeholder="Имена через запятую"></label></div>
     ${feedbackState.repeat ? '<p class="feedback-repeat-note"><span class="feedback-repeat-badge">Повторение</span> Закрепляем выбранную тему.</p>' : ""}
+    <label class="feedback-checkbox"><input type="checkbox" name="coins" ${feedbackState.coins ? "checked" : ""}><span><strong>Астрокоины за урок уже начислены</strong><small>Отметьте после начисления в разделе «Начисления». Информация о балансе и магазине добавляется в сообщение всегда.</small></span></label>
     <details class="feedback-advanced"><summary>Дополнительные параметры<i data-lucide="chevron-down"></i></summary>
       <div class="feedback-fields-two"><label>Формат<select name="mode"><option value="group" ${feedbackState.mode === "group" ? "selected" : ""}>Группа</option><option value="online" ${feedbackState.mode === "online" ? "selected" : ""}>Онлайн / индивидуально</option></select></label>
         <label>Смещение номера<input name="offset" type="number" min="-99" max="999" step="1" value="${feedbackState.offset}" required></label></div>
       <p>Меняет номер в сообщении, сохраняя материал курса.</p>
-      <label class="feedback-checkbox"><input type="checkbox" name="coins" ${feedbackState.coins ? "checked" : ""}><span><strong>Астрокоины за урок уже начислены</strong><small>Добавить информацию о начислении. Само начисление выполняется в разделе «Начисления».</small></span></label>
     </details>`;
 }
 
@@ -413,21 +369,9 @@ function feedbackBuildText() {
     : `${absentNames}, ждем на отработке за 30 минут до начала следующего занятия.` : "";
   return [`Обратная связь урок №${String(number).padStart(2, "0")} от ${formattedDate}`,
     `${greeting}, уважаемые родители!`, educational, absentText,
-    feedbackState.coins ? `Начислены астрокоины за урок №${String(number).padStart(2, "0")} от ${formattedDate}\nКоличество астрокоинов, а также куда их потратить, можно посмотреть в боте Max\nhttps://max.ru/id525601030904_3_bot` : "",
+    feedbackState.coins ? `Начислены астрокоины за урок №${String(number).padStart(2, "0")} от ${formattedDate}.` : "",
+    "Баланс астрокоинов и товары, на которые их можно потратить, доступны в миниприложении Алгобота в MAX:\nhttps://max.ru/id525601030904_3_bot",
     "На онлайн-платформе «Алгоритмика» предоставлен весь материал, пройденный на уроках, и прогресс ребенка.", "Удачной недели!"].filter(Boolean).join("\n\n");
-}
-
-function feedbackHistoryMarkup() {
-  const groups = feedbackGroups();
-  const query = feedbackState.historySearch.trim().toLocaleLowerCase("ru-RU");
-  const drafts = feedbackState.drafts.filter((draft) => (!draft.group || groups.includes(draft.group))
-    && `${draft.group} ${draft.course} ${draft.date} ${draft.text}`.toLocaleLowerCase("ru-RU").includes(query));
-  return `<label class="feedback-history-search">Поиск черновика<input id="feedbackHistorySearch" type="search" value="${escapeHtml(feedbackState.historySearch)}" placeholder="Группа, курс, дата или текст"></label>
-    <div id="feedbackHistoryList">${drafts.length ? `<div class="feedback-history">${drafts.map((draft) => `
-    <article class="feedback-draft-card"><button type="button" class="feedback-draft-open" data-feedback-draft="${escapeHtml(draft.id)}"><span class="feedback-group-icon"><i data-lucide="file-text"></i></span>
-      <span><strong>${escapeHtml(draft.group || draft.course)}</strong><small>Урок ${Number(draft.lesson) + Number(draft.offset)} · ${feedbackDateLabel(draft.date)}</small><p>${escapeHtml(draft.text.slice(0, 100))}…</p></span>
-      <i data-lucide="chevron-right"></i></button><button class="icon-button" type="button" data-feedback-delete-draft="${escapeHtml(draft.id)}" aria-label="Удалить черновик занятия ${Number(draft.lesson) + Number(draft.offset)}"><i data-lucide="trash-2"></i></button></article>`).join("")}</div>`
-    : `<div class="feedback-history-empty"><i data-lucide="files"></i><h2>${query ? "Ничего не найдено" : "Здесь будут ваши черновики"}</h2><p>${query ? "Попробуйте другую группу, дату или слово." : "Подготовьте сообщение — черновик сохранится автоматически."}</p><button class="primary-action" data-feedback-tab="manual">Создать сообщение</button></div>`}</div>`;
 }
 
 async function feedbackCanLeaveEditor() {
@@ -446,11 +390,10 @@ document.addEventListener("submit", async (event) => {
       if (row?.skipped) throw new Error("Занятие отмечено отменённым. Сначала измените отметку в расписании.");
       const text = feedbackBuildText();
       if (feedbackState.edited && !await requestConfirmation({ title: "Подготовить текст заново?", message: "Ручные правки в текущем сообщении будут заменены текстом по материалам урока.", confirmLabel: "Подготовить заново", cancelLabel: "Оставить правки" })) return;
-      feedbackSaveDraft();
       const keys = ["group", "rowId", "course", "lesson", "date", "offset", "mode", "repeat", "coins", "absent", "extraAbsent"];
       feedbackState.generated = structuredClone(Object.fromEntries(keys.map((key) => [key, feedbackState[key]])));
-      feedbackState.text = text; feedbackState.draftId = ""; feedbackState.edited = false; feedbackState.stale = false;
-      feedbackSaveDraft(); await renderFeedback();
+      feedbackState.text = text; feedbackState.edited = false; feedbackState.stale = false;
+      await renderFeedback();
       if (window.matchMedia("(max-width: 900px)").matches) qs(".feedback-output-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
       showNotice("Сообщение подготовлено. Проверьте текст перед копированием.");
     } else if (event.target.id === "feedbackScheduleForm") {
@@ -548,15 +491,7 @@ document.addEventListener("input", (event) => {
   }
   if (event.target.id === "feedbackText") {
     feedbackState.text = event.target.value; feedbackState.edited = true;
-    qsa("[data-feedback-copy], [data-feedback-save], [data-feedback-download]").forEach((button) => { button.disabled = !feedbackState.text.trim(); });
-    window.clearTimeout(feedbackState.autosaveTimer);
-    feedbackState.autosaveTimer = window.setTimeout(() => feedbackSaveDraft(), 600);
-    const label = qs("#feedbackSaveState"); if (label) label.textContent = feedbackState.text.trim() ? "Сохраняем…" : "Пустой текст не сохранён. Предыдущий черновик остался в истории.";
-  }
-  if (event.target.id === "feedbackHistorySearch") {
-    feedbackState.historySearch = event.target.value;
-    const markup = document.createElement("div"); markup.innerHTML = feedbackHistoryMarkup();
-    qs("#feedbackHistoryList").innerHTML = markup.querySelector("#feedbackHistoryList").innerHTML; refreshIcons();
+    qsa("[data-feedback-copy], [data-feedback-download]").forEach((button) => { button.disabled = !feedbackState.text.trim(); });
   }
 });
 
@@ -565,29 +500,29 @@ document.addEventListener("click", async (event) => {
   const button = event.target.closest("button"); if (!button) return;
   const data = button.dataset;
   try {
-    if (data.feedbackTab || data.feedbackGroup || data.feedbackRow || data.feedbackDraft) {
+    if (data.feedbackTab || data.feedbackGroup || data.feedbackRow) {
       if (!await feedbackCanLeaveEditor()) return;
+      const changingMessage = (data.feedbackTab && data.feedbackTab !== feedbackState.tab)
+        || (data.feedbackGroup && data.feedbackGroup !== feedbackState.group)
+        || (data.feedbackRow && data.feedbackRow !== feedbackState.rowId);
+      if (changingMessage && feedbackState.edited && feedbackState.text.trim()
+        && !await requestConfirmation({ title: "Закрыть отредактированное сообщение?", message: "Скопируйте текст или скачайте файл, чтобы сохранить правки. При переходе сообщение будет закрыто.", confirmLabel: "Перейти", cancelLabel: "Остаться" })) return;
       if (feedbackState.editorDirty) {
         feedbackState.editor = feedbackState.group ? structuredClone(feedbackSchedule(feedbackState.group)) : null;
         feedbackState.editorDirty = false;
       }
-      feedbackReadForm(); feedbackSaveDraft();
+      feedbackReadForm();
       if (data.feedbackTab) {
         feedbackState.tab = data.feedbackTab;
         if (data.feedbackTab === "manual") {
           feedbackState.group = ""; feedbackState.rowId = ""; feedbackState.editorDirty = false;
-          if (feedbackState.generated?.group) { feedbackState.text = ""; feedbackState.generated = null; feedbackState.draftId = ""; feedbackState.edited = false; }
+          if (feedbackState.generated?.group) { feedbackState.text = ""; feedbackState.generated = null; feedbackState.edited = false; }
         }
       } else if (data.feedbackGroup) feedbackSelectGroup(data.feedbackGroup);
       else if (data.feedbackRow) feedbackSelectGroup(feedbackState.group, data.feedbackRow);
-      else {
-        const draft = feedbackState.drafts.find((item) => item.id === data.feedbackDraft);
-        if (!draft || (draft.group && !feedbackGroups().includes(draft.group))) return;
-        feedbackLoadDraft(draft); feedbackState.tab = "manual"; feedbackState.editorDirty = false;
-      }
+
       await renderFeedback();
     } else if ("feedbackRetry" in data) await renderFeedback();
-    else if ("feedbackSave" in data) feedbackSaveDraft(true);
     else if ("feedbackCopy" in data) {
       if (!feedbackState.text.trim()) return;
       try { await navigator.clipboard.writeText(feedbackState.text); showNotice("Сообщение скопировано"); }
@@ -608,18 +543,13 @@ document.addEventListener("click", async (event) => {
     } else if (data.feedbackRemoveRow) {
       const editor = feedbackCaptureSchedule();
       if (editor.rows.length === 1) throw new Error("Оставьте хотя бы одно занятие");
-      if (!await requestConfirmation({ title: "Удалить занятие из расписания?", message: "Черновик сообщения сохранится в истории. Вместо удаления можно отметить занятие отменённым.", confirmLabel: "Удалить занятие", cancelLabel: "Оставить", destructive: true })) return;
+      if (!await requestConfirmation({ title: "Удалить занятие из расписания?", message: "Занятие будет удалено после сохранения расписания. Вместо удаления можно выключить его из расписания.", confirmLabel: "Удалить занятие", cancelLabel: "Оставить", destructive: true })) return;
       feedbackState.editorUndo = structuredClone(editor);
       editor.rows = editor.rows.filter((row) => row.id !== data.feedbackRemoveRow);
       feedbackState.editor = editor; feedbackState.editorDirty = true; feedbackRedrawEditor();
     } else if ("feedbackUndo" in data && feedbackState.editorUndo) {
       const current = feedbackCaptureSchedule(); feedbackState.editor = feedbackState.editorUndo; feedbackState.editorUndo = current;
       feedbackState.editorDirty = true; feedbackRedrawEditor();
-    } else if (data.feedbackDeleteDraft) {
-      if (!await requestConfirmation({ title: "Удалить черновик?", message: "Сохранённый текст будет удалён с этого устройства.", confirmLabel: "Удалить черновик", cancelLabel: "Оставить", destructive: true })) return;
-      feedbackState.drafts = feedbackState.drafts.filter((draft) => draft.id !== data.feedbackDeleteDraft);
-      if (feedbackState.draftId === data.feedbackDeleteDraft) { feedbackState.text = ""; feedbackState.generated = null; feedbackState.draftId = ""; }
-      if (feedbackPersist()) showNotice("Черновик удалён"); await renderFeedback();
     }
   } catch (error) { showNotice(error.message, "danger"); }
 });
@@ -632,5 +562,3 @@ document.addEventListener("keydown", (event) => {
   const tab = tabs[next].dataset.feedbackTab; tabs[next].click();
   window.setTimeout(() => qs(`[data-feedback-tab="${tab}"]`)?.focus(), 0);
 });
-
-window.addEventListener("pagehide", () => { if (canAccessFeedback()) feedbackSaveDraft(); });
