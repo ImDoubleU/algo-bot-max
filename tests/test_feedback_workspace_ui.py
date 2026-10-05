@@ -188,7 +188,8 @@ def test_server_schedule_migration_authority_and_failed_save(feedback_page):
     page.route("**/miniapp/feedback/schedules*", schedules)
     page.evaluate("""async () => {
       apiContext.demoMode=false; state.role='admin'; state.staffRoles=['superadmin','teacher'];
-      students.forEach(student=>{student.staffVisible=true;student.teacherVisible=true;});
+      students.forEach(student=>{student.staffVisible=true;student.teacherVisible=true;
+        student.course='Питон Старт 1-й год';});
       await feedbackLoadServerSchedules();
     }""")
     assert remote
@@ -220,8 +221,10 @@ def test_server_schedule_migration_authority_and_failed_save(feedback_page):
 def test_switching_courses_resizes_schedule_before_anchor_edit(feedback_page):
     page = feedback_page
     page.locator(".feedback-schedule-settings > summary").click()
-    count = page.evaluate('feedbackState.catalog["ОЛИП"].length')
-    page.locator("#feedbackScheduleForm [name=course]").select_option("ОЛИП")
+    count = page.evaluate('feedbackState.catalog["Основы логики и программирования"].length')
+    page.locator("#feedbackScheduleForm [name=course]").select_option(
+        "Основы логики и программирования"
+    )
     assert page.locator("[data-feedback-schedule-row]").count() == count
     assert page.locator("#feedbackScheduleForm select[name=lesson]").evaluate_all(
         '(items) => items.every(item => item.value !== "")'
@@ -235,13 +238,94 @@ def test_switching_courses_resizes_schedule_before_anchor_edit(feedback_page):
     assert page.locator("input[name=repeat]").count() == 0
     page.locator("#feedbackScheduleForm [type=submit]").click()
     page.reload(wait_until="networkidle")
-    assert page.evaluate("feedbackSchedule(feedbackState.group).course") == "ОЛИП"
+    assert page.evaluate("feedbackSchedule(feedbackState.group).course") == (
+        "Основы логики и программирования"
+    )
     assert page.evaluate("feedbackSchedule(feedbackState.group).rows.length") == count + 1
     page.locator(".feedback-schedule-settings > summary").click()
-    page.locator("#feedbackScheduleForm [name=course]").select_option("Python Start 1 год")
+    page.locator("#feedbackScheduleForm [name=course]").select_option("Питон Старт 1-й год")
     assert page.locator("[data-feedback-schedule-row]").count() == 37
     assert page.locator("#feedbackScheduleForm .feedback-repeat-badge").count() == 1
     assert page.evaluate("feedbackState.editor.rows[0].date") == "2026-10-04"
+
+
+def test_first_row_date_rebases_following_lessons_and_selects_first(feedback_page):
+    page = feedback_page
+    page.evaluate("""async () => {
+      const group=feedbackState.group;
+      feedbackSelectGroup(group,feedbackSchedule(group).rows[4].id);
+      await renderFeedback();
+    }""")
+    page.locator(".feedback-schedule-settings > summary").click()
+    page.locator('[data-feedback-schedule-row] input[name="date"]').first.fill("2026-09-05")
+    page.locator('[data-feedback-schedule-row] input[name="date"]').first.press("Tab")
+    assert page.evaluate("feedbackState.editor.rows.slice(0,3).map(r=>r.date)") == [
+        "2026-09-05", "2026-09-12", "2026-09-19"
+    ]
+    page.locator('#feedbackScheduleForm [type="submit"]').click()
+    assert page.evaluate("feedbackState.lesson") == 1
+    assert page.evaluate("feedbackState.date") == "2026-09-05"
+    page.reload(wait_until="networkidle")
+    assert page.evaluate("feedbackState.lesson") == 1
+
+
+def test_imported_course_names_resolve_exactly_without_python_fallback(feedback_page):
+    result = feedback_page.evaluate("""() => {
+      const names=['Основы логики и программирования','Питон Старт 1-й год',
+        'Питон Старт 2й год','Питон Старт 2-й год','Питон Профессиональный 1-й год',
+        'Питон Профессиональный 2-й год','Создание веб-сайтов','Геймдизайн',
+        'Визуальное программирование','Визуальное программирование 1 год',
+        'Компьютерная грамотность'];
+      return {matches:names.map(name=>feedbackResolveCourse(name,feedbackState.catalog)),
+        unknown:feedbackResolveCourse('Графический дизайн 12-14',feedbackState.catalog),
+        old:Object.hasOwn(feedbackState.catalog,'Геймдизайн OLD'),
+        initial:feedbackState.lesson,
+        firstDate:feedbackSchedule(feedbackState.group).rows[0].date,
+        selectedDate:feedbackState.date};
+    }""")
+    assert all(result["matches"])
+    assert result["matches"][0] == "Основы логики и программирования"
+    assert result["matches"][2] == "Питон Старт 2-й год"
+    assert result["unknown"] == ""
+    assert not result["old"]
+    assert result["initial"] == 1
+    assert result["firstDate"] == result["selectedDate"]
+
+
+def test_group_schedule_uses_imported_course_and_its_actual_lesson_count(feedback_page):
+    result = feedback_page.evaluate("""() => {
+      const group=feedbackState.group;
+      students.filter(s=>studentGroupName(s)===group).forEach(s=>{
+        s.course='Основы логики и программирования';
+      });
+      delete feedbackState.schedules[group];
+      const schedule=feedbackSchedule(group);
+      feedbackSelectGroup(group);
+      return {course:schedule.course,count:schedule.rows.length,
+        lesson:feedbackState.lesson,date:feedbackState.date,first:schedule.rows[0].date};
+    }""")
+    assert result["course"] == "Основы логики и программирования"
+    assert result["count"] == 32
+    assert result["lesson"] == 1
+    assert result["date"] == result["first"]
+
+
+def test_legacy_course_names_keep_saved_dates_and_draft_text(feedback_page):
+    result = feedback_page.evaluate("""() => {
+      const group=feedbackState.group;
+      const schedule=structuredClone(feedbackSchedule(group));
+      schedule.course='Python Start 1 год';
+      const draft={id:'draft',group,course:'Python Start 1 год',lesson:1,offset:0,
+        date:'2026-09-05',mode:'group',text:'Сохранённый текст'};
+      const restored=feedbackRestore({schedules:{[group]:schedule},drafts:[draft]},
+        feedbackState.catalog,[group]);
+      return {course:restored.schedules[group].course,date:restored.schedules[group].rows[0].date,
+        original:schedule.rows[0].date,text:restored.drafts[0].text,recovered:restored.recovered};
+    }""")
+    assert result["course"] == "Питон Старт 1-й год"
+    assert result["date"] == result["original"]
+    assert result["text"] == "Сохранённый текст"
+    assert result["recovered"] == 0
 
 
 def test_every_course_pair_has_complete_valid_materials_after_switch(feedback_page):
@@ -337,7 +421,7 @@ def test_every_source_lesson_generates_the_correct_material(feedback_page):
       }
       return results;
     }""")
-    assert len(results) == 736
+    assert len(results) == 700
     failures = [item for item in results if not item["correct"]]
     assert not failures, failures
 
@@ -584,7 +668,7 @@ def test_catalog_failure_is_retryable(feedback_page):
     page.reload(wait_until="networkidle")
     page.locator("[data-feedback-retry]").click()
     page.wait_for_selector("#feedbackComposeForm")
-    assert page.locator("#feedbackCourse option").count() == 21
+    assert page.locator("#feedbackCourse option").count() == 20
 
 
 def test_malformed_storage_variants_are_safe_and_valid_drafts_survive(feedback_page):
