@@ -182,11 +182,10 @@ function feedbackValidateSchedule(schedule, catalog) {
 }
 
 function feedbackRestore(raw, catalog, groups) {
-  const restored = { schedules: Object.create(null), drafts: [], recovered: 0 };
+  const restored = { schedules: Object.create(null), recovered: 0 };
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) { restored.recovered += 1; return restored; }
   const schedules = raw.schedules && typeof raw.schedules === "object" && !Array.isArray(raw.schedules) ? raw.schedules : {};
   if (raw.schedules && schedules !== raw.schedules) restored.recovered += 1;
-  if (raw.drafts && !Array.isArray(raw.drafts)) restored.recovered += 1;
   for (const group of groups) {
     if (!Object.hasOwn(schedules, group)) continue;
     const saved = { ...schedules[group], course: feedbackResolveCourse(schedules[group]?.course, catalog) };
@@ -210,24 +209,6 @@ function feedbackRestore(raw, catalog, groups) {
       }
       feedbackValidateSchedule(schedule, catalog);
       restored.schedules[group] = schedule;
-    } catch { restored.recovered += 1; }
-  }
-  const seen = new Set();
-  for (const stored of (Array.isArray(raw.drafts) ? raw.drafts : []).slice(0, 100)) {
-    const value = { ...stored, course: feedbackResolveCourse(stored?.course, catalog) };
-    try {
-      const validated = feedbackValidateMessage(value, catalog);
-      if (typeof value.id !== "string" || !value.id || seen.has(value.id)) throw new Error();
-      if (typeof value.text !== "string" || !value.text.trim() || value.text.length > 20000) throw new Error();
-      if (typeof value.group !== "string" || (value.group && !groups.includes(value.group))) continue;
-      const draft = { id: value.id, group: value.group, course: value.course, lesson: validated.lesson,
-        offset: validated.offset, date: value.date, mode: value.mode, text: value.text,
-        repeat: value.repeat === true, coins: value.coins === true,
-        absent: feedbackUniqueNames(Array.isArray(value.absent) ? value.absent : []),
-        extraAbsent: typeof value.extraAbsent === "string" ? value.extraAbsent.slice(0, 2000) : "",
-        rowId: typeof value.rowId === "string" ? value.rowId : "",
-        updatedAt: feedbackValidDate(String(value.updatedAt).slice(0, 10)) ? value.updatedAt : new Date().toISOString() };
-      restored.drafts.push(draft); seen.add(value.id);
     } catch { restored.recovered += 1; }
   }
   return restored;
