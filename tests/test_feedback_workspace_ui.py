@@ -693,21 +693,31 @@ def test_invalid_advanced_control_is_revealed_before_validation(feedback_page):
     assert page.locator(".feedback-advanced").evaluate("element => element.open")
 
 
-def test_astrocoin_balance_info_is_always_present_and_accrual_is_optional(feedback_page):
+def test_astrocoin_checkbox_defaults_on_and_updates_text_without_regeneration(feedback_page):
     page = feedback_page
+    coins = page.locator('#feedbackComposeForm [name="coins"]')
+    assert coins.is_checked()
+    assert coins.is_visible()
+    assert page.locator(".feedback-card-heading p, .feedback-checkbox small").count() == 0
     submit = page.locator('#feedbackComposeForm [type="submit"]')
-    submit.click()
-    text = page.locator("#feedbackText").input_value()
-    assert "Баланс астрокоинов" in text
-    assert "https://max.ru/id525601030904_3_bot" in text
-    assert "Начислены астрокоины" not in text
-    page.locator('#feedbackComposeForm [name="coins"]').check()
     submit.click()
     text = page.locator("#feedbackText").input_value()
     assert "Начислены астрокоины за урок №01" in text
     assert text.count("https://max.ru/id525601030904_3_bot") == 1
+    page.locator("#feedbackText").fill(text + "\nМоя правка")
+    coins.uncheck()
+    text = page.locator("#feedbackText").input_value()
+    assert "астрокоин" not in text.lower()
+    assert "https://max.ru/id525601030904_3_bot" not in text
+    assert "Моя правка" in text
+    coins.check()
+    text = page.locator("#feedbackText").input_value()
+    assert text.count("Начислены астрокоины") == 1
+    assert "Моя правка" in text
+    coins.uncheck()
     row_id = page.evaluate("feedbackState.rowId")
     page.locator(f'.feedback-weeks button:not([data-feedback-row="{row_id}"])').first.click()
-    assert not page.locator('#feedbackComposeForm [name="coins"]').is_checked()
+    page.locator("#confirmConfirmationButton").click()
+    assert coins.is_checked()
     submit.click()
-    assert "Начислены астрокоины" not in page.locator("#feedbackText").input_value()
+    assert "Начислены астрокоины" in page.locator("#feedbackText").input_value()

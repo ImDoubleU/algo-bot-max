@@ -3,7 +3,7 @@ let feedbackStorageKey = `algo-max-feedback-preview-v2:${apiContext.tenantSlug |
 const feedbackState = {
   tab: "groups", contextKey: "", legacyStorageKey: "", catalog: null, loading: false, scheduleSaving: false, error: "", restored: false,
   group: "", rowId: "", course: "", lesson: 1, date: feedbackToday(), offset: 0,
-  mode: "group", repeat: false, coins: false, absent: [], extraAbsent: "",
+  mode: "group", repeat: false, coins: true, absent: [], extraAbsent: "",
   text: "", generated: null, edited: false, stale: false,
   schedules: Object.create(null), serverVersions: Object.create(null), editor: null, editorDirty: false,
   editorUndo: null, groupSearch: "",
@@ -128,7 +128,7 @@ function feedbackSelectGroup(group, rowId = "") {
   Object.assign(feedbackState, {
     group, rowId: row.id, course: schedule.course, lesson: Number(row.lesson), date: row.date,
     offset: Number(row.number) - Number(row.lesson), mode: schedule.mode, absent: [], extraAbsent: "",
-    repeat: row.repeat, coins: false, text: "", generated: null, edited: false, stale: false,
+    repeat: row.repeat, coins: true, text: "", generated: null, edited: false, stale: false,
     editor: structuredClone(schedule), editorDirty: false, editorUndo: null,
   });
 }
@@ -200,19 +200,18 @@ async function renderFeedback() {
       ${feedbackState.tab === "groups" ? feedbackGroupMarkup(groups) : ""}
       <div class="feedback-workspace-grid">
         <form id="feedbackComposeForm" class="feedback-compose-card" novalidate>
-          <div class="feedback-card-heading"><span class="feedback-step">1</span><div><h2>Что было на занятии</h2><p>Выберите материал и добавьте детали группы.</p></div></div>
+          <div class="feedback-card-heading"><span class="feedback-step">1</span><div><h2>Что было на занятии</h2></div></div>
           ${feedbackFormMarkup()}
           <button class="primary-action feedback-generate" type="submit"><i data-lucide="sparkles"></i>Подготовить сообщение</button>
         </form>
         <section class="feedback-output-card" aria-label="Сообщение родителям">
-          <div class="feedback-card-heading"><span class="feedback-step">2</span><div><h2>Сообщение родителям</h2><p>Отредактируйте текст и скопируйте его или скачайте файл.</p></div></div>
+          <div class="feedback-card-heading"><span class="feedback-step">2</span><div><h2>Сообщение родителям</h2></div></div>
           <div class="feedback-output-meta" id="feedbackOutputMeta">${feedbackOutputMeta()}</div>
-          <p class="feedback-stale-note" ${feedbackState.stale ? "" : "hidden"}>Параметры изменены. Текст ниже относится к прежнему занятию — подготовьте сообщение заново.</p>
+          <p class="feedback-stale-note" ${feedbackState.stale ? "" : "hidden"}>Параметры изменены. Обновите сообщение.</p>
           <label class="feedback-editor-label" for="feedbackText">Текст сообщения</label>
-          <textarea id="feedbackText" class="feedback-text" maxlength="20000" placeholder="Здесь появится сообщение о занятии. Его можно отредактировать перед копированием." ${feedbackState.generated ? "" : "disabled"}>${escapeHtml(feedbackState.text)}</textarea>
+          <textarea id="feedbackText" class="feedback-text" maxlength="20000" placeholder="Сообщение о занятии" ${feedbackState.generated ? "" : "disabled"}>${escapeHtml(feedbackState.text)}</textarea>
           <div class="feedback-output-actions"><button class="primary-action" data-feedback-copy type="button" ${feedbackState.text.trim() ? "" : "disabled"}><i data-lucide="copy"></i>Скопировать</button>
             <button class="secondary-action" data-feedback-download type="button" ${feedbackState.text.trim() ? "" : "disabled"} aria-label="Скачать сообщение текстовым файлом"><i data-lucide="download"></i></button></div>
-          <p class="feedback-delivery-note"><i data-lucide="shield-check"></i>Сообщения не отправляются. Вы сами решаете, когда поделиться текстом.</p>
         </section>
       </div>
     </div>`;
@@ -273,8 +272,7 @@ function feedbackScheduleEditorMarkup() {
   return `<form id="feedbackScheduleForm">
       <div class="feedback-fields-two"><label>Курс группы<select name="course">${feedbackCourseOptions(editor.course)}</select></label>
         <label>Формат<select name="mode"><option value="group" ${editor.mode === "group" ? "selected" : ""}>Группа</option><option value="online" ${editor.mode === "online" ? "selected" : ""}>Онлайн / индивидуально</option></select></label></div>
-      <label class="feedback-first-date">Дата первого занятия<input name="firstDate" type="date" min="2000-01-01" max="2100-12-31" value="${editor.rows.find((row) => !row.skipped)?.date || feedbackToday()}" required><small>От этой даты отсчитываются остальные недели. Изменение сдвинет весь календарь; отдельные даты ниже можно поправить вручную.</small></label>
-      <p>Выключение урока убирает его неделю из календаря: следующие занятия сдвигаются на неделю раньше и перенумеровываются. Их темы сохраняются.</p>
+      <label class="feedback-first-date">Дата первого занятия<input name="firstDate" type="date" min="2000-01-01" max="2100-12-31" value="${editor.rows.find((row) => !row.skipped)?.date || feedbackToday()}" required></label>
       <div class="feedback-schedule-table-wrap"><table class="feedback-schedule-table"><thead><tr><th scope="col">№ занятия</th><th scope="col">Дата</th><th scope="col">Материал курса</th><th scope="col">Повторение</th><th scope="col">Выключено</th><th scope="col"><span class="feedback-editor-label">Действия</span></th></tr></thead>
       <tbody>${editor.rows.map((row) => `<tr class="${row.skipped ? "feedback-disabled-row" : ""}" data-feedback-schedule-row="${escapeHtml(row.id)}">
         <td><input name="number" type="number" min="1" max="999" step="1" value="${escapeHtml(row.number)}" ${row.skipped ? 'disabled title="Выключенное занятие не имеет номера в календаре"' : ""} required aria-label="Номер занятия">${row.skipped ? '<small>Выключен</small>' : ""}</td>
@@ -290,7 +288,6 @@ function feedbackScheduleEditorMarkup() {
     <dialog id="feedbackRepeatDialog" class="feedback-repeat-dialog">
       <form id="feedbackRepeatForm"><h3>Добавить повторение</h3>
         <label>Номер повторяемого занятия<select name="repeatRow" required>${editor.rows.filter((row) => !row.skipped).map((row) => `<option value="${escapeHtml(row.id)}">№${row.number} — ${escapeHtml(feedbackLessonTopic(editor.course, row.lesson))}</option>`).join("")}</select></label>
-        <p>Повторение появится сразу после выбранного занятия с той же темой. Следующие занятия сдвинутся на неделю позже.</p>
         <div class="feedback-schedule-actions"><button type="button" class="secondary-action" data-feedback-close-repeat>Отмена</button><button type="submit" class="primary-action">Добавить повторение</button></div>
       </form>
     </dialog>
@@ -328,15 +325,14 @@ function feedbackFormMarkup() {
     <div class="feedback-fields-two"><label>Материал курса<select name="lesson" id="feedbackLesson">${feedbackLessonOptions(feedbackState.course, feedbackState.lesson)}</select></label>
       <label>Дата занятия<input type="date" name="date" min="2000-01-01" max="2100-12-31" value="${feedbackState.date}" required></label></div>
     <div class="feedback-material"><span><i data-lucide="book-open"></i>Из материалов курса</span><p>${escapeHtml((lesson?.educational_results || "").slice(0, 200))}${(lesson?.educational_results || "").length > 200 ? "…" : ""}</p></div>
-    <div class="feedback-attendance"><h3>Кого не было на занятии?</h3><p>Отметьте учеников, которым нужно напомнить об отработке.</p>
+    <div class="feedback-attendance"><h3>Кого не было на занятии?</h3>
       <div class="feedback-student-chips">${groupStudents.map((student) => `<label><input type="checkbox" name="absent" value="${escapeHtml(student.name)}" ${feedbackState.absent.includes(student.name) ? "checked" : ""}><span>${escapeHtml(student.name)}<i data-lucide="check"></i></span></label>`).join("")}</div>
       <label class="feedback-add-names">${groupStudents.length ? "Другие имена" : "Отсутствующие ученики"}<input name="extraAbsent" maxlength="2000" value="${escapeHtml(feedbackState.extraAbsent)}" placeholder="Имена через запятую"></label></div>
-    ${feedbackState.repeat ? '<p class="feedback-repeat-note"><span class="feedback-repeat-badge">Повторение</span> Закрепляем выбранную тему.</p>' : ""}
-    <label class="feedback-checkbox"><input type="checkbox" name="coins" ${feedbackState.coins ? "checked" : ""}><span><strong>Астрокоины за урок уже начислены</strong><small>Отметьте после начисления в разделе «Начисления». Информация о балансе и магазине добавляется в сообщение всегда.</small></span></label>
+    ${feedbackState.repeat ? '<p class="feedback-repeat-note"><span class="feedback-repeat-badge">Повторение</span></p>' : ""}
+    <label class="feedback-checkbox"><input type="checkbox" name="coins" ${feedbackState.coins ? "checked" : ""}><span><strong>Астрокоины</strong></span></label>
     <details class="feedback-advanced"><summary>Дополнительные параметры<i data-lucide="chevron-down"></i></summary>
       <div class="feedback-fields-two"><label>Формат<select name="mode"><option value="group" ${feedbackState.mode === "group" ? "selected" : ""}>Группа</option><option value="online" ${feedbackState.mode === "online" ? "selected" : ""}>Онлайн / индивидуально</option></select></label>
         <label>Смещение номера<input name="offset" type="number" min="-99" max="999" step="1" value="${feedbackState.offset}" required></label></div>
-      <p>Меняет номер в сообщении, сохраняя материал курса.</p>
     </details>`;
 }
 
@@ -355,6 +351,34 @@ function feedbackReadForm(validate = false) {
   return true;
 }
 
+function feedbackCoinText(message) {
+  if (!message.coins) return "";
+  const number = Number(message.lesson) + Number(message.offset);
+  const date = message.date.split("-").reverse().join(".");
+  return `Начислены астрокоины за урок №${String(number).padStart(2, "0")} от ${date}.\n\nБаланс астрокоинов и магазин — в Алгоботе MAX:\nhttps://max.ru/id525601030904_3_bot`;
+}
+
+function feedbackUpdateCoins() {
+  const message = feedbackState.generated;
+  if (!message || message.coins === feedbackState.coins) return;
+  const before = feedbackCoinText(message);
+  const after = feedbackCoinText({ ...message, coins: feedbackState.coins });
+  if (before && !feedbackState.text.includes(before)) {
+    feedbackState.stale = true;
+    return;
+  }
+  if (before) feedbackState.text = after ? feedbackState.text.replace(before, after)
+    : feedbackState.text.replace(`\n\n${before}`, "").replace(before, "");
+  else {
+    const footer = "На онлайн-платформе «Алгоритмика»";
+    const index = feedbackState.text.indexOf(footer);
+    feedbackState.text = index < 0 ? `${feedbackState.text}\n\n${after}`
+      : `${feedbackState.text.slice(0, index)}${after}\n\n${feedbackState.text.slice(index)}`;
+  }
+  message.coins = feedbackState.coins;
+  qs("#feedbackText").value = feedbackState.text;
+}
+
 function feedbackBuildText() {
   const { number } = feedbackValidateMessage(feedbackState, feedbackState.catalog);
   const lesson = feedbackState.catalog[feedbackState.course][feedbackState.lesson - 1];
@@ -369,8 +393,7 @@ function feedbackBuildText() {
     : `${absentNames}, ждем на отработке за 30 минут до начала следующего занятия.` : "";
   return [`Обратная связь урок №${String(number).padStart(2, "0")} от ${formattedDate}`,
     `${greeting}, уважаемые родители!`, educational, absentText,
-    feedbackState.coins ? `Начислены астрокоины за урок №${String(number).padStart(2, "0")} от ${formattedDate}.` : "",
-    "Баланс астрокоинов и товары, на которые их можно потратить, доступны в миниприложении Алгобота в MAX:\nhttps://max.ru/id525601030904_3_bot",
+    feedbackCoinText(feedbackState),
     "На онлайн-платформе «Алгоритмика» предоставлен весь материал, пройденный на уроках, и прогресс ребенка.", "Удачной недели!"].filter(Boolean).join("\n\n");
 }
 
@@ -475,7 +498,9 @@ document.addEventListener("change", (event) => {
     }
   }
   if (event.target.closest("#feedbackComposeForm")) {
-    feedbackReadForm(); feedbackState.stale = Boolean(feedbackState.generated);
+    feedbackReadForm();
+    if (event.target.name === "coins") feedbackUpdateCoins();
+    else feedbackState.stale = Boolean(feedbackState.generated);
     if (event.target.id === "feedbackCourse") feedbackState.lesson = 1;
     if (["feedbackCourse", "feedbackLesson"].includes(event.target.id)) void renderFeedback();
     else { const note = qs(".feedback-stale-note"); if (note) note.hidden = !feedbackState.stale; }
