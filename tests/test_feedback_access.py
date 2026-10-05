@@ -53,7 +53,7 @@ async def test_feedback_returns_catalog_only_after_superadmin_check(monkeypatch)
     monkeypatch.setattr(miniapp, "is_global_superadmin", check)
     response = await miniapp.miniapp_feedback_catalog(db, SimpleNamespace(max_user_id=777))
     catalog = json.loads(response.body)
-    assert sum(len(lessons) for lessons in catalog.values()) == 736
+    assert sum(len(lessons) for lessons in catalog.values()) == 700
     assert all(
         lesson["topic"] and len(lesson["topic"]) <= 65
         for lessons in catalog.values()

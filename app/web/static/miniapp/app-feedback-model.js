@@ -1,4 +1,23 @@
 // Pure validation and schedule helpers for the local feedback workspace.
+function feedbackResolveCourse(value, catalog) {
+  const aliases = {
+    "Python Start 1 год": "Питон Старт 1-й год",
+    "Python Start 2 год": "Питон Старт 2-й год",
+    "Питон Старт 2й год": "Питон Старт 2-й год",
+    "Python Pro 1 год": "Питон Профессиональный 1-й год",
+    "Python Pro 2 год": "Питон Профессиональный 2-й год",
+    "Геймдизайн NEW": "Геймдизайн",
+    "Геймдизайн OLD": "Геймдизайн",
+    "Создание сайтов": "Создание веб-сайтов",
+    "ОЛИП": "Основы логики и программирования",
+    "Визуальное программирование 1 год": "Визуальное программирование",
+  };
+  const normalize = (name) => String(name || "").normalize("NFC").trim().replace(/\s+/g, " ").toLocaleLowerCase("ru-RU");
+  const name = normalize(value);
+  const alias = Object.keys(aliases).find((item) => normalize(item) === name);
+  return Object.keys(catalog).find((item) => normalize(item) === normalize(alias ? aliases[alias] : value)) || "";
+}
+
 function feedbackValidDate(value) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   if (value < "2000-01-01" || value > "2100-12-31") return false;
@@ -170,7 +189,7 @@ function feedbackRestore(raw, catalog, groups) {
   if (raw.drafts && !Array.isArray(raw.drafts)) restored.recovered += 1;
   for (const group of groups) {
     if (!Object.hasOwn(schedules, group)) continue;
-    const saved = schedules[group];
+    const saved = { ...schedules[group], course: feedbackResolveCourse(schedules[group]?.course, catalog) };
     try {
       let schedule;
       if (Array.isArray(saved?.rows)) {
@@ -194,7 +213,8 @@ function feedbackRestore(raw, catalog, groups) {
     } catch { restored.recovered += 1; }
   }
   const seen = new Set();
-  for (const value of (Array.isArray(raw.drafts) ? raw.drafts : []).slice(0, 100)) {
+  for (const stored of (Array.isArray(raw.drafts) ? raw.drafts : []).slice(0, 100)) {
+    const value = { ...stored, course: feedbackResolveCourse(stored?.course, catalog) };
     try {
       const validated = feedbackValidateMessage(value, catalog);
       if (typeof value.id !== "string" || !value.id || seen.has(value.id)) throw new Error();

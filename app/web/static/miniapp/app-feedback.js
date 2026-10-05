@@ -108,13 +108,14 @@ async function feedbackSaveSchedule(group, schedule) {
 function feedbackSchedule(group) {
   if (!Object.hasOwn(feedbackState.schedules, group)) {
     const student = feedbackStudents().find((item) => studentGroupName(item) === group);
-    const names = Object.keys(feedbackState.catalog);
-    const course = names.find((name) => name.startsWith(student?.course || "Python Start")) || names[0];
+    const course = feedbackResolveCourse(student?.course || (apiContext.demoMode ? "Питон Старт 1-й год" : ""), feedbackState.catalog);
+    if (!course) throw new Error(`Для группы «${group}» нет соответствия курсу «${student?.course || "не указан"}». Выберите материалы курса после уточнения названия.`);
     const today = feedbackToday();
-    const weekday = /сб/i.test(group) ? 6 : /вс/i.test(group) ? 0 : new Date(`${today}T12:00:00Z`).getUTCDay();
+    const day = feedbackGroupOrder(group)[0];
+    const weekday = day < 7 ? (day + 1) % 7 : new Date(`${today}T12:00:00Z`).getUTCDay();
     const lastDate = feedbackShiftDate(today, -((new Date(`${today}T12:00:00Z`).getUTCDay() - weekday + 7) % 7));
     feedbackState.schedules[group] = { course, mode: "group", rows: feedbackSeries(course,
-      feedbackShiftDate(lastDate, -28), 1, 1, feedbackState.catalog[course].length, 7, feedbackState.catalog) };
+      lastDate, 1, 1, feedbackState.catalog[course].length, 7, feedbackState.catalog) };
   }
   return feedbackState.schedules[group];
 }
@@ -151,9 +152,8 @@ function feedbackLoadDraft(draft) {
 function feedbackSelectGroup(group, rowId = "") {
   feedbackSaveDraft();
   const schedule = feedbackSchedule(group);
-  const rows = [...schedule.rows].sort((a, b) => a.date.localeCompare(b.date) || a.number - b.number);
+  const rows = schedule.rows;
   const row = rows.find((item) => item.id === rowId)
-    || [...rows].reverse().find((item) => item.date <= feedbackToday() && !item.skipped)
     || rows.find((item) => !item.skipped) || rows[0];
   Object.assign(feedbackState, {
     group, rowId: row.id, course: schedule.course, lesson: Number(row.lesson), date: row.date,
@@ -458,6 +458,8 @@ document.addEventListener("submit", async (event) => {
       const schedule = feedbackCaptureSchedule();
       feedbackValidateSchedule(schedule, feedbackState.catalog);
       const group = feedbackState.group;
+      const first = schedule.rows.find((row) => !row.skipped);
+      const anchorChanged = first.date !== feedbackSchedule(group).rows.find((row) => !row.skipped).date;
       const controls = [...event.target.elements].map((element) => [element, element.disabled]);
       feedbackState.scheduleSaving = true;
       controls.forEach(([element]) => { element.disabled = true; });
@@ -466,7 +468,7 @@ document.addEventListener("submit", async (event) => {
       finally { controls.forEach(([element, disabled]) => { element.disabled = disabled; }); feedbackState.scheduleSaving = false; }
       feedbackState.schedules[group] = structuredClone(saved);
       feedbackState.editorDirty = false;
-      const rowId = feedbackState.rowId;
+      const rowId = anchorChanged ? first.id : feedbackState.rowId;
       const persisted = feedbackPersist();
       feedbackSelectGroup(feedbackState.group, rowId); await renderFeedback();
       if (!apiContext.demoMode || persisted) showNotice(apiContext.demoMode ? "Уроки и даты сохранены на этом устройстве" : "Расписание сохранено на сервере и привязано к вашему аккаунту преподавателя");
@@ -514,6 +516,14 @@ document.addEventListener("change", (event) => {
       } catch (error) { showNotice(error.message, "danger"); feedbackRedrawEditor(); }
       return;
     }
+    if (event.target.name === "date" && event.target.closest("[data-feedback-schedule-row]").dataset.feedbackScheduleRow === feedbackState.editor.rows.find((row) => !row.skipped)?.id) {
+      try {
+        const before = structuredClone(feedbackState.editor);
+        feedbackState.editor = feedbackRebaseSchedule(before, event.target.value);
+        feedbackState.editorUndo = before; feedbackState.editorDirty = true; feedbackRedrawEditor();
+      } catch (error) { showNotice(error.message, "danger"); feedbackRedrawEditor(); }
+      return;
+    }
     feedbackState.editorDirty = true;
     feedbackState.editor = feedbackCaptureSchedule();
     if (event.target.name === "lesson") feedbackRedrawEditor();
@@ -533,6 +543,7 @@ document.addEventListener("input", (event) => {
   if (!canAccessFeedback() || feedbackState.scheduleSaving) return;
   if (event.target.closest("#feedbackScheduleForm")) {
     if (["firstDate", "skipped", "course"].includes(event.target.name)) return;
+    if (event.target.name === "date" && event.target.closest("[data-feedback-schedule-row]").dataset.feedbackScheduleRow === feedbackState.editor.rows.find((row) => !row.skipped)?.id) return;
     feedbackState.editorDirty = true; feedbackState.editor = feedbackCaptureSchedule();
   }
   if (event.target.id === "feedbackText") {

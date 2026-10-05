@@ -69,7 +69,7 @@ def payload(revision=0):
             "group_name": "Общая группа сб 10:00",
             "revision": revision,
             "schedule": {
-                "course": "Python Start 1 год",
+                "course": "Питон Старт 1-й год",
                 "mode": "group",
                 "rows": [
                     {
