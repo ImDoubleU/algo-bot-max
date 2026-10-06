@@ -3949,6 +3949,7 @@ async function init() {
   restoreFavorites();
   restoreBroadcastDraft();
 
+  feedbackResumeNavigation();
   setRole(state.role);
   if (apiContext.demoMode || state.catalogLoaded) restoreCart();
   await loadServerCart(state.activeStudentId);

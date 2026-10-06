@@ -645,9 +645,11 @@ function setView(view) {
   const allowedViews = roleViews(state.role);
   const nextView = allowedViews.includes(view) ? view : "dashboard";
   const previousView = state.view;
+  if (previousView === "feedback" && typeof feedbackCaptureUi === "function" && feedbackState.restored) { feedbackCaptureUi(); feedbackPersist(); }
   if (previousView !== nextView) hideNotice();
   if (nextView !== "store") state.storeFiltersOpen = false;
   state.view = nextView;
+  if (typeof feedbackRememberNavigation === "function") feedbackRememberNavigation(nextView);
   const url = new URL(window.location.href);
   url.searchParams.set("view", nextView);
   window.history.replaceState(null, "", url);

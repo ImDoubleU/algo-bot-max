@@ -94,6 +94,11 @@ def feedback_page(feedback_browser):
     assert not errors, errors
 
 
+def open_feedback_schedule(page):
+    if not page.locator(".feedback-schedule-settings").evaluate("e => e.open"):
+        page.locator(".feedback-schedule-settings > summary").click()
+
+
 def test_production_feedback_is_exclusive_to_superadmin(feedback_page):
     results = feedback_page.evaluate("""() => {
       apiContext.demoMode = false;
@@ -201,7 +206,7 @@ def test_server_schedule_migration_authority_and_failed_save(feedback_page):
     }""")
     assert page.evaluate("feedbackSchedule(feedbackState.group).rows[0].date") == "2026-09-01"
     assert len(calls) == len(remote)
-    page.locator(".feedback-schedule-settings > summary").click()
+    open_feedback_schedule(page)
     page.locator('#feedbackScheduleForm [name="firstDate"]').fill("2026-10-04")
     page.locator('#feedbackScheduleForm [name="firstDate"]').press("Tab")
     fail_save = True
@@ -219,7 +224,7 @@ def test_server_schedule_migration_authority_and_failed_save(feedback_page):
 
 def test_switching_courses_resizes_schedule_before_anchor_edit(feedback_page):
     page = feedback_page
-    page.locator(".feedback-schedule-settings > summary").click()
+    open_feedback_schedule(page)
     count = page.evaluate('feedbackState.catalog["Основы логики и программирования"].length')
     page.locator("#feedbackScheduleForm [name=course]").select_option(
         "Основы логики и программирования"
@@ -241,7 +246,7 @@ def test_switching_courses_resizes_schedule_before_anchor_edit(feedback_page):
         "Основы логики и программирования"
     )
     assert page.evaluate("feedbackSchedule(feedbackState.group).rows.length") == count + 1
-    page.locator(".feedback-schedule-settings > summary").click()
+    open_feedback_schedule(page)
     page.locator("#feedbackScheduleForm [name=course]").select_option("Питон Старт 1-й год")
     assert page.locator("[data-feedback-schedule-row]").count() == 37
     assert page.locator("#feedbackScheduleForm .feedback-repeat-badge").count() == 1
@@ -255,11 +260,13 @@ def test_first_row_date_rebases_following_lessons_and_selects_first(feedback_pag
       feedbackSelectGroup(group,feedbackSchedule(group).rows[4].id);
       await renderFeedback();
     }""")
-    page.locator(".feedback-schedule-settings > summary").click()
+    open_feedback_schedule(page)
     page.locator('[data-feedback-schedule-row] input[name="date"]').first.fill("2026-09-05")
     page.locator('[data-feedback-schedule-row] input[name="date"]').first.press("Tab")
     assert page.evaluate("feedbackState.editor.rows.slice(0,3).map(r=>r.date)") == [
-        "2026-09-05", "2026-09-12", "2026-09-19"
+        "2026-09-05",
+        "2026-09-12",
+        "2026-09-19",
     ]
     page.locator('#feedbackScheduleForm [type="submit"]').click()
     assert page.evaluate("feedbackState.lesson") == 1
@@ -357,7 +364,7 @@ def test_weekday_and_time_group_order(feedback_page):
 
 def test_anchor_date_repeat_insertion_and_disabled_lesson_reflow(feedback_page):
     page = feedback_page
-    page.locator(".feedback-schedule-settings > summary").click()
+    open_feedback_schedule(page)
     before = page.evaluate("structuredClone(feedbackState.editor.rows)")
     page.locator("#feedbackScheduleForm [name=firstDate]").fill("2026-09-05")
     page.locator("#feedbackScheduleForm [name=firstDate]").press("Tab")
@@ -463,7 +470,7 @@ def test_message_rejects_fractional_nonfinite_and_invalid_context(feedback_page)
 
 def test_per_lesson_dates_material_numbers_and_repetition_persist(feedback_page):
     page = feedback_page
-    page.locator(".feedback-schedule-settings > summary").click()
+    open_feedback_schedule(page)
     row = page.locator("[data-feedback-schedule-row]").nth(1)
     row_id = row.get_attribute("data-feedback-schedule-row")
     row.locator('[name="date"]').fill("2026-10-07")
@@ -482,7 +489,7 @@ def test_per_lesson_dates_material_numbers_and_repetition_persist(feedback_page)
     ).is_visible()
     page.reload(wait_until="networkidle")
     row = page.locator(f'[data-feedback-schedule-row="{row_id}"]')
-    page.locator(".feedback-schedule-settings > summary").click()
+    open_feedback_schedule(page)
     assert row.locator('[name="date"]').input_value() == "2026-10-07"
     assert row.locator('[name="number"]').input_value() == "101"
     assert row.locator('[name="lesson"]').input_value() == "1"
@@ -507,14 +514,15 @@ def test_message_edits_need_confirmation_before_regeneration_or_switch(feedback_
     assert page.locator("#feedbackText").input_value() == text
     next_row.click()
     page.locator("#confirmConfirmationButton").click()
-    assert page.locator("#feedbackText").input_value() == ""
+    generated = page.locator("#feedbackText").input_value()
+    assert generated and "Моя ручная правка" not in generated
     page.reload(wait_until="networkidle")
-    assert page.locator("#feedbackText").input_value() == ""
+    assert page.locator("#feedbackText").input_value() == generated
 
 
 def test_schedule_remove_confirmation_undo_and_unsaved_guard(feedback_page):
     page = feedback_page
-    page.locator(".feedback-schedule-settings > summary").click()
+    open_feedback_schedule(page)
     count = page.locator("[data-feedback-schedule-row]").count()
     page.locator("[data-feedback-remove-row]").first.click()
     page.locator("#cancelConfirmationButton").click()
@@ -538,7 +546,7 @@ def test_schedule_remove_confirmation_undo_and_unsaved_guard(feedback_page):
 def test_cancelled_lesson_cannot_generate_feedback(feedback_page):
     page = feedback_page
     selected = page.evaluate("feedbackState.rowId")
-    page.locator(".feedback-schedule-settings > summary").click()
+    open_feedback_schedule(page)
     page.locator(f'[data-feedback-schedule-row="{selected}"] [name="skipped"]').check()
     page.locator('#feedbackScheduleForm [type="submit"]').click()
     page.locator('#feedbackComposeForm [type="submit"]').click()
@@ -567,18 +575,17 @@ def test_message_download_and_drafts_controls_are_removed(feedback_page):
     page = feedback_page
     page.locator('#feedbackComposeForm [type="submit"]').click()
     text = page.locator("#feedbackText").input_value()
-    with page.expect_download() as download:
-        page.locator("[data-feedback-download]").click()
-    assert Path(download.value.path()).read_text(encoding="utf-8") == text
+    assert page.locator("[data-feedback-download]").count() == 0
+    assert text
     assert page.locator('[data-feedback-tab="history"], [data-feedback-save]').count() == 0
-    assert page.locator('[data-feedback-copy]').is_enabled()
+    assert page.locator("[data-feedback-copy]").is_enabled()
     assert "Черновик" not in page.locator("#feedbackWorkspace").inner_text()
 
 
 def test_mobile_layout_and_keyboard_tab_navigation(feedback_page):
     page = feedback_page
     page.set_viewport_size({"width": 390, "height": 844})
-    page.locator(".feedback-schedule-settings > summary").click()
+    open_feedback_schedule(page)
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
     page.locator('[data-feedback-tab="groups"]').focus()
     page.keyboard.press("ArrowRight")
@@ -618,7 +625,7 @@ def test_course_change_preserves_incomplete_date(feedback_page):
 
 def test_duplicate_schedule_numbers_are_rejected(feedback_page):
     page = feedback_page
-    page.locator(".feedback-schedule-settings > summary").click()
+    open_feedback_schedule(page)
     page.locator('[data-feedback-schedule-row] [name="number"]').nth(1).fill("1")
     page.locator('#feedbackScheduleForm [type="submit"]').click()
     assert "повторяется" in page.locator("#noticeMessage").inner_text()
@@ -627,7 +634,7 @@ def test_duplicate_schedule_numbers_are_rejected(feedback_page):
 
 def test_bulk_schedule_intervals_validate_and_require_confirmation(feedback_page):
     page = feedback_page
-    page.locator(".feedback-schedule-settings > summary").click()
+    open_feedback_schedule(page)
     page.locator(".feedback-series-settings > summary").click()
     page.locator('#feedbackSeriesForm [name="startDate"]').fill("2026-10-03")
     page.locator('#feedbackSeriesForm [name="count"]').fill("3")
@@ -683,14 +690,19 @@ def test_edits_keep_generated_metadata_until_message_is_regenerated(feedback_pag
     assert page.locator(".feedback-stale-note").is_visible()
 
 
-def test_invalid_advanced_control_is_revealed_before_validation(feedback_page):
+def test_additional_parameters_are_removed_and_coin_switch_sets_format(feedback_page):
     page = feedback_page
-    page.locator(".feedback-advanced > summary").click()
-    page.locator('#feedbackComposeForm [name="offset"]').fill("1000")
-    page.locator(".feedback-advanced > summary").click()
-    # Explicit validation opens the collapsed container before focusing its invalid input.
-    page.locator('#feedbackComposeForm [type="submit"]').click()
-    assert page.locator(".feedback-advanced").evaluate("element => element.open")
+    assert (
+        page.locator(
+            '.feedback-advanced, #feedbackComposeForm [name="mode"], '
+            '#feedbackComposeForm [name="offset"]'
+        ).count()
+        == 0
+    )
+    page.locator('#feedbackComposeForm [name="coins"]').uncheck()
+    assert page.evaluate("feedbackState.mode") == "online"
+    page.locator('#feedbackComposeForm [name="coins"]').check()
+    assert page.evaluate("feedbackState.mode") == "group"
 
 
 def test_astrocoin_checkbox_defaults_on_and_updates_text_without_regeneration(feedback_page):
@@ -721,3 +733,153 @@ def test_astrocoin_checkbox_defaults_on_and_updates_text_without_regeneration(fe
     assert coins.is_checked()
     submit.click()
     assert "Начислены астрокоины" in page.locator("#feedbackText").input_value()
+
+
+def test_selecting_lesson_restores_parameters_and_generates_feedback(feedback_page):
+    page = feedback_page
+    row = page.evaluate("feedbackSchedule(feedbackState.group).rows[3]")
+    page.locator(f'[data-feedback-row="{row["id"]}"]').click()
+    page.wait_for_function("feedbackState.generated?.lesson === 4")
+    assert page.locator('#feedbackComposeForm [name="date"]').input_value() == row["date"]
+    assert page.locator("#feedbackLesson").input_value() == str(row["lesson"])
+    assert "урок №04" in page.locator("#feedbackText").input_value()
+
+
+def test_reopening_app_restores_feedback_text_settings_and_unsaved_schedule(feedback_page):
+    page = feedback_page
+    page.locator("[data-feedback-row]").nth(3).click()
+    page.wait_for_function("feedbackState.generated?.lesson === 4")
+    page.locator('#feedbackComposeForm [name="extraAbsent"]').fill("Маша")
+    page.locator('#feedbackComposeForm [name="coins"]').uncheck()
+    page.locator("#feedbackText").fill("Текст с ручными правками")
+    open_feedback_schedule(page)
+    page.locator('[data-feedback-schedule-row] [name="date"]').nth(5).fill("2026-12-03")
+    page.locator(".feedback-series-settings > summary").click()
+    page.locator('#feedbackSeriesForm [name="pattern"]').select_option("weekdays")
+    page.locator('#feedbackSeriesForm [name="weekdays"][value="2"]').check()
+    page.locator('#feedbackSeriesForm [name="count"]').fill("4")
+    selected = page.evaluate("feedbackState.rowId")
+    page.evaluate("window.dispatchEvent(new Event('pagehide'))")
+    # MAX opens its original URL again, with no saved view query parameter.
+    page.goto(page.url.replace("view=feedback", "view=dashboard"), wait_until="networkidle")
+    page.wait_for_selector("#feedbackText")
+    assert page.evaluate("state.view") == "feedback"
+    assert page.evaluate("feedbackState.rowId") == selected
+    assert page.locator("#feedbackText").input_value() == "Текст с ручными правками"
+    assert page.locator('#feedbackComposeForm [name="extraAbsent"]').input_value() == "Маша"
+    assert not page.locator('#feedbackComposeForm [name="coins"]').is_checked()
+    assert page.locator(".feedback-schedule-settings").evaluate("e => e.open")
+    assert page.locator(".feedback-series-settings").evaluate("e => e.open")
+    assert (
+        page.locator('[data-feedback-schedule-row] [name="date"]').nth(5).input_value()
+        == "2026-12-03"
+    )
+    assert page.evaluate("feedbackState.editorDirty")
+    assert page.locator('#feedbackSeriesForm [name="pattern"]').input_value() == "weekdays"
+    assert page.locator('#feedbackSeriesForm [name="weekdays"][value="2"]').is_checked()
+    assert page.locator('#feedbackSeriesForm [name="count"]').input_value() == "4"
+
+
+def test_weekday_date_fill_skips_other_days_and_keeps_interval_option(feedback_page):
+    page = feedback_page
+    open_feedback_schedule(page)
+    page.locator(".feedback-series-settings > summary").click()
+    form = page.locator("#feedbackSeriesForm")
+    form.locator('[name="startDate"]').fill("2026-10-06")
+    form.locator('[name="count"]').fill("4")
+    form.locator('[name="pattern"]').select_option("weekdays")
+    assert not form.locator('[name="interval"]').is_visible()
+    form.locator('[type="submit"]').click()
+    assert "Выберите хотя бы один день" in page.locator("#noticeMessage").inner_text()
+    assert not page.locator("#confirmationDialog").is_visible()
+    form.locator('[name="weekdays"][value="3"]').check()
+    form.locator('[name="weekdays"][value="6"]').check()
+    assert "7 октября" in form.locator("output").inner_text()
+    form.locator('[type="submit"]').click()
+    page.locator("#confirmConfirmationButton").click()
+    assert page.evaluate("feedbackState.editor.rows.map(r => r.date)") == [
+        "2026-10-07",
+        "2026-10-10",
+        "2026-10-14",
+        "2026-10-17",
+    ]
+    page.locator('#feedbackScheduleForm [type="submit"]').click()
+    page.reload(wait_until="networkidle")
+    assert page.evaluate("feedbackSchedule(feedbackState.group).rows.map(r => r.date)") == [
+        "2026-10-07",
+        "2026-10-10",
+        "2026-10-14",
+        "2026-10-17",
+    ]
+
+
+def test_weekday_series_handles_sunday_year_boundary_and_invalid_days(feedback_page):
+    result = feedback_page.evaluate("""() => {
+      const course=feedbackState.course, catalog=feedbackState.catalog;
+      const rows=feedbackSeries(course,'2026-12-31',1,1,4,0,catalog,[0,1,0]);
+      const rejected=[[],[-1],[7],['bad']].every(days => {
+        try {feedbackSeries(course,'2026-12-31',1,1,4,7,catalog,days);return false;}
+        catch {return true;}
+      });
+      return {dates:rows.map(r=>r.date),rejected};
+    }""")
+    assert result == {
+        "dates": ["2027-01-03", "2027-01-04", "2027-01-10", "2027-01-11"],
+        "rejected": True,
+    }
+
+
+def test_manual_workspace_resumes_but_leaving_feedback_disables_resume(feedback_page):
+    page = feedback_page
+    page.locator('[data-feedback-tab="manual"]').click()
+    page.locator('#feedbackComposeForm [name="extraAbsent"]').fill("Иван")
+    page.locator('#feedbackComposeForm [type="submit"]').click()
+    text = page.locator("#feedbackText").input_value()
+    page.reload(wait_until="networkidle")
+    assert page.evaluate("feedbackState.tab") == "manual"
+    assert page.locator("#feedbackText").input_value() == text
+    page.evaluate("setView('dashboard')")
+    page.reload(wait_until="networkidle")
+    assert page.evaluate("state.view") == "dashboard"
+
+
+def test_coin_switch_updates_absence_instructions_and_preserves_manual_text(feedback_page):
+    page = feedback_page
+    page.locator('#feedbackComposeForm [name="extraAbsent"]').fill("Иван")
+    page.locator('#feedbackComposeForm [type="submit"]').click()
+    text = page.locator("#feedbackText").input_value()
+    assert "за 30 минут" in text
+    page.locator("#feedbackText").fill(text + "\nМоя правка")
+    page.locator('#feedbackComposeForm [name="coins"]').uncheck()
+    changed = page.locator("#feedbackText").input_value()
+    assert "свяжитесь с преподавателем" in changed
+    assert "за 30 минут" not in changed
+    assert "Моя правка" in changed
+    page.locator('#feedbackComposeForm [name="coins"]').check()
+    assert "за 30 минут" in page.locator("#feedbackText").input_value()
+
+
+def test_feedback_scroll_position_survives_reopening(feedback_page):
+    page = feedback_page
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.locator("[data-feedback-row]").nth(8).click()
+    page.locator("#feedbackText").fill("Длинный текст\n" * 150)
+    page.evaluate("""() => {
+      const text=document.querySelector('#feedbackText');
+      text.scrollTop=160; text.setSelectionRange(20,30);
+      document.querySelector('.feedback-weeks').scrollLeft=350;
+      window.scrollTo(0,400);
+      window.dispatchEvent(new Event('pagehide'));
+    }""")
+    expected_weeks_scroll = page.locator(".feedback-weeks").evaluate("e=>e.scrollLeft")
+    page.reload(wait_until="networkidle")
+    page.wait_for_function("!feedbackState.restoringUi")
+    assert abs(page.evaluate("window.scrollY") - 400) < 3
+    assert (
+        abs(page.locator(".feedback-weeks").evaluate("e=>e.scrollLeft") - expected_weeks_scroll) < 3
+    )
+    assert abs(page.locator("#feedbackText").evaluate("e=>e.scrollTop") - 160) < 3
+    assert page.locator("#feedbackText").evaluate("e=>[e.selectionStart,e.selectionEnd]") == [
+        20,
+        30,
+    ]
