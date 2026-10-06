@@ -213,3 +213,14 @@
 - 46 тестов восстановления, доступа, CRM и miniapp session прошли; Ruff чист.
   Сервис здоров. Личные данные таблицы и служебные выгрузки в Git не включены.
 - Резервная копия: /var/backups/algo-max/student-bindings-20261006-1791281127.
+- Account binding limits and targeted registration reset — 06.10.2026
+  Student MAX accounts may have one active student binding across all schools;
+  parent accounts retain access to multiple children. Parent/student roles cannot mix.
+  Account row locking serializes registration and admin activation checks.
+  Repeating an existing student registration remains idempotent.
+  Registration resets preserve revoked links and audit history; parents can reconnect.
+  deploy/reset_student_bindings.py previews by default and requires a backup for apply.
+  Production: two bindings for the requested student reset; other students unchanged.
+  API deployed and healthy. Existing multi-child parent access and cross-school limits
+  verified on the server. 94 relevant tests passed; Ruff clean.
+  Backup: /var/backups/algo-max/binding-limits-20261006-1791282390/.

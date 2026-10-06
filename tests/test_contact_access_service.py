@@ -31,6 +31,7 @@ from app.services.miniapp import (
 )
 from app.services.student_invitations import (
     issue_student_invitation_token,
+    issue_teacher_student_invitation_token,
 )
 
 
@@ -111,6 +112,164 @@ async def test_create_contact_access_links_creates_link_per_student(db_session) 
     assert len(stored_links) == 2
 
 
+async def test_student_max_account_cannot_bind_second_student_and_repeat_is_idempotent(db_session):
+    await seed_two_students_for_one_contact(db_session)
+    targets = (await db_session.scalars(select(Student).order_by(Student.lms_student_id))).all()
+    first = StudentInvitationLinkCreate(
+        tenant_slug="nizhniy-novgorod-partner-a",
+        max_user_id=9001,
+        token=issue_teacher_student_invitation_token(targets[0].tenant_id, targets[0].id),
+    )
+    _, _, link = await create_invited_student_access_link(db_session, first)
+    original_id = link.id
+    with pytest.raises(AccessServiceError, match="другому ученику"):
+        await create_invited_student_access_link(
+            db_session,
+            first.model_copy(
+                update={
+                    "token": issue_teacher_student_invitation_token(
+                        targets[1].tenant_id, targets[1].id
+                    ),
+                }
+            ),
+        )
+    await db_session.rollback()
+    _, _, repeated = await create_invited_student_access_link(db_session, first)
+    assert repeated.id == original_id
+    assert len((await db_session.scalars(select(StudentAccessLink))).all()) == 1
+
+
+async def test_binding_limits_apply_across_schools(db_session):
+    await seed_two_students_for_one_contact(db_session)
+    target = await db_session.scalar(select(Student).where(Student.lms_student_id == "ST-001"))
+    first = StudentInvitationLinkCreate(
+        tenant_slug="nizhniy-novgorod-partner-a",
+        max_user_id=9002,
+        token=issue_teacher_student_invitation_token(target.tenant_id, target.id),
+    )
+    await create_invited_student_access_link(db_session, first)
+    await upsert_crm_student_rows(
+        db_session,
+        [row(lms_student_id="ST-003", first_name="Другой")],
+        defaults=CrmSyncDefaults(partner_slug="partner-b", partner_name="B"),
+    )
+    other = await db_session.scalar(select(Student).where(Student.lms_student_id == "ST-003"))
+    with pytest.raises(AccessServiceError, match="другому ученику"):
+        await create_invited_student_access_link(
+            db_session,
+            StudentInvitationLinkCreate(
+                tenant_slug="nizhniy-novgorod-partner-b",
+                max_user_id=9002,
+                token=issue_teacher_student_invitation_token(other.tenant_id, other.id),
+            ),
+        )
+    await db_session.rollback()
+    with pytest.raises(AccessServiceError, match="уже используется учеником"):
+        await create_contact_access_links(
+            db_session,
+            AccessLinkCreate(
+                tenant_slug="nizhniy-novgorod-partner-b",
+                contact_id="681",
+                max_user_id=9002,
+                role=StudentAccessRole.PARENT,
+            ),
+        )
+    await db_session.rollback()
+    await create_contact_access_links(
+        db_session,
+        AccessLinkCreate(
+            tenant_slug="nizhniy-novgorod-partner-a",
+            contact_id="681",
+            max_user_id=9005,
+            role=StudentAccessRole.PARENT,
+        ),
+    )
+    with pytest.raises(AccessServiceError, match="уже используется родителем"):
+        await db_session.refresh(other)
+        await create_invited_student_access_link(
+            db_session,
+            StudentInvitationLinkCreate(
+                tenant_slug="nizhniy-novgorod-partner-b",
+                max_user_id=9005,
+                token=issue_teacher_student_invitation_token(other.tenant_id, other.id),
+            ),
+        )
+
+
+async def test_registration_reset_allows_parent_to_register_again(db_session):
+    from deploy.reset_student_bindings import reset_bindings
+
+    await seed_two_students_for_one_contact(db_session)
+    payload = AccessLinkCreate(
+        tenant_slug="nizhniy-novgorod-partner-a",
+        contact_id="681",
+        max_user_id=9003,
+        role=StudentAccessRole.PARENT,
+    )
+    links = await create_contact_access_links(db_session, payload)
+    ids = {link.id for link in links}
+    students = (await db_session.scalars(select(Student))).all()
+    for student in students:
+        await reset_bindings(db_session, student)
+    await db_session.commit()
+    reconnected = await create_contact_access_links(db_session, payload)
+    assert {link.id for link in reconnected} == ids
+    assert all(link.status == StudentAccessStatus.ACTIVE for link in reconnected)
+
+
+async def test_reset_does_not_touch_other_child_or_other_parent(db_session):
+    from deploy.reset_student_bindings import reset_bindings
+
+    await seed_two_students_for_one_contact(db_session)
+    payload = AccessLinkCreate(
+        tenant_slug="nizhniy-novgorod-partner-a",
+        contact_id="681",
+        max_user_id=9004,
+        role=StudentAccessRole.PARENT,
+    )
+    links = await create_contact_access_links(db_session, payload)
+    target = await db_session.get(Student, links[0].student_id)
+    snapshots = await reset_bindings(db_session, target)
+    assert len(snapshots) == 1
+    assert links[0].status == StudentAccessStatus.REVOKED
+    assert links[0].revoked_reason == "registration_reset"
+    assert links[1].status == StudentAccessStatus.ACTIVE
+    assert await reset_bindings(db_session, target) == []
+
+
+async def test_reset_two_student_profiles_then_parent_and_child_register_correctly(db_session):
+    from deploy.reset_student_bindings import reset_bindings
+
+    await seed_two_students_for_one_contact(db_session)
+    target = await db_session.scalar(select(Student).where(Student.lms_student_id == "ST-001"))
+    student_payload = StudentInvitationLinkCreate(
+        tenant_slug="nizhniy-novgorod-partner-a",
+        max_user_id=9011,
+        token=issue_teacher_student_invitation_token(target.tenant_id, target.id),
+    )
+    await create_invited_student_access_link(db_session, student_payload)
+    child_payload = student_payload.model_copy(update={"max_user_id": 9012})
+    _, _, old_child = await create_invited_student_access_link(db_session, child_payload)
+    child_link_id = old_child.id
+    snapshots = await reset_bindings(db_session, target)
+    assert len(snapshots) == 2
+    await db_session.commit()
+    parents = await create_contact_access_links(
+        db_session,
+        AccessLinkCreate(
+            tenant_slug="nizhniy-novgorod-partner-a",
+            contact_id="681",
+            max_user_id=9011,
+            role=StudentAccessRole.PARENT,
+        ),
+    )
+    assert len(parents) == 2
+    _, _, child = await create_invited_student_access_link(db_session, child_payload)
+    assert child.id == child_link_id and child.status == StudentAccessStatus.ACTIVE
+    with pytest.raises(AccessServiceError, match="уже используется родителем"):
+        await create_invited_student_access_link(db_session, student_payload)
+
+
 async def test_relink_without_profile_data_keeps_existing_max_account_name(db_session) -> None:
     await seed_two_students_for_one_contact(db_session)
     payload = AccessLinkCreate(
@@ -127,9 +286,7 @@ async def test_relink_without_profile_data_keeps_existing_max_account_name(db_se
         payload.model_copy(update={"username": None, "display_name": None}),
     )
 
-    account = await db_session.scalar(
-        select(MaxAccount).where(MaxAccount.max_user_id == 53364725)
-    )
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 53364725))
     assert account is not None
     assert account.username == "ImDoubleU"
     assert account.display_name == "Дмитрий"
@@ -166,9 +323,7 @@ async def test_parent_max_account_cannot_accept_child_qr(db_session) -> None:
 
 async def test_legacy_student_qr_without_issuer_remains_rejected(db_session) -> None:
     await seed_two_students_for_one_contact(db_session)
-    student = await db_session.scalar(
-        select(Student).where(Student.lms_student_id == "ST-001")
-    )
+    student = await db_session.scalar(select(Student).where(Student.lms_student_id == "ST-001"))
     assert student is not None
     token = issue_student_invitation_token(student.tenant_id, student.id)
 
@@ -235,9 +390,7 @@ async def test_teacher_qr_binds_student_before_parent_and_unlocks_after_parent_c
     monkeypatch,
 ) -> None:
     await seed_two_students_for_one_contact(db_session)
-    student = await db_session.scalar(
-        select(Student).where(Student.lms_student_id == "ST-001")
-    )
+    student = await db_session.scalar(select(Student).where(Student.lms_student_id == "ST-001"))
     assert student is not None
     teacher = MaxAccount(max_user_id=8801, display_name="Олейник Д")
     db_session.add(teacher)
@@ -343,9 +496,7 @@ async def test_teacher_qr_binds_student_before_parent_and_unlocks_after_parent_c
         invitations_by_student = {item.student_id: item for item in invitations}
         assert invitations_by_student[student.id].parent_connected is True
         assert invitations_by_student[student.id].student_connected is True
-        parent_only_invitation = next(
-            item for item in invitations if item.student_id != student.id
-        )
+        parent_only_invitation = next(item for item in invitations if item.student_id != student.id)
         assert parent_only_invitation.parent_connected is True
         assert parent_only_invitation.student_connected is False
 
@@ -382,9 +533,7 @@ async def test_teacher_qr_binds_student_before_parent_and_unlocks_after_parent_c
 
 async def test_existing_orphan_student_link_does_not_grant_access(db_session) -> None:
     await seed_two_students_for_one_contact(db_session)
-    student = await db_session.scalar(
-        select(Student).where(Student.lms_student_id == "ST-001")
-    )
+    student = await db_session.scalar(select(Student).where(Student.lms_student_id == "ST-001"))
     assert student is not None
     child = MaxAccount(max_user_id=9903, display_name="Ученик")
     db_session.add(child)
@@ -444,9 +593,7 @@ async def test_admin_qr_lists_all_active_students_in_assigned_tenant(
             tenant_slug="nizhniy-novgorod-partner-a",
         )
 
-        assert {item.student_id for item in invitations} == {
-            student.id for student in students
-        }
+        assert {item.student_id for item in invitations} == {student.id for student in students}
         assert all(item.available and item.qr_data_url for item in invitations)
         assert all(item.student_connected is False for item in invitations)
 

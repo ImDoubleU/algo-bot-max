@@ -191,6 +191,43 @@ async def _active_account_role_link_id(
     return UUID(str(link_id)) if link_id is not None else None
 
 
+async def ensure_single_account_binding(
+    db: AsyncSession,
+    *,
+    account_id: UUID,
+    tenant_id: UUID,
+    student_id: UUID,
+    role: StudentAccessRole,
+) -> None:
+    # Serialize every binding writer for this MAX account, across all schools.
+    await db.scalar(select(MaxAccount.id).where(MaxAccount.id == account_id).with_for_update())
+    links = (
+        await db.scalars(
+            select(StudentAccessLink).where(
+                StudentAccessLink.account_id == account_id,
+                StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+            )
+        )
+    ).all()
+    for link in links:
+        if link.role != role:
+            if link.role == StudentAccessRole.STUDENT:
+                raise AccessServiceError(
+                    "Этот MAX-профиль уже используется учеником. "
+                    "Для родительского кабинета откройте ссылку с профиля родителя"
+                )
+            raise AccessServiceError(
+                "Этот MAX-профиль уже используется родителем. Откройте QR-код с профиля ребенка"
+            )
+        if role == StudentAccessRole.STUDENT and (
+            link.tenant_id != tenant_id or link.student_id != student_id
+        ):
+            raise AccessServiceError(
+                "Этот MAX-аккаунт уже привязан к другому ученику. "
+                "Сначала попросите школу снять прежнюю привязку."
+            )
+
+
 async def get_active_parent_access_link(
     db: AsyncSession,
     *,
@@ -255,9 +292,7 @@ async def revoke_dependent_student_links(
     revoked_at: datetime | None = None,
     reason: str = "sponsor_revoked",
 ) -> list[StudentAccessLink]:
-    parents = [
-        link for link in parent_links if link.role == StudentAccessRole.PARENT
-    ]
+    parents = [link for link in parent_links if link.role == StudentAccessRole.PARENT]
     if not parents:
         return []
 
@@ -350,9 +385,7 @@ async def revoke_access_for_stopped_bot(
         revoked_at=revoked_at,
         reason="sponsor_bot_stopped",
     )
-    affected_tenant_ids = {
-        link.tenant_id for link in [*account_links, *child_links]
-    }
+    affected_tenant_ids = {link.tenant_id for link in [*account_links, *child_links]}
     for tenant_id in affected_tenant_ids:
         db.add(
             AuditLog(
@@ -367,9 +400,7 @@ async def revoke_access_for_stopped_bot(
                     "revoked_account_links": sum(
                         link.tenant_id == tenant_id for link in account_links
                     ),
-                    "revoked_child_links": sum(
-                        link.tenant_id == tenant_id for link in child_links
-                    ),
+                    "revoked_child_links": sum(link.tenant_id == tenant_id for link in child_links),
                 },
             )
         )
@@ -418,17 +449,13 @@ async def create_contact_access_links(
         raise AccessServiceError("К этому ID не привязаны ученики")
 
     account = await get_or_create_max_account(db, payload)
-    active_student_link_id = await _active_account_role_link_id(
+    await ensure_single_account_binding(
         db,
-        tenant_id=UUID(str(contact.tenant_id)),
-        account_id=UUID(str(account.id)),
-        role=StudentAccessRole.STUDENT,
+        account_id=account.id,
+        tenant_id=contact.tenant_id,
+        student_id=students[0].id,
+        role=StudentAccessRole.PARENT,
     )
-    if active_student_link_id is not None:
-        raise AccessServiceError(
-            "Этот MAX-профиль уже используется учеником. "
-            "Для родительского кабинета откройте ссылку с профиля родителя"
-        )
     links: list[StudentAccessLink] = []
     created = 0
     reactivated = 0
@@ -446,16 +473,14 @@ async def create_contact_access_links(
             if (
                 payload.role == StudentAccessRole.PARENT
                 and existing.status == StudentAccessStatus.REVOKED
-                and existing.revoked_reason == "bot_stopped"
+                and existing.revoked_reason in {"bot_stopped", "registration_reset"}
             ):
                 existing.status = StudentAccessStatus.ACTIVE
                 existing.revoked_at = None
                 existing.revoked_reason = None
                 reactivated += 1
             elif existing.status == StudentAccessStatus.REVOKED:
-                raise AccessServiceError(
-                    "Связь была отозвана администратором. Обратитесь в школу"
-                )
+                raise AccessServiceError("Связь была отозвана администратором. Обратитесь в школу")
             links.append(existing)
             continue
 
@@ -533,9 +558,7 @@ async def create_invited_student_access_link(
             sponsor_access_link_id=invitation.sponsor_access_link_id,
         )
         if sponsor_link is None:
-            raise AccessServiceError(
-                "Родительская связь больше не активна. Получите новый QR-код."
-            )
+            raise AccessServiceError("Родительская связь больше не активна. Получите новый QR-код.")
     else:
         sponsor_link = await get_active_parent_access_link(
             db,
@@ -544,17 +567,13 @@ async def create_invited_student_access_link(
         )
 
     account = await get_or_create_max_account(db, payload)
-    active_parent_link_id = await _active_account_role_link_id(
+    await ensure_single_account_binding(
         db,
-        tenant_id=UUID(str(tenant.id)),
-        account_id=UUID(str(account.id)),
-        role=StudentAccessRole.PARENT,
+        account_id=account.id,
+        tenant_id=tenant.id,
+        student_id=student.id,
+        role=StudentAccessRole.STUDENT,
     )
-    if active_parent_link_id is not None:
-        raise AccessServiceError(
-            "Этот MAX-профиль уже используется родителем. "
-            "Откройте QR-код с профиля ребенка"
-        )
     link_source = (
         StudentAccessSource.PARENT_QR
         if invitation.issuer == StudentInvitationIssuer.PARENT

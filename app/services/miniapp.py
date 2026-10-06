@@ -140,6 +140,8 @@ from app.schemas.miniapp import (
 )
 from app.services.access import (
     PARENT_REQUIRED_MESSAGE,
+    AccessServiceError,
+    ensure_single_account_binding,
     get_effective_customer_access_link,
     normalize_student_code,
     revoke_dependent_student_links,
@@ -2131,6 +2133,13 @@ async def create_miniapp_student(
                 parent_account.username = parent_username
             if parent_name:
                 parent_account.display_name = parent_name
+        try:
+            await ensure_single_account_binding(
+                db, account_id=parent_account.id, tenant_id=tenant.id,
+                student_id=student.id, role=StudentAccessRole.PARENT,
+            )
+        except AccessServiceError as exc:
+            raise MiniAppStoreError(str(exc), status_code=409) from exc
         db.add(
             StudentAccessLink(
                 tenant_id=tenant.id,
@@ -6243,6 +6252,14 @@ async def update_miniapp_access_link_status(
                 status_code=403,
             )
 
+    if payload.status == StudentAccessStatus.ACTIVE:
+        try:
+            await ensure_single_account_binding(
+                db, account_id=link.account_id, tenant_id=link.tenant_id,
+                student_id=link.student_id, role=link.role,
+            )
+        except AccessServiceError as exc:
+            raise MiniAppStoreError(str(exc), status_code=409) from exc
     if payload.status == StudentAccessStatus.ACTIVE and link.role == StudentAccessRole.STUDENT:
         parent_conditions = [
             StudentAccessLink.tenant_id == tenant.id,
