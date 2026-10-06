@@ -140,21 +140,26 @@ function feedbackToggleLesson(schedule, rowId, skipped) {
   return result;
 }
 
-function feedbackSeries(course, startDate, firstLesson, firstNumber, count, interval, catalog) {
+function feedbackSeries(course, startDate, firstLesson, firstNumber, count, interval, catalog, weekdays = null) {
   if (!Object.hasOwn(catalog, course)) throw new Error("Выберите курс из списка");
   if (!feedbackValidDate(startDate)) throw new Error("Укажите существующую дату первого занятия");
   const first = feedbackInteger(firstLesson, 1, catalog[course].length, "Первый материал");
   const number = feedbackInteger(firstNumber, 1, 999, "Первый номер");
   const total = feedbackInteger(count, 1, 100, "Количество занятий");
-  const step = feedbackInteger(interval, 1, 60, "Интервал в днях");
+  const days = weekdays === null ? null : [...new Set(weekdays.map((day) => feedbackInteger(day, 0, 6, "День недели")))];
+  if (days && !days.length) throw new Error("Выберите хотя бы один день недели");
+  const step = days ? 1 : feedbackInteger(interval, 1, 60, "Интервал в днях");
   if (first + total - 1 > catalog[course].length || number + total - 1 > 999) {
     throw new Error("Количество занятий выходит за пределы курса или нумерации");
   }
+  let cursor = startDate;
   return Array.from({ length: total }, (_, index) => {
-    const date = new Date(`${startDate}T12:00:00Z`);
-    date.setUTCDate(date.getUTCDate() + index * step);
-    const value = date.toISOString().slice(0, 10);
+    if (days) {
+      while (!days.includes(new Date(`${cursor}T12:00:00Z`).getUTCDay())) cursor = feedbackShiftDate(cursor, 1);
+    }
+    const value = days ? cursor : feedbackShiftDate(startDate, index * step);
     if (!feedbackValidDate(value)) throw new Error("Последняя дата выходит за допустимый диапазон");
+    if (days && index < total - 1) cursor = feedbackShiftDate(cursor, 1);
     return feedbackNewRow(value, first + index, number + index);
   });
 }

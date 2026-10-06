@@ -1,4 +1,4 @@
-// Teacher-owned server schedules. Message text exists only in the current editor.
+// Server schedules and an account-scoped snapshot of the current workspace.
 let feedbackStorageKey = `algo-max-feedback-preview-v2:${apiContext.tenantSlug || "demo"}:${apiContext.maxUserId || apiContext.demoRole || "teacher"}`;
 const feedbackState = {
   tab: "groups", contextKey: "", legacyStorageKey: "", catalog: null, loading: false, scheduleSaving: false, error: "", restored: false,
@@ -6,7 +6,7 @@ const feedbackState = {
   mode: "group", repeat: false, coins: true, absent: [], extraAbsent: "",
   text: "", generated: null, edited: false, stale: false,
   schedules: Object.create(null), serverVersions: Object.create(null), editor: null, editorDirty: false,
-  editorUndo: null, groupSearch: "",
+  editorUndo: null, groupSearch: "", ui: {}, series: null, restoringUi: false,
 };
 
 function feedbackToday() {
@@ -43,12 +43,132 @@ function feedbackGroups() {
 
 function feedbackPersist() {
   try {
-    localStorage.setItem(feedbackStorageKey, JSON.stringify({ schedules: feedbackState.schedules }));
+    let previous = {};
+    try { previous = JSON.parse(localStorage.getItem(feedbackStorageKey) || "{}") || {}; } catch { /* Replace a corrupt cache. */ }
+    const workspace = feedbackState.restored ? feedbackWorkspaceSnapshot() : previous.workspace;
+    localStorage.setItem(feedbackStorageKey, JSON.stringify({ schedules: feedbackState.schedules, workspace }));
     return true;
   } catch {
-    showNotice("Не удалось сохранить данные на этом устройстве. Скопируйте текст или скачайте файл.", "danger");
+    showNotice("Не удалось сохранить состояние. Скопируйте текст перед закрытием.", "danger");
     return false;
   }
+}
+
+const feedbackWorkspaceKeys = ["tab", "group", "rowId", "course", "lesson", "date", "offset", "mode", "repeat", "coins", "absent", "extraAbsent", "text", "generated", "edited", "stale", "editor", "editorDirty", "editorUndo", "series"];
+
+function feedbackContextStorageKey() {
+  return `algo-max-feedback-preview-v2:${apiContext.tenantSlug || "demo"}:${apiContext.maxUserId || apiContext.demoRole || "teacher"}`;
+}
+
+function feedbackCaptureUi() {
+  if (feedbackState.restoringUi || state.view !== "feedback" || !qs("#feedbackComposeForm")) return;
+  feedbackState.ui = {
+    ...feedbackState.ui, scrollY: window.scrollY,
+    scheduleOpen: Boolean(qs(".feedback-schedule-settings")?.open),
+    seriesOpen: Boolean(qs(".feedback-series-settings")?.open),
+    weeksScroll: qs(".feedback-weeks")?.scrollLeft || 0,
+    tableScroll: qs(".feedback-schedule-table-wrap")?.scrollTop || 0,
+    tableScrollX: qs(".feedback-schedule-table-wrap")?.scrollLeft || 0,
+    textScroll: qs("#feedbackText")?.scrollTop || 0,
+    selectionStart: qs("#feedbackText")?.selectionStart || 0,
+    selectionEnd: qs("#feedbackText")?.selectionEnd || 0,
+  };
+  const series = qs("#feedbackSeriesForm");
+  if (series) {
+    const values = new FormData(series);
+    feedbackState.series = Object.fromEntries(["startDate", "firstLesson", "firstNumber", "count", "interval", "pattern"].map((key) => [key, values.get(key) ?? series.elements[key]?.value ?? ""]));
+    feedbackState.series.weekdays = values.getAll("weekdays");
+  }
+}
+
+function feedbackWorkspaceSnapshot() {
+  return { version: 1, activeView: state.view,
+    ...structuredClone(Object.fromEntries(feedbackWorkspaceKeys.map((key) => [key, feedbackState[key]]))),
+    ui: structuredClone(feedbackState.ui) };
+}
+
+function feedbackRememberNavigation(view) {
+  try {
+    const key = feedbackContextStorageKey();
+    const saved = JSON.parse(localStorage.getItem(key) || "{}");
+    if (!saved.workspace) return;
+    saved.workspace.activeView = view;
+    localStorage.setItem(key, JSON.stringify(saved));
+  } catch { /* A storage failure must not block navigation. */ }
+}
+
+function feedbackResumeNavigation() {
+  if (!canAccessFeedback() || apiContext.productId || queryParam("focus") === "qr") return;
+  try {
+    const saved = JSON.parse(localStorage.getItem(feedbackContextStorageKey()) || "{}");
+    if (saved.workspace?.activeView === "feedback") state.view = "feedback";
+  } catch { /* Invalid snapshots are ignored. */ }
+}
+
+function feedbackRestoreWorkspace(saved, groups) {
+  if (!saved || saved.version !== 1 || !["groups", "manual"].includes(saved.tab)) return;
+  if (!Object.hasOwn(feedbackState.catalog, saved.course)) return;
+  if (saved.tab === "groups") {
+    if (!groups.includes(saved.group)) return;
+    const row = feedbackSchedule(saved.group).rows.find((item) => item.id === saved.rowId && !item.skipped);
+    if (!row) return;
+    feedbackSelectGroup(saved.group, row.id);
+  }
+  try {
+    const lesson = feedbackInteger(saved.lesson, 1, feedbackState.catalog[saved.course].length, "Материал");
+    const offset = feedbackInteger(saved.offset, -99, 999, "Номер");
+    if (typeof saved.date !== "string" || (saved.date && !feedbackValidDate(saved.date))) return;
+    Object.assign(feedbackState, { tab: saved.tab, group: saved.tab === "groups" ? saved.group : "",
+      rowId: saved.tab === "groups" ? saved.rowId : "", course: saved.course, lesson, offset,
+      date: saved.date, coins: saved.coins !== false, mode: saved.coins === false ? "online" : "group",
+      repeat: Boolean(saved.repeat), absent: Array.isArray(saved.absent) ? saved.absent.filter((name) => typeof name === "string").slice(0, 100) : [],
+      extraAbsent: typeof saved.extraAbsent === "string" ? saved.extraAbsent.slice(0, 2000) : "",
+      text: typeof saved.text === "string" ? saved.text.slice(0, 20000) : "",
+      edited: Boolean(saved.edited), stale: Boolean(saved.stale) });
+    if (saved.generated) {
+      feedbackValidateMessage(saved.generated, feedbackState.catalog);
+      feedbackState.generated = structuredClone(saved.generated);
+    }
+    if (saved.tab === "groups" && saved.editorDirty && Object.hasOwn(feedbackState.catalog, saved.editor?.course)
+      && Array.isArray(saved.editor.rows) && saved.editor.rows.length > 0 && saved.editor.rows.length <= 100
+      && saved.editor.rows.every((row) => row && typeof row.id === "string" && typeof row.date === "string" && (row.date === "" || feedbackValidDate(row.date)))) {
+      feedbackState.editor = structuredClone(saved.editor); feedbackState.editorDirty = true;
+      feedbackState.editorUndo = saved.editorUndo ? structuredClone(saved.editorUndo) : null;
+    }
+    feedbackState.series = saved.series && typeof saved.series === "object" ? structuredClone(saved.series) : null;
+    const ui = saved.ui || {};
+    feedbackState.ui = Object.fromEntries(["scrollY", "weeksScroll", "tableScroll", "tableScrollX", "textScroll", "selectionStart", "selectionEnd"].map((key) => [key, Math.max(0, Math.min(Number(ui[key]) || 0, 1000000))]));
+    Object.assign(feedbackState.ui, { scheduleOpen: Boolean(ui.scheduleOpen), seriesOpen: Boolean(ui.seriesOpen) });
+    feedbackState.restoringUi = true;
+  } catch { /* A stale course or malformed snapshot cannot prevent opening feedback. */ }
+}
+
+function feedbackRestoreUi() {
+  const ui = feedbackState.ui;
+  if (qs(".feedback-schedule-settings")) qs(".feedback-schedule-settings").open = Boolean(ui.scheduleOpen);
+  if (qs(".feedback-series-settings")) qs(".feedback-series-settings").open = Boolean(ui.seriesOpen);
+  const series = qs("#feedbackSeriesForm");
+  if (series && feedbackState.series) {
+    for (const key of ["startDate", "firstLesson", "firstNumber", "count", "interval", "pattern"]) {
+      if (series.elements[key] && feedbackState.series[key] !== null) series.elements[key].value = String(feedbackState.series[key] ?? "");
+    }
+    qsa('#feedbackSeriesForm [name="weekdays"]').forEach((input) => { input.checked = (feedbackState.series.weekdays || []).includes(input.value); });
+  }
+  feedbackUpdateSeriesControls();
+  const table = qs(".feedback-schedule-table-wrap");
+  if (table) { table.scrollTop = ui.tableScroll || 0; table.scrollLeft = ui.tableScrollX || 0; }
+  const text = qs("#feedbackText");
+  if (text) { text.scrollTop = ui.textScroll || 0; text.setSelectionRange(ui.selectionStart || 0, ui.selectionEnd || 0); }
+  if (feedbackState.restoringUi) {
+    const weeks = qs(".feedback-weeks"); if (weeks) weeks.scrollLeft = ui.weeksScroll || 0;
+    requestAnimationFrame(() => { window.scrollTo(0, ui.scrollY || 0); feedbackState.restoringUi = false; });
+  }
+}
+
+function feedbackGenerate() {
+  feedbackState.text = feedbackBuildText();
+  feedbackState.generated = structuredClone(Object.fromEntries(["group", "rowId", "course", "lesson", "date", "offset", "mode", "repeat", "coins", "absent", "extraAbsent"].map((key) => [key, feedbackState[key]])));
+  feedbackState.edited = false; feedbackState.stale = false;
 }
 
 async function feedbackScheduleRequest(payload = null, tenantSlug = apiContext.tenantSlug) {
@@ -127,7 +247,7 @@ function feedbackSelectGroup(group, rowId = "") {
     || rows.find((item) => !item.skipped) || rows[0];
   Object.assign(feedbackState, {
     group, rowId: row.id, course: schedule.course, lesson: Number(row.lesson), date: row.date,
-    offset: Number(row.number) - Number(row.lesson), mode: schedule.mode, absent: [], extraAbsent: "",
+    offset: Number(row.number) - Number(row.lesson), mode: "group", absent: [], extraAbsent: "",
     repeat: row.repeat, coins: true, text: "", generated: null, edited: false, stale: false,
     editor: structuredClone(schedule), editorDirty: false, editorUndo: null,
   });
@@ -135,14 +255,14 @@ function feedbackSelectGroup(group, rowId = "") {
 
 async function renderFeedback() {
   if (!canAccessFeedback()) return;
-  const key = `algo-max-feedback-preview-v2:${apiContext.tenantSlug || "demo"}:${apiContext.maxUserId || apiContext.demoRole || "teacher"}`;
+  const key = feedbackContextStorageKey();
   if (feedbackState.contextKey !== key) {
     const legacy = feedbackState.contextKey ? "" : feedbackStorageKey;
     feedbackStorageKey = key;
     Object.assign(feedbackState, { contextKey: key, legacyStorageKey: legacy, catalog: null,
       schedules: Object.create(null), serverVersions: Object.create(null),
       group: "", rowId: "", text: "", generated: null, edited: false,
-      editor: null, editorDirty: false, editorUndo: null, restored: false });
+      editor: null, editorDirty: false, editorUndo: null, restored: false, ui: {}, series: null, restoringUi: false, tab: "groups" });
   }
   const root = qs("#feedbackWorkspace");
   if (!root) return;
@@ -172,6 +292,7 @@ async function renderFeedback() {
       feedbackState.schedules = restored.schedules;
       await feedbackLoadServerSchedules();
       if (apiContext.demoMode) feedbackPersist();
+      feedbackRestoreWorkspace(saved.workspace, feedbackGroups());
       feedbackState.restored = true; feedbackState.error = "";
       if (recovered || restored.recovered) showNotice("Повреждённые записи пропущены. Остальные настройки расписания сохранены.", "danger");
     } catch (error) {
@@ -184,8 +305,7 @@ async function renderFeedback() {
   }
   if (!["teacher", "admin"].includes(state.role)) return;
   const groups = feedbackGroups();
-  const scheduleOpen = qs(".feedback-schedule-settings")?.open;
-  const advancedOpen = qs(".feedback-advanced")?.open;
+  feedbackCaptureUi();
   if (feedbackState.tab === "groups" && !groups.includes(feedbackState.group)) {
     if (groups[0]) feedbackSelectGroup(groups[0]); else feedbackState.tab = "manual";
   }
@@ -210,17 +330,16 @@ async function renderFeedback() {
           <p class="feedback-stale-note" ${feedbackState.stale ? "" : "hidden"}>Параметры изменены. Обновите сообщение.</p>
           <label class="feedback-editor-label" for="feedbackText">Текст сообщения</label>
           <textarea id="feedbackText" class="feedback-text" maxlength="20000" placeholder="Сообщение о занятии" ${feedbackState.generated ? "" : "disabled"}>${escapeHtml(feedbackState.text)}</textarea>
-          <div class="feedback-output-actions"><button class="primary-action" data-feedback-copy type="button" ${feedbackState.text.trim() ? "" : "disabled"}><i data-lucide="copy"></i>Скопировать</button>
-            <button class="secondary-action" data-feedback-download type="button" ${feedbackState.text.trim() ? "" : "disabled"} aria-label="Скачать сообщение текстовым файлом"><i data-lucide="download"></i></button></div>
+          <div class="feedback-output-actions"><button class="primary-action" data-feedback-copy type="button" ${feedbackState.text.trim() ? "" : "disabled"}><i data-lucide="copy"></i>Скопировать</button></div>
         </section>
       </div>
     </div>`;
   refreshIcons();
-  if (scheduleOpen && qs(".feedback-schedule-settings")) qs(".feedback-schedule-settings").open = true;
-  if (advancedOpen && qs(".feedback-advanced")) qs(".feedback-advanced").open = true;
+  feedbackRestoreUi();
   const weeks = qs(".feedback-weeks");
   const selected = weeks?.querySelector(".is-active");
-  if (weeks && selected) weeks.scrollLeft = selected.offsetLeft - weeks.offsetLeft - (weeks.clientWidth - selected.offsetWidth) / 2;
+  if (!feedbackState.restoringUi && weeks && selected) weeks.scrollLeft = selected.offsetLeft - weeks.offsetLeft - (weeks.clientWidth - selected.offsetWidth) / 2;
+  feedbackPersist();
 }
 
 function feedbackOutputMeta() {
@@ -246,7 +365,7 @@ function feedbackGroupMarkup(groups) {
         ${row.repeat ? '<span class="feedback-repeat-badge">Повторение</span>' : ""}
         <span>${row.skipped ? "Отменено" : row.date > feedbackToday() ? "Впереди" : "Можно подготовить"}</span></button>`;
     }).join("")}</div>
-    <details class="feedback-schedule-settings"><summary><i data-lucide="calendar-days"></i>Расписание: уроки и даты</summary>
+    <details class="feedback-schedule-settings"><summary><i data-lucide="calendar-days"></i><span>Расписание: уроки и даты</span><i class="feedback-settings-chevron" data-lucide="chevron-down"></i></summary>
       <div id="feedbackScheduleEditor">${feedbackScheduleEditorMarkup()}</div>
     </details>`;
 }
@@ -291,14 +410,16 @@ function feedbackScheduleEditorMarkup() {
         <div class="feedback-schedule-actions"><button type="button" class="secondary-action" data-feedback-close-repeat>Отмена</button><button type="submit" class="primary-action">Добавить повторение</button></div>
       </form>
     </dialog>
-    <details class="feedback-series-settings"><summary>Заполнить даты по интервалу</summary>
+    <details class="feedback-series-settings"><summary>Заполнить даты</summary>
       <form id="feedbackSeriesForm"><label>Первая дата<input name="startDate" type="date" min="2000-01-01" max="2100-12-31" value="${editor.rows[0]?.date || feedbackToday()}" required></label>
         <label>Первый материал<input name="firstLesson" type="number" min="1" max="${feedbackState.catalog[editor.course].length}" value="1" required></label>
         <label>Первый номер<input name="firstNumber" type="number" min="1" max="999" value="1" required></label>
         <label>Количество занятий<input name="count" type="number" min="1" max="${feedbackState.catalog[editor.course].length}" value="${feedbackState.catalog[editor.course].length}" required></label>
-        <label>Интервал, дней<input name="interval" type="number" min="1" max="60" value="7" required></label>
+        <label>Как идут занятия<select name="pattern"><option value="interval">По интервалу</option><option value="weekdays">По дням недели</option></select></label>
+        <label data-feedback-interval>Интервал, дней<input name="interval" type="number" min="1" max="60" value="7" required></label>
+        <fieldset class="feedback-weekdays" data-feedback-weekdays hidden><legend>Дни занятий</legend>${[[1,"Пн"],[2,"Вт"],[3,"Ср"],[4,"Чт"],[5,"Пт"],[6,"Сб"],[0,"Вс"]].map(([day,label]) => `<label><input type="checkbox" name="weekdays" value="${day}"><span>${label}</span></label>`).join("")}</fieldset>
+        <output class="feedback-series-preview" aria-live="polite"></output>
         <button class="secondary-action" type="submit">Заполнить таблицу</button></form>
-      <p>После заполнения проверьте индивидуальные переносы и сохраните расписание.</p>
     </details>`;
 }
 
@@ -315,7 +436,9 @@ function feedbackCaptureSchedule() {
 
 function feedbackRedrawEditor() {
   qs("#feedbackScheduleEditor").innerHTML = feedbackScheduleEditorMarkup();
+  feedbackRestoreUi();
   refreshIcons();
+  feedbackPersist();
 }
 
 function feedbackFormMarkup() {
@@ -330,23 +453,18 @@ function feedbackFormMarkup() {
       <label class="feedback-add-names">${groupStudents.length ? "Другие имена" : "Отсутствующие ученики"}<input name="extraAbsent" maxlength="2000" value="${escapeHtml(feedbackState.extraAbsent)}" placeholder="Имена через запятую"></label></div>
     ${feedbackState.repeat ? '<p class="feedback-repeat-note"><span class="feedback-repeat-badge">Повторение</span></p>' : ""}
     <label class="feedback-checkbox"><input type="checkbox" name="coins" ${feedbackState.coins ? "checked" : ""}><span><strong>Астрокоины</strong></span></label>
-    <details class="feedback-advanced"><summary>Дополнительные параметры<i data-lucide="chevron-down"></i></summary>
-      <div class="feedback-fields-two"><label>Формат<select name="mode"><option value="group" ${feedbackState.mode === "group" ? "selected" : ""}>Группа</option><option value="online" ${feedbackState.mode === "online" ? "selected" : ""}>Онлайн / индивидуально</option></select></label>
-        <label>Смещение номера<input name="offset" type="number" min="-99" max="999" step="1" value="${feedbackState.offset}" required></label></div>
-    </details>`;
+    `;
 }
 
 function feedbackReadForm(validate = false) {
   const form = qs("#feedbackComposeForm");
   if (!form) return false;
   if (validate && !form.checkValidity()) {
-    // Reveal invalid controls inside the collapsed advanced section before focus.
-    if (form.querySelector(".feedback-advanced :invalid")) form.querySelector(".feedback-advanced").open = true;
     form.reportValidity(); return false;
   }
   const values = new FormData(form);
   Object.assign(feedbackState, { course: values.get("course"), lesson: Number(values.get("lesson")), date: values.get("date"),
-    offset: Number(values.get("offset")), mode: values.get("mode"), repeat: Boolean(feedbackState.group && feedbackSchedule(feedbackState.group).rows.find((row) => row.id === feedbackState.rowId)?.repeat), coins: values.has("coins"),
+    offset: feedbackState.offset, mode: values.has("coins") ? "group" : "online", repeat: Boolean(feedbackState.group && feedbackSchedule(feedbackState.group).rows.find((row) => row.id === feedbackState.rowId)?.repeat), coins: values.has("coins"),
     absent: values.getAll("absent"), extraAbsent: values.get("extraAbsent").trim() });
   return true;
 }
@@ -375,8 +493,22 @@ function feedbackUpdateCoins() {
     feedbackState.text = index < 0 ? `${feedbackState.text}\n\n${after}`
       : `${feedbackState.text.slice(0, index)}${after}\n\n${feedbackState.text.slice(index)}`;
   }
-  message.coins = feedbackState.coins;
+  const beforeAbsent = feedbackAbsentText(message);
+  const afterAbsent = feedbackAbsentText({ ...message, mode: feedbackState.mode });
+  if (beforeAbsent !== afterAbsent) {
+    if (feedbackState.text.includes(beforeAbsent)) feedbackState.text = feedbackState.text.replace(beforeAbsent, afterAbsent);
+    else feedbackState.stale = true;
+  }
+  message.coins = feedbackState.coins; message.mode = feedbackState.mode;
   qs("#feedbackText").value = feedbackState.text;
+}
+
+function feedbackAbsentText(message) {
+  const names = feedbackUniqueNames([...message.absent, ...message.extraAbsent.split(/[,;\n]/)]);
+  const absentNames = names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} и ${names.at(-1)}`;
+  return names.length ? message.mode === "online"
+    ? `${absentNames}, свяжитесь с преподавателем, чтобы договориться об отработке пропущенного занятия.`
+    : `${absentNames}, ждем на отработке за 30 минут до начала следующего занятия.` : "";
 }
 
 function feedbackBuildText() {
@@ -385,12 +517,8 @@ function feedbackBuildText() {
   const formattedDate = feedbackState.date.split("-").reverse().join(".");
   const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Moscow", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
   const greeting = hour >= 6 && hour < 12 ? "Доброе утро" : hour >= 12 && hour < 18 ? "Добрый день" : "Добрый вечер";
-  const names = feedbackUniqueNames([...feedbackState.absent, ...feedbackState.extraAbsent.split(/[,;\n]/)]);
-  const absentNames = names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} и ${names.at(-1)}`;
   const educational = feedbackState.repeat ? "Сегодня мы с ребятами повторяли тему предыдущего занятия, чтобы укрепить знания по ней." : lesson.educational_results;
-  const absentText = names.length ? feedbackState.mode === "online"
-    ? `${absentNames}, свяжитесь с преподавателем, чтобы договориться об отработке пропущенного занятия.`
-    : `${absentNames}, ждем на отработке за 30 минут до начала следующего занятия.` : "";
+  const absentText = feedbackAbsentText(feedbackState);
   return [`Обратная связь урок №${String(number).padStart(2, "0")} от ${formattedDate}`,
     `${greeting}, уважаемые родители!`, educational, absentText,
     feedbackCoinText(feedbackState),
@@ -411,11 +539,8 @@ document.addEventListener("submit", async (event) => {
       if (!feedbackReadForm(true)) return;
       const row = feedbackState.group && feedbackSchedule(feedbackState.group).rows.find((item) => item.id === feedbackState.rowId);
       if (row?.skipped) throw new Error("Занятие отмечено отменённым. Сначала измените отметку в расписании.");
-      const text = feedbackBuildText();
       if (feedbackState.edited && !await requestConfirmation({ title: "Подготовить текст заново?", message: "Ручные правки в текущем сообщении будут заменены текстом по материалам урока.", confirmLabel: "Подготовить заново", cancelLabel: "Оставить правки" })) return;
-      const keys = ["group", "rowId", "course", "lesson", "date", "offset", "mode", "repeat", "coins", "absent", "extraAbsent"];
-      feedbackState.generated = structuredClone(Object.fromEntries(keys.map((key) => [key, feedbackState[key]])));
-      feedbackState.text = text; feedbackState.edited = false; feedbackState.stale = false;
+      feedbackGenerate();
       await renderFeedback();
       if (window.matchMedia("(max-width: 900px)").matches) qs(".feedback-output-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
       showNotice("Сообщение подготовлено. Проверьте текст перед копированием.");
@@ -442,7 +567,7 @@ document.addEventListener("submit", async (event) => {
       if (!event.target.reportValidity()) return;
       const values = new FormData(event.target);
       const editor = feedbackCaptureSchedule();
-      const rows = feedbackSeries(editor.course, values.get("startDate"), values.get("firstLesson"), values.get("firstNumber"), values.get("count"), values.get("interval"), feedbackState.catalog);
+      const rows = feedbackSeries(editor.course, values.get("startDate"), values.get("firstLesson"), values.get("firstNumber"), values.get("count"), values.get("interval"), feedbackState.catalog, values.get("pattern") === "weekdays" ? values.getAll("weekdays") : null);
       if (!await requestConfirmation({ title: "Заменить таблицу занятий?", message: "Индивидуальные даты и выбранные материалы в таблице будут заменены. Сохранённое расписание изменится только после нажатия «Сохранить расписание».", confirmLabel: "Заполнить таблицу", cancelLabel: "Оставить таблицу" })) return;
       feedbackState.editorUndo = structuredClone(editor); feedbackState.editor = { ...editor, rows }; feedbackState.editorDirty = true; feedbackRedrawEditor();
     } else if (event.target.id === "feedbackRepeatForm") {
@@ -516,7 +641,7 @@ document.addEventListener("input", (event) => {
   }
   if (event.target.id === "feedbackText") {
     feedbackState.text = event.target.value; feedbackState.edited = true;
-    qsa("[data-feedback-copy], [data-feedback-download]").forEach((button) => { button.disabled = !feedbackState.text.trim(); });
+    qsa("[data-feedback-copy]").forEach((button) => { button.disabled = !feedbackState.text.trim(); });
   }
 });
 
@@ -531,7 +656,7 @@ document.addEventListener("click", async (event) => {
         || (data.feedbackGroup && data.feedbackGroup !== feedbackState.group)
         || (data.feedbackRow && data.feedbackRow !== feedbackState.rowId);
       if (changingMessage && feedbackState.edited && feedbackState.text.trim()
-        && !await requestConfirmation({ title: "Закрыть отредактированное сообщение?", message: "Скопируйте текст или скачайте файл, чтобы сохранить правки. При переходе сообщение будет закрыто.", confirmLabel: "Перейти", cancelLabel: "Остаться" })) return;
+        && !await requestConfirmation({ title: "Закрыть отредактированное сообщение?", message: "Ручные правки текущего сообщения будут заменены.", confirmLabel: "Перейти", cancelLabel: "Остаться" })) return;
       if (feedbackState.editorDirty) {
         feedbackState.editor = feedbackState.group ? structuredClone(feedbackSchedule(feedbackState.group)) : null;
         feedbackState.editorDirty = false;
@@ -545,6 +670,7 @@ document.addEventListener("click", async (event) => {
         }
       } else if (data.feedbackGroup) feedbackSelectGroup(data.feedbackGroup);
       else if (data.feedbackRow) feedbackSelectGroup(feedbackState.group, data.feedbackRow);
+      if (data.feedbackGroup || data.feedbackRow) feedbackGenerate();
 
       await renderFeedback();
     } else if ("feedbackRetry" in data) await renderFeedback();
@@ -552,11 +678,6 @@ document.addEventListener("click", async (event) => {
       if (!feedbackState.text.trim()) return;
       try { await navigator.clipboard.writeText(feedbackState.text); showNotice("Сообщение скопировано"); }
       catch { qs("#feedbackText")?.focus(); qs("#feedbackText")?.select(); showNotice("Выделили текст — скопируйте его вручную"); }
-    } else if ("feedbackDownload" in data) {
-      if (!feedbackState.generated || !feedbackState.text.trim()) return;
-      const url = URL.createObjectURL(new Blob([feedbackState.text], { type: "text/plain;charset=utf-8" }));
-      const link = document.createElement("a"); link.href = url; link.download = `Обратная связь ${feedbackState.generated.date}.txt`; link.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } else if ("feedbackAddRow" in data) {
       const editor = feedbackCaptureSchedule();
       feedbackValidateSchedule(editor, feedbackState.catalog);
@@ -586,4 +707,41 @@ document.addEventListener("keydown", (event) => {
   const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
   const tab = tabs[next].dataset.feedbackTab; tabs[next].click();
   window.setTimeout(() => qs(`[data-feedback-tab="${tab}"]`)?.focus(), 0);
+});
+
+
+function feedbackUpdateSeriesControls() {
+  const form = qs("#feedbackSeriesForm"); if (!form) return;
+  const byDays = form.elements.pattern.value === "weekdays";
+  qs("[data-feedback-interval]").hidden = byDays;
+  form.elements.interval.disabled = byDays;
+  qs("[data-feedback-weekdays]").hidden = !byDays;
+  try {
+    const values = new FormData(form);
+    const rows = feedbackSeries(feedbackState.editor.course, values.get("startDate"), values.get("firstLesson"), values.get("firstNumber"), values.get("count"), values.get("interval"), feedbackState.catalog, byDays ? values.getAll("weekdays") : null);
+    qs(".feedback-series-preview").textContent = rows.slice(0, 3).map((row) => feedbackDateLabel(row.date)).join(" · ") + (rows.length > 3 ? " …" : "");
+  } catch (error) { qs(".feedback-series-preview").textContent = error.message; }
+}
+
+for (const type of ["input", "change"]) document.addEventListener(type, (event) => {
+  if (!canAccessFeedback() || !event.target.closest("#feedbackWorkspace")) return;
+  if (event.target.closest("#feedbackComposeForm")) feedbackReadForm();
+  if (event.target.closest("#feedbackSeriesForm")) feedbackUpdateSeriesControls();
+  feedbackCaptureUi(); feedbackPersist();
+});
+document.addEventListener("toggle", (event) => {
+  if (!event.target.matches(".feedback-schedule-settings, .feedback-series-settings")) return;
+  feedbackCaptureUi(); feedbackPersist();
+}, true);
+let feedbackScrollTimer;
+document.addEventListener("scroll", () => {
+  if (state.view !== "feedback" || !feedbackState.restored || feedbackState.restoringUi) return;
+  clearTimeout(feedbackScrollTimer);
+  feedbackScrollTimer = setTimeout(() => { feedbackCaptureUi(); feedbackPersist(); }, 100);
+}, true);
+for (const type of ["pagehide", "blur"]) window.addEventListener(type, () => {
+  if (state.view === "feedback" && feedbackState.restored) { feedbackCaptureUi(); feedbackPersist(); }
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && state.view === "feedback" && feedbackState.restored) { feedbackCaptureUi(); feedbackPersist(); }
 });

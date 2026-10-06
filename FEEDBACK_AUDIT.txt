@@ -224,3 +224,19 @@
   API deployed and healthy. Existing multi-child parent access and cross-school limits
   verified on the server. 94 relevant tests passed; Ruff clean.
   Backup: /var/backups/algo-max/binding-limits-20261006-1791282390/.
+
+Feedback workspace resume and weekday scheduling — 06.10.2026
+- Selecting a lesson or group restores its parameters and generates feedback immediately.
+- Account/school-scoped local workspace snapshots restore the feedback screen, selected
+  lesson, attendance, coin setting, edited text, expanded sections, unsaved schedule edits,
+  bulk-fill inputs, scroll positions and text selection after reopening the miniapp.
+  Saved schedules remain server-owned. No draft/history interface was reintroduced.
+- Astrocoin switch selects group/individual absence instructions. Additional parameters
+  and TXT export removed. Schedule summary now has visible purple styling and a chevron.
+- Date filling supports selected weekdays with a preview; arbitrary day intervals remain.
+  Validated Sunday/year boundaries, missing weekday selection and destructive replacement.
+- 79 browser, asset, access, schedule storage and course correction checks passed.
+  Ruff and git diff --check clean. Desktop/mobile screenshots reviewed.
+- Deployed static assets 0.91.18, feedback CSS v6. Production health OK;
+  owner catalog/schedules 200, other staff 403, unsigned 401; own teacher groups preserved.
+- Backup: /var/backups/algo-max/feedback-resume-20261006-1791315279.
