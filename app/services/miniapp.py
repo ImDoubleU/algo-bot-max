@@ -191,6 +191,7 @@ from app.services.product_media import remove_product_image, remove_product_imag
 from app.services.staff import (
     active_staff_roles_for_tenant,
     configured_superadmin_max_user_id,
+    feedback_teacher_is_enabled,
     get_or_create_max_account,
     is_global_superadmin,
     normalize_staff_name,
@@ -3587,6 +3588,10 @@ async def get_miniapp_session(
             display_name=account.display_name,
         ),
         staff_roles=staff_roles,
+        feedback_enabled=(
+            StaffRole.SUPERADMIN in effective_staff_roles
+            or feedback_teacher_is_enabled(account.max_user_id, staff_roles)
+        ),
         student_roles=sorted(set(explicit_student_roles)),
         teacher_profile=teacher_profile,
         tenant=_tenant_to_read(tenant),

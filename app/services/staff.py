@@ -33,6 +33,17 @@ def superadmin_identity_is_allowed(max_user_id: int) -> bool:
     return max_user_id == configured_user_id
 
 
+def feedback_teacher_is_enabled(
+    max_user_id: int, staff_roles: list[StaffRole] | set[StaffRole]
+) -> bool:
+    allowed_ids = {
+        int(value.strip())
+        for value in get_settings().feedback_teacher_max_user_ids.split(",")
+        if value.strip().isdigit() and int(value.strip()) > 0
+    }
+    return max_user_id in allowed_ids and StaffRole.TEACHER in staff_roles
+
+
 def normalize_staff_name(value: str | None) -> str:
     return " ".join(re.findall(r"[a-zа-яё0-9]+", (value or "").casefold()))
 
@@ -131,9 +142,7 @@ async def active_staff_roles_for_tenant(
     global_superadmin = await is_global_superadmin(db, account_id=account_id)
     if StaffRole.SUPERADMIN in roles and not global_superadmin:
         roles.discard(StaffRole.SUPERADMIN)
-    if (
-        allowed_roles is None or StaffRole.SUPERADMIN in allowed_roles
-    ) and global_superadmin:
+    if (allowed_roles is None or StaffRole.SUPERADMIN in allowed_roles) and global_superadmin:
         roles.add(StaffRole.SUPERADMIN)
     return roles
 
@@ -268,8 +277,7 @@ async def bootstrap_staff_role(
 ) -> StaffRoleBootstrapResult:
     if role == StaffRole.SUPERADMIN and not superadmin_identity_is_allowed(max_user_id):
         raise StaffServiceError(
-            "Роль суперадминистра можно выдать только MAX ID из "
-            "INITIAL_SUPERADMIN_MAX_USER_ID"
+            "Роль суперадминистра можно выдать только MAX ID из INITIAL_SUPERADMIN_MAX_USER_ID"
         )
     tenant = await get_tenant_by_slug(db, tenant_slug)
     if tenant is None:

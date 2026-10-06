@@ -73,6 +73,7 @@ const state = {
   role: "student",
   account: null,
   staffRoles: [],
+  feedbackEnabled: false,
   teacherProfile: null,
   teacherProfileSaving: false,
   teacherProfileDialogOpen: false,
@@ -2167,6 +2168,7 @@ function applySession(session) {
     : DEFAULT_ACCRUAL_RULES.map((rule) => ({ ...rule }));
   state.account = session.account || null;
   state.staffRoles = Array.isArray(session.staff_roles) ? session.staff_roles : [];
+  state.feedbackEnabled = session.feedback_enabled === true;
   state.teacherProfile = session.teacher_profile
     ? {
         firstName: session.teacher_profile.first_name || "",

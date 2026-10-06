@@ -320,12 +320,12 @@ async function renderFeedback() {
       ${feedbackState.tab === "groups" ? feedbackGroupMarkup(groups) : ""}
       <div class="feedback-workspace-grid">
         <form id="feedbackComposeForm" class="feedback-compose-card" novalidate>
-          <div class="feedback-card-heading"><span class="feedback-step">1</span><div><h2>Что было на занятии</h2></div></div>
+          <div class="feedback-card-heading"><span class="feedback-step">1</span><div><h2>Настройки</h2></div></div>
           ${feedbackFormMarkup()}
           <button class="primary-action feedback-generate" type="submit"><i data-lucide="sparkles"></i>Подготовить сообщение</button>
         </form>
-        <section class="feedback-output-card" aria-label="Сообщение родителям">
-          <div class="feedback-card-heading"><span class="feedback-step">2</span><div><h2>Сообщение родителям</h2></div></div>
+        <section class="feedback-output-card" aria-label="Обратная связь">
+          <div class="feedback-card-heading"><span class="feedback-step">2</span><div><h2>Обратная связь</h2></div></div>
           <div class="feedback-output-meta" id="feedbackOutputMeta">${feedbackOutputMeta()}</div>
           <p class="feedback-stale-note" ${feedbackState.stale ? "" : "hidden"}>Параметры изменены. Обновите сообщение.</p>
           <label class="feedback-editor-label" for="feedbackText">Текст сообщения</label>

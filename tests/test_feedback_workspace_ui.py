@@ -883,3 +883,26 @@ def test_feedback_scroll_position_survives_reopening(feedback_page):
         20,
         30,
     ]
+
+
+def test_feedback_titles_badge_and_enabled_teacher_navigation(feedback_page):
+    page = feedback_page
+    assert (
+        page.locator(".feedback-compose-card .feedback-card-heading").inner_text() == "1\nНастройки"
+    )
+    assert (
+        page.locator(".feedback-output-card .feedback-card-heading").inner_text()
+        == "2\nОбратная связь"
+    )
+    assert page.locator("#feedbackView .feedback-preview-badge").count() == 0
+    result = page.evaluate("""() => {
+      apiContext.demoMode=false;
+      state.role='teacher'; state.staffRoles=['teacher'];
+      state.feedbackEnabled=true;
+      const allowed=canAccessFeedback() && roleViews('teacher').includes('feedback');
+      state.feedbackEnabled=false;
+      const denied=!canAccessFeedback() && !roleViews('teacher').includes('feedback');
+      state.feedbackEnabled=true; state.staffRoles=['curator'];
+      return {allowed,denied,otherRoleDenied:!canAccessFeedback()};
+    }""")
+    assert result == {"allowed": True, "denied": True, "otherRoleDenied": True}

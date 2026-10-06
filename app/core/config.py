@@ -116,6 +116,7 @@ class Settings(BaseSettings):
         default=None,
         alias="INITIAL_SUPERADMIN_MAX_USER_ID",
     )
+    feedback_teacher_max_user_ids: str = Field(default="", alias="FEEDBACK_TEACHER_MAX_USER_IDS")
     initial_superadmin_username: str | None = Field(
         default="ImDoubleU",
         alias="INITIAL_SUPERADMIN_USERNAME",
@@ -265,9 +266,7 @@ class Settings(BaseSettings):
             "max_poll_timeout_seconds": self.max_poll_timeout_seconds,
             "max_bot_token": "configured" if not is_placeholder(self.max_bot_token) else "missing",
             "max_bot_username": (
-                self.max_bot_username
-                if not is_placeholder(self.max_bot_username)
-                else "disabled"
+                self.max_bot_username if not is_placeholder(self.max_bot_username) else "disabled"
             ),
             "max_backend_api_base": (
                 self.max_backend_api_base

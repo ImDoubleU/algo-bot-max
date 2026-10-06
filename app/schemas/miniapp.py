@@ -965,6 +965,7 @@ class MiniAppSessionRead(BaseModel):
     access_message: str | None = None
     account: MiniAppAccountRead | None
     staff_roles: list[StaffRole]
+    feedback_enabled: bool = False
     student_roles: list[StudentAccessRole]
     teacher_profile: MiniAppTeacherProfileRead | None = None
     tenant: MiniAppTenantRead | None = None
