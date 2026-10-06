@@ -61,3 +61,45 @@ async def test_feedback_returns_catalog_only_after_superadmin_check(monkeypatch)
     )
     assert response.headers["cache-control"] == "private, no-store"
     check.assert_awaited_once_with(db, account_id=account_id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("active", [True, False])
+async def test_allowlisted_teacher_requires_active_teacher_assignment(monkeypatch, active):
+    from app.models.enums import StaffRole
+
+    account_id = uuid4()
+    db = AsyncMock()
+    db.scalar.side_effect = [account_id, uuid4() if active else None]
+    monkeypatch.setattr(miniapp, "is_global_superadmin", AsyncMock(return_value=False))
+
+    def grant(user_id, roles):
+        return user_id == 777 and StaffRole.TEACHER in roles
+
+    monkeypatch.setattr(miniapp, "feedback_teacher_is_enabled", grant)
+    if active:
+        response = await miniapp.miniapp_feedback_catalog(db, SimpleNamespace(max_user_id=777))
+        assert response.status_code == 200
+    else:
+        with pytest.raises(HTTPException) as denied:
+            await miniapp.miniapp_feedback_catalog(db, SimpleNamespace(max_user_id=777))
+        assert denied.value.status_code == 403
+    query = str(db.scalar.await_args_list[-1].args[0])
+    assert "staff_role_assignments.role" in query
+    assert "staff_role_assignments.status" in query
+
+
+def test_feedback_teacher_allowlist_does_not_grant_other_roles(monkeypatch):
+    from app.models.enums import StaffRole
+    from app.services import staff
+
+    monkeypatch.setattr(
+        staff,
+        "get_settings",
+        lambda: SimpleNamespace(feedback_teacher_max_user_ids="777, 888, invalid, -1"),
+    )
+    assert staff.feedback_teacher_is_enabled(777, [StaffRole.TEACHER])
+    assert staff.feedback_teacher_is_enabled(888, [StaffRole.TEACHER, StaffRole.ADMIN])
+    assert not staff.feedback_teacher_is_enabled(999, [StaffRole.TEACHER])
+    assert not staff.feedback_teacher_is_enabled(777, [StaffRole.ADMIN])
+    assert not staff.feedback_teacher_is_enabled(777, [])

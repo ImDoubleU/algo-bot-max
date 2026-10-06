@@ -696,7 +696,7 @@ function setView(view) {
 function canAccessFeedback() {
   return ["teacher", "admin"].includes(state.role) && (
     (apiContext.demoMode && apiContext.feedbackPreview) ||
-    (!apiContext.demoMode && primaryStaffRole() === "superadmin")
+    (!apiContext.demoMode && (primaryStaffRole() === "superadmin" || (state.feedbackEnabled && state.staffRoles.includes("teacher"))))
   );
 }
 

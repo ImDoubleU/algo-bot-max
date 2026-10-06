@@ -29,8 +29,14 @@ from app.api.dependencies import (
 from app.core.config import get_settings
 from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
-from app.models.account import MaxAccount
-from app.models.enums import ProductFulfillmentType, ProductStatus, StaffRole, StudentStatus
+from app.models.account import MaxAccount, StaffRoleAssignment
+from app.models.enums import (
+    AssignmentStatus,
+    ProductFulfillmentType,
+    ProductStatus,
+    StaffRole,
+    StudentStatus,
+)
 from app.models.feedback_schedule import FeedbackSchedule
 from app.models.store import Product
 from app.models.student import Student
@@ -193,6 +199,7 @@ from app.services.product_media import (
 )
 from app.services.staff import (
     active_staff_roles_for_tenant,
+    feedback_teacher_is_enabled,
     is_global_superadmin,
     staff_names_match,
     teacher_staff_name,
@@ -331,9 +338,21 @@ async def _feedback_owner_id(db: AsyncSession, identity: MiniAppIdentity | None)
     account_id = await db.scalar(
         select(MaxAccount.id).where(MaxAccount.max_user_id == identity.max_user_id)
     )
-    if account_id is None or not await is_global_superadmin(db, account_id=account_id):
-        raise HTTPException(status_code=403, detail="Доступ только для суперадминистратора")
-    return account_id
+    if account_id is None:
+        raise HTTPException(status_code=403, detail="Нет доступа к разделу обратной связи")
+    if await is_global_superadmin(db, account_id=account_id):
+        return account_id
+    if feedback_teacher_is_enabled(identity.max_user_id, {StaffRole.TEACHER}):
+        teacher_assignment = await db.scalar(
+            select(StaffRoleAssignment.id).where(
+                StaffRoleAssignment.account_id == account_id,
+                StaffRoleAssignment.role == StaffRole.TEACHER,
+                StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+            ).limit(1)
+        )
+        if teacher_assignment is not None:
+            return account_id
+    raise HTTPException(status_code=403, detail="Нет доступа к разделу обратной связи")
 
 
 async def _feedback_schedule_scope(db, identity, tenant_slug):

@@ -240,3 +240,16 @@ Feedback workspace resume and weekday scheduling — 06.10.2026
 - Deployed static assets 0.91.18, feedback CSS v6. Production health OK;
   owner catalog/schedules 200, other staff 403, unsigned 401; own teacher groups preserved.
 - Backup: /var/backups/algo-max/feedback-resume-20261006-1791315279.
+
+Feedback titles and two teacher grants — 06.10.2026
+- Panels renamed to "Настройки" and "Обратная связь" with existing step numbers 1/2.
+  Feedback preview badge removed; static asset version 0.91.19.
+- FEEDBACK_TEACHER_MAX_USER_IDS enables only designated accounts with an active teacher
+  assignment. Session feedback_enabled drives navigation; API checks grants independently.
+  Superadmin access retained. Existing own-group scope and per-account schedules unchanged.
+- Both requested teacher accounts verified against server staff profiles before enabling.
+  Production session/catalog/schedules 200; own groups 6 and 7; foreign-group writes 403.
+  All other 27 active staff accounts denied; unsigned request 401. Service healthy.
+- 102 relevant tests passed; Ruff and git diff --check clean.
+- Backup: /var/backups/algo-max/feedback-teachers-20261006-1791316196.
+  Production env with account identifiers stays outside Git.

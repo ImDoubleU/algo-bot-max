@@ -170,3 +170,32 @@ def test_schedule_rejects_malformed_rows(field, value):
     raw["schedule"]["rows"][0][field] = value
     with pytest.raises(ValidationError):
         FeedbackScheduleSave.model_validate(raw)
+
+
+@pytest.mark.asyncio
+async def test_enabled_teacher_can_save_own_schedule_but_not_foreign_group(storage, monkeypatch):
+    db, tenant, teacher, other, _ = storage
+    monkeypatch.setattr(miniapp, "is_global_superadmin", lambda *a, **k: _not_superadmin())
+    monkeypatch.setattr(
+        miniapp,
+        "feedback_teacher_is_enabled",
+        lambda user_id, roles: user_id == teacher.max_user_id and StaffRole.TEACHER in roles,
+    )
+    saved = await miniapp.miniapp_save_feedback_schedule(
+        payload(), db, identity(teacher, tenant), tenant.slug
+    )
+    assert saved["revision"] == 1
+    forbidden = payload(1)
+    forbidden.group_name = "Чужая группа"
+    with pytest.raises(HTTPException) as denied:
+        await miniapp.miniapp_save_feedback_schedule(
+            forbidden, db, identity(teacher, tenant), tenant.slug
+        )
+    assert denied.value.status_code == 403
+    with pytest.raises(HTTPException) as denied:
+        await miniapp.miniapp_feedback_catalog(db, identity(other, tenant))
+    assert denied.value.status_code == 403
+
+
+async def _not_superadmin():
+    return False
