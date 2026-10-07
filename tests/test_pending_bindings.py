@@ -162,7 +162,7 @@ async def test_expiry_and_bot_stop_cancel_unlinked_attempts(db_session):
     assert not client.sent_messages
 
 
-async def test_role_conflict_is_reviewed_instead_of_notified_or_connected(db_session):
+async def test_existing_pupil_binding_cancels_waiting_instead_of_notifying(db_session):
     from app.models.account import MaxAccount
     await seed_two_students_for_one_contact(db_session)
     item = await wait_for_contact(db_session)
@@ -175,12 +175,74 @@ async def test_role_conflict_is_reviewed_instead_of_notified_or_connected(db_ses
     await import_missing_children(db_session)
     client = SimulationMaxClient()
     await process_pending_batch(db_session, client=client)
-    assert item.status == "review" and item.reason == "account_role_conflict"
+    assert item.status == "cancelled" and item.reason == "account_already_connected"
     assert not client.sent_messages
     with pytest.raises(AccessServiceError) as caught:
         await confirm_pending_binding(db_session, identifier, 77)
-    assert caught.value.code == "account_role_conflict"
+    assert caught.value.code == "pending_already_connected"
     assert await db_session.scalar(select(func.count(StudentAccessLink.id))) == 1
+
+
+@pytest.mark.parametrize("access_kind", ["parent", "teacher", "superadmin"])
+async def test_registered_accounts_do_not_receive_or_confirm_stale_offers(db_session, access_kind):
+    from app.models.account import MaxAccount, StaffRoleAssignment
+    from app.models.enums import StaffRole
+    await seed_two_students_for_one_contact(db_session)
+    item = await wait_for_contact(db_session)
+    identifier = item.id
+    await import_missing_children(db_session)
+    client = SimulationMaxClient()
+    await process_pending_batch(db_session, client=client)
+    assert len(client.sent_messages) == 1
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 77))
+    if access_kind == "parent":
+        await create_contact_access_links(db_session, AccessLinkCreate(
+            tenant_slug=TENANT, contact_id="681", max_user_id=77, role="parent"))
+    else:
+        db_session.add(StaffRoleAssignment(tenant_id=item.tenant_id, account_id=account.id,
+                                          role=StaffRole(access_kind)))
+        await db_session.commit()
+    links_before = await db_session.scalar(select(func.count(StudentAccessLink.id)))
+    with pytest.raises(AccessServiceError) as caught:
+        await confirm_pending_binding(db_session, identifier, 77)
+    assert caught.value.code == "pending_already_connected"
+    assert await db_session.scalar(select(func.count(StudentAccessLink.id))) == links_before
+    assert item.status == "cancelled" and item.reason == "account_already_connected"
+    await process_pending_batch(db_session, client=client,
+                                now=datetime.now(UTC) + timedelta(minutes=2))
+    assert len(client.sent_messages) == 1  # A stale delivered button cannot create another link.
+    with pytest.raises(AccessServiceError) as caught:
+        await create_contact_access_links(db_session, AccessLinkCreate(
+            tenant_slug=TENANT, contact_id="MISSING", max_user_id=77, role="parent"))
+    assert caught.value.code == "contact_not_found"
+    assert await db_session.scalar(select(func.count(PendingBinding.id))) == 1
+    if access_kind == "parent":
+        # Explicit fresh family links still support all of a parent's children.
+        await create_contact_access_links(db_session, AccessLinkCreate(
+            tenant_slug=TENANT, contact_id="999", max_user_id=77, role="parent"))
+        assert await db_session.scalar(select(func.count(StudentAccessLink.id))) == 4
+
+
+async def test_worker_discards_staff_waiting_before_import_or_notification(db_session):
+    from app.models.account import MaxAccount, StaffRoleAssignment
+    from app.models.audit import AuditLog
+    from app.models.enums import StaffRole
+    from app.services.access import hash_contact_id
+    await seed_two_students_for_one_contact(db_session)
+    item = await wait_for_contact(db_session)
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 77))
+    db_session.add(StaffRoleAssignment(tenant_id=item.tenant_id, account_id=account.id,
+                                      role=StaffRole.TEACHER))
+    await db_session.commit()
+    client = SimulationMaxClient()
+    await process_pending_batch(db_session, client=client)
+    assert item.status == "cancelled" and not client.sent_messages
+    db_session.add(AuditLog(tenant_id=item.tenant_id, action="contact_access.resolve_failed",
+                            entity_type="contact_access", payload={"max_user_id": 77,
+                                "reason": "contact_id_not_found",
+                                "contact_id_hash": hash_contact_id("ANOTHER-MISSING")}))
+    await db_session.commit()
+    assert await recover_historical_missing_bindings(db_session) == 0
 
 
 async def test_valid_missing_invitation_waits_for_exact_uuid_and_keeps_parent_gate(db_session):

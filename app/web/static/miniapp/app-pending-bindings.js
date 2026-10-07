@@ -10,6 +10,7 @@ function pendingBindingDate(value) {
 }
 
 function pendingBindingReason(value) {
+  if (value === "account_already_connected") return "У аккаунта уже есть действующий доступ";
   return {contact_not_found: "Семья ещё не найдена", contact_id_not_found: "Семья ещё не найдена", contact_has_no_students: "У контакта пока нет учеников", student_not_found: "Ученик ещё не найден", ready: "Профиль найден", account_role_conflict: "Аккаунт уже используется с другой ролью", student_already_bound: "Аккаунт подключён к другому ученику", access_revoked: "Связь отключена школой", student_access_closed: "Доступ ученика закрыт", parent_link_inactive: "Нужна действующая связь родителя", school_inactive: "Школа отключена", pending_expired: "Нужна свежая ссылка школы", bot_stopped: "Пользователь остановил бота", cancelled: "Ожидание отменено", connected: "Подключение завершено"}[value] || "Требует проверки школы";
 }
 

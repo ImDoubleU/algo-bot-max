@@ -3,6 +3,12 @@ from app.bot.backend_client import BackendApiError
 
 def format_backend_error(exc: BackendApiError) -> str:
     messages = {
+        "pending_cancelled": (
+            "Подключение отменено. Откройте свою персональную ссылку школы."
+        ),
+        "pending_already_connected": (
+            "Ваш аккаунт MAX уже подключён. Откройте личный кабинет из меню бота."
+        ),
         "pending_waiting": (
             "Профиль ребёнка пока не найден. Мы сохранили вашу попытку и сообщим, "
             "когда можно будет подключиться. Проверьте, что открыли ссылку из письма вашей школы."
