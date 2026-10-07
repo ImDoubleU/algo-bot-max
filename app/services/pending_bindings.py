@@ -7,11 +7,11 @@ import re
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import exists, func, or_, select, update
 
-from app.models.account import MaxAccount
+from app.models.account import MaxAccount, StaffRoleAssignment
 from app.models.audit import AuditLog
-from app.models.enums import StudentAccessRole, StudentAccessStatus, TenantStatus
+from app.models.enums import AssignmentStatus, StudentAccessRole, StudentAccessStatus, TenantStatus
 from app.models.pending_binding import PendingBinding
 from app.models.student import Contact, ContactStudentLink, Student, StudentAccessLink
 from app.models.tenant import Tenant
@@ -31,6 +31,18 @@ WAITING_MESSAGE = (
     "Профиль ребёнка пока не найден. Мы сохранили вашу попытку и сообщим, "
     "когда можно будет подключиться. Проверьте, что открыли ссылку из письма вашей школы."
 )
+ALREADY_CONNECTED_MESSAGE = (
+    "Ваш аккаунт MAX уже подключён. Откройте личный кабинет из меню бота."
+)
+
+
+async def account_has_access(db, account_id):
+    return bool(await db.scalar(select(or_(
+        exists().where(StudentAccessLink.account_id == account_id,
+                       StudentAccessLink.status == StudentAccessStatus.ACTIVE),
+        exists().where(StaffRoleAssignment.account_id == account_id,
+                       StaffRoleAssignment.status == AssignmentStatus.ACTIVE),
+    ))))
 
 
 def utc(value):
@@ -108,6 +120,8 @@ async def remember_missing_binding(db, payload, reason):
     if tenant is None or tenant.status != TenantStatus.ACTIVE:
         return None
     account = await get_or_create_max_account(db, payload)  # Serializes duplicate first attempts.
+    if await account_has_access(db, account.id):
+        return None
     now = datetime.now(UTC)
     key = fingerprint(kind, target)
     item = await db.scalar(select(PendingBinding).where(
@@ -283,6 +297,8 @@ async def recover_historical_missing_bindings(db):
             tenant_slug=tenant.slug, contact_id="recovered", max_user_id=user_id,
             role=StudentAccessRole.PARENT,
         ))
+        if await account_has_access(db, account.id):
+            continue
         if await db.scalar(select(PendingBinding.id).where(
             PendingBinding.tenant_id == tenant_id, PendingBinding.max_user_id == user_id,
             PendingBinding.fingerprint == key,
@@ -334,8 +350,9 @@ async def confirm_pending_binding(db, pending_id, max_user_id):
     existing = await db.scalar(select(PendingBinding.id).where(
         PendingBinding.id == pending_id, PendingBinding.max_user_id == max_user_id,
     ))
+    account = None
     if existing:
-        await get_or_create_max_account(db, AccessLinkCreate(
+        account = await get_or_create_max_account(db, AccessLinkCreate(
             tenant_slug="pending", contact_id="pending", max_user_id=max_user_id,
             role=StudentAccessRole.PARENT,
         ))
@@ -346,8 +363,20 @@ async def confirm_pending_binding(db, pending_id, max_user_id):
         raise AccessServiceError("Это подключение не найдено для вашего аккаунта MAX.",
                                  code="pending_not_found")
     if item.status in {"cancelled", "expired"} or utc(item.expires_at) <= datetime.now(UTC):
+        if item.reason == "account_already_connected":
+            raise AccessServiceError(ALREADY_CONNECTED_MESSAGE, code="pending_already_connected")
+        if item.status == "cancelled":
+            raise AccessServiceError(
+                "Подключение отменено. Откройте свою персональную ссылку школы.",
+                code="pending_cancelled",
+            )
         raise AccessServiceError("Время ожидания закончилось. Откройте свежую ссылку школы.",
                                  code="pending_expired")
+    if item.status in OPEN_STATUSES and account and await account_has_access(db, account.id):
+        item.status, item.reason = "cancelled", "account_already_connected"
+        record_event(db, item, "cancelled", account_id=account.id)
+        await db.commit()
+        raise AccessServiceError(ALREADY_CONNECTED_MESSAGE, code="pending_already_connected")
     tenant, students, reason = await target_students(db, item)
     if reason not in {"ready", "already_connected"}:
         item.status = "pending" if reason in {
@@ -398,11 +427,30 @@ async def process_pending_batch(db, *, client=None, now=None, tenant_ids=None):
     )
     if tenant_ids is not None:
         query = query.where(PendingBinding.tenant_id.in_(tenant_ids))
-    rows = list(await db.scalars(query.order_by(
+    candidates = (await db.execute(query.with_only_columns(
+        PendingBinding.id, PendingBinding.max_user_id,
+    ).order_by(
         func.coalesce(PendingBinding.last_checked_at, PendingBinding.created_at), PendingBinding.id,
-    ).limit(1 if client else 50).with_for_update(skip_locked=True)))
-    for item in rows:
+    ).limit(1 if client else 50))).all()
+    processed = 0
+    for pending_id, user_id in candidates:
+        # Use the same account -> pending lock order as binding writers and confirmations.
+        account = await db.scalar(select(MaxAccount).where(
+            MaxAccount.max_user_id == user_id,
+        ).with_for_update(skip_locked=True))
+        if account is None:
+            continue
+        item = await db.scalar(select(PendingBinding).where(
+            PendingBinding.id == pending_id, PendingBinding.status.in_(OPEN_STATUSES),
+        ).with_for_update(skip_locked=True).execution_options(populate_existing=True))
+        if item is None:
+            continue
+        processed += 1
         item.last_checked_at = now
+        if await account_has_access(db, account.id):
+            item.status, item.reason = "cancelled", "account_already_connected"
+            record_event(db, item, "cancelled", account_id=account.id)
+            continue
         if utc(item.expires_at) <= now:
             item.status, item.reason = "expired", "pending_expired"
             record_event(db, item, "expired")
@@ -451,7 +499,7 @@ async def process_pending_batch(db, *, client=None, now=None, tenant_ids=None):
             item.notification_error = "Не удалось доставить уведомление в MAX"
             logger.warning("Pending binding notification failed: %s", item.id)
     await db.commit()
-    return len(rows)
+    return processed
 
 
 async def pending_binding_loop():

@@ -56,6 +56,7 @@ EXTRA_COPY = {
     "bot.interaction": ("Действие в боте", "Бот"),
 }
 REASONS = {
+    "account_already_connected": "Ожидание отменено: у аккаунта уже есть действующий доступ",
     "pending_expired": "Срок ожидания закончился; нужна свежая ссылка школы",
     "student_access_closed": "Доступ ученика закрыт",
     "student_not_found": "Профиль ученика ещё не найден",
