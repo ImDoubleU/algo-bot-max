@@ -472,6 +472,7 @@ async function switchTenant(tenantSlug) {
     if (isStaffStudentHistoryView()) await loadAdminStudents();
     if (["history", "audit"].includes(state.adminTab)) await loadAdminHistory();
     if (state.adminTab === "contacts") await loadAuditFeed("bindings");
+    if (state.adminTab === "contacts") await loadPendingBindings(true);
     state.studentInvitations = new Map();
     state.studentInvitationsLoaded = false;
     state.favorites = new Set();
@@ -595,6 +596,7 @@ async function refreshAllData() {
     return;
   }
   const refreshTasks = [loadCatalog(), loadOpsSummary()];
+  if (state.adminTab === "contacts") refreshTasks.push(loadPendingBindings(true));
   if (state.studentProfileId && canManageStudentRecords()) {
     refreshTasks.push(loadStudentLedger(state.studentProfileId, true));
     if (typeof loadStudentBank === "function") {
@@ -701,6 +703,7 @@ function setView(view) {
   if (nextView === "report") renderAccrualReport();
   if (nextView === "broadcasts") renderBroadcasts();
   if (nextView === "feedback") void renderFeedback();
+  if (nextView === "admin" && state.adminTab === "contacts") void loadPendingBindings();
 }
 
 function canAccessFeedback() {

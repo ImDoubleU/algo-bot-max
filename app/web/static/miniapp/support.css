@@ -43,6 +43,25 @@
 .support-user-groups > div { display:flex; flex-direction:column; gap:4px; font-size:12px; }
 .support-user-groups span, .support-user-unlinked { color:#81788d; font-size:12px; overflow-wrap:anywhere; }
 .support-user-unlinked { display:block; margin-top:12px; }
+.pending-bindings-panel { margin:24px 0; padding:20px; border:1px solid #e9e2f1; border-radius:16px; background:#fff; }
+.pending-bindings-title { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
+.pending-bindings-title h3 { margin:0; }
+.pending-bindings-title > button { display:inline-flex; align-items:center; gap:8px; }
+.pending-bindings-filters { display:grid; grid-template-columns:2fr 1fr; gap:12px; margin-bottom:16px; }
+.pending-bindings-content { display:grid; gap:12px; }
+.pending-binding-row { border:1px solid #e9e2f1; padding:16px; border-radius:12px; background:#faf8fd; }
+.pending-binding-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+.pending-binding-heading strong { overflow-wrap:anywhere; }
+.pending-binding-status { font-size:12px; padding:5px 8px; border-radius:6px; color:#7137bd; background:#eee2fb; }
+.pending-binding-status.is-ready { color:#34774a; background:#e5f5e9; }
+.pending-binding-status.is-review { color:#89640f; background:#fff3c9; }
+.pending-binding-identity, .pending-binding-details { display:flex; flex-wrap:wrap; gap:8px 16px; font-size:12px; color:#81788d; margin-top:10px; overflow-wrap:anywhere; }
+.pending-binding-students { display:grid; gap:8px; margin-top:12px; }
+.pending-binding-students > div { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 12px; font-size:13px; }
+.pending-binding-students span { color:#81788d; font-size:12px; overflow-wrap:anywhere; }
+.pending-binding-cancel { margin-top:14px; font-size:12px; }
+.pending-binding-error { color:#a63838; overflow-wrap:anywhere; }
+.pending-bindings-empty { margin:6px 0; color:#81788d; font-size:13px; }
 .support-ticket-update { display:grid; gap:14px; margin-top:20px; }
 .support-ticket-update button { justify-self:start; }
 .support-ticket-danger { display:flex; justify-content:flex-end; margin-top:22px; padding-top:18px; border-top:1px solid #eee9f3; }
@@ -93,6 +112,10 @@ textarea.support-control { resize:vertical; }
   .support-user-panel { padding:12px; }
   .support-user-facts { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 12px; }
   .support-user-student, .support-user-staff { padding:12px; }
+  .pending-bindings-panel { padding:14px; }
+  .pending-bindings-filters { grid-template-columns:1fr; }
+  .pending-binding-row { padding:12px; }
+  .pending-binding-cancel { min-height:44px; }
   .support-user-student .audit-student-link { overflow-wrap:anywhere; }
   .support-ticket-danger button { width:100%; justify-content:center; min-height:44px; }
   .support-tab, .support-filter { min-height:44px; padding:10px 12px; font-size:14px; }

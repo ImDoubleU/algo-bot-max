@@ -80,6 +80,6 @@ def test_rebound_student_keeps_event_and_current_ids_in_one_person(binding_brows
       payload: {actor_role: 'student', students: [{id: 'student', name: 'Ученик',
         accounts: [{role: 'student', max_user_id: 20}]}]}})""")
     assert len(model["people"]) == 1
-    assert model["people"][0]["ids"] == [10, 20]
-    assert model["people"][0]["currentIds"] == [20]
+    assert [str(value) for value in model["people"][0]["ids"]] == ["10", "20"]
+    assert [str(value) for value in model["people"][0]["currentIds"]] == ["20"]
     page.close()

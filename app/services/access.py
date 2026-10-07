@@ -52,6 +52,8 @@ def audited_binding(function):
         except AccessServiceError as exc:
             await db.rollback()
             tenant = await get_tenant_by_slug(db, payload.tenant_slug)
+            from app.services.pending_bindings import WAITING_MESSAGE, remember_missing_binding
+            pending = await remember_missing_binding(db, payload, exc.code)
             fields = {
                 "request_id": binding_request_id(),
                 "result": "failed",
@@ -87,6 +89,8 @@ def audited_binding(function):
             )
             await db.commit()
             logger.info("binding_failed %s", json.dumps(fields, ensure_ascii=False))
+            if pending:
+                raise AccessServiceError(WAITING_MESSAGE, code="pending_waiting") from exc
             raise
 
     return wrapped
@@ -439,9 +443,17 @@ async def revoke_access_for_stopped_bot(
     payload: BotStoppedAccessRevoke,
 ) -> tuple[int, int, int]:
     account = await db.scalar(
-        select(MaxAccount).where(MaxAccount.max_user_id == payload.max_user_id)
+        select(MaxAccount).where(MaxAccount.max_user_id == payload.max_user_id).with_for_update()
     )
+    from sqlalchemy import update
+
+    from app.models.pending_binding import PendingBinding
+    await db.execute(update(PendingBinding).where(
+        PendingBinding.max_user_id == payload.max_user_id,
+        PendingBinding.status.in_(("pending", "ready", "review")),
+    ).values(status="cancelled", reason="bot_stopped"))
     if account is None:
+        await db.commit()
         return 0, 0, 0
 
     account_links = list(
@@ -455,6 +467,7 @@ async def revoke_access_for_stopped_bot(
         ).all()
     )
     if not account_links:
+        await db.commit()
         return 0, 0, 0
 
     revoked_at = datetime.now(UTC)
@@ -593,6 +606,10 @@ async def create_contact_access_links(
             },
         ),
     )
+    from app.services.pending_bindings import complete_matching_pending
+    await complete_matching_pending(db, tenant_id=contact.tenant_id,
+                                    max_user_id=payload.max_user_id, kind="contact",
+                                    target=normalize_contact_id(payload.contact_id))
     await db.commit()
     logger.info(
         "binding_completed %s",
@@ -750,6 +767,10 @@ async def create_invited_student_access_link(
             },
         )
     )
+    from app.services.pending_bindings import complete_matching_pending
+    await complete_matching_pending(db, tenant_id=tenant.id,
+                                    max_user_id=payload.max_user_id, kind="student",
+                                    target=str(student.id))
     await db.commit()
     await db.refresh(link)
     logger.info(

@@ -393,6 +393,7 @@ async def upsert_crm_student_rows(
         if created_partner:
             result = result.add(created_partners=result.created_partners + 1)
 
+    touched_tenants = set()
     for row in rows:
         if target_tenant is not None:
             tenant = target_tenant
@@ -411,6 +412,7 @@ async def upsert_crm_student_rows(
         if not row.first_name:
             result = result.add(skipped_rows=result.skipped_rows + 1)
             continue
+        touched_tenants.add(tenant.id)
 
         venue, created_venue = await get_or_create_venue(db, tenant=tenant, name=row.venue_name)
         if created_venue:
@@ -553,6 +555,14 @@ async def upsert_crm_student_rows(
                     created_contact_student_links=result.created_contact_student_links + 1
                 )
 
+    # Mark attempts for a prompt recheck in the same transaction as the import.
+    from sqlalchemy import update
+
+    from app.models.pending_binding import PendingBinding
+    await db.execute(update(PendingBinding).where(
+        PendingBinding.status.in_(("pending", "review")),
+        PendingBinding.tenant_id.in_(touched_tenants),
+    ).values(last_checked_at=None))
     if commit:
         await db.commit()
 

@@ -121,6 +121,8 @@ class AccessBackendClient:
         tenant_slug: str,
         contact_id: str,
         max_user_id: int | None,
+        username: str | None = None,
+        display_name: str | None = None,
     ) -> dict[str, Any]:
         return self._request(
             "POST",
@@ -129,8 +131,19 @@ class AccessBackendClient:
                 "tenant_slug": tenant_slug,
                 "contact_id": contact_id,
                 "max_user_id": max_user_id,
+                "username": username,
+                "display_name": display_name,
             },
         )
+
+    def pending_binding_action(
+        self, *, pending_id: str, action: str, max_user_id: int, tenant_slug: str,
+    ) -> dict[str, Any]:
+        if action not in {"confirm", "cancel"}:
+            raise ValueError("Unsupported pending action")
+        return self._request("POST", f"/access/pending/{parse.quote(pending_id, safe='')}/{action}",
+                             body={"max_user_id": max_user_id, "tenant_slug": tenant_slug},
+                             timeout=45)
 
     def create_links(
         self,
