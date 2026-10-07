@@ -79,6 +79,8 @@ function auditDay(value) {
 }
 
 function auditReadable(value) {
+  const staffLabels = {curator: "Куратор", partner_director: "Директор", warehouse_manager: "Сотрудник склада"};
+  if (typeof value === "string" && staffLabels[value]) return staffLabels[value];
   const labels = { parent: "Родитель", student: "Ученик", teacher: "Преподаватель", admin: "Администратор", superadmin: "Суперадминистратор", active: "Активен", revoked: "Отключён", departed: "Завершил обучение", archived: "В архиве", id_entry: "Ссылка из письма", parent_qr: "QR родителя", teacher_qr: "QR преподавателя", success: "Выполнено", denied: "Отказ", error: "Не выполнено", partial: "Требует внимания", pending: "В обработке" };
   if (Array.isArray(value)) return value.map(auditReadable).join(", ");
   if (value && typeof value === "object") return JSON.stringify(value);
@@ -103,16 +105,57 @@ function auditFacts(entry) {
   return facts.slice(0, 12);
 }
 
-function auditStudents(entry) {
-  const students = Array.isArray(entry.payload?.students) ? entry.payload.students : [];
-  return students.map((student) => `<div class="audit-student">
-    <div class="audit-student-main"><span class="audit-person-role">Ученик</span>
-      <button type="button" class="audit-student-link" data-audit-student="${escapeHtml(student.id)}" data-audit-tenant="${escapeHtml(entry.tenantSlug || "")}" title="Открыть карточку ученика · ${escapeHtml(student.id)}">${escapeHtml(student.name)}<i data-lucide="arrow-up-right"></i></button>
-      <span class="audit-student-ids">${[student.lms_id ? `LMS ID ${escapeHtml(student.lms_id)}` : "", student.crm_id ? `CRM ID ${escapeHtml(student.crm_id)}` : ""].filter(Boolean).join(" · ")}</span>
-    </div>
-    <div class="audit-student-context"><span><small>Группа</small>${escapeHtml(student.group || "Не указана")}</span><span><small>Преподаватель</small>${escapeHtml(student.teacher || "Не указан")}${student.teacher_max_user_id ? ` · MAX ID ${escapeHtml(student.teacher_max_user_id)}` : ""}</span></div>
-    ${(student.accounts || []).length ? `<div class="audit-linked-people"><small>Связи сейчас</small>${student.accounts.map((account) => `<span><b>${escapeHtml(auditReadable(account.role))}:</b> ${escapeHtml(account.name || "Имя не указано")} <code>MAX ID ${escapeHtml(account.max_user_id)}</code></span>`).join("")}</div>` : ""}
-  </div>`).join("");
+function auditPeople(entry) {
+  const p = entry.payload || {};
+  const students = Array.isArray(p.students) ? p.students : [];
+  const role = String(p.actor_role || p.role || "").split(", ").filter(Boolean).map(auditReadable).join(", ");
+  const actor = {
+    role: role || "Автор", name: entry.actorName === `Аккаунт MAX ${entry.actorMaxUserId}` ? "Имя не указано" : entry.actorName,
+    ids: entry.actorMaxUserId ? [entry.actorMaxUserId] : [], actor: true, current: false,
+  };
+  const people = [actor];
+  const representedIds = new Set(actor.ids.map(String));
+  const contexts = new Map();
+  const additional = [];
+  students.forEach((student) => {
+    const accounts = Array.isArray(student.accounts) ? student.accounts : [];
+    const childIds = accounts.filter((account) => account.role === "student").map((account) => account.max_user_id);
+    const isActor = p.actor_role === "student" && (students.length === 1 || childIds.some((id) => String(id) === String(entry.actorMaxUserId)));
+    const person = isActor ? actor : {role: "Ученик", ids: childIds, current: childIds.length > 0};
+    Object.assign(person, {name: student.name, studentId: student.id, lmsId: student.lms_id, crmId: student.crm_id});
+    if (!isActor) people.push(person);
+    if (isActor) {
+      person.currentIds = childIds.filter((id) => !person.ids.some((known) => String(known) === String(id)));
+      person.ids.push(...person.currentIds);
+    }
+    person.ids.forEach((id) => representedIds.add(String(id)));
+    accounts.filter((account) => account.role !== "student").forEach((account) => additional.push(account));
+    const teacherShown = student.teacher_max_user_id && representedIds.has(String(student.teacher_max_user_id));
+    const context = {group: student.group, teacher: teacherShown ? "" : student.teacher, teacherId: teacherShown ? null : student.teacher_max_user_id};
+    if (context.group || context.teacher) contexts.set(JSON.stringify(context), context);
+  });
+  additional.forEach((account) => {
+    const key = String(account.max_user_id);
+    if (representedIds.has(key)) return;
+    representedIds.add(key);
+    people.push({role: auditReadable(account.role), name: account.name || "Имя не указано", ids: [account.max_user_id], current: true});
+  });
+  return {people, contexts: [...contexts.values()]};
+}
+
+function auditPersonMarkup(person, entry) {
+  const name = person.studentId ? `<button type="button" class="audit-student-link" data-audit-student="${escapeHtml(person.studentId)}" data-audit-tenant="${escapeHtml(entry.tenantSlug || "")}">${escapeHtml(person.name)}<i data-lucide="arrow-up-right"></i></button>` : `<strong>${escapeHtml(person.name)}</strong>`;
+  return `<div class="audit-person" ${person.actor ? 'data-audit-actor' : ""}>
+    <span class="audit-person-role">${escapeHtml(person.role)}</span>
+    <div class="audit-person-name">${name}${person.current ? '<small class="audit-current" title="Текущая привязка; состояние на момент события может отличаться">сейчас</small>' : ""}</div>
+    <div class="audit-person-ids">${person.ids.map((id) => `<code>MAX ID ${escapeHtml(id)}${person.currentIds?.includes(id) ? ' <small class="audit-current">сейчас</small>' : ""}</code>`).join("")}${person.lmsId ? `<code>LMS ID ${escapeHtml(person.lmsId)}</code>` : ""}</div>
+  </div>`;
+}
+
+function auditEventTitle(entry) {
+  if (entry.action === "student_qr_access_link.created") return entry.payload.created === false ? "Повторный вход по QR-коду" : "Подключение по QR-коду";
+  if (entry.action === "contact_access_links.created") return entry.payload.created_links || entry.payload.reactivated_links ? "Подключение по ссылке" : "Повторный вход по ссылке";
+  return entry.title;
 }
 
 function auditCards(rows, full = false) {
@@ -121,20 +164,23 @@ function auditCards(rows, full = false) {
     const day = auditDay(entry.createdAt);
     const heading = day !== previousDay ? `<h4 class="audit-day">${escapeHtml(day)}</h4>` : "";
     previousDay = day;
-    const status = { success: ["check", "Выполнено"], denied: ["shield-alert", "Отказ"], error: ["circle-x", "Не выполнено"], partial: ["triangle-alert", "Требует внимания"], pending: ["clock", "В обработке"] }[entry.status] || ["info", "Событие"];
-    const facts = auditFacts(entry);
-    const actorName = entry.actorName === `Аккаунт MAX ${entry.actorMaxUserId}` ? "Имя не указано" : entry.actorName;
-    const actorRole = String(entry.payload?.actor_role || entry.payload?.role || "").split(", ").filter(Boolean).map(auditReadable).join(", ");
+    const status = {success: ["check", "Выполнено"], denied: ["shield-alert", "Отказ"], error: ["circle-x", "Не выполнено"], partial: ["triangle-alert", "Требует внимания"], pending: ["clock", "В обработке"]}[entry.status] || ["info", "Событие"];
+    const model = auditPeople(entry);
+    const facts = auditFacts(entry).filter(([key]) => !["Роль", "Способ входа", "Детей в семье", "Привязок создано", "Привязок восстановлено"].includes(key) && !(key === "Ученик" && model.people.some((person) => person.studentId)) && !(key === "Группа" && model.contexts.length));
+    const studentDetails = model.people.filter((person) => person.studentId).map((person) => `<div><dt>${escapeHtml(person.name)}</dt><dd>ID ${escapeHtml(person.studentId)}${person.crmId ? ` · CRM ID ${escapeHtml(person.crmId)}` : ""}</dd></div>`).join("");
+    const diagnostics = full ? `<div><dt>Событие</dt><dd>${escapeHtml(entry.action)}</dd></div><div><dt>Запись</dt><dd>${escapeHtml(entry.id)}</dd></div>${entry.requestId ? `<div><dt>Запрос</dt><dd>${escapeHtml(entry.requestId)}</dd></div>` : ""}${entry.ipAddress ? `<div><dt>IP</dt><dd>${escapeHtml(entry.ipAddress)}</dd></div>` : ""}<div><dt>Объект</dt><dd>${escapeHtml([entry.entityType, entry.entityId].filter(Boolean).join(" · "))}</dd></div>` : "";
     return `${heading}<article class="audit-event is-${escapeHtml(entry.status)}">
-      <span class="audit-icon"><i data-lucide="${status[0]}"></i></span>
-      <div class="audit-copy"><div class="audit-title"><strong>${escapeHtml(entry.title)}</strong><span class="audit-badge">${status[1]}</span></div>
-        <div class="audit-who">${actorRole ? `<span class="audit-person-role">${escapeHtml(actorRole)}</span>` : ""}<strong>${escapeHtml(actorName)}</strong>${entry.actorMaxUserId ? `<code>MAX ID ${escapeHtml(entry.actorMaxUserId)}</code>` : ""}</div>
-        ${auditStudents(entry)}
+      <span class="audit-icon" role="img" aria-label="${status[1]}"><i data-lucide="${status[0]}" aria-hidden="true"></i></span>
+      <div class="audit-copy">
+        <div class="audit-heading"><div class="audit-title"><strong>${escapeHtml(auditEventTitle(entry))}</strong>${entry.status !== "success" ? `<span class="audit-badge">${status[1]}</span>` : ""}</div><time datetime="${escapeHtml(entry.createdAt)}" title="Время Москвы">${escapeHtml(auditTime(entry.createdAt))}</time></div>
+        <div class="audit-people">${model.people.map((person) => auditPersonMarkup(person, entry)).join("")}</div>
+        ${model.contexts.length ? `<div class="audit-context">${model.contexts.map((context) => `<div>${context.group ? `<span><small>Группа</small>${escapeHtml(context.group)}</span>` : ""}${context.teacher ? `<span><small>Преподаватель</small>${escapeHtml(context.teacher)}${context.teacherId ? ` <code>MAX ID ${escapeHtml(context.teacherId)}</code>` : ""}</span>` : ""}</div>`).join("")}</div>` : ""}
         ${entry.explanation ? `<p class="audit-explanation">${escapeHtml(entry.explanation)}</p>` : ""}
         ${facts.length ? `<dl class="audit-facts">${facts.map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>` : ""}
-        <div class="audit-tags"><span>${escapeHtml(entry.category)}</span>${full && entry.tenantName ? `<span>${escapeHtml(entry.tenantName)}</span>` : ""}</div>
-        ${full ? `<details class="audit-details"><summary>Подробности события</summary><dl class="audit-facts"><div><dt>Событие</dt><dd>${escapeHtml(entry.action)}</dd></div><div><dt>Запись</dt><dd>${escapeHtml(entry.id)}</dd></div>${entry.requestId ? `<div><dt>Запрос</dt><dd>${escapeHtml(entry.requestId)}</dd></div>` : ""}${entry.ipAddress ? `<div><dt>IP</dt><dd>${escapeHtml(entry.ipAddress)}</dd></div>` : ""}<div><dt>Объект</dt><dd>${escapeHtml([entry.entityType, entry.entityId].filter(Boolean).join(" · "))}</dd></div></dl><pre>${escapeHtml(JSON.stringify(entry.payload, null, 2))}</pre></details>` : ""}
-      </div><time datetime="${escapeHtml(entry.createdAt)}" title="Время Москвы">${escapeHtml(auditTime(entry.createdAt))}</time>
+        <div class="audit-footer"><div class="audit-tags">${entry.payload.source ? `<span>${escapeHtml(auditReadable(entry.payload.source))}</span>` : `<span>${escapeHtml(entry.category)}</span>`}${full && entry.tenantName ? `<span>${escapeHtml(entry.tenantName)}</span>` : ""}</div>
+          ${studentDetails || full ? `<details class="audit-details ${full ? "audit-technical" : ""}"><summary>${full ? "Детали аудита" : "ID ученика"}</summary><div class="audit-detail-content"><dl class="audit-facts">${studentDetails}${diagnostics}</dl>${full ? `<pre>${escapeHtml(JSON.stringify(entry.payload, null, 2))}</pre>` : ""}</div></details>` : ""}
+        </div>
+      </div>
     </article>`;
   }).join("");
 }
