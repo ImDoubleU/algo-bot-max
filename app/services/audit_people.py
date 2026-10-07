@@ -9,7 +9,9 @@ from app.models.account import MaxAccount, StaffRoleAssignment
 from app.models.audit import AuditLog
 from app.models.enums import AssignmentStatus, StaffRole, StudentAccessStatus
 from app.models.student import Contact, ContactStudentLink, Student, StudentAccessLink
+from app.models.tenant import Tenant
 from app.services.access import hash_contact_id
+from app.services.binding_targets import contact_target
 from app.services.staff import staff_names_match, teacher_staff_name
 
 
@@ -32,9 +34,43 @@ async def history_people(db, rows, *, tenant_id, all_tenants=False, student_id=N
         tenant_ids = {tenant_id}
     student_ids, contact_ids, hashes, actor_ids = set(), set(), set(), set()
     event_students, event_contacts = defaultdict(set), {}
+    event_targets, external_ids = {}, set()
+    schools = {school.slug: school.id for school in await db.scalars(
+        select(Tenant).where(Tenant.id.in_(tenant_ids))
+    )}
+    target_schools = {}
     for audit, actor, _ in rows:
         p = audit.payload or {}
+        target = p.get("link_target")
+        if not isinstance(target, dict):
+            target = None
+        if target and target.get("kind") == "contact":
+            target = contact_target(target.get("id"), tenant_slug=target.get("tenant_slug"))
+        elif target and target.get("kind") == "student":
+            key = identifier(target.get("id"))
+            school_id = identifier(target.get("tenant_id"))
+            target = ({"kind": "student", "id": str(key),
+                       **({"tenant_id": str(school_id)} if school_id else {})} if key else None)
+        else:
+            target = None
+        if target is None and p.get("contact_id"):
+            target = contact_target(p["contact_id"])
+        if target is None and audit.action.startswith(("student_qr_access", "pending_binding")):
+            if key := identifier(p.get("student_id")):
+                target = {"kind": "student", "id": str(key)}
+                if school_id := identifier(p.get("invitation_tenant_id")):
+                    target["tenant_id"] = str(school_id)
+        if target:
+            event_targets[audit.id] = target
+            scope = (identifier(target.get("tenant_id")) if target.get("tenant_id")
+                     else schools.get(target["tenant_slug"]) if target.get("tenant_slug")
+                     else audit.tenant_id)
+            target_schools[audit.id] = scope if scope in tenant_ids else None
+            if target["kind"] == "contact":
+                external_ids.add(target["id"])
         values = [p.get("student_id"), *(p.get("student_ids") or [])]
+        if target and target["kind"] == "student" and target_schools[audit.id]:
+            values.append(target["id"])
         if audit.entity_type.startswith("student"):
             values.append(audit.entity_id)
         for value in values:
@@ -50,18 +86,23 @@ async def history_people(db, rows, *, tenant_id, all_tenants=False, student_id=N
             actor_ids.add(actor.id)
 
     contacts = {}
-    if contact_ids or hashes:
+    if contact_ids or hashes or external_ids:
         query = select(Contact).where(Contact.tenant_id.in_(tenant_ids))
-        if not hashes:
+        if not hashes and not external_ids:
             query = query.where(Contact.id.in_(contact_ids))
         for contact in (await db.scalars(query)).all():
-            if contact.id in contact_ids or hash_contact_id(contact.external_contact_id) in hashes:
+            if (contact.id in contact_ids or hash_contact_id(contact.external_contact_id) in hashes
+                    or contact.external_contact_id in external_ids):
                 contacts[contact.id] = contact
         hash_contacts = {
             (c.tenant_id, hash_contact_id(c.external_contact_id)): c.id for c in contacts.values()
         }
+        by_external_id = {(c.tenant_id, c.external_contact_id): c.id for c in contacts.values()}
         for audit, _, _ in rows:
             key = hash_contacts.get((audit.tenant_id, (audit.payload or {}).get("contact_id_hash")))
+            target = event_targets.get(audit.id)
+            if target and target["kind"] == "contact":
+                key = by_external_id.get((target_schools.get(audit.id), target["id"]))
             if key:
                 event_contacts[audit.id] = key
         links = (
@@ -196,6 +237,13 @@ async def history_people(db, rows, *, tenant_id, all_tenants=False, student_id=N
             students[key] for key in sorted(event_students[audit.id], key=str) if key in students
         ]
         contact = contacts.get(event_contacts.get(audit.id))
+        target = event_targets.get(audit.id)
+        if target is None and contact and p.get("contact_id_hash"):
+            target = {"kind": "contact", "id": contact.external_contact_id}
+        if target is None and p.get("contact_id_hash"):
+            target = {"kind": "contact", "id": None, "state": "historical_id_missing"}
+        if target is None and p.get("reason") == "not_linked":
+            target = {"kind": "unknown", "id": None, "state": "not_provided"}
         name = account_name(actor) if actor else ""
         if role == "student" and len(subject_students) == 1:
             name = subject_students[0].display_name
@@ -204,11 +252,14 @@ async def history_people(db, rows, *, tenant_id, all_tenants=False, student_id=N
         result[audit.id] = {
             "actor_name": name,
             "actor_role": role,
+            "link_target": target,
             "students": [
                 {
                     "id": str(s.id),
                     "name": s.display_name,
                     "tenant_id": str(s.tenant_id),
+                    "tenant_slug": next((slug for slug, key in schools.items()
+                                         if key == s.tenant_id), None),
                     "lms_id": s.lms_student_id,
                     "crm_id": s.crm_deal_id,
                     "group": s.group_name,

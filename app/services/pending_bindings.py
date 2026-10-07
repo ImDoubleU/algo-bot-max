@@ -53,6 +53,8 @@ def record_event(db, item, action, *, account_id=None):
         from app.services.access import hash_contact_id
         payload["contact_id_hash"] = (item.target_id[7:] if item.target_id.startswith("sha256:")
                                       else hash_contact_id(item.target_id))
+        if not item.target_id.startswith("sha256:"):
+            payload["contact_id"] = item.target_id
     else:
         payload["student_id"] = item.target_id
     db.add(AuditLog(
@@ -459,9 +461,10 @@ async def pending_binding_loop():
 
     settings = get_settings()
     client = None if is_placeholder(settings.max_bot_token) else MaxApiClient(
-        token=str(settings.max_bot_token), base_url=settings.max_api_base,
+        token=str(settings.max_bot_token), api_base=settings.max_api_base,
         timeout_seconds=settings.max_api_timeout_seconds,
     )
+    logger.info("Pending binding worker started")
     while True:
         count = 0
         try:

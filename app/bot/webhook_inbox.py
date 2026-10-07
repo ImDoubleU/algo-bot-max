@@ -42,6 +42,8 @@ class WebhookInbox:
                 db.execute(
                     "ALTER TABLE webhook_inbox ADD COLUMN audit_exported INTEGER NOT NULL DEFAULT 0"
                 )
+            if "audit_context" not in columns:
+                db.execute("ALTER TABLE webhook_inbox ADD COLUMN audit_context TEXT")
         if os.name != "nt":
             path.chmod(0o600)
 
@@ -69,6 +71,9 @@ class WebhookInbox:
         except (TypeError, ValueError):
             user_id = None
         now = time.time()
+        from app.services.binding_targets import webhook_target
+        target = webhook_target(update)
+        audit_context = json.dumps({"link_target": target}) if target else None
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             db.execute(
@@ -86,9 +91,10 @@ class WebhookInbox:
             result = db.execute(
                 "INSERT OR IGNORE INTO webhook_inbox "
                 "(event_id, body, update_type, max_user_id, status, attempts, "
-                "created_at, available_at) "
-                "VALUES (?, ?, ?, ?, 'queued', 0, ?, ?)",
-                (event_id, body, update.get("update_type", "unknown"), user_id, now, now),
+                "created_at, available_at, audit_context) "
+                "VALUES (?, ?, ?, ?, 'queued', 0, ?, ?, ?)",
+                (event_id, body, update.get("update_type", "unknown"), user_id, now, now,
+                 audit_context),
             )
             return event_id, result.rowcount == 1
 

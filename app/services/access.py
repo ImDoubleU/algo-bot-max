@@ -84,7 +84,8 @@ def audited_binding(function):
                     if contact_binding
                     else "student_qr_access_link.failed",
                     entity_type="contact_access" if contact_binding else "student_access",
-                    payload=fields,
+                    payload={**fields, **({"contact_id": normalize_contact_id(payload.contact_id)}
+                                          if contact_binding else {})},
                 )
             )
             await db.commit()
@@ -221,6 +222,7 @@ async def record_student_access_attempt(
                 "contact_id_hash": hash_contact_id(payload.contact_id),
                 "max_user_id": getattr(payload, "max_user_id", None),
                 "reason": reason,
+                "contact_id": normalize_contact_id(payload.contact_id),
             },
         ),
     )
@@ -598,6 +600,7 @@ async def create_contact_access_links(
                 "request_id": binding_request_id(),
                 "contact_id_hash": hash_contact_id(payload.contact_id),
                 "student_ids": [str(student.id) for student in students],
+                "contact_id": normalize_contact_id(payload.contact_id),
                 "created_links": created,
                 "reactivated_links": reactivated,
                 "total_links": len(links),

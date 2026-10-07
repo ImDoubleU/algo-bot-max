@@ -122,3 +122,5 @@ textarea.support-control { resize:vertical; }
   .support-inbox-toolbar { flex-wrap:wrap; }
   #supportFormFields > .primary-action { width:100%; justify-content:center; min-height:48px; }
 }
+.audit-link-target { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; margin:10px 0; padding:8px 12px; border-radius:10px; background:#f6f2fc; color:#635279; font-size:13px; }
+.audit-link-target code { overflow-wrap:anywhere; min-width:0; color:#302041; font-size:12px; }

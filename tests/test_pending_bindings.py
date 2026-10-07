@@ -1,10 +1,13 @@
 # ruff: noqa: F811
+import asyncio
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.bot.max_client import SimulationMaxClient
 from app.models.enums import StudentAccessRole, StudentAccessStatus
@@ -22,6 +25,7 @@ from app.services.crm_sync import CrmSyncDefaults, upsert_crm_student_rows
 from app.services.pending_bindings import (
     cancel_pending_binding,
     confirm_pending_binding,
+    pending_binding_loop,
     process_pending_batch,
     recover_historical_missing_bindings,
     utc,
@@ -36,6 +40,29 @@ from tests.test_miniapp_store import seed_linked_student
 from tests.test_support import auth, support_client  # noqa: F401
 
 TENANT = "nizhniy-novgorod-partner-a"
+
+
+async def test_worker_starts_with_real_max_client_and_reaches_first_batch(monkeypatch, db_session):
+    from app.bot.max_client import MaxApiClient
+
+    monkeypatch.setattr("app.core.config.get_settings", lambda: SimpleNamespace(
+        max_bot_token="test-production-bot-value", max_api_base="https://max.example.test",
+        max_api_timeout_seconds=15,
+    ))
+    monkeypatch.setattr("app.db.session.AsyncSessionLocal",
+                        async_sessionmaker(db_session.bind, expire_on_commit=False))
+    calls = []
+
+    async def capture(db, *, client):
+        assert isinstance(client, MaxApiClient)
+        assert client.api_base == "https://max.example.test"
+        calls.append(client)
+        raise asyncio.CancelledError  # Verify startup without making a network request.
+
+    monkeypatch.setattr("app.services.pending_bindings.process_pending_batch", capture)
+    with pytest.raises(asyncio.CancelledError):
+        await pending_binding_loop()
+    assert len(calls) == 1
 
 
 async def wait_for_contact(db, *, user=77, contact="999"):
