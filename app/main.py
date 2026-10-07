@@ -1,4 +1,5 @@
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -17,7 +18,16 @@ async def lifespan(_: FastAPI):
     config_errors = settings.bot_config_errors()
     if config_errors and not is_local_environment(settings.app_env):
         raise RuntimeError("Invalid production configuration: " + "; ".join(config_errors))
-    yield
+    from app.services.support import notification_loop, notifications_enabled
+
+    support_worker = asyncio.create_task(notification_loop()) if notifications_enabled() else None
+    try:
+        yield
+    finally:
+        if support_worker:
+            support_worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await support_worker
     from app.bot.max_webhook import close_webhook_runtime
 
     close_webhook_runtime()

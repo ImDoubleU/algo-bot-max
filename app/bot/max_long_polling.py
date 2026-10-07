@@ -46,6 +46,7 @@ from app.bot.models import (
     PendingStaffRequest,
 )
 from app.bot.runtime import MARKER_FILE, configure_logging
+from app.bot.support import cancel_support, handle_support_message, support_response
 from app.core.config import get_settings, is_placeholder
 from app.services.deep_links import (
     parse_contact_payload,
@@ -1582,6 +1583,11 @@ class LongPollingBot:
         body = message.get("body") or {}
         text = (body.get("text") or "").strip()
 
+        support = handle_support_message(self, user_id, body)
+        if support is not None:
+            self.send_response(support, chat_id=chat_id, user_id=user_id)
+            return
+
         if not text:
             self.send_response(
                 BotResponse(
@@ -1678,6 +1684,23 @@ class LongPollingBot:
         started_at = time.monotonic()
         tenant_slug = self.current_tenant_slug(user_id)
         staff_join_action = parse_staff_join_payload(payload)
+
+        if payload.startswith("support:"):
+            parts = payload.split(":")
+            action = parts[1] if len(parts) > 1 else "start"
+            fields = {"role": parts[2]} if action == "role" and len(parts) == 3 else {}
+            if action not in {"start", "role", "submit", "cancel"}:
+                action = "start"
+            response = support_response(self, user_id, action, **fields)
+            if callback_id and hasattr(self.client, "answer_callback"):
+                self.answer_callback_response(callback_id=callback_id, response=response,
+                                              notification="Заявка")
+            else:
+                self.send_response(response, chat_id=chat_id, user_id=user_id)
+            return
+
+        if hasattr(self.backend_client, "support_event") and user_id is not None:
+            cancel_support(self, user_id)
 
         if staff_join_action:
             action, value = staff_join_action

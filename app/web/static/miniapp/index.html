@@ -7,8 +7,9 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.91.20" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.91.21" />
     <link rel="stylesheet" href="/miniapp/static/feedback-preview.css?v=7" />
+    <link rel="stylesheet" href="/miniapp/static/support.css?v=1" />
   </head>
   <body class="is-booting">
     <main id="accessGate" class="access-gate" hidden>
@@ -23,6 +24,7 @@
         <a class="primary-action access-gate-action" href="https://max.ru/id525601030904_3_bot">
           Открыть бота
         </a>
+        <button type="button" class="secondary-action" data-support-open>Сообщить о проблеме</button>
       </section>
     </main>
 
@@ -797,6 +799,26 @@
               </div>
             </header>
 
+            <div class="support-tabs" role="tablist" aria-label="Помощь">
+              <button type="button" class="support-tab is-active" role="tab" aria-selected="true" data-support-tab="faq">Справка</button>
+              <button type="button" class="primary-action" data-support-open>Сообщить о проблеме</button>
+              <button id="supportInboxTab" type="button" class="support-tab" role="tab" aria-selected="false" data-support-tab="inbox" hidden>Тикеты <span id="supportNewCount" hidden></span></button>
+            </div>
+            <section id="supportInbox" hidden>
+              <div class="support-inbox-toolbar">
+                <input id="supportSearch" class="support-control" type="search" maxlength="100" aria-label="Поиск заявок" placeholder="Имя, фамилия или текст" />
+                <button id="supportRefresh" class="secondary-action" type="button">Обновить</button>
+              </div>
+              <div id="supportFilters" class="support-filters"></div>
+              <div id="supportInboxStatus" role="status" aria-live="polite"></div>
+              <div id="supportTicketList"></div>
+              <div id="supportPagination" class="support-pagination" hidden>
+                <button id="supportPrevious" type="button" class="secondary-action">Назад</button>
+                <span id="supportPageLabel"></span>
+                <button id="supportNext" type="button" class="secondary-action">Далее</button>
+              </div>
+            </section>
+            <div id="helpFaqPanel">
             <div class="help-toolbar">
               <label class="help-search" for="helpSearchInput">
                 <i data-lucide="search" aria-hidden="true"></i>
@@ -822,6 +844,7 @@
               <strong>Ответ не найден</strong>
               <span>Попробуйте сократить запрос или выберите «Все темы».</span>
               <button class="secondary-action" type="button" data-reset-help-search>Сбросить поиск</button>
+            </div>
             </div>
           </section>
         </section>
@@ -1191,17 +1214,51 @@
       </nav>
     </div>
 
+    <div id="supportDialog" class="dialog-backdrop support-dialog" hidden>
+      <section class="support-dialog-card" role="dialog" aria-modal="true" aria-labelledby="supportDialogTitle">
+        <header class="support-dialog-heading"><h2 id="supportDialogTitle">Сообщить о проблеме</h2>
+          <button type="button" class="icon-button" data-support-close aria-label="Закрыть">×</button></header>
+        <form id="supportForm">
+          <input id="supportRole" type="hidden" name="role" value="" />
+          <div class="support-role-picker" role="group" aria-label="Ваша роль">
+            <button type="button" data-support-role="parent" aria-pressed="false">Я родитель</button>
+            <button type="button" data-support-role="student" aria-pressed="false">Я ученик</button>
+            <button type="button" data-support-role="staff" aria-pressed="false">Я сотрудник</button>
+          </div>
+          <div id="supportFormFields" hidden>
+            <div class="support-name-fields">
+              <label>Имя<input name="first_name" class="support-control" required maxlength="80" autocomplete="given-name" /></label>
+              <label>Фамилия<input name="last_name" class="support-control" required maxlength="80" autocomplete="family-name" /></label>
+            </div>
+            <label>Описание проблемы<textarea name="message" class="support-control" required maxlength="4000" rows="5"></textarea></label>
+            <label class="support-file-label">Прикрепить фото <span id="supportPhotoCount">0/5</span>
+              <input id="supportFileInput" type="file" name="photos" accept="image/jpeg,image/png,image/webp" multiple />
+            </label>
+            <div id="supportPhotos" class="support-photos"></div>
+            <button type="submit" class="primary-action">Отправить заявку</button>
+          </div>
+          <div id="supportFormStatus" class="support-form-status" role="status" aria-live="polite"></div>
+        </form>
+      </section>
+    </div>
+    <div id="supportImageDialog" class="dialog-backdrop support-image-dialog" hidden>
+      <section class="support-image-card" role="dialog" aria-modal="true" aria-label="Фото к заявке">
+        <button id="supportImageClose" type="button" class="icon-button" aria-label="Закрыть фото">×</button>
+        <img id="supportImageFull" alt="Фото к заявке" />
+      </section>
+    </div>
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app-core.js?v=0.91.20"></script>
-    <script src="/miniapp/static/app-shell.js?v=0.91.20"></script>
-    <script src="/miniapp/static/app-store.js?v=0.91.20"></script>
-    <script src="/miniapp/static/app-admin.js?v=0.91.20"></script>
-    <script src="/miniapp/static/app-communications.js?v=0.91.20"></script>
-    <script src="/miniapp/static/app-bank.js?v=0.91.20"></script>
-    <script src="/miniapp/static/app-help.js?v=0.91.20"></script>
-    <script src="/miniapp/static/app-feedback-model.js?v=0.91.20"></script>
-    <script src="/miniapp/static/app-feedback.js?v=0.91.20"></script>
-    <script src="/miniapp/static/app.js?v=0.91.20"></script>
+    <script src="/miniapp/static/app-core.js?v=0.91.21"></script>
+    <script src="/miniapp/static/app-shell.js?v=0.91.21"></script>
+    <script src="/miniapp/static/app-store.js?v=0.91.21"></script>
+    <script src="/miniapp/static/app-admin.js?v=0.91.21"></script>
+    <script src="/miniapp/static/app-communications.js?v=0.91.21"></script>
+    <script src="/miniapp/static/app-bank.js?v=0.91.21"></script>
+    <script src="/miniapp/static/app-help.js?v=0.91.21"></script>
+    <script src="/miniapp/static/app-feedback-model.js?v=0.91.21"></script>
+    <script src="/miniapp/static/app-feedback.js?v=0.91.21"></script>
+    <script src="/miniapp/static/app-support.js?v=0.91.21"></script>
+    <script src="/miniapp/static/app.js?v=0.91.21"></script>
   </body>
 </html>
