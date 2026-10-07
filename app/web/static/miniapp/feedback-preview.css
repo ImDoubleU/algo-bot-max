@@ -26,7 +26,7 @@
 .feedback-weeks strong { font-size: 17px; }
 .feedback-weeks span { font-size: 11px; color: var(--muted); }
 .feedback-weeks button:disabled { opacity: .4; cursor: default; }
-.feedback-weeks { display: flex; overflow-x: auto; padding: 2px 1px 10px; scroll-snap-type: x proximity; }
+.feedback-weeks { display: flex; overflow-x: auto; padding: 2px 1px 10px; scroll-snap-type: none; }
 .feedback-weeks button { flex: 0 0 145px; scroll-snap-align: center; }
 .feedback-weeks .is-skipped { opacity: .55; border-style: dashed; }
 .feedback-weeks .is-skipped strong { text-decoration: line-through; }
@@ -133,3 +133,65 @@
 .feedback-weekdays input:focus-visible + span { outline: 3px solid #b392df; outline-offset: 2px; }
 .feedback-series-preview { grid-column: 1 / -1; color: #654e7c; font-size: 12px; line-height: 1.5; }
 #feedbackWorkspace [hidden] { display: none !important; }
+
+#feedbackView > .section-heading { margin: 12px 0 14px; padding: 0; min-height: 0; display: block; }
+#feedbackView > .section-heading h1 { margin: 0; font-size: 26px; line-height: 1.25; }
+.feedback-tabs { margin: 0 0 18px; }
+.feedback-week-heading { margin: 20px 0 10px; }
+.feedback-weeks button { padding: 12px; gap: 6px; min-height: 0; }
+.feedback-weeks .feedback-lesson-topic { min-height: 0; font-size: 12px; }
+.feedback-disabled-row { background: #d9d5e0; }
+.feedback-disabled-row td:not(.feedback-row-enabled):not(.feedback-row-delete) { opacity: .6; }
+.feedback-disabled-row input:not([type=checkbox]), .feedback-disabled-row select { background: #eeeaf1 !important; }
+.feedback-custom-date { margin-top: 16px; }
+
+@media (max-width: 640px) {
+  #feedbackView > .section-heading h1 { font-size: 22px; }
+  #feedbackView { padding-bottom: 16px; }
+  .feedback-tabs { margin: 0 0 12px; }
+  .feedback-tabs button { min-height: 44px; padding: 10px 12px; }
+  .feedback-group-grid { display: flex; overflow-x: auto; gap: 10px; padding: 2px 2px 8px; }
+  .feedback-group-card { flex: 0 0 230px; min-height: 90px; padding: 12px; }
+  .feedback-group-card strong { font-size: 13px; line-height: 1.4; }
+  .feedback-group-card small { font-size: 11px; }
+  .feedback-group-icon { flex-basis: 32px; width: 32px; height: 32px; border-radius: 9px; }
+  .feedback-week-heading { margin-top: 14px; }
+  .feedback-weeks { scroll-snap-type: none; }
+  .feedback-weeks button { flex-basis: 140px; padding: 11px; }
+  .feedback-weeks strong { font-size: 15px; }
+  .feedback-schedule-settings > summary { padding: 12px; font-size: 13px; }
+  #feedbackScheduleEditor { padding: 0 10px 12px; }
+  .feedback-schedule-settings .feedback-fields-two, .feedback-fields-two { grid-template-columns: 1fr; gap: 12px; }
+  .feedback-schedule-table-wrap { max-height: 55vh; border: 0; border-radius: 0; background: transparent; }
+  .feedback-schedule-table { display: block; min-width: 0; font-size: 13px; }
+  .feedback-schedule-table thead { display: none; }
+  .feedback-schedule-table tbody { display: grid; gap: 10px; }
+  .feedback-schedule-table tr { display: grid; grid-template-columns: minmax(0,.7fr) minmax(0,1.3fr); gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #faf8fd; }
+  .feedback-schedule-table td { display: block; width: auto !important; min-width: 0 !important; padding: 0; border: 0; }
+  .feedback-schedule-table td[data-label]::before { content: attr(data-label); display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+  .feedback-schedule-table td:nth-child(3) { grid-column: 1 / -1; }
+  .feedback-schedule-table .feedback-row-kind { display: none; }
+  .feedback-schedule-table .feedback-row-enabled { display: flex; align-items: center; }
+  .feedback-schedule-table .feedback-row-delete { display: flex; justify-content: flex-end; }
+  .feedback-schedule-table .icon-button { min-height: 44px; min-width: 44px; }
+  .feedback-schedule-table input[type=checkbox] { width: 28px; height: 28px; margin: 8px; }
+  .feedback-schedule-table tr.feedback-disabled-row { background: #d9d5e0; border-color: #c6bfce; }
+  .feedback-schedule-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .feedback-schedule-actions button { justify-content: center; min-height: 44px; padding: 10px 8px; }
+  .feedback-schedule-actions [type=submit] { grid-column: 1 / -1; }
+  .feedback-schedule-settings #feedbackSeriesForm { grid-template-columns: 1fr; gap: 12px; }
+  .feedback-weekdays { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 4px; }
+  .feedback-weekdays span { min-width: 0; }
+  .feedback-compose-card, .feedback-output-card { padding: 16px; }
+  .feedback-card-heading { margin-bottom: 16px; gap: 10px; }
+  .feedback-card-heading h2 { font-size: 17px; }
+  #feedbackWorkspace input:not([type=checkbox]), #feedbackWorkspace select, .feedback-text { font-size: 16px; }
+  .feedback-text { min-height: 300px; padding: 12px; line-height: 1.6; }
+  .feedback-student-chips span { min-height: 44px; }
+  .feedback-checkbox { align-items: center; min-height: 44px; margin: 0; }
+  .feedback-checkbox input { width: 24px; height: 24px; }
+  .feedback-output-actions button { min-height: 44px; font-size: 14px; }
+  .feedback-repeat-dialog { padding: 18px; }
+}
+
+@media (max-width: 640px) { .feedback-output-card { scroll-margin-top: 76px; } }

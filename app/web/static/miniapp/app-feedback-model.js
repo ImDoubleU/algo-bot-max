@@ -35,6 +35,7 @@ function feedbackInteger(value, min, max, label) {
 }
 
 function feedbackValidateMessage(input, catalog) {
+  if (input?.customTopic) throw new Error("Для занятия со своей темой сообщение вводится вручную");
   if (!input || typeof input !== "object" || !Object.hasOwn(catalog, input.course)) {
     throw new Error("Выберите курс из списка");
   }
@@ -77,8 +78,8 @@ function feedbackRenumber(rows, firstNumber = 1) {
 function feedbackMarkRepeats(schedule) {
   const seen = new Set();
   for (const row of schedule.rows) {
-    row.repeat = seen.has(row.lesson);
-    seen.add(row.lesson);
+    row.repeat = row.lesson != null && seen.has(row.lesson);
+    if (row.lesson != null) seen.add(row.lesson);
   }
   return schedule;
 }
@@ -88,7 +89,9 @@ function feedbackChangeCourse(schedule, course, catalog) {
   const result = structuredClone(schedule);
   result.course = course;
   const count = catalog[course].length;
-  result.rows = result.rows.filter((row) => Number.isInteger(row.lesson) && row.lesson >= 1 && row.lesson <= count);
+  result.rows = result.rows.filter((row) => row.lesson == null || (Number.isInteger(row.lesson) && row.lesson >= 1 && row.lesson <= count));
+  const custom = result.rows.filter((row) => row.lesson == null);
+  result.rows = result.rows.filter((row) => row.lesson != null);
   const present = new Set(result.rows.map((row) => row.lesson));
   let date = result.rows.at(-1)?.date || schedule.rows.find((row) => !row.skipped)?.date || feedbackToday();
   for (let lesson = 1; lesson <= count; lesson++) {
@@ -96,6 +99,7 @@ function feedbackChangeCourse(schedule, course, catalog) {
     if (result.rows.length) date = feedbackShiftDate(date, 7);
     result.rows.push(feedbackNewRow(date, lesson));
   }
+  for (const row of custom) { row.date = feedbackShiftDate(result.rows.at(-1).date, 7); result.rows.push(row); }
   if (result.rows.every((row) => row.skipped)) result.rows[0].skipped = false;
   feedbackRenumber(result.rows, schedule.rows.find((row) => !row.skipped)?.number || 1);
   feedbackMarkRepeats(result);
@@ -115,7 +119,7 @@ function feedbackRebaseSchedule(schedule, date) {
 function feedbackInsertRepeat(schedule, rowId) {
   const result = structuredClone(schedule);
   if (result.rows.length >= 100) throw new Error("Максимум 100 занятий в расписании");
-  const index = result.rows.findIndex((row) => row.id === rowId && !row.skipped);
+  const index = result.rows.findIndex((row) => row.id === rowId && !row.skipped && row.lesson != null);
   if (index < 0) throw new Error("Выберите включённое занятие для повторения");
   const firstNumber = result.rows.find((row) => !row.skipped).number;
   const source = result.rows[index];
@@ -124,6 +128,16 @@ function feedbackInsertRepeat(schedule, rowId) {
   result.rows.slice(index + 1).forEach((row) => { row.date = feedbackShiftDate(row.date, 7); });
   result.rows.splice(index + 1, 0, added);
   feedbackRenumber(result.rows, firstNumber);
+  return result;
+}
+
+function feedbackAppendLesson(schedule) {
+  if (schedule.rows.length >= 100) throw new Error("Максимум 100 занятий в расписании");
+  const result = structuredClone(schedule);
+  const last = result.rows.at(-1);
+  const number = Math.max(...result.rows.filter((row) => !row.skipped).map((row) => row.number)) + 1;
+  feedbackInteger(number, 1, 999, "Номер занятия");
+  result.rows.push({ ...feedbackNewRow(feedbackShiftDate(last.date, 7), null, number), topic: "Новое занятие" });
   return result;
 }
 
@@ -176,7 +190,9 @@ function feedbackValidateSchedule(schedule, catalog) {
     if (!row || typeof row.id !== "string" || !row.id || ids.has(row.id)) throw new Error("Занятия должны иметь разные идентификаторы");
     ids.add(row.id);
     const number = feedbackInteger(row.number, 1, 999, "Номер занятия");
-    feedbackInteger(row.lesson, 1, catalog[schedule.course].length, "Материал урока");
+    if (row.lesson == null) {
+      if (typeof row.topic !== "string" || !row.topic.trim() || row.topic.length > 200 || row.repeat) throw new Error("Укажите тему своего занятия");
+    } else feedbackInteger(row.lesson, 1, catalog[schedule.course].length, "Материал урока");
     if (!row.skipped && numbers.has(number)) throw new Error(`Номер занятия ${number} повторяется. Укажите разные номера.`);
     if (!row.skipped) numbers.add(number);
     if (!feedbackValidDate(row.date)) throw new Error(`Проверьте дату занятия №${number}`);
@@ -198,7 +214,8 @@ function feedbackRestore(raw, catalog, groups) {
       let schedule;
       if (Array.isArray(saved?.rows)) {
         schedule = { course: saved.course, mode: saved.mode, rows: saved.rows.map((row) => ({
-          id: row.id, date: row.date, lesson: Number(row.lesson), number: Number(row.number),
+          id: row.id, date: row.date, lesson: row.lesson == null ? null : Number(row.lesson), number: Number(row.number),
+          ...(row.lesson == null ? { topic: row.topic } : {}),
           repeat: row.repeat, skipped: row.skipped,
         })) };
       } else {

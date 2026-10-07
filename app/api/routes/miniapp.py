@@ -425,14 +425,16 @@ async def miniapp_save_feedback_schedule(
         )
     catalog = json.loads(await run_in_threadpool(_feedback_catalog_json))
     if payload.schedule.course not in catalog or any(
-        row.lesson > len(catalog[payload.schedule.course]) for row in payload.schedule.rows
+        row.lesson is not None and row.lesson > len(catalog[payload.schedule.course])
+        for row in payload.schedule.rows
     ):
         raise HTTPException(status_code=422, detail="Материал выходит за пределы выбранного курса")
     data = payload.schedule.model_dump(mode="json")
     seen = set()
     for row in data["rows"]:
-        row["repeat"] = row["lesson"] in seen
-        seen.add(row["lesson"])
+        row["repeat"] = row["lesson"] is not None and row["lesson"] in seen
+        if row["lesson"] is not None:
+            seen.add(row["lesson"])
     try:
         if payload.revision == 0:
             db.add(

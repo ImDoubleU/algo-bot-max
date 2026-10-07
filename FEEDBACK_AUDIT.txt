@@ -253,3 +253,23 @@ Feedback titles and two teacher grants — 06.10.2026
 - 102 relevant tests passed; Ruff and git diff --check clean.
 - Backup: /var/backups/algo-max/feedback-teachers-20261006-1791316196.
   Production env with account identifiers stays outside Git.
+
+Feedback cleanup, custom lessons and mobile layout — 07.10.2026
+- Header contains only the section name with compact spacing. Removed lesson availability
+  markers, schedule count tagline and the unprepared-message indicator.
+- Mouse wheel scrolls the lesson strip horizontally; page scrolling remains available at
+  strip edges and Ctrl-wheel zoom is preserved. Disabled schedule rows use muted dark
+  styling, without the disabled/new-material text inside the row.
+- Existing repeat action renamed "Добавить повтор". Separate "Добавить занятие" appends
+  a custom topic lesson; topic/date/number persist in server JSON and local workspace.
+  Custom lessons cannot generate feedback automatically; manual message editing works.
+  Nullable material/topic validation prevents custom lessons becoming fake course repeats.
+- Phone groups and lessons scroll horizontally. Schedule table becomes editable cards;
+  larger controls, compact spacing, full-width fields and weekday selection improve touch
+  use. Selecting a lesson moves to its message on phones. Group scroll survives redraws.
+- 96-case relevant suite passed; mobile follow-up cases and the added group-scroll case
+  passed (97 distinct cases total). Ruff/diff checks clean. 320/390/768 widths exercised;
+  desktop and phone screenshots reviewed.
+- Deployed assets 0.91.20, feedback CSS v7. Service healthy; owner and both enabled teachers
+  authorized; other 27 active staff denied; foreign-group PUT denied; unsigned denied.
+- Backup: /var/backups/algo-max/feedback-custom-mobile-20261007-1791359950.
