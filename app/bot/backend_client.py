@@ -18,6 +18,13 @@ class AccessBackendClient:
         self.api_base = api_base.rstrip("/")
         self.timeout_seconds = timeout_seconds
 
+    def support_event(self, *, max_user_id: int, tenant_slug: str, action: str,
+                      **fields: Any) -> dict[str, Any]:
+        return self._request("POST", "/support/bot-event", body={
+            "max_user_id": max_user_id, "tenant_slug": tenant_slug,
+            "action": action, **fields,
+        }, timeout=60)
+
     def _request(
         self,
         method: str,

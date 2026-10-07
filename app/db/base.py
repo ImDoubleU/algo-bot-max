@@ -32,6 +32,7 @@ from app.models.student import (
     StudentHistoryEvent,
     Wallet,
 )
+from app.models.support import SupportDraft, SupportPhoto, SupportTicket
 from app.models.teaching import (
     AttendanceRecord,
     Course,
@@ -44,6 +45,9 @@ from app.models.teaching import (
 from app.models.tenant import AstrocoinAccrualRule, City, Partner, Tenant, Venue
 
 __all__ = [
+    "SupportDraft",
+    "SupportPhoto",
+    "SupportTicket",
     "FeedbackSchedule",
     "AstrocoinLedgerEntry",
     "AstrocoinAccrualRule",

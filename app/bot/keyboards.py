@@ -8,6 +8,7 @@ from app.core.config import get_settings, is_placeholder
 from app.services.knowledge_base import clean_knowledge_label
 
 CALLBACK_HELP = "help"
+CALLBACK_SUPPORT = "support:start"
 CALLBACK_MENU = "menu"
 CALLBACK_MINIAPP = "miniapp:open"
 CALLBACK_KNOWLEDGE = "knowledge"
@@ -180,6 +181,7 @@ def main_menu_keyboard(
         rows.append([miniapp_button("Открыть личный кабинет", miniapp_url)])
     else:
         rows.append([callback_button("Личный кабинет", CALLBACK_MINIAPP)])
+    rows.append([callback_button("Сообщить о проблеме", CALLBACK_SUPPORT)])
     rows.append([callback_button("Помощь", CALLBACK_HELP)])
     return inline_keyboard(rows)
 
@@ -191,6 +193,7 @@ def role_selection_keyboard() -> list[dict[str, Any]]:
                 callback_button("Я родитель", CALLBACK_ROLE_PARENT),
                 callback_button("Я ученик", CALLBACK_ROLE_STUDENT),
             ],
+            [callback_button("Сообщить о проблеме", CALLBACK_SUPPORT)],
             [callback_button("Помощь", CALLBACK_HELP)],
             [callback_button("Отменить вход", CALLBACK_ONBOARDING_CANCEL)],
         ]
@@ -330,6 +333,7 @@ def role_menu_keyboard(
         "superadmin",
     }:
         rows.append([callback_button("База знаний", CALLBACK_KNOWLEDGE)])
+    rows.append([callback_button("Сообщить о проблеме", CALLBACK_SUPPORT)])
     rows.append([callback_button("Помощь", CALLBACK_HELP)])
     return inline_keyboard(rows)
 
