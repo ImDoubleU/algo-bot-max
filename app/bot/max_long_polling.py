@@ -4,13 +4,18 @@ import argparse
 import hmac
 import json
 import logging
+import os
 import secrets
+import sqlite3
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 from app.bot.backend_client import AccessBackendClient, BackendApiError
+from app.bot.error_messages import format_backend_error
 from app.bot.keyboards import (
     CALLBACK_HELP,
     CALLBACK_KNOWLEDGE,
@@ -45,6 +50,7 @@ from app.bot.models import (
     PendingStaffInvite,
     PendingStaffRequest,
 )
+from app.bot.onboarding_state import OnboardingState
 from app.bot.runtime import MARKER_FILE, configure_logging
 from app.bot.support import cancel_support, handle_support_message, support_response
 from app.core.config import get_settings, is_placeholder
@@ -92,23 +98,6 @@ def display_name_from_user(user: dict[str, Any]) -> str | None:
     return None
 
 
-def format_backend_error(exc: BackendApiError) -> str:
-    if exc.status_code == 429:
-        return "Слишком много попыток. Попробуйте немного позже."
-    if exc.status_code == 404:
-        text = str(exc).strip()
-        if text.startswith("HTTP 404") and ": " in text:
-            detail = text.split(": ", 1)[1].strip()
-        else:
-            detail = text
-        if "contact id" in detail.casefold():
-            return "ID из письма не найден для выбранного города."
-        if detail and detail != text:
-            return f"Не найдено: {detail}"
-        return "Не удалось найти нужные данные."
-    return str(exc)
-
-
 class LongPollingBot:
     def __init__(
         self,
@@ -116,6 +105,7 @@ class LongPollingBot:
         *,
         backend_client: AccessBackendClient | None = None,
         default_tenant_slug: str | None = None,
+        onboarding_state_path: Path | None = None,
     ) -> None:
         settings = get_settings()
         self.client = client
@@ -125,6 +115,18 @@ class LongPollingBot:
         self.bot_user_id = self.bot_info.get("user_id")
         self.pending_contact_ids: dict[int, PendingContact] = {}
         self.pending_onboarding_roles: dict[int, tuple[str, float]] = {}
+        self.onboarding_correlations: dict[int, str] = {}
+        self.expired_onboarding_users: set[int] = set()
+        self.unavailable_onboarding_users: set[int] = set()
+        self.onboarding_state = OnboardingState(
+            onboarding_state_path
+            or Path(
+                os.getenv(
+                    "MAX_ONBOARDING_STATE_PATH",
+                    str(MARKER_FILE.parent / "storage" / "bot" / "onboarding.sqlite3"),
+                )
+            )
+        )
         self.pending_staff_invites: dict[int, PendingStaffInvite] = {}
         self.pending_staff_requests: dict[str, PendingStaffRequest] = {}
         self.user_tenant_slugs: dict[int, str] = {}
@@ -150,6 +152,101 @@ class LongPollingBot:
         self.knowledge_base = KnowledgeBaseService()
         self.running = True
         self.stop_event = threading.Event()
+
+    def binding_event(self, stage: str, user_id: int | None, **fields: Any) -> None:
+        correlation = (
+            self.onboarding_correlations.setdefault(user_id, secrets.token_hex(8))
+            if user_id is not None
+            else secrets.token_hex(8)
+        )
+        logger.info(
+            "binding_event %s",
+            json.dumps(
+                {
+                    "stage": stage,
+                    "correlation_id": correlation,
+                    "max_user_id": user_id,
+                    "webhook_event_id": getattr(self, "webhook_event_id", None),
+                    **fields,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+        )
+
+    def restore_onboarding(self, user_id: int | None) -> None:
+        if user_id is None:
+            return
+        self.pending_contact_ids.pop(user_id, None)
+        self.pending_onboarding_roles.pop(user_id, None)
+        self.unavailable_onboarding_users.discard(user_id)
+        try:
+            saved = self.onboarding_state.get(user_id)
+        except (OSError, sqlite3.Error) as exc:
+            self.unavailable_onboarding_users.add(user_id)
+            self.binding_event("context_restore_failed", user_id, error_type=type(exc).__name__)
+            return
+        if not saved:
+            self.pending_contact_ids.pop(user_id, None)
+            self.pending_onboarding_roles.pop(user_id, None)
+            return
+        self.pending_contact_ids.pop(user_id, None)
+        self.pending_onboarding_roles.pop(user_id, None)
+        self.onboarding_correlations[user_id] = saved["correlation_id"]
+        if saved.get("expired"):
+            self.pending_contact_ids.pop(user_id, None)
+            self.pending_onboarding_roles.pop(user_id, None)
+            self.expired_onboarding_users.add(user_id)
+            self.binding_event("context_expired", user_id)
+            return
+        if saved.get("contact_id"):
+            self.pending_contact_ids[user_id] = PendingContact(
+                created_at=time.monotonic()
+                - max(0, ONBOARDING_TTL_SECONDS - (saved["expires_at"] - time.time())),
+                contact_id=saved["contact_id"],
+                tenant_slug=saved["tenant_slug"],
+                students=[],
+            )
+            self.user_tenant_slugs[user_id] = saved["tenant_slug"]
+        if saved.get("role"):
+            self.pending_onboarding_roles[user_id] = (saved["role"], time.monotonic())
+        self.binding_event(
+            "context_restored",
+            user_id,
+            has_contact=bool(saved.get("contact_id")),
+            role=saved.get("role"),
+        )
+
+    def save_onboarding(self, user_id: int) -> None:
+        pending = self.pending_contact_ids.get(user_id)
+        role = self.pending_onboarding_roles.get(user_id)
+        try:
+            self.onboarding_state.save(
+                user_id,
+                contact_id=pending.contact_id if pending else None,
+                tenant_slug=pending.tenant_slug if pending else None,
+                role=role[0] if role else None,
+                correlation_id=self.onboarding_correlations.setdefault(
+                    user_id, secrets.token_hex(8)
+                ),
+                ttl=ONBOARDING_TTL_SECONDS,
+            )
+        except (OSError, sqlite3.Error) as exc:
+            self.binding_event("context_save_failed", user_id, error_type=type(exc).__name__)
+            raise
+        else:
+            self.expired_onboarding_users.discard(user_id)
+            self.binding_event("context_saved", user_id, has_contact=pending is not None)
+
+    def clear_onboarding(self, user_id: int, reason: str) -> None:
+        self.pending_contact_ids.pop(user_id, None)
+        self.pending_onboarding_roles.pop(user_id, None)
+        try:
+            self.onboarding_state.delete(user_id)
+        except (OSError, sqlite3.Error) as exc:
+            self.binding_event("context_clear_failed", user_id, error_type=type(exc).__name__)
+            raise
+        self.binding_event("context_cleared", user_id, reason=reason)
 
     def stop(self) -> None:
         self.running = False
@@ -338,8 +435,7 @@ class LongPollingBot:
             )
         if role == "parent":
             return (
-                "Семейный кабинет\n\n"
-                "Дети, балансы, магазин и заказы находятся в семейном кабинете."
+                "Семейный кабинет\n\nДети, балансы, магазин и заказы находятся в семейном кабинете."
             )
         if role in {"teacher", "curator"}:
             role_title = "Кабинет куратора" if role == "curator" else "Рабочий кабинет"
@@ -400,8 +496,7 @@ class LongPollingBot:
 
     def restart_onboarding_response(self, user_id: int | None) -> BotResponse:
         if user_id is not None:
-            self.pending_contact_ids.pop(user_id, None)
-            self.pending_onboarding_roles.pop(user_id, None)
+            self.clear_onboarding(user_id, "user_restart")
         return BotResponse(
             "Вход · шаг 1 из 2\n\nВыберите роль для входа.",
             role_selection_keyboard(),
@@ -409,8 +504,7 @@ class LongPollingBot:
 
     def cancel_onboarding_response(self, user_id: int | None) -> BotResponse:
         if user_id is not None:
-            self.pending_contact_ids.pop(user_id, None)
-            self.pending_onboarding_roles.pop(user_id, None)
+            self.clear_onboarding(user_id, "user_cancel")
         return BotResponse(
             "Вход отменен. Данные не сохранены.",
             onboarding_cancelled_keyboard(),
@@ -1172,6 +1266,43 @@ class LongPollingBot:
         display_name: str | None = None,
     ) -> BotResponse | None:
         raw_payload = (payload or "").strip()
+        self.restore_onboarding(user_id)
+        if raw_payload.lower().startswith(("https://", "http://")):
+            try:
+                parsed_url = urlsplit(raw_payload)
+            except ValueError:
+                self.binding_event("payload_invalid_url", user_id)
+                return BotResponse(
+                    "Ссылка повреждена. Откройте ссылку из письма школы заново "
+                    "или отправьте указанный в письме ID.",
+                    onboarding_contact_keyboard(),
+                )
+            if parsed_url.scheme == "https" and parsed_url.hostname == "max.ru":
+                values = parse_qs(parsed_url.query).get("start") or []
+                raw_payload = values[0] if len(values) == 1 else ""
+            else:
+                self.binding_event("payload_invalid_url", user_id)
+                return BotResponse(
+                    "Откройте персональную ссылку MAX из письма школы "
+                    "или отправьте ID из этого письма.",
+                    onboarding_contact_keyboard(),
+                )
+        payload_kind = next(
+            (
+                prefix.rstrip("_")
+                for prefix in ("student_", "shop_", "cid_", "staff_")
+                if raw_payload.casefold().startswith(prefix)
+            ),
+            "contact" if raw_payload else "missing",
+        )
+        self.binding_event(
+            "payload_received",
+            user_id,
+            payload_kind=payload_kind,
+            payload_present=bool(raw_payload),
+        )
+        if not raw_payload:
+            return None
         is_unique_staff_payload = raw_payload.startswith(STAFF_INVITATION_PAYLOAD_PREFIX)
         staff_invitation_token = parse_staff_invitation_payload(raw_payload)
         if is_unique_staff_payload:
@@ -1218,6 +1349,11 @@ class LongPollingBot:
         if not contact_id:
             return None
 
+        # A failed new link must never leave an older contact selected for the next role click.
+        if user_id is not None:
+            self.pending_contact_ids.pop(user_id, None)
+            self.save_onboarding(user_id)
+
         tenant_slug = linked_tenant_slug or self.current_tenant_slug(user_id)
         if self.backend_client:
             try:
@@ -1227,6 +1363,13 @@ class LongPollingBot:
                     max_user_id=user_id,
                 )
             except BackendApiError as exc:
+                self.binding_event(
+                    "contact_resolution_failed",
+                    user_id,
+                    error_code=exc.error_code,
+                    http_status=exc.status_code,
+                    request_id=exc.request_id,
+                )
                 fallback = self.catalog_search_fallback_response(
                     payload=payload,
                     user_id=user_id,
@@ -1236,12 +1379,7 @@ class LongPollingBot:
                 if fallback is not None:
                     return fallback
                 return BotResponse(
-                    (
-                        "Не получилось проверить ID из письма.\n\n"
-                        f"Город / партнер: {tenant_slug}\n"
-                        f"ID из письма: {contact_id}\n"
-                        f"Причина: {format_backend_error(exc)}"
-                    ),
+                    (f"Не получилось проверить ID из письма.\n\n{format_backend_error(exc)}"),
                     self.main_menu_attachments(user_id),
                 )
 
@@ -1264,6 +1402,14 @@ class LongPollingBot:
                     contact_id=resolved_contact_id,
                     tenant_slug=tenant_slug,
                     students=students,
+                )
+                self.save_onboarding(user_id)
+                self.binding_event(
+                    "contact_resolved",
+                    user_id,
+                    tenant_slug=tenant_slug,
+                    student_count=len(students),
+                    request_id=getattr(self.backend_client, "last_request_id", None),
                 )
             if open_store_after_link:
                 linked = self.handle_role_selection_response(
@@ -1303,6 +1449,7 @@ class LongPollingBot:
                 tenant_slug=tenant_slug,
                 students=[],
             )
+            self.save_onboarding(user_id)
 
         return BotResponse(
             self.contact_entry_text(contact_id, tenant_slug=tenant_slug, students=None),
@@ -1327,6 +1474,7 @@ class LongPollingBot:
                 self.main_menu_attachments(user_id),
             )
 
+        self.binding_event("student_link_started", user_id)
         try:
             result = self.backend_client.create_student_invite_link(
                 tenant_slug=self.current_tenant_slug(user_id),
@@ -1334,13 +1482,15 @@ class LongPollingBot:
                 max_user_id=user_id,
             )
         except BackendApiError as exc:
+            self.binding_event(
+                "student_link_failed",
+                user_id,
+                error_code=exc.error_code,
+                http_status=exc.status_code,
+                request_id=exc.request_id,
+            )
             return BotResponse(
-                (
-                    "Не получилось привязать профиль ученика.\n\n"
-                    "Попросите преподавателя или родителя обновить QR-код "
-                    "и попробуйте еще раз.\n"
-                    f"Причина: {format_backend_error(exc)}"
-                ),
+                (f"Не получилось привязать профиль ученика.\n\n{format_backend_error(exc)}"),
                 self.main_menu_attachments(user_id),
             )
 
@@ -1349,6 +1499,11 @@ class LongPollingBot:
         group_name = str(result.get("group_name") or "").strip()
         self.user_tenant_slugs[user_id] = tenant_slug
         self.user_menu_roles[(user_id, tenant_slug)] = "student"
+        self.clear_onboarding(user_id, "student_link_succeeded")
+        self.binding_event(
+            "student_link_succeeded", user_id, tenant_slug=tenant_slug,
+            request_id=getattr(self.backend_client, "last_request_id", None),
+        )
 
         store_url = build_miniapp_url(
             user_id=user_id,
@@ -1441,8 +1596,7 @@ class LongPollingBot:
             )
 
         if role == "student":
-            self.pending_contact_ids.pop(user_id, None)
-            self.pending_onboarding_roles.pop(user_id, None)
+            self.clear_onboarding(user_id, "student_role_selected")
             return BotResponse(
                 (
                     "Для входа ученика нужен QR-код.\n\n"
@@ -1453,13 +1607,30 @@ class LongPollingBot:
             )
 
         role_text = "родитель"
+        self.restore_onboarding(user_id)
+        if user_id in self.unavailable_onboarding_users:
+            return BotResponse(
+                "Сейчас не удалось проверить данные ссылки. Подождите немного "
+                "и снова нажмите «Я родитель». Если проблема останется, "
+                "нажмите «Сообщить о проблеме».",
+                role_selection_keyboard(),
+            )
+        self.binding_event("role_selected", user_id, role=role)
         pending = self.pending_contact_ids.get(user_id)
         if not pending:
             self.pending_onboarding_roles[user_id] = (role, time.monotonic())
+            self.binding_event(
+                "role_missing_contact", user_id, expired=user_id in self.expired_onboarding_users
+            )
+            expired_prefix = (
+                "Время подтверждения ссылки истекло. Откройте ссылку из письма ещё раз.\n\n"
+                if user_id in self.expired_onboarding_users
+                else "Данные персональной ссылки пока не получены.\n\n"
+            )
+            self.save_onboarding(user_id)
             return BotResponse(
                 (
-                    f"Выбрана роль: {role_text}.\n\n"
-                    "Откройте письмо от школы. Перейдите по персональной ссылке "
+                    expired_prefix + "Откройте письмо от школы. Перейдите по персональной ссылке "
                     "из письма или отправьте указанный в нем ID одним сообщением. "
                     "После проверки бот покажет найденных учеников и создаст связь."
                 ),
@@ -1477,21 +1648,28 @@ class LongPollingBot:
                     display_name=display_name,
                 )
             except BackendApiError as exc:
+                self.binding_event(
+                    "parent_link_failed",
+                    user_id,
+                    error_code=exc.error_code,
+                    http_status=exc.status_code,
+                    request_id=exc.request_id,
+                )
                 return BotResponse(
-                    (
-                        "Не получилось привязать профиль.\n\n"
-                        f"Город / партнер: {pending.tenant_slug}\n"
-                        f"ID из письма: {pending.contact_id}\n"
-                        f"Роль: {role_text}\n"
-                        f"Причина: {format_backend_error(exc)}"
-                    ),
+                    (f"Не получилось привязать профиль.\n\n{format_backend_error(exc)}"),
                     role_selection_keyboard(),
                 )
 
             links = result.get("links") or []
+            self.binding_event(
+                "parent_link_succeeded",
+                user_id,
+                tenant_slug=pending.tenant_slug,
+                student_count=len(links),
+                request_id=getattr(self.backend_client, "last_request_id", None),
+            )
             self.user_menu_roles[(user_id, pending.tenant_slug)] = role
-            self.pending_contact_ids.pop(user_id, None)
-            self.pending_onboarding_roles.pop(user_id, None)
+            self.clear_onboarding(user_id, "parent_link_succeeded")
             return BotResponse(
                 (
                     "Профиль привязан.\n\n"
@@ -1514,6 +1692,8 @@ class LongPollingBot:
         user_id = user.get("user_id")
         chat_id = update.get("chat_id")
         payload = update.get("payload")
+        self.restore_onboarding(user_id)
+        self.binding_event("bot_started", user_id, payload_present=bool(payload), chat_id=chat_id)
 
         response = self.handle_contact_payload_response(
             payload=payload,
@@ -1533,8 +1713,9 @@ class LongPollingBot:
             logger.warning("bot_stopped received without MAX user_id")
             return
 
-        self.pending_contact_ids.pop(user_id, None)
-        self.pending_onboarding_roles.pop(user_id, None)
+        self.restore_onboarding(user_id)
+        self.binding_event("bot_stopped", user_id)
+        self.clear_onboarding(user_id, "bot_stopped")
         self.pending_staff_invites.pop(user_id, None)
         self.user_tenant_slugs.pop(user_id, None)
         self.user_menu_roles = {
@@ -1553,13 +1734,26 @@ class LongPollingBot:
                 tenant_slug=self.default_tenant_slug,
                 max_user_id=user_id,
             )
-        except BackendApiError:
+        except BackendApiError as exc:
+            self.binding_event(
+                "bot_stopped_revoke_failed",
+                user_id,
+                error_code=exc.error_code,
+                http_status=exc.status_code,
+                request_id=exc.request_id,
+            )
             logger.exception(
                 "Failed to revoke access after bot_stopped for max_user_id=%s",
                 user_id,
             )
             return
 
+        self.binding_event(
+            "bot_stopped_revoke_succeeded",
+            user_id,
+            account_links=result.get("revoked_account_links", 0),
+            child_links=result.get("revoked_child_links", 0),
+        )
         logger.info(
             "Access revoked after bot_stopped: max_user_id=%s "
             "account_links=%s child_links=%s tenants=%s",
@@ -1693,8 +1887,9 @@ class LongPollingBot:
                 action = "start"
             response = support_response(self, user_id, action, **fields)
             if callback_id and hasattr(self.client, "answer_callback"):
-                self.answer_callback_response(callback_id=callback_id, response=response,
-                                              notification="Заявка")
+                self.answer_callback_response(
+                    callback_id=callback_id, response=response, notification="Заявка"
+                )
             else:
                 self.send_response(response, chat_id=chat_id, user_id=user_id)
             return

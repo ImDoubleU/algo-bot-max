@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import logging
-import queue
+import os
+import sqlite3
 import threading
+from pathlib import Path
 from typing import Any
 
 from app.bot.backend_client import AccessBackendClient
 from app.bot.max_client import MaxApiClient
 from app.bot.max_long_polling import LongPollingBot
+from app.bot.runtime import MARKER_FILE
+from app.bot.webhook_inbox import WebhookInbox, WebhookInboxFull
 from app.core.config import get_settings, is_placeholder
 
 logger = logging.getLogger("algo_bot_max.webhook")
-STOP = object()
 
 
 class WebhookQueueFull(RuntimeError):
@@ -19,13 +22,15 @@ class WebhookQueueFull(RuntimeError):
 
 
 class MaxWebhookRuntime:
-    """Processes MAX updates sequentially while the HTTP endpoint responds immediately."""
+    """Acknowledge only committed receipts, then process private updates in order."""
 
-    def __init__(self) -> None:
-        settings = get_settings()
-        self._updates: queue.Queue[dict[str, Any] | object] = queue.Queue(
-            maxsize=settings.max_webhook_queue_size
-        )
+    def __init__(self, inbox_path: Path | None = None) -> None:
+        self._inbox = WebhookInbox(inbox_path or Path(os.getenv(
+            "MAX_WEBHOOK_INBOX_PATH",
+            str(MARKER_FILE.parent / "storage" / "bot" / "webhook.sqlite3"),
+        )), capacity=get_settings().max_webhook_queue_size)
+        self._stop = threading.Event()
+        self._wake = threading.Event()
         self._bot: LongPollingBot | None = None
         self._thread = threading.Thread(
             target=self._run,
@@ -36,16 +41,42 @@ class MaxWebhookRuntime:
 
     def submit(self, update: dict[str, Any]) -> None:
         try:
-            self._updates.put_nowait(update)
-        except queue.Full as exc:
-            raise WebhookQueueFull("MAX webhook queue is full") from exc
+            event_id, inserted = self._inbox.put(update)
+        except (sqlite3.Error, OSError, WebhookInboxFull) as exc:
+            logger.error("MAX webhook receipt failed error_type=%s", type(exc).__name__)
+            raise WebhookQueueFull("MAX webhook receipt could not be saved") from exc
+        # Log receipt before returning success; never log payloads or message bodies.
+        payload = update.get("payload")
+        payload_kind = next((prefix.rstrip("_") for prefix in
+                             ("student_", "shop_", "cid_", "staff_")
+                             if isinstance(payload, str) and payload.startswith(prefix)),
+                            "other" if payload else "missing")
+        user = (update.get("callback") or {}).get("user") or update.get("user") or (
+            update.get("message") or {}
+        ).get("sender") or {}
+        raw_user_id = user.get("user_id") or update.get("user_id")
+        raw_chat_id = update.get("chat_id") or (
+            (update.get("message") or {}).get("recipient") or {}
+        ).get("chat_id")
+        try:
+            user_id = int(raw_user_id)
+        except (ValueError, TypeError):
+            user_id = None
+        try:
+            chat_id = int(raw_chat_id)
+        except (ValueError, TypeError):
+            chat_id = None
+        logger.info(
+            "MAX webhook receipt event_id=%s update_type=%s inserted=%s "
+            "payload_present=%s payload_kind=%s max_user_id=%s chat_id=%s",
+            event_id, update.get("update_type"), inserted, bool(payload), payload_kind,
+            user_id, chat_id,
+        )
+        self._wake.set()
 
     def close(self) -> None:
-        try:
-            self._updates.put_nowait(STOP)
-        except queue.Full:
-            logger.warning("Webhook worker queue is full during shutdown")
-            return
+        self._stop.set()
+        self._wake.set()
         self._thread.join(timeout=10)
 
     @staticmethod
@@ -75,20 +106,42 @@ class MaxWebhookRuntime:
         )
 
     def _run(self) -> None:
-        while True:
-            update = self._updates.get()
+        while not self._stop.is_set():
             try:
-                if update is STOP:
-                    return
+                event = self._inbox.claim()
+            except (sqlite3.Error, OSError) as exc:
+                logger.error("MAX webhook inbox unavailable error_type=%s", type(exc).__name__)
+                self._stop.wait(1)
+                continue
+            if event is None:
+                self._wake.wait(1)
+                self._wake.clear()
+                continue
+            error_type = None
+            try:
                 if self._bot is None:
                     self._bot = self._build_bot()
                     logger.info("MAX webhook worker initialized")
-                self._bot.handle_update(update)
-            except Exception:
-                logger.exception("MAX webhook update processing failed")
+                logger.info(
+                    "MAX webhook processing event_id=%s update_type=%s max_user_id=%s attempt=%s",
+                    event["event_id"], event["update_type"],
+                    event["max_user_id"], event["attempts"],
+                )
+                self._bot.webhook_event_id = event["event_id"]
+                self._bot.handle_update(event["update"])
+            except Exception as exc:
+                error_type = type(exc).__name__
                 self._bot = None
-            finally:
-                self._updates.task_done()
+            try:
+                status = self._inbox.finish(event, error_type=error_type)
+            except (sqlite3.Error, OSError) as exc:
+                logger.error("MAX webhook completion not saved event_id=%s error_type=%s",
+                             event["event_id"], type(exc).__name__)
+                continue
+            logger.info(
+                "MAX webhook processed event_id=%s status=%s error_type=%s attempt=%s",
+                event["event_id"], status, error_type, event["attempts"],
+            )
 
 
 _runtime: MaxWebhookRuntime | None = None

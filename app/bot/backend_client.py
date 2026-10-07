@@ -3,14 +3,26 @@ from __future__ import annotations
 import json
 from typing import Any
 from urllib import error, parse, request
+from uuid import uuid4
 
 from app.core.miniapp_auth import issue_miniapp_token
 
 
 class BackendApiError(RuntimeError):
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        detail: str | None = None,
+        error_code: str | None = None,
+        request_id: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.detail = detail
+        self.error_code = error_code
+        self.request_id = request_id
 
 
 class AccessBackendClient:
@@ -18,12 +30,20 @@ class AccessBackendClient:
         self.api_base = api_base.rstrip("/")
         self.timeout_seconds = timeout_seconds
 
-    def support_event(self, *, max_user_id: int, tenant_slug: str, action: str,
-                      **fields: Any) -> dict[str, Any]:
-        return self._request("POST", "/support/bot-event", body={
-            "max_user_id": max_user_id, "tenant_slug": tenant_slug,
-            "action": action, **fields,
-        }, timeout=60)
+    def support_event(
+        self, *, max_user_id: int, tenant_slug: str, action: str, **fields: Any
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/support/bot-event",
+            body={
+                "max_user_id": max_user_id,
+                "tenant_slug": tenant_slug,
+                "action": action,
+                **fields,
+            },
+            timeout=60,
+        )
 
     def _request(
         self,
@@ -40,7 +60,9 @@ class AccessBackendClient:
         if clean_params:
             url = f"{url}?{parse.urlencode(clean_params)}"
         data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
-        headers = {"Accept": "application/json"}
+        request_id = str(uuid4())
+        self.last_request_id = request_id
+        headers = {"Accept": "application/json", "X-Request-ID": request_id}
         if body is not None:
             headers["Content-Type"] = "application/json"
         identity_source = body or params or {}
@@ -72,9 +94,15 @@ class AccessBackendClient:
             raise BackendApiError(
                 f"HTTP {exc.code} {exc.reason}: {detail}",
                 status_code=exc.code,
+                detail=detail,
+                error_code=exc.headers.get("X-Access-Error-Code"),
+                request_id=exc.headers.get("X-Request-ID") or request_id,
             ) from exc
         except error.URLError as exc:
-            raise BackendApiError(f"Backend API недоступен: {exc}") from exc
+            raise BackendApiError(
+                "Backend API unavailable",
+                request_id=request_id,
+            ) from exc
 
         if not raw:
             return {}
@@ -82,7 +110,10 @@ class AccessBackendClient:
         try:
             return json.loads(raw.decode("utf-8"))
         except json.JSONDecodeError as exc:
-            raise BackendApiError(f"Backend API вернул некорректный JSON: {raw!r}") from exc
+            raise BackendApiError(
+                "Backend API returned invalid JSON",
+                request_id=request_id,
+            ) from exc
 
     def resolve_contact(
         self,

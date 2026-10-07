@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -32,7 +32,7 @@ from app.models.student import (
     Wallet,
 )
 from app.models.tenant import City, Tenant
-from app.schemas.access import AccessLinkCreate
+from app.schemas.access import AccessLinkCreate, StudentInvitationLinkCreate
 from app.schemas.miniapp import (
     MiniAppAccessStatusUpdate,
     MiniAppAccrualRulesUpdate,
@@ -43,7 +43,7 @@ from app.schemas.miniapp import (
     MiniAppStudentStatusUpdate,
     MiniAppTeacherProfileUpdate,
 )
-from app.services.access import create_contact_access_links
+from app.services.access import create_contact_access_links, create_invited_student_access_link
 from app.services.birthday_rewards import grant_birthday_rewards
 from app.services.crm_import import CrmStudentRow
 from app.services.crm_sync import CrmSyncDefaults, upsert_crm_student_rows
@@ -64,6 +64,10 @@ from app.services.miniapp import (
     update_miniapp_staff_assignment,
     update_miniapp_student_status,
     update_miniapp_teacher_profile,
+)
+from app.services.student_invitations import (
+    issue_student_invitation_token,
+    issue_teacher_student_invitation_token,
 )
 
 
@@ -95,6 +99,108 @@ def crm_row() -> CrmStudentRow:
         contact_ids="681",
         contact_names="Мама Алисы",
     )
+
+
+async def child_session_setup(db):
+    await upsert_crm_student_rows(
+        db, [crm_row()],
+        defaults=CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A"),
+    )
+    student = await db.scalar(select(Student))
+    tenant = await db.scalar(select(Tenant).where(Tenant.id == student.tenant_id))
+    _, _, child = await create_invited_student_access_link(db, StudentInvitationLinkCreate(
+        tenant_slug=tenant.slug, max_user_id=9091,
+        token=issue_teacher_student_invitation_token(tenant.id, student.id),
+    ))
+    return tenant, student, child
+
+
+async def test_child_pending_session_unlocks_after_parent_without_rebinding(db_session):
+    tenant, student, child = await child_session_setup(db_session)
+    session = await get_miniapp_session(db_session, max_user_id=9091, tenant_slug=tenant.slug)
+    assert not session.has_access
+    assert session.access_reason == "parent_required"
+    assert "Профиль ученика привязан" in session.access_message
+    assert "Проверить доступ" in session.access_message
+    original_id = child.id
+    await create_contact_access_links(db_session, AccessLinkCreate(
+        tenant_slug=tenant.slug, contact_id="681", max_user_id=9092,
+        role=StudentAccessRole.PARENT,
+    ))
+    session = await get_miniapp_session(db_session, max_user_id=9091, tenant_slug=tenant.slug)
+    assert session.has_access
+    assert session.access_reason == "granted"
+    assert session.students[0].student_id == student.id
+    saved = await db_session.get(StudentAccessLink, original_id)
+    assert saved.status == StudentAccessStatus.ACTIVE
+
+
+async def test_launch_without_school_finds_child_pending_parent_binding(db_session):
+    tenant, _, _ = await child_session_setup(db_session)
+    session = await get_miniapp_session(
+        db_session, max_user_id=9091, tenant_slug="default-other-school", discover_tenant=True,
+    )
+    assert session.tenant_slug == tenant.slug
+    assert session.access_reason == "parent_required"
+    assert not session.has_access
+
+
+async def test_expired_child_access_is_not_explained_as_missing_parent(db_session):
+    tenant, student, child = await child_session_setup(db_session)
+    await create_contact_access_links(db_session, AccessLinkCreate(
+        tenant_slug=tenant.slug, contact_id="681", max_user_id=9092,
+        role=StudentAccessRole.PARENT,
+    ))
+    student.status = StudentStatus.DEPARTED
+    student.departed_at = datetime.now(UTC) - timedelta(days=90)
+    await db_session.commit()
+    session = await get_miniapp_session(db_session, max_user_id=9091, tenant_slug=tenant.slug)
+    assert not session.has_access
+    assert session.access_reason == "access_expired"
+    assert "Привязка сохранена" in session.access_message
+    assert "родител" not in session.access_message
+    assert child.status == StudentAccessStatus.ACTIVE
+
+
+@pytest.mark.parametrize(("reason", "expected"), [
+    ("admin", "access_revoked"), ("bot_stopped", "bot_stopped"),
+    ("registration_reset", "registration_reset"),
+    ("sponsor_bot_stopped", "parent_disconnected"),
+])
+async def test_revoked_child_session_explains_actual_cause(db_session, reason, expected):
+    tenant, _, child = await child_session_setup(db_session)
+    child.status = StudentAccessStatus.REVOKED
+    child.revoked_reason = reason
+    await db_session.commit()
+    session = await get_miniapp_session(db_session, max_user_id=9091, tenant_slug=tenant.slug)
+    assert not session.has_access
+    assert session.access_reason == expected
+    assert session.access_message
+    assert "HTTP" not in session.access_message
+
+
+async def test_specific_parent_sponsor_cannot_be_replaced_by_another_parent_in_session(db_session):
+    tenant, student, child = await child_session_setup(db_session)
+    parent = (await create_contact_access_links(db_session, AccessLinkCreate(
+        tenant_slug=tenant.slug, contact_id="681", max_user_id=9092,
+        role=StudentAccessRole.PARENT,
+    )))[0]
+    await create_invited_student_access_link(db_session, StudentInvitationLinkCreate(
+        tenant_slug=tenant.slug, max_user_id=9091,
+        token=issue_student_invitation_token(tenant.id, student.id, parent.id),
+    ))
+    parent.status = StudentAccessStatus.REVOKED
+    parent.revoked_reason = "admin"
+    await db_session.commit()
+    await create_contact_access_links(db_session, AccessLinkCreate(
+        tenant_slug=tenant.slug, contact_id="681", max_user_id=9093,
+        role=StudentAccessRole.PARENT,
+    ))
+    session = await get_miniapp_session(db_session, max_user_id=9091, tenant_slug=tenant.slug)
+    assert not session.has_access
+    assert session.access_reason == "parent_disconnected"
+    assert "новый QR" in session.access_message
+    assert child.status == StudentAccessStatus.ACTIVE
 
 
 async def test_get_miniapp_session_returns_linked_students_wallet_orders_and_ledger(

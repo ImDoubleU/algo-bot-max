@@ -69,8 +69,12 @@ async def resolve_contact(
         await db.commit()
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many attempts. Try again later.",
-            headers={"Retry-After": str(rate_limit.retry_after_seconds or 60)},
+            detail="Слишком много попыток подключения подряд. Подождите минуту и "
+            "откройте ссылку снова.",
+            headers={
+                "Retry-After": str(rate_limit.retry_after_seconds or 60),
+                "X-Access-Error-Code": "too_many_attempts",
+            },
         )
 
     resolved = await resolve_students_by_contact_id(db, payload)
@@ -87,7 +91,10 @@ async def resolve_contact(
         await db.commit()
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="ID из письма не найден для выбранного города",
+            detail="Семья по этой ссылке не найдена. Проверьте выбранный город и "
+            "откройте ссылку из последнего письма школы. Если не получается, "
+            "обратитесь в школу.",
+            headers={"X-Access-Error-Code": "contact_not_found"},
         )
 
     contact, students = resolved
@@ -136,19 +143,35 @@ async def create_link(
         max_user_id=payload.max_user_id,
         tenant_slug=payload.tenant_slug,
     )
-    rate_limit = student_id_entry_limiter.check(
-        f"{build_rate_limit_key(payload)}:create-link"
-    )
+    rate_limit = student_id_entry_limiter.check(f"{build_rate_limit_key(payload)}:create-link")
     if not rate_limit.allowed:
+        tenant = await get_tenant_by_slug(db, payload.tenant_slug)
+        await record_student_access_attempt(
+            db,
+            payload=payload,
+            action="contact_access_link.rate_limited",
+            result="rate_limited",
+            tenant=tenant,
+            reason="too_many_attempts",
+        )
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many attempts. Try again later.",
-            headers={"Retry-After": str(rate_limit.retry_after_seconds or 60)},
+            detail="Слишком много попыток подключения подряд. Подождите минуту и "
+            "откройте ссылку снова.",
+            headers={
+                "Retry-After": str(rate_limit.retry_after_seconds or 60),
+                "X-Access-Error-Code": "too_many_attempts",
+            },
         )
     try:
         links = await create_contact_access_links(db, payload)
     except AccessServiceError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+            headers={"X-Access-Error-Code": exc.code},
+        ) from exc
 
     tenant_id = UUID(str(links[0].tenant_id))
     return AccessLinkBatchRead(
@@ -190,7 +213,11 @@ async def create_student_invite_link(
     try:
         tenant, student, link = await create_invited_student_access_link(db, payload)
     except AccessServiceError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+            headers={"X-Access-Error-Code": exc.code},
+        ) from exc
     return StudentInvitationLinkRead(
         tenant_slug=tenant.slug,
         student_id=UUID(str(student.id)),
@@ -222,9 +249,7 @@ async def revoke_stopped_bot_access(
         max_user_id=payload.max_user_id,
         tenant_slug=payload.tenant_slug,
     )
-    account_links, child_links, affected_tenants = (
-        await revoke_access_for_stopped_bot(db, payload)
-    )
+    account_links, child_links, affected_tenants = await revoke_access_for_stopped_bot(db, payload)
     return BotStoppedAccessRevokeRead(
         max_user_id=payload.max_user_id,
         revoked_account_links=account_links,

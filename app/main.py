@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
 from app.bot.runtime import APP_VERSION, configure_logging
+from app.core.binding_diagnostics import BindingDiagnosticsMiddleware
 from app.core.config import get_settings, is_local_environment, is_placeholder
 from app.web.routes import STATIC_ROOT
 from app.web.routes import router as web_router
@@ -18,6 +19,11 @@ async def lifespan(_: FastAPI):
     config_errors = settings.bot_config_errors()
     if config_errors and not is_local_environment(settings.app_env):
         raise RuntimeError("Invalid production configuration: " + "; ".join(config_errors))
+    if (settings.bot_mode.strip().lower() == "webhook"
+            and not is_placeholder(settings.max_bot_token)):
+        from app.bot.max_webhook import get_webhook_runtime
+
+        get_webhook_runtime()
     from app.services.support import notification_loop, notifications_enabled
 
     support_worker = asyncio.create_task(notification_loop()) if notifications_enabled() else None
@@ -51,6 +57,7 @@ def create_app() -> FastAPI:
         version=APP_VERSION,
         lifespan=lifespan,
     )
+    app.add_middleware(BindingDiagnosticsMiddleware)
     app.include_router(api_router, prefix=settings.api_v1_prefix)
     app.include_router(web_router)
     app.mount("/miniapp/static", StaticFiles(directory=STATIC_ROOT / "miniapp"), name="miniapp")

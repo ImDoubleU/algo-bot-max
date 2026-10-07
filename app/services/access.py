@@ -1,11 +1,15 @@
 import hashlib
+import json
+import logging
 import re
 from datetime import UTC, datetime
+from functools import wraps
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.binding_diagnostics import binding_request_id
 from app.core.config import get_settings
 from app.models.account import MaxAccount
 from app.models.audit import AuditLog
@@ -29,13 +33,68 @@ from app.services.student_invitations import (
     verify_student_invitation_details,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class AccessServiceError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, code: str = "binding_failed"):
+        super().__init__(message)
+        self.code = code
+
+
+def audited_binding(function):
+    """Undo incomplete family writes before persisting a rejected binding."""
+
+    @wraps(function)
+    async def wrapped(db, payload):
+        try:
+            return await function(db, payload)
+        except AccessServiceError as exc:
+            await db.rollback()
+            tenant = await get_tenant_by_slug(db, payload.tenant_slug)
+            fields = {
+                "request_id": binding_request_id(),
+                "result": "failed",
+                "reason": exc.code,
+                "max_user_id": payload.max_user_id,
+                "tenant_slug": payload.tenant_slug.strip().lower(),
+                "role": getattr(payload, "role", StudentAccessRole.STUDENT).value,
+            }
+            contact_binding = isinstance(payload, AccessLinkCreate)
+            if contact_binding:
+                fields["contact_id_hash"] = hash_contact_id(payload.contact_id)
+            else:
+                fields["invitation_hash"] = hashlib.sha256(
+                    f"{get_settings().app_secret_key}:invitation:{payload.token}".encode()
+                ).hexdigest()
+                try:
+                    invitation = verify_student_invitation_details(payload.token)
+                except StudentInvitationError:
+                    pass
+                else:
+                    fields["student_id"] = str(invitation.student_id)
+                    fields["invitation_tenant_id"] = str(invitation.tenant_id)
+                    fields["issuer"] = invitation.issuer.value
+            db.add(
+                AuditLog(
+                    tenant_id=tenant.id if tenant else None,
+                    action="contact_access_link.failed"
+                    if contact_binding
+                    else "student_qr_access_link.failed",
+                    entity_type="contact_access" if contact_binding else "student_access",
+                    payload=fields,
+                )
+            )
+            await db.commit()
+            logger.info("binding_failed %s", json.dumps(fields, ensure_ascii=False))
+            raise
+
+    return wrapped
 
 
 PARENT_REQUIRED_MESSAGE = (
-    "Сначала должен подключиться родитель. Попросите родителя открыть письмо школы "
+    "Сначала должен подключиться родитель. Попросите родителя открыть "
+    "письмо школы "
     "и перейти по персональной ссылке."
 )
 
@@ -129,6 +188,21 @@ async def record_student_access_attempt(
     student: Student | None = None,
     reason: str | None = None,
 ) -> None:
+    logger.info(
+        "binding_attempt %s",
+        json.dumps(
+            {
+                "request_id": binding_request_id(),
+                "stage": action,
+                "result": result,
+                "reason": reason,
+                "max_user_id": getattr(payload, "max_user_id", None),
+                "tenant_slug": payload.tenant_slug.strip().lower(),
+                "contact_id_hash": hash_contact_id(payload.contact_id),
+            },
+            ensure_ascii=False,
+        ),
+    )
     db.add(
         AuditLog(
             tenant_id=tenant_id or (tenant.id if tenant else None),
@@ -137,6 +211,7 @@ async def record_student_access_attempt(
             entity_type="contact_access",
             entity_id=str(student.id) if student else None,
             payload={
+                "request_id": binding_request_id(),
                 "result": result,
                 "tenant_slug": payload.tenant_slug.strip().lower(),
                 "contact_id_hash": hash_contact_id(payload.contact_id),
@@ -151,6 +226,12 @@ async def get_or_create_max_account(
     db: AsyncSession,
     payload: AccessLinkCreate | StudentInvitationLinkCreate,
 ) -> MaxAccount:
+    # A row lock cannot serialize a first-ever account lookup and insert.
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"),
+            {"key": -(payload.max_user_id % (2**63 - 1))},
+        )
     account = await db.scalar(
         select(MaxAccount).where(MaxAccount.max_user_id == payload.max_user_id),
     )
@@ -214,17 +295,20 @@ async def ensure_single_account_binding(
             if link.role == StudentAccessRole.STUDENT:
                 raise AccessServiceError(
                     "Этот MAX-профиль уже используется учеником. "
-                    "Для родительского кабинета откройте ссылку с профиля родителя"
+                    "Для родительского кабинета откройте ссылку с профиля родителя",
+                    code="account_role_conflict",
                 )
             raise AccessServiceError(
-                "Этот MAX-профиль уже используется родителем. Откройте QR-код с профиля ребенка"
+                "Этот MAX-профиль уже используется родителем. Откройте QR-код с профиля ребенка",
+                code="account_role_conflict",
             )
         if role == StudentAccessRole.STUDENT and (
             link.tenant_id != tenant_id or link.student_id != student_id
         ):
             raise AccessServiceError(
                 "Этот MAX-аккаунт уже привязан к другому ученику. "
-                "Сначала попросите школу снять прежнюю привязку."
+                "Сначала попросите школу снять прежнюю привязку.",
+                code="student_already_bound",
             )
 
 
@@ -408,6 +492,7 @@ async def revoke_access_for_stopped_bot(
     return len(account_links), len(child_links), len(affected_tenant_ids)
 
 
+@audited_binding
 async def create_contact_access_links(
     db: AsyncSession,
     payload: AccessLinkCreate,
@@ -415,7 +500,8 @@ async def create_contact_access_links(
     if payload.role != StudentAccessRole.PARENT:
         raise AccessServiceError(
             "Contact ID используется только для входа родителя. "
-            "Ученик входит по QR-коду из кабинета родителя"
+            "Ученик входит по QR-коду из кабинета родителя или преподавателя.",
+            code="student_qr_required",
         )
 
     resolved = await resolve_students_by_contact_id(
@@ -423,30 +509,19 @@ async def create_contact_access_links(
         StudentResolveRequest(tenant_slug=payload.tenant_slug, contact_id=payload.contact_id),
     )
     if resolved is None:
-        tenant = await get_tenant_by_slug(db, payload.tenant_slug)
-        await record_student_access_attempt(
-            db,
-            payload=payload,
-            action="contact_access_link.failed",
-            result="not_found",
-            tenant=tenant,
-            reason="contact_id_not_found",
+        raise AccessServiceError(
+            "Семья по этой ссылке не найдена. Проверьте город и откройте ссылку "
+            "из последнего письма школы. Если не получается, обратитесь в школу.",
+            code="contact_not_found",
         )
-        await db.commit()
-        raise AccessServiceError("ID из письма не найден для выбранного города")
 
     contact, students = resolved
     if not students:
-        await record_student_access_attempt(
-            db,
-            payload=payload,
-            action="contact_access_link.failed",
-            result="no_students",
-            tenant_id=contact.tenant_id,
-            reason="contact_has_no_students",
+        raise AccessServiceError(
+            "По этой ссылке сейчас нет доступных учеников. Попросите школу "
+            "проверить данные семьи и статус обучения.",
+            code="contact_has_no_students",
         )
-        await db.commit()
-        raise AccessServiceError("К этому ID не привязаны ученики")
 
     account = await get_or_create_max_account(db, payload)
     await ensure_single_account_binding(
@@ -480,7 +555,9 @@ async def create_contact_access_links(
                 existing.revoked_reason = None
                 reactivated += 1
             elif existing.status == StudentAccessStatus.REVOKED:
-                raise AccessServiceError("Связь была отозвана администратором. Обратитесь в школу")
+                raise AccessServiceError(
+                    "Связь была отозвана администратором. Обратитесь в школу", code="access_revoked"
+                )
             links.append(existing)
             continue
 
@@ -505,6 +582,7 @@ async def create_contact_access_links(
             entity_type="contact_access",
             entity_id=str(contact.id),
             payload={
+                "request_id": binding_request_id(),
                 "contact_id_hash": hash_contact_id(payload.contact_id),
                 "student_ids": [str(student.id) for student in students],
                 "created_links": created,
@@ -516,11 +594,29 @@ async def create_contact_access_links(
         ),
     )
     await db.commit()
+    logger.info(
+        "binding_completed %s",
+        json.dumps(
+            {
+                "binding": {
+                    "request_id": binding_request_id(),
+                    "max_user_id": payload.max_user_id,
+                    "tenant_slug": payload.tenant_slug,
+                    "role": payload.role.value,
+                    "created_links": created,
+                    "reactivated_links": reactivated,
+                    "total_links": len(links),
+                }
+            },
+            ensure_ascii=False,
+        ),
+    )
     for link in links:
         await db.refresh(link)
     return links
 
 
+@audited_binding
 async def create_invited_student_access_link(
     db: AsyncSession,
     payload: StudentInvitationLinkCreate,
@@ -528,14 +624,23 @@ async def create_invited_student_access_link(
     try:
         invitation = verify_student_invitation_details(payload.token)
     except StudentInvitationError as exc:
-        raise AccessServiceError(str(exc)) from exc
+        raise AccessServiceError(
+            "Ссылка ученика повреждена или не подходит для подключения. Попросите "
+            "родителя или преподавателя показать новый QR-код и отсканируйте его "
+            "снова.",
+            code="invitation_invalid",
+        ) from exc
     if invitation.issuer == StudentInvitationIssuer.LEGACY:
         raise AccessServiceError(
-            "QR-код устарел. Попросите преподавателя или родителя получить новый код."
+            "QR-код устарел. Попросите преподавателя или родителя получить новый код.",
+            code="invitation_legacy",
         )
     tenant = await db.scalar(select(Tenant).where(Tenant.id == invitation.tenant_id))
     if tenant is None:
-        raise AccessServiceError("Школа из ссылки не найдена")
+        raise AccessServiceError(
+            "Школа по этой ссылке не найдена. Попросите школу прислать актуальную ссылку.",
+            code="school_not_found",
+        )
     student = await db.scalar(
         select(Student).where(
             Student.id == invitation.student_id,
@@ -543,10 +648,15 @@ async def create_invited_student_access_link(
         )
     )
     if student is None:
-        raise AccessServiceError("Student was not found for this tenant")
+        raise AccessServiceError(
+            "Ученик по этой ссылке не найден. Попросите преподавателя проверить "
+            "профиль и показать новый QR-код.",
+            code="student_not_found",
+        )
     if not student_access_window(student, tenant).allowed:
         raise AccessServiceError(
-            "Срок доступа после завершения обучения истек. Обратитесь в школу."
+            "Срок доступа после завершения обучения истек. Обратитесь в школу.",
+            code="student_access_closed",
         )
 
     sponsor_link: StudentAccessLink | None = None
@@ -558,7 +668,12 @@ async def create_invited_student_access_link(
             sponsor_access_link_id=invitation.sponsor_access_link_id,
         )
         if sponsor_link is None:
-            raise AccessServiceError("Родительская связь больше не активна. Получите новый QR-код.")
+            raise AccessServiceError(
+                "Родительская связь больше не активна. Родителю нужно открыть "
+                "персональную ссылку из письма школы, затем показать новый QR-код "
+                "ученику.",
+                code="parent_link_inactive",
+            )
     else:
         sponsor_link = await get_active_parent_access_link(
             db,
@@ -601,6 +716,18 @@ async def create_invited_student_access_link(
         db.add(link)
         await db.flush()
     else:
+        if link.status == StudentAccessStatus.REVOKED and link.revoked_reason not in {
+            "bot_stopped",
+            "registration_reset",
+            "sponsor_bot_stopped",
+            "sponsor_revoked",
+            "parent_required_hotfix",
+        }:
+            raise AccessServiceError(
+                "Связь ученика была отключена школой. Попросите школу проверить "
+                "привязку перед повторным подключением.",
+                code="access_revoked",
+            )
         link.status = StudentAccessStatus.ACTIVE
         link.source = link_source
         link.sponsor_access_link_id = sponsor_link.id if sponsor_link else None
@@ -615,6 +742,7 @@ async def create_invited_student_access_link(
             entity_type="student_access",
             entity_id=str(student.id),
             payload={
+                "request_id": binding_request_id(),
                 "created": created,
                 "max_user_id": payload.max_user_id,
                 "source": link_source.value,
@@ -624,6 +752,24 @@ async def create_invited_student_access_link(
     )
     await db.commit()
     await db.refresh(link)
+    logger.info(
+        "binding_completed %s",
+        json.dumps(
+            {
+                "binding": {
+                    "request_id": binding_request_id(),
+                    "max_user_id": payload.max_user_id,
+                    "tenant_slug": tenant.slug,
+                    "role": "student",
+                    "student_id": str(student.id),
+                    "created": created,
+                    "source": link_source.value,
+                    "parent_connected": sponsor_link is not None,
+                }
+            },
+            ensure_ascii=False,
+        ),
+    )
     return tenant, student, link
 
 

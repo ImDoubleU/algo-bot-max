@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import sqlite3
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, HTTPException, status
@@ -37,9 +38,9 @@ def receive_max_webhook(
         )
     try:
         get_webhook_runtime().submit(update)
-    except WebhookQueueFull as exc:
+    except (WebhookQueueFull, sqlite3.Error, OSError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Webhook queue is full",
+            detail="Webhook receipt temporarily unavailable",
         ) from exc
     return {"ok": True}

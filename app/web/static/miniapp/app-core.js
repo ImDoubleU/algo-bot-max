@@ -70,6 +70,7 @@ const STUDENT_REGISTRY_PAGE_SIZE = 50;
 const state = {
   hasAccess: apiContext.demoMode,
   accessMessage: "",
+  accessReason: "",
   role: "student",
   account: null,
   staffRoles: [],
@@ -1582,7 +1583,11 @@ function apiFetch(input, options = {}) {
 }
 
 function apiErrorMessage(detail, status) {
-  if (typeof detail === "string" && detail.trim()) return detail;
+  if (status === 401) return "Сеанс входа закончился или не передался из MAX. Закройте приложение и откройте личный кабинет через меню бота.";
+  if (status >= 500) return "Не удалось связаться со школой. Подождите немного и попробуйте ещё раз. Если это повторяется, сообщите о проблеме.";
+  if (typeof detail === "string" && detail.trim()) {
+    if (!/\b(?:HTTP\s*\d{3}|Traceback|SQLSTATE|Internal Server Error|Bad Gateway|Failed to fetch|NetworkError|ValidationError)\b/i.test(detail)) return detail;
+  }
   if (Array.isArray(detail)) {
     const messages = detail
       .map((item) => apiErrorMessage(item, status))
@@ -1594,7 +1599,11 @@ function apiErrorMessage(detail, status) {
       if (detail[key]) return apiErrorMessage(detail[key], status);
     }
   }
-  return status ? `Ошибка API: ${status}` : "Не удалось выполнить запрос";
+  if (status === 403) return "Для этого действия нет доступа. Проверьте, что вошли в свой аккаунт MAX, или обратитесь к администратору школы.";
+  if (status === 404) return "Ссылка или данные больше недоступны. Откройте свежую ссылку у преподавателя или из письма школы.";
+  if (status === 429) return "Слишком много попыток подряд. Подождите немного и попробуйте ещё раз.";
+  if (status === 400 || status === 422) return "Не удалось принять данные. Проверьте заполненные поля и попробуйте ещё раз.";
+  return "Не удалось загрузить данные. Проверьте интернет и попробуйте ещё раз.";
 }
 
 async function parseApiError(response) {
@@ -1602,7 +1611,7 @@ async function parseApiError(response) {
     const data = await response.json();
     return apiErrorMessage(data.detail ?? data, response.status);
   } catch {
-    return `Ошибка API: ${response.status}`;
+    return apiErrorMessage(null, response.status);
   }
 }
 
@@ -2129,6 +2138,7 @@ function applySession(session) {
   const previousTenantSlug = apiContext.tenantSlug;
   state.hasAccess = apiContext.demoMode || Boolean(session.has_access);
   state.accessMessage = session.access_message || "";
+  state.accessReason = session.access_reason || "";
   apiContext.tenantSlug = session.tenant_slug || apiContext.tenantSlug;
   if (
     previousTenantSlug &&
@@ -2326,13 +2336,24 @@ function applyAccessGate(message = state.accessMessage || "") {
   if (shell) shell.hidden = locked;
   if (locked) {
     const title = qs("#accessGateTitle");
-    if (title) title.textContent = message
-      ? "Личный кабинет пока недоступен"
-      : "Сначала привяжите профиль";
+    const titles = {
+      parent_required: "Нужно подключить родителя",
+      parent_disconnected: "Нужно обновить подключение",
+      not_linked: "Подключите профиль",
+      access_expired: "Доступ к кабинету закончился",
+      student_archived: "Профиль находится в архиве",
+      access_revoked: "Доступ отключён",
+      bot_stopped: "Запустите бота снова",
+      registration_reset: "Подключитесь заново",
+      auth_required: "Откройте кабинет через MAX",
+      launch_missing: "Откройте кабинет через MAX",
+      connection_failed: "Не удалось проверить доступ",
+    };
+    if (title) title.textContent = titles[state.accessReason] || "Личный кабинет пока недоступен";
   }
-  if (locked && message) {
+  if (locked) {
     const label = qs("#accessGateMessage");
-    if (label) label.textContent = message;
+    if (label) label.textContent = message || "Родителю нужно открыть ссылку из письма школы, а ученику — свой QR-код у преподавателя. Завершите подключение в боте и нажмите «Проверить доступ».";
   }
   document.body.dataset.access = locked ? "locked" : "granted";
   refreshIcons();

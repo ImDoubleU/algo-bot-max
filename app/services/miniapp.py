@@ -8,6 +8,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.binding_diagnostics import binding_request_id
 from app.core.config import get_settings, is_placeholder
 from app.models.account import (
     MaxAccount,
@@ -147,6 +148,11 @@ from app.services.access import (
     revoke_dependent_student_links,
 )
 from app.services.bank import bank_local_date, close_bank_deposit_for_inactive_student
+from app.services.binding_session import (
+    NOT_LINKED_MESSAGE,
+    SCHOOL_UNAVAILABLE_MESSAGE,
+    denied_binding_reason,
+)
 from app.services.birthday_rewards import (
     BIRTHDAY_GIFT_DEFAULT_AMOUNT,
     BIRTHDAY_GIFT_REASON,
@@ -352,6 +358,7 @@ async def _effective_student_access_rows(
         ).all()
     )
     parent_scope_query = select(
+        StudentAccessLink.id,
         StudentAccessLink.tenant_id,
         StudentAccessLink.student_id,
     ).where(
@@ -362,17 +369,21 @@ async def _effective_student_access_rows(
         parent_scope_query = parent_scope_query.where(
             StudentAccessLink.tenant_id == tenant_id
         )
-    parent_scopes = {
-        (UUID(str(parent_tenant_id)), UUID(str(student_id)))
-        for parent_tenant_id, student_id in (await db.execute(parent_scope_query)).all()
-    }
+    parent_rows = (await db.execute(parent_scope_query)).all()
+    parent_scopes = {(UUID(str(parent_tenant_id)), UUID(str(student_id)))
+                     for _, parent_tenant_id, student_id in parent_rows}
+    parent_ids = {UUID(str(parent_id)) for parent_id, _, _ in parent_rows}
     return [
         (link, student, row_tenant)
         for link, student, row_tenant in rows
         if student_access_window(student, row_tenant).allowed
         and (
             link.role == StudentAccessRole.PARENT
-            or (UUID(str(link.tenant_id)), UUID(str(link.student_id))) in parent_scopes
+            or (
+                (UUID(str(link.tenant_id)), UUID(str(link.student_id))) in parent_scopes
+                and (link.sponsor_access_link_id is None
+                     or UUID(str(link.sponsor_access_link_id)) in parent_ids)
+            )
         )
     ]
 
@@ -3282,10 +3293,43 @@ async def get_miniapp_session(
                 if discovered_tenant is not None:
                     tenant = discovered_tenant
                     normalized_tenant_slug = tenant.slug
+            else:
+                # A student awaiting a parent still has a saved binding. Discover
+                # its school even though it does not grant app access yet.
+                pending_rows = (await db.execute(
+                    select(Tenant, Student)
+                    .join(StudentAccessLink, StudentAccessLink.tenant_id == Tenant.id)
+                    .join(Student, Student.id == StudentAccessLink.student_id)
+                    .options(selectinload(Tenant.city), selectinload(Tenant.partner))
+                    .where(
+                        StudentAccessLink.account_id == account.id,
+                        StudentAccessLink.role == StudentAccessRole.STUDENT,
+                        StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+                        Tenant.status == TenantStatus.ACTIVE,
+                    )
+                    .order_by(Tenant.name, Tenant.slug)
+                )).all()
+                eligible_pending = [row_tenant for row_tenant, student in pending_rows
+                                    if student_access_window(student, row_tenant).allowed]
+                if eligible_pending:
+                    tenant = next((item for item in eligible_pending
+                                   if item.slug == normalized_tenant_slug), eligible_pending[0])
+                    normalized_tenant_slug = tenant.slug
 
-    if tenant is None or account is None:
+    if tenant is None or account is None or tenant.status != TenantStatus.ACTIVE:
+        reason = "school_not_found" if tenant is None else (
+            "school_inactive" if tenant.status != TenantStatus.ACTIVE else "not_linked"
+        )
+        logger.info(
+            "binding_session request_id=%s user_id=%s tenant=%r "
+            "outcome=denied reason=%s account_found=%s",
+            binding_request_id(), max_user_id, normalized_tenant_slug, reason, account is not None,
+        )
         return MiniAppSessionRead(
             tenant_slug=normalized_tenant_slug,
+            access_reason=reason,
+            access_message=(NOT_LINKED_MESSAGE if reason == "not_linked"
+                            else SCHOOL_UNAVAILABLE_MESSAGE),
             account=None
             if account is None
             else MiniAppAccountRead(
@@ -3322,41 +3366,16 @@ async def get_miniapp_session(
         access_roles_by_student.setdefault(linked_student.id, set()).add(link.role)
 
     if not staff_roles and not explicit_student_roles:
-        waiting_for_parent = bool(
-            await db.scalar(
-                select(StudentAccessLink.id)
-                .where(
-                    StudentAccessLink.tenant_id == tenant.id,
-                    StudentAccessLink.account_id == account.id,
-                    StudentAccessLink.role == StudentAccessRole.STUDENT,
-                    StudentAccessLink.status == StudentAccessStatus.ACTIVE,
-                )
-                .limit(1)
-            )
-        )
-        has_expired_link = bool(
-            await db.scalar(
-                select(StudentAccessLink.id)
-                .where(
-                    StudentAccessLink.tenant_id == tenant.id,
-                    StudentAccessLink.account_id == account.id,
-                    StudentAccessLink.status == StudentAccessStatus.ACTIVE,
-                )
-                .limit(1)
-            )
+        reason, message = await denied_binding_reason(db, tenant=tenant, account=account)
+        logger.info(
+            "binding_session request_id=%s user_id=%s tenant=%r "
+            "outcome=denied reason=%s account_id=%s",
+            binding_request_id(), max_user_id, normalized_tenant_slug, reason, account.id,
         )
         return MiniAppSessionRead(
             tenant_slug=normalized_tenant_slug,
-            access_message=(
-                PARENT_REQUIRED_MESSAGE
-                if waiting_for_parent
-                else (
-                    "Срок доступа после завершения обучения истек. Данные сохранены; "
-                    "для восстановления обратитесь в школу."
-                    if has_expired_link
-                    else None
-                )
-            ),
+            access_reason=reason,
+            access_message=message,
             account=MiniAppAccountRead(
                 max_user_id=account.max_user_id,
                 username=account.username,
@@ -3579,9 +3598,17 @@ async def get_miniapp_session(
         account_id=UUID(str(account.id)),
     )
 
+    logger.info(
+        "binding_session request_id=%s user_id=%s tenant=%r outcome=granted "
+        "staff_roles=%s student_roles=%s linked_students=%s",
+        binding_request_id(), max_user_id, tenant.slug,
+        [role.value for role in staff_roles],
+        sorted({role.value for role in explicit_student_roles}), len(own_link_rows),
+    )
     return MiniAppSessionRead(
         tenant_slug=tenant.slug,
         has_access=True,
+        access_reason="granted",
         account=MiniAppAccountRead(
             max_user_id=account.max_user_id,
             username=account.username,
