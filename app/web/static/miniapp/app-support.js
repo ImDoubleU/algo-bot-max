@@ -157,6 +157,75 @@ async function supportLoadImages(ticket, container) {
   }
 }
 
+function supportUserFacts(items) {
+  const visible = items.filter(([, value]) => value !== null && value !== undefined && value !== "");
+  return visible.length ? `<dl class="support-user-facts">${visible.map(([name, value]) => `<div><dt>${escapeHtml(name)}</dt><dd>${escapeHtml(String(value))}</dd></div>`).join("")}</dl>` : "";
+}
+
+function supportUserDate(value) {
+  if (!value || Number.isNaN(new Date(value).getTime())) return "";
+  return new Date(value).toLocaleString("ru-RU", {timeZone: "Europe/Moscow"});
+}
+
+function supportUserSchool(school) {
+  return school ? [school.city, school.partner].filter(Boolean).join(" · ") || school.name || school.slug : "";
+}
+
+function supportUserStudentMarkup(student, ticket) {
+  const links = student.links || [];
+  const active = links.filter((link) => link.status === "active");
+  const badge = !active.length ? links.some((link) => link.status === "disputed") ? "Требует проверки" : "Связь отключена" : active.some((link) => link.role === "student") && !student.parent_connected ? "Нужен родитель" : "Связь активна";
+  const reasons = {parent_required: "Родитель не подключён", parent_required_hotfix: "Отключено до подключения родителя", bot_stopped: "Бот остановлен пользователем", registration_reset: "Регистрация сброшена", sponsor_revoked: "Связь родителя отключена", sponsor_bot_stopped: "Родитель остановил бота", admin: "Отключено администратором"};
+  const maxIds = [...new Set((student.accounts || []).filter((account) => account.role === "student").map((account) => account.max_id))];
+  const parents = (student.accounts || []).filter((account) => account.role === "parent" && String(account.max_id) !== String(ticket.max_user_id));
+  return `<article class="support-user-student">
+    <header><button type="button" class="audit-student-link" data-audit-student="${escapeHtml(student.id)}" data-audit-tenant="${escapeHtml(student.school?.slug || "")}">${escapeHtml(student.name)}<i data-lucide="arrow-up-right"></i></button><span class="support-user-link-state ${!active.length ? "is-inactive" : ""}">${badge}</span></header>
+    ${supportUserFacts([["Связь автора", [...new Set(links.map((link) => auditReadable(link.role)))].join(", ")],
+      ["MAX ID ученика", maxIds.join(", ") || "—"], ["LMS ID", student.lms_id || "—"],
+      ["Школа", supportUserSchool(student.school)], ["Группа", student.group], ["Курс", student.course],
+      ["Площадка", student.venue], ["Преподаватель", [student.teacher, student.teacher_max_id ? `MAX ID ${student.teacher_max_id}` : ""].filter(Boolean).join(" · ")],
+      ["Статус ученика", {active: "Обучается", departed: "Выбыл", archived: "В архиве"}[student.status]],
+      ["Баланс", student.balance !== undefined ? `${student.balance} AC` : null]])}
+    ${parents.length ? `<div class="support-user-parents"><h5>Родители в MAX</h5>${parents.map((parent) => `<div><strong>${escapeHtml(parent.name || "Имя не указано")}</strong>${supportUserFacts([["MAX ID", parent.max_id], ["Логин", parent.username ? `@${parent.username.replace(/^@/, "")}` : ""], ["Телефон", parent.phone]])}</div>`).join("")}</div>` : ""}
+    <details class="support-user-extra"><summary>Связи и другие ID</summary>
+      ${supportUserFacts([["ID ученика", student.id], ["CRM ID", student.crm_id], ["CRM UUID", student.crm_uuid],
+        ["Дата рождения", student.birth_date ? new Date(student.birth_date).toLocaleDateString("ru-RU", {timeZone: "Europe/Moscow"}) : ""],
+        ["Родитель подключён", student.parent_connected ? "Да" : "Нет"]])}
+      ${links.map((link) => `<div class="support-user-binding">${supportUserFacts([
+        ["Роль", auditReadable(link.role)], ["Статус связи", {active: "Активна", revoked: "Отключена", disputed: "Требует проверки"}[link.status] || link.status],
+        ["Способ подключения", link.source === "import" ? "Импорт" : auditReadable(link.source)], ["Подключён", supportUserDate(link.connected_at)],
+        ["Отключён", supportUserDate(link.revoked_at)], ["Причина отключения", reasons[link.revoked_reason] || link.revoked_reason], ["ID связи", link.id]])}</div>`).join("")}
+      ${(student.contacts || []).length ? `<h5>Контакты из импорта</h5>${student.contacts.map((contact) => supportUserFacts([["Имя", contact.name], ["ID контакта", contact.id]])).join("")}` : ""}
+    </details>
+  </article>`;
+}
+
+function supportUserMarkup(ticket) {
+  const context = ticket.user_context || {};
+  const account = context.account;
+  const staff = context.staff || [];
+  const students = context.students || [];
+  const roles = [...new Set([...staff.filter((item) => item.status === "active").map((item) => item.role),
+    ...students.flatMap((student) => (student.links || []).filter((link) => link.status === "active").map((link) => link.role))])];
+  const statedName = `${ticket.last_name} ${ticket.first_name}`.trim();
+  return `<section class="support-user-panel"><div class="support-user-panel-heading"><h4>Пользователь</h4>${supportState.owner && fullAuditEnabled() ? `<button type="button" class="text-action" data-support-user-history="${escapeHtml(ticket.max_user_id)}">Действия пользователя</button>` : ""}</div>
+    ${supportUserFacts([["MAX ID автора", ticket.max_user_id], ["Роли в системе", roles.map(auditReadable).join(", ")],
+      ["Имя в MAX", account?.name && account.name !== statedName ? account.name : ""],
+      ["ФИО сотрудника", account?.staff_name && ![statedName, account.name].includes(account.staff_name) ? account.staff_name : ""],
+      ["Логин", account?.username ? `@${account.username.replace(/^@/, "")}` : ""], ["Телефон", account?.phone],
+      ["Школа отправки", supportUserSchool(context.origin_school) || ticket.tenant_slug],
+      ["Источник", ticket.source === "bot" ? "Бот" : "Миниприложение"]])}
+    ${account ? `<details class="support-user-extra"><summary>Данные аккаунта</summary>${supportUserFacts([
+      ["ID аккаунта", account.id], ["В системе с", supportUserDate(account.created_at)],
+      ["Профиль обновлён", supportUserDate(account.updated_at)], ["Последнее действие", supportUserDate(account.last_activity_at)]])}</details>` : ""}
+    ${students.length ? `<h5 class="support-user-section-title">Связанные ученики</h5>${students.map((student) => supportUserStudentMarkup(student, ticket)).join("")}` : ""}
+    ${staff.length ? `<h5 class="support-user-section-title">Доступ сотрудника</h5>${staff.map((item) => `<article class="support-user-staff ${item.status !== "active" ? "is-inactive" : ""}"><header><strong>${escapeHtml(auditReadable(item.role))}</strong>${item.status !== "active" ? "<span>Отключён</span>" : ""}</header>
+      ${supportUserFacts([["Школа", supportUserSchool(item.school)], ["Площадки", (item.venues || []).join(", ")], ["Назначен", supportUserDate(item.since)]])}
+      ${(item.groups || []).length ? `<div class="support-user-groups">${item.groups.map((group) => `<div><strong>${escapeHtml(group.name || "Без группы")}</strong><span>${escapeHtml([group.course, group.venue, `Учеников: ${group.students}`].filter(Boolean).join(" · "))}</span></div>`).join("")}</div>` : ""}</article>`).join("")}` : ""}
+    ${ticket.user_context && !students.length && !staff.length ? '<span class="support-user-unlinked">Нет привязок в системе</span>' : ""}
+  </section>`;
+}
+
 function supportRenderInbox(counts = {}) {
   supportState.counts = counts;
   const badge = qs("#supportNewCount"); badge.textContent = String(counts.new || 0); badge.hidden = !counts.new;
@@ -172,7 +241,7 @@ function supportRenderInbox(counts = {}) {
         <span class="support-badge support-badge-${ticket.status}">${escapeHtml(SUPPORT_STATUSES[ticket.status])}</span>
       </summary>
       <div class="support-ticket-body"><p class="support-ticket-message">${escapeHtml(ticket.message)}</p>
-        <div class="support-ticket-meta">MAX ID: ${escapeHtml(ticket.max_user_id)} · ${ticket.source === "bot" ? "Бот" : "Миниприложение"}${ticket.tenant_slug ? ` · ${escapeHtml(ticket.tenant_slug)}` : ""}</div>
+        ${supportUserMarkup(ticket)}
         <div class="support-ticket-photos" data-ticket-photos="${ticket.id}"></div>
         <form data-support-update="${ticket.id}" class="support-ticket-update">
           <label>Статус<select name="status" class="support-control">${Object.entries(SUPPORT_STATUSES).map(([s,l]) => `<option value="${s}" ${s === ticket.status ? "selected" : ""}>${l}</option>`).join("")}</select></label>
@@ -320,10 +389,16 @@ async function supportLoadContext() {
 }
 
 document.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-support-open], [data-support-close], [data-support-role], [data-support-remove-photo], [data-support-tab], [data-support-filter], [data-support-delete]");
+  const target = event.target.closest("[data-support-open], [data-support-close], [data-support-role], [data-support-remove-photo], [data-support-tab], [data-support-filter], [data-support-delete], [data-support-user-history]");
   if (!target) return;
   if (target.hasAttribute("data-support-open")) supportOpenForm();
   if (target.dataset.supportDelete) void supportDeleteTicket(Number(target.dataset.supportDelete));
+  if (target.dataset.supportUserHistory && supportState.owner && fullAuditEnabled()) {
+    const feed = auditFeed("audit");
+    feed.filters = {q: "", category: "", outcome: "", actor: target.dataset.supportUserHistory,
+      days: "3650", from: "", to: "", allTenants: true};
+    state.adminTab = "audit"; renderAdminPanel(); setView("admin"); void loadAuditFeed("audit", true);
+  }
   if (target.hasAttribute("data-support-close")) supportCloseForm();
   if (target.dataset.supportRole && !supportState.saving) { supportSetRole(target.dataset.supportRole); qs("#supportFormStatus").textContent = ""; supportSaveDraft(); }
   if (target.dataset.supportTab) supportSetTab(target.dataset.supportTab);

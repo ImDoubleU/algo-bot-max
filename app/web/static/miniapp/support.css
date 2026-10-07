@@ -6,8 +6,8 @@
 .support-inbox-toolbar input { flex:1; min-width:0; }
 .support-filters { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
 .support-ticket { background:#fff; border:1px solid #e2dcea; border-radius:16px; margin:12px 0; overflow:hidden; }
-.support-ticket summary { display:flex; align-items:center; gap:14px; padding:20px; cursor:pointer; list-style:none; }
-.support-ticket summary::-webkit-details-marker { display:none; }
+.support-ticket > summary { display:flex; align-items:center; gap:14px; padding:20px; cursor:pointer; list-style:none; }
+.support-ticket > summary::-webkit-details-marker { display:none; }
 .support-ticket-title { display:flex; flex-direction:column; gap:6px; flex:1; min-width:0; overflow-wrap:anywhere; }
 .support-ticket-title small, .support-ticket-meta { color:#81788d; font-size:13px; }
 .support-ticket-number { color:#7137bd; font-weight:700; }
@@ -17,6 +17,32 @@
 .support-ticket-body { border-top:1px solid #eee9f3; padding:20px; }
 .support-ticket-message { white-space:pre-wrap; overflow-wrap:anywhere; margin:0 0 16px; }
 .support-ticket-meta { overflow-wrap:anywhere; }
+.support-user-panel { margin:16px 0; padding:16px; border:1px solid #e9e2f1; border-radius:12px; background:#faf8fd; }
+.support-user-panel h4 { margin:0 0 12px; font-size:15px; }
+.support-user-panel-heading { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:12px; }
+.support-user-panel-heading h4 { margin:0; }
+.support-user-panel-heading button { font-size:12px; }
+.support-user-panel h5 { font-size:12px; margin:10px 0; color:#81788d; font-weight:500; }
+.support-user-facts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px 20px; margin:0; }
+.support-user-facts > div { min-width:0; }
+.support-user-facts dt { color:#81788d; font-size:11px; margin-bottom:4px; }
+.support-user-facts dd { margin:0; font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.support-user-student, .support-user-staff { background:#fff; border:1px solid #e9e2f1; border-radius:10px; padding:14px; margin-top:10px; }
+.support-user-student > header, .support-user-staff > header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+.support-user-student .audit-student-link { font-size:14px; }
+.support-user-link-state { color:#34774a; font-size:11px; background:#e5f5e9; padding:4px 7px; border-radius:5px; }
+.support-user-link-state.is-inactive, .support-user-staff.is-inactive { color:#81788d; background:#f1eef5; }
+.support-user-extra { margin-top:12px; }
+.support-user-extra > summary { display:list-item; list-style:disclosure-closed inside; padding:6px 0; color:#7137bd; font-size:12px; cursor:pointer; }
+.support-user-extra[open] > summary { list-style-type:disclosure-open; margin-bottom:10px; }
+.support-user-binding { border-top:1px solid #eee9f3; margin-top:12px; padding-top:12px; }
+.support-user-parents { border-top:1px solid #eee9f3; margin-top:12px; padding-top:2px; }
+.support-user-parents > div { margin:10px 0; }
+.support-user-parents strong { display:block; font-size:12px; font-weight:500; margin-bottom:8px; }
+.support-user-groups { display:grid; gap:10px; margin-top:12px; }
+.support-user-groups > div { display:flex; flex-direction:column; gap:4px; font-size:12px; }
+.support-user-groups span, .support-user-unlinked { color:#81788d; font-size:12px; overflow-wrap:anywhere; }
+.support-user-unlinked { display:block; margin-top:12px; }
 .support-ticket-update { display:grid; gap:14px; margin-top:20px; }
 .support-ticket-update button { justify-self:start; }
 .support-ticket-danger { display:flex; justify-content:flex-end; margin-top:22px; padding-top:18px; border-top:1px solid #eee9f3; }
@@ -61,9 +87,13 @@ textarea.support-control { resize:vertical; }
   .support-role-picker button { font-size:14px; min-height:48px; }
   .support-name-fields { grid-template-columns:1fr; }
   .support-control { font-size:16px; }
-  .support-ticket summary { flex-wrap:wrap; gap:10px; padding:16px; }
+  .support-ticket > summary { flex-wrap:wrap; gap:10px; padding:16px; }
   .support-badge { margin-left:35px; }
   .support-ticket-body { padding:16px; }
+  .support-user-panel { padding:12px; }
+  .support-user-facts { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 12px; }
+  .support-user-student, .support-user-staff { padding:12px; }
+  .support-user-student .audit-student-link { overflow-wrap:anywhere; }
   .support-ticket-danger button { width:100%; justify-content:center; min-height:44px; }
   .support-tab, .support-filter { min-height:44px; padding:10px 12px; font-size:14px; }
   .support-inbox-toolbar { flex-wrap:wrap; }
