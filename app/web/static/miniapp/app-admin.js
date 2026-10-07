@@ -599,6 +599,8 @@ function studentProfileMarkup(student) {
         </div>
       </section>
 
+      <section class="student-profile-section" ${panel("history")}><div id="studentActionTimeline">${auditPanel(`student:${student.id}`, true)}</div></section>
+
       <section class="student-profile-section student-history" ${panel("history")}>
         <div class="student-history-head"><div><h4>История карточки</h4><span>Импорт и ручные изменения данных.</span></div><span>${history.length} ${history.length === 1 ? "событие" : "событий"}</span></div>
         <div class="student-history-list">
@@ -952,6 +954,7 @@ function renderAdminPanel() {
     contacts: "Связи доступа",
     staff: "Сотрудники",
     history: "История изменений",
+    audit: "Аудит действий",
   };
   qs("#adminViewTitle").textContent = adminTitles[state.adminTab] || "Операции";
   const adminRoleEyebrow = qs("#adminRoleEyebrow");
@@ -960,10 +963,11 @@ function renderAdminPanel() {
       primaryStaffRole() === "partner_director" ? "Директор" : "Админ";
   }
   qsa(".admin-tab").forEach((button) => {
+    if (button.dataset.adminTab === "audit") button.hidden = !fullAuditEnabled();
     button.classList.toggle("is-active", button.dataset.adminTab === state.adminTab);
   });
 
-  if (state.adminTab === "history") {
+  if (["history", "audit"].includes(state.adminTab)) {
     renderAdminHistory();
     return;
   }
@@ -1792,6 +1796,7 @@ function renderAdminPanel() {
       <div class="admin-card-list">
         ${rows || '<div class="empty-state compact-empty"><strong>Связи не найдены</strong><button class="secondary-action" type="button" data-clear-admin-search>Сбросить фильтры</button></div>'}
       </div>
+      <div id="bindingHistoryPanel">${auditPanel("bindings")}</div>
     `;
     refreshIcons();
     return;

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, Request, status
 
 from app.core.binding_diagnostics import binding_request_id
 from app.core.config import get_settings, is_local_environment, is_placeholder
@@ -23,6 +23,7 @@ async def get_miniapp_identity(
         str | None,
         Header(alias="X-Max-WebApp-Data"),
     ] = None,
+    request: Request = None,
 ) -> MiniAppIdentity | None:
     settings = get_settings()
     if max_webapp_data:
@@ -46,11 +47,15 @@ async def get_miniapp_identity(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=str(exc),
             ) from exc
-        return MiniAppIdentity(
+        result = MiniAppIdentity(
             max_user_id=identity.max_user_id,
             tenant_slug=None,
             expires_at=identity.auth_date + settings.max_webapp_auth_max_age_seconds,
         )
+        if request is not None:
+            request.state.audit_verified_max_user_id = result.max_user_id
+            request.state.audit_tenant_slug = result.tenant_slug
+        return result
     if not token:
         if is_local_environment(settings.app_env):
             return None
@@ -61,7 +66,11 @@ async def get_miniapp_identity(
             detail="Откройте личный кабинет из меню бота",
         )
     try:
-        return verify_miniapp_token(token)
+        result = verify_miniapp_token(token)
+        if request is not None:
+            request.state.audit_verified_max_user_id = result.max_user_id
+            request.state.audit_tenant_slug = result.tenant_slug
+        return result
     except MiniAppAuthError as exc:
         logger.warning(
             "binding_identity request_id=%s source=bot_session outcome=denied reason=%r",

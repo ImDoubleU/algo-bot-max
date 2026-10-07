@@ -72,7 +72,6 @@ from app.schemas.miniapp import (
     MiniAppAccrualRuleRead,
     MiniAppAccrualRulesUpdate,
     MiniAppAccrualUndoCreate,
-    MiniAppAdminHistoryEntryRead,
     MiniAppAdminHistoryRead,
     MiniAppAdminStudentRead,
     MiniAppCartItemRead,
@@ -1837,7 +1836,7 @@ async def list_miniapp_student_registry(
                 parent_max_user_ids=parent_max_ids_by_student.get(student.id, []),
                 student_max_user_ids=student_max_ids_by_student.get(student.id, []),
                 student_max_names=student_max_names_by_student.get(student.id, []),
-                history=history[-50:],
+                history=history[-300:],
             )
         )
     return MiniAppStudentRegistryRead(
@@ -2675,72 +2674,13 @@ async def list_miniapp_admin_history(
     kind: str = "actions",
     period_days: int = 30,
     limit: int = 100,
+    **filters,
 ) -> MiniAppAdminHistoryRead:
-    tenant, _, _ = await _store_admin_context(
-        db,
-        max_user_id=max_user_id,
-        tenant_slug=tenant_slug,
-        denied_message="Нет прав на просмотр истории действий",
-    )
-    normalized_kind = kind.strip().lower()
-    if normalized_kind not in {"actions", "amocrm"}:
-        raise MiniAppStoreError("Неизвестный вид истории")
-    days = max(1, min(period_days, 365))
-    row_limit = max(1, min(limit, 300))
-    conditions = [
-        AuditLog.tenant_id == tenant.id,
-        AuditLog.created_at >= datetime.now(UTC) - timedelta(days=days),
-    ]
-    if normalized_kind == "amocrm":
-        conditions.append(AuditLog.action.in_(AMOCRM_AUDIT_ACTIONS))
-    else:
-        conditions.extend(
-            [
-                AuditLog.actor_account_id.is_not(None),
-                AuditLog.action.not_in(AMOCRM_AUDIT_ACTIONS),
-                AuditLog.action.not_in(REMOVED_FEATURE_AUDIT_ACTIONS),
-            ]
-        )
-    rows = (
-        await db.execute(
-            select(AuditLog, MaxAccount)
-            .outerjoin(MaxAccount, MaxAccount.id == AuditLog.actor_account_id)
-            .where(*conditions)
-            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
-            .limit(row_limit)
-        )
-    ).all()
-    entries = []
-    for audit, actor in rows:
-        title, category = AUDIT_ACTION_COPY.get(
-            audit.action,
-            (audit.action.replace("_", " ").replace(".", " · "), "Система"),
-        )
-        payload = dict(audit.payload or {})
-        entries.append(
-            MiniAppAdminHistoryEntryRead(
-                id=UUID(str(audit.id)),
-                action=audit.action,
-                title=title,
-                category=category,
-                status=_audit_entry_status(audit.action, payload),
-                actor_name=(
-                    actor.display_name or (f"@{actor.username}" if actor.username else None)
-                    if actor is not None
-                    else "amoCRM"
-                ),
-                actor_max_user_id=actor.max_user_id if actor is not None else None,
-                entity_type=audit.entity_type,
-                entity_id=audit.entity_id,
-                payload=payload,
-                created_at=audit.created_at,
-            )
-        )
-    return MiniAppAdminHistoryRead(
-        tenant_slug=tenant.slug,
-        kind=normalized_kind,
-        period_days=days,
-        entries=entries,
+    from app.services.audit_history import history_page
+
+    return await history_page(
+        db, max_user_id=max_user_id, tenant_slug=tenant_slug,
+        kind=kind, period_days=period_days, limit=limit, **filters,
     )
 
 
