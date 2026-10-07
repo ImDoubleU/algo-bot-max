@@ -440,7 +440,8 @@ async def test_teacher_qr_binds_student_before_parent_and_unlocks_after_parent_c
         )
         assert pending_session.has_access is False
         assert pending_session.students == []
-        assert "открыть письмо школы" in pending_session.access_message
+        assert pending_session.access_reason == "parent_required"
+        assert "письма школы" in pending_session.access_message
 
         invitations = await list_miniapp_teacher_invitations(
             db_session,
@@ -559,7 +560,8 @@ async def test_existing_orphan_student_link_does_not_grant_access(db_session) ->
     assert session.has_access is False
     assert session.students == []
     assert session.access_message is not None
-    assert "Сначала должен подключиться родитель" in session.access_message
+    assert session.access_reason == "parent_required"
+    assert "письма школы" in session.access_message
 
 
 async def test_admin_qr_lists_all_active_students_in_assigned_tenant(

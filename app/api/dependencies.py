@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import Header, HTTPException, status
 
+from app.core.binding_diagnostics import binding_request_id
 from app.core.config import get_settings, is_local_environment, is_placeholder
 from app.core.max_webapp_auth import MaxWebAppAuthError, verify_max_webapp_data
 from app.core.miniapp_auth import (
@@ -11,6 +13,8 @@ from app.core.miniapp_auth import (
     MiniAppIdentity,
     verify_miniapp_token,
 )
+
+logger = logging.getLogger(__name__)
 
 
 async def get_miniapp_identity(
@@ -34,6 +38,10 @@ async def get_miniapp_identity(
                 max_age_seconds=settings.max_webapp_auth_max_age_seconds,
             )
         except MaxWebAppAuthError as exc:
+            logger.warning(
+                "binding_identity request_id=%s source=max_launch outcome=denied reason=%r",
+                binding_request_id(), str(exc),
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=str(exc),
@@ -46,6 +54,8 @@ async def get_miniapp_identity(
     if not token:
         if is_local_environment(settings.app_env):
             return None
+        logger.info("binding_identity request_id=%s outcome=denied reason=missing_launch",
+                    binding_request_id())
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Откройте личный кабинет из меню бота",
@@ -53,6 +63,10 @@ async def get_miniapp_identity(
     try:
         return verify_miniapp_token(token)
     except MiniAppAuthError as exc:
+        logger.warning(
+            "binding_identity request_id=%s source=bot_session outcome=denied reason=%r",
+            binding_request_id(), str(exc),
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc),
@@ -74,6 +88,11 @@ def require_matching_miniapp_identity(
             and identity.tenant_slug != tenant_slug.strip().lower()
         )
     ):
+        logger.warning(
+            "binding_identity request_id=%s outcome=denied reason=identity_mismatch "
+            "signed_user_id=%s requested_user_id=%s requested_tenant=%r",
+            binding_request_id(), identity.max_user_id, max_user_id, tenant_slug,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Ссылка открыта для другого пользователя или филиала",

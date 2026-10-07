@@ -3846,6 +3846,7 @@ qs("#studentSelect").addEventListener("change", (event) => {
 qs("#openCartButton").addEventListener("click", () => setView("cart"));
 qs("#openWalletButton")?.addEventListener("click", () => setView("wallet"));
 qs("#refreshDataButton").addEventListener("click", refreshAllData);
+qs("#retryAccessButton")?.addEventListener("click", retryAccessCheck);
 qs("#editTeacherProfileButton")?.addEventListener("click", () => {
   openTeacherProfileDialog({ required: false });
 });
@@ -3923,7 +3924,7 @@ async function init() {
   if (
     applyAccessGate(
       sessionError
-        ? "Не удалось проверить привязку профиля. Откройте бота и попробуйте войти снова."
+        ? state.accessMessage || "Не удалось проверить доступ. Проверьте интернет и попробуйте ещё раз."
         : state.accessMessage || "",
     )
   ) {

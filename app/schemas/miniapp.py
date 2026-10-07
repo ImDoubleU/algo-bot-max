@@ -962,6 +962,7 @@ class MiniAppWarehousePreferenceRead(BaseModel):
 class MiniAppSessionRead(BaseModel):
     tenant_slug: str
     has_access: bool = False
+    access_reason: str | None = None
     access_message: str | None = None
     account: MiniAppAccountRead | None
     staff_roles: list[StaffRole]

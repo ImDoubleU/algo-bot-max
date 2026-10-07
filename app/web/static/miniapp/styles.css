@@ -6484,6 +6484,12 @@ body[data-active-role="student"] #studentContext {
   text-decoration: none;
 }
 
+.access-gate-retry {
+  width: 100%;
+  margin-top: 12px;
+  min-height: 44px;
+}
+
 .parent-invites-panel {
   margin-top: 18px;
 }

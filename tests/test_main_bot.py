@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 import app.bot.max_long_polling as max_bot
 from app.bot.keyboards import (
     CALLBACK_KNOWLEDGE,
@@ -12,6 +14,11 @@ from app.bot.keyboards import (
     CALLBACK_ROLE_STUDENT,
 )
 from main_bot import LongPollingBot, simulate_command
+
+
+@pytest.fixture(autouse=True)
+def isolated_onboarding_state(monkeypatch, tmp_path):
+    monkeypatch.setenv("MAX_ONBOARDING_STATE_PATH", str(tmp_path / "onboarding.sqlite3"))
 
 
 class FakeMaxClient:
@@ -147,9 +154,7 @@ class FakeBackendClient:
         tenant_slug: str,
         max_user_id: int,
     ) -> dict[str, Any]:
-        self.revoke_calls.append(
-            {"tenant_slug": tenant_slug, "max_user_id": max_user_id}
-        )
+        self.revoke_calls.append({"tenant_slug": tenant_slug, "max_user_id": max_user_id})
         return {
             "revoked_account_links": 1,
             "revoked_child_links": 1,
@@ -282,7 +287,7 @@ def test_unlinked_parent_is_told_to_use_the_school_email() -> None:
     bot.handle_message_callback(_callback(CALLBACK_ROLE_PARENT))
 
     response = client.sent_messages[-1]
-    assert "Выбрана роль: родитель" in response["text"]
+    assert "Данные персональной ссылки пока не получены" in response["text"]
     assert "Перейдите по персональной ссылке" in response["text"]
     assert "отправьте указанный в нем ID" in response["text"]
 
@@ -435,9 +440,7 @@ def test_bot_stopped_revokes_access_and_clears_pending_state() -> None:
     bot.handle_bot_stopped({"user": {"user_id": 1}})
 
     assert 1 not in bot.pending_contact_ids
-    assert backend.revoke_calls == [
-        {"tenant_slug": "n-novgorod", "max_user_id": 1}
-    ]
+    assert backend.revoke_calls == [{"tenant_slug": "n-novgorod", "max_user_id": 1}]
 
 
 def test_staff_deeplink_submits_preselected_role_request() -> None:
@@ -550,3 +553,202 @@ def test_bot_ignores_its_own_messages() -> None:
     bot.handle_message_created(_message("/start", user_id=999))
 
     assert client.sent_messages == []
+
+
+def test_parent_link_context_survives_bot_restart():
+    backend = FakeBackendClient(linked=False)
+    first = LongPollingBot(FakeMaxClient(), backend_client=backend)
+    first.handle_contact_payload_response(payload="cid_30420713", user_id=77)
+    second = LongPollingBot(FakeMaxClient(), backend_client=backend)
+    result = second.handle_role_selection_response(user_id=77, role="parent")
+    assert "Профиль привязан" in result.text
+    assert backend.link_calls[-1]["contact_id"] == "30420713"
+    third = LongPollingBot(FakeMaxClient(), backend_client=backend)
+    third.restore_onboarding(77)
+    assert 77 not in third.pending_contact_ids
+
+
+def test_expired_parent_link_context_is_not_used(monkeypatch):
+    backend = FakeBackendClient(linked=False)
+    bot = LongPollingBot(FakeMaxClient(), backend_client=backend)
+    bot.handle_contact_payload_response(payload="cid_30420713", user_id=77)
+    now = max_bot.time.time()
+    monkeypatch.setattr(max_bot.time, "time", lambda: now + 1801)
+    restarted = LongPollingBot(FakeMaxClient(), backend_client=backend)
+    result = restarted.handle_role_selection_response(user_id=77, role="parent")
+    assert "Время подтверждения ссылки истекло" in result.text
+    assert backend.link_calls == []
+
+
+def test_pasted_max_letter_url_resolves_payload_without_logging_contact(caplog):
+    import logging
+
+    backend = FakeBackendClient(linked=False)
+    bot = LongPollingBot(FakeMaxClient(), backend_client=backend)
+    with caplog.at_level(logging.INFO, logger="algo_bot_max.bot"):
+        result = bot.handle_contact_payload_response(
+            payload="https://max.ru/AlgoBot?start=cid_30420713",
+            user_id=77,
+        )
+    assert "Найдены ученики" in result.text
+    assert backend.resolve_calls[-1]["contact_id"] == "30420713"
+    assert "30420713" not in caplog.text
+    assert "https://max.ru" not in caplog.text
+    assert '"stage": "contact_resolved"' in caplog.text
+
+
+def test_pasted_student_url_uses_student_invitation_endpoint(monkeypatch):
+    backend = FakeBackendClient(linked=False)
+    calls = []
+    monkeypatch.setattr(
+        backend,
+        "create_student_invite_link",
+        lambda **kwargs: (
+            calls.append(kwargs)
+            or {
+                "student_name": "Саша",
+                "tenant_slug": "n-novgorod",
+            }
+        ),
+        raising=False,
+    )
+    bot = LongPollingBot(FakeMaxClient(), backend_client=backend)
+    response = bot.handle_contact_payload_response(
+        payload="https://max.ru/AlgoBot?start=student_secret-token",
+        user_id=77,
+    )
+    assert "Профиль Саша привязан" in response.text
+    assert calls[0]["token"] == "secret-token"
+    assert backend.resolve_calls == []
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 409, 429, 500, None])
+def test_binding_errors_never_expose_server_text(status):
+    from app.bot.backend_client import BackendApiError
+
+    text = max_bot.format_backend_error(
+        BackendApiError(
+            "HTTP 500 Error: secret-token database internal error",
+            status_code=status,
+        )
+    )
+    assert "HTTP" not in text
+    assert "secret-token" not in text
+    assert "500" not in text
+
+
+def test_restarted_parent_role_can_finish_with_contact_message():
+    backend = FakeBackendClient(linked=False)
+    first = LongPollingBot(FakeMaxClient(), backend_client=backend)
+    first.handle_role_selection_response(user_id=1, role="parent")
+    client = FakeMaxClient()
+    restarted = LongPollingBot(client, backend_client=backend)
+    restarted.handle_message_created(_message("30420713"))
+    assert "Профиль привязан" in client.sent_messages[-1]["text"]
+    assert backend.link_calls[-1]["role"] == "parent"
+
+
+def test_other_bot_worker_cancellation_removes_cached_contact():
+    backend = FakeBackendClient(linked=False)
+    first = LongPollingBot(FakeMaxClient(), backend_client=backend)
+    first.handle_contact_payload_response(payload="cid_30420713", user_id=77)
+    second = LongPollingBot(FakeMaxClient(), backend_client=backend)
+    second.cancel_onboarding_response(77)
+    response = first.handle_role_selection_response(user_id=77, role="parent")
+    assert "Данные персональной ссылки пока не получены" in response.text
+    assert backend.link_calls == []
+
+
+def test_failed_new_contact_cannot_bind_previous_contact(monkeypatch):
+    from app.bot.backend_client import BackendApiError
+
+    backend = FakeBackendClient(linked=False)
+    bot = LongPollingBot(FakeMaxClient(), backend_client=backend)
+    bot.handle_contact_payload_response(payload="cid_30420713", user_id=77)
+
+    def fail(**kwargs):
+        raise BackendApiError("HTTP 404 Error: private details", status_code=404)
+
+    monkeypatch.setattr(backend, "resolve_contact", fail)
+    bot.handle_contact_payload_response(payload="cid_99999999", user_id=77)
+    response = bot.handle_role_selection_response(user_id=77, role="parent")
+    assert "Данные персональной ссылки пока не получены" in response.text
+    assert backend.link_calls == []
+
+
+def test_malformed_url_has_actionable_message():
+    backend = FakeBackendClient(linked=False)
+    bot = LongPollingBot(FakeMaxClient(), backend_client=backend)
+    response = bot.handle_contact_payload_response(payload="https://[", user_id=77)
+    assert "Ссылка повреждена" in response.text
+    assert backend.resolve_calls == []
+
+
+def test_other_worker_role_only_context_discards_cached_contact():
+    backend = FakeBackendClient(linked=False)
+    first = LongPollingBot(FakeMaxClient(), backend_client=backend)
+    first.handle_contact_payload_response(payload="cid_30420713", user_id=77)
+    second = LongPollingBot(FakeMaxClient(), backend_client=backend)
+    second.onboarding_state.save(
+        77,
+        contact_id=None,
+        tenant_slug=None,
+        role="parent",
+        correlation_id="replacement-context",
+        ttl=1800,
+    )
+    result = first.handle_role_selection_response(user_id=77, role="parent")
+    assert "Данные персональной ссылки пока не получены" in result.text
+    assert backend.link_calls == []
+
+
+def test_unreadable_saved_context_cannot_use_cached_contact(monkeypatch):
+    import sqlite3
+
+    backend = FakeBackendClient(linked=False)
+    bot = LongPollingBot(FakeMaxClient(), backend_client=backend)
+    bot.handle_contact_payload_response(payload="cid_30420713", user_id=77)
+
+    def fail(user_id):
+        raise sqlite3.OperationalError("database unavailable")
+
+    monkeypatch.setattr(bot.onboarding_state, "get", fail)
+    response = bot.handle_role_selection_response(user_id=77, role="parent")
+    assert "Сейчас не удалось проверить данные ссылки" in response.text
+    assert backend.link_calls == []
+    assert 77 not in bot.pending_contact_ids
+
+
+def test_failed_context_write_does_not_send_link_received_confirmation(monkeypatch):
+    import sqlite3
+
+    backend = FakeBackendClient(linked=False)
+    client = FakeMaxClient()
+    bot = LongPollingBot(client, backend_client=backend)
+
+    def fail(*args, **kwargs):
+        raise sqlite3.OperationalError("database unavailable")
+
+    monkeypatch.setattr(bot.onboarding_state, "save", fail)
+    with pytest.raises(sqlite3.OperationalError):
+        bot.handle_message_created(_message("30420713"))
+    assert client.sent_messages == []
+    assert backend.link_calls == []
+
+
+def test_failed_context_delete_does_not_acknowledge_cancellation(monkeypatch):
+    import sqlite3
+
+    backend = FakeBackendClient(linked=False)
+    client = FakeMaxClient()
+    bot = LongPollingBot(client, backend_client=backend)
+    bot.handle_contact_payload_response(payload="cid_30420713", user_id=1)
+
+    def fail(*args, **kwargs):
+        raise sqlite3.OperationalError("database unavailable")
+
+    monkeypatch.setattr(bot.onboarding_state, "delete", fail)
+    with pytest.raises(sqlite3.OperationalError):
+        bot.handle_message_callback(_callback(CALLBACK_ONBOARDING_CANCEL))
+    assert client.sent_messages == []
+    assert backend.link_calls == []

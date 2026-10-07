@@ -23,7 +23,7 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.91.20"}
+    assert set(versions) == {"0.91.23"}
 
 
 def test_help_contains_searchable_accordion_and_full_faq() -> None:
@@ -34,11 +34,11 @@ def test_help_contains_searchable_accordion_and_full_faq() -> None:
     assert "Скоро..." not in index_source
     assert 'id="helpSearchInput"' in index_source
     assert 'id="helpCategoryFilters"' in index_source
-    assert 'app-help.js?v=0.91.20' in index_source
+    assert 'app-help.js?v=0.91.23' in index_source
     assert help_source.count("\n  helpFaq(") >= 125
     assert "Родителю нужно подтвердить связь" in help_source
     assert "Может ли ученик войти до подключения родителя?" in help_source
-    assert "Состояния «подключён только ученик» быть не должно" in help_source
+    assert "его привязка сохранится" in help_source
     assert "Что произойдёт после отзыва родительской связи?" in help_source
     assert '{ id: "popular"' not in help_source
     assert "MAX-профил" not in help_source
@@ -51,8 +51,8 @@ def test_help_contains_searchable_accordion_and_full_faq() -> None:
     assert ".help-faq-item[open]" in styles_source
     assert ".help-faq-figure" in styles_source
     assert "Как редактировать ученика?" in help_source
-    assert "Что означают ошибки 401, 403 и «Нет прав»?" in help_source
-    assert "Что означают ошибки 400, 422 и «Проверьте поля»?" in help_source
+    assert "Что делать, если вход не подтверждён или нет доступа?" in help_source
+    assert "Что делать, если данные не принимаются?" in help_source
     assert "Почему не сохраняется карточка ученика?" in help_source
 
     category_labels = [

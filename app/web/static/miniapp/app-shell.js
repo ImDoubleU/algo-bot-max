@@ -1,16 +1,51 @@
 async function loadSession() {
   if (apiContext.demoMode) return;
-  if (!apiContext.maxUserId) return;
-
+  if (!apiContext.maxUserId) {
+    state.hasAccess = false;
+    state.accessReason = "launch_missing";
+    state.accessMessage = "MAX не передал данные входа. Закройте эту страницу и откройте личный кабинет кнопкой в меню бота.";
+    return;
+  }
+  try {
   const response = await apiFetch(
     apiUrl("/api/v1/miniapp/session", {
       max_user_id: apiContext.maxUserId,
       tenant_slug: apiContext.tenantSlug,
     }),
   );
-  if (!response.ok) throw new Error(await parseApiError(response));
+  if (!response.ok) {
+    const error = new Error(await parseApiError(response));
+    error.accessReason = response.status === 401 ? "auth_required" : "connection_failed";
+    throw error;
+  }
   applySession(await response.json());
   syncTenantToUrl();
+  } catch (error) {
+    state.hasAccess = false;
+    state.accessReason = error.accessReason || "connection_failed";
+    state.accessMessage = error.accessReason ? error.message : "Не удалось проверить доступ из-за проблемы соединения. Привязка от этого не меняется. Проверьте интернет и нажмите «Проверить доступ».";
+    throw error;
+  }
+}
+
+async function retryAccessCheck() {
+  const button = qs("#retryAccessButton");
+  if (button?.disabled) return;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Проверяем…";
+  }
+  try {
+    await loadSession();
+    if (!applyAccessGate()) window.location.reload();
+  } catch {
+    applyAccessGate();
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Проверить доступ";
+    }
+  }
 }
 
 async function loadCatalog() {
