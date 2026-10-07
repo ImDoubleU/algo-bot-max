@@ -29,6 +29,10 @@ async def lifespan(_: FastAPI):
     from app.services.support import notification_loop, notifications_enabled
 
     support_worker = asyncio.create_task(notification_loop()) if notifications_enabled() else None
+    from app.services.pending_bindings import pending_binding_loop
+    pending_worker = (asyncio.create_task(pending_binding_loop())
+                      if not is_local_environment(settings.app_env)
+                      or not is_placeholder(settings.max_bot_token) else None)
     from app.services.activity_audit import bot_audit_loop
 
     audit_worker = (asyncio.create_task(bot_audit_loop())
@@ -36,6 +40,10 @@ async def lifespan(_: FastAPI):
     try:
         yield
     finally:
+        if pending_worker:
+            pending_worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await pending_worker
         if audit_worker:
             audit_worker.cancel()
             with suppress(asyncio.CancelledError):

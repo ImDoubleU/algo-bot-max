@@ -1336,6 +1336,8 @@ class LongPollingBot:
             return self.handle_student_invitation_response(
                 token=raw_payload[len("student_") :],
                 user_id=user_id,
+                username=username,
+                display_name=display_name,
             )
         is_shop_payload = raw_payload.casefold().startswith("shop_")
         linked_tenant_slug, shop_contact_id = parse_shop_payload(raw_payload)
@@ -1361,6 +1363,8 @@ class LongPollingBot:
                     tenant_slug=tenant_slug,
                     contact_id=contact_id,
                     max_user_id=user_id,
+                    username=username,
+                    display_name=display_name,
                 )
             except BackendApiError as exc:
                 self.binding_event(
@@ -1370,6 +1374,10 @@ class LongPollingBot:
                     http_status=exc.status_code,
                     request_id=exc.request_id,
                 )
+                if exc.error_code == "pending_waiting":
+                    return BotResponse(
+                        format_backend_error(exc), self.main_menu_attachments(user_id),
+                    )
                 fallback = self.catalog_search_fallback_response(
                     payload=payload,
                     user_id=user_id,
@@ -1415,6 +1423,8 @@ class LongPollingBot:
                 linked = self.handle_role_selection_response(
                     user_id=user_id,
                     role="parent",
+                    username=username,
+                    display_name=display_name,
                 )
                 if user_id is None or user_id in self.pending_contact_ids:
                     return linked
@@ -1461,6 +1471,8 @@ class LongPollingBot:
         *,
         token: str,
         user_id: int | None,
+        username: str | None = None,
+        display_name: str | None = None,
     ) -> BotResponse:
         if user_id is None:
             return BotResponse(
@@ -1480,6 +1492,8 @@ class LongPollingBot:
                 tenant_slug=self.current_tenant_slug(user_id),
                 token=token,
                 max_user_id=user_id,
+                username=username,
+                display_name=display_name,
             )
         except BackendApiError as exc:
             self.binding_event(
@@ -1490,6 +1504,7 @@ class LongPollingBot:
                 request_id=exc.request_id,
             )
             return BotResponse(
+                format_backend_error(exc) if exc.error_code == "pending_waiting" else
                 (f"Не получилось привязать профиль ученика.\n\n{format_backend_error(exc)}"),
                 self.main_menu_attachments(user_id),
             )
@@ -1656,6 +1671,7 @@ class LongPollingBot:
                     request_id=exc.request_id,
                 )
                 return BotResponse(
+                    format_backend_error(exc) if exc.error_code == "pending_waiting" else
                     (f"Не получилось привязать профиль.\n\n{format_backend_error(exc)}"),
                     role_selection_keyboard(),
                 )
@@ -1862,6 +1878,35 @@ class LongPollingBot:
         )
         self.send_response(response, chat_id=chat_id, user_id=user_id)
 
+    def pending_binding_response(self, *, payload: str, user_id: int | None) -> BotResponse:
+        parts = payload.split(":")
+        if len(parts) != 3 or parts[1] not in {"confirm", "cancel"} or not user_id:
+            return BotResponse("Откройте актуальную кнопку из уведомления.",
+                               self.main_menu_attachments(user_id))
+        if self.backend_client is None:
+            return BotResponse("Сейчас не удалось подключиться. Попробуйте немного позже.",
+                               self.main_menu_attachments(user_id))
+        try:
+            result = self.backend_client.pending_binding_action(
+                pending_id=parts[2], action=parts[1], max_user_id=user_id,
+                tenant_slug=self.current_tenant_slug(user_id),
+            )
+        except BackendApiError as exc:
+            return BotResponse(format_backend_error(exc), self.main_menu_attachments(user_id))
+        if parts[1] == "cancel":
+            return BotResponse(
+                "Ожидание подключения отменено.", self.main_menu_attachments(user_id),
+            )
+        tenant = str(result["tenant_slug"])
+        self.user_tenant_slugs[user_id] = tenant
+        self.user_menu_roles[(user_id, tenant)] = result["role"]
+        self.clear_onboarding(user_id, "pending_link_confirmed")
+        names = ", ".join(result.get("student_names") or [])
+        text = f"Подключение завершено.\n{names}" if names else "Подключение завершено."
+        url = build_miniapp_url(user_id=user_id, tenant_slug=tenant, view="dashboard")
+        rows = [[miniapp_button("Открыть личный кабинет", url)]] if url else []
+        return BotResponse(text, inline_keyboard_with_main_menu(rows))
+
     def handle_message_callback(self, update: dict[str, Any]) -> None:
         self.cleanup_customer_onboarding()
         callback = update.get("callback") or {}
@@ -1878,6 +1923,16 @@ class LongPollingBot:
         started_at = time.monotonic()
         tenant_slug = self.current_tenant_slug(user_id)
         staff_join_action = parse_staff_join_payload(payload)
+
+        if payload.startswith("pending:"):
+            response = self.pending_binding_response(payload=payload, user_id=user_id)
+            self.binding_event("pending_action", user_id, action=payload.split(":")[1])
+            if callback_id and hasattr(self.client, "answer_callback"):
+                self.answer_callback_response(callback_id=callback_id, response=response,
+                                              notification="Подключение")
+            else:
+                self.send_response(response, chat_id=chat_id, user_id=user_id)
+            return
 
         if payload.startswith("support:"):
             parts = payload.split(":")

@@ -10,6 +10,13 @@ class StudentResolveRequest(BaseModel):
     tenant_slug: str = Field(min_length=2, max_length=80)
     contact_id: str = Field(min_length=1, max_length=120)
     max_user_id: int | None = Field(default=None, gt=0)
+    username: str | None = Field(default=None, max_length=120)
+    display_name: str | None = Field(default=None, max_length=160)
+
+
+class PendingBindingAction(BaseModel):
+    tenant_slug: str = Field(min_length=2, max_length=80)
+    max_user_id: int = Field(gt=0)
 
 
 class StudentAccessTarget(BaseModel):

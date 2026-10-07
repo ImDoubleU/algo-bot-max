@@ -1,7 +1,8 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
@@ -10,6 +11,11 @@ from app.api.dependencies import (
 )
 from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
+from app.models.account import MaxAccount
+from app.models.pending_binding import PendingBinding
+from app.models.student import Contact, ContactStudentLink, Student
+from app.models.support import SupportTicket
+from app.models.tenant import City, Partner
 from app.schemas.access import (
     AccessLinkBatchRead,
     AccessLinkCreate,
@@ -17,6 +23,7 @@ from app.schemas.access import (
     BotStoppedAccessRevoke,
     BotStoppedAccessRevokeRead,
     ContactResolveResponse,
+    PendingBindingAction,
     StudentAccessTarget,
     StudentInvitationLinkCreate,
     StudentInvitationLinkRead,
@@ -33,6 +40,7 @@ from app.services.access import (
     revoke_access_for_stopped_bot,
 )
 from app.services.rate_limit import student_id_entry_limiter
+from app.services.staff import configured_superadmin_max_user_id
 
 router = APIRouter()
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
@@ -88,16 +96,26 @@ async def resolve_contact(
             tenant=tenant,
             reason="contact_id_not_found",
         )
+        from app.services.pending_bindings import WAITING_MESSAGE, remember_missing_binding
+        pending = await remember_missing_binding(db, payload, "contact_not_found")
         await db.commit()
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Семья по этой ссылке не найдена. Проверьте выбранный город и "
+            detail=WAITING_MESSAGE if pending else "Семья по этой ссылке не найдена. "
+            "Проверьте выбранный город и "
             "откройте ссылку из последнего письма школы. Если не получается, "
             "обратитесь в школу.",
-            headers={"X-Access-Error-Code": "contact_not_found"},
+            headers={"X-Access-Error-Code": "pending_waiting" if pending else "contact_not_found"},
         )
 
     contact, students = resolved
+    if not students:
+        from app.services.pending_bindings import WAITING_MESSAGE, remember_missing_binding
+        pending = await remember_missing_binding(db, payload, "contact_has_no_students")
+        if pending:
+            await db.commit()
+            raise HTTPException(404, WAITING_MESSAGE,
+                                headers={"X-Access-Error-Code": "pending_waiting"})
     await record_student_access_attempt(
         db,
         payload=payload,
@@ -236,6 +254,115 @@ async def create_student_invite_link(
             created_at=link.created_at,
         ),
     )
+
+
+@router.get("/pending")
+async def pending_bindings_inbox(
+    db: DbSession, identity: MiniAppIdentityDep, response: Response,
+    tenant_slug: str = Query(min_length=2, max_length=80),
+    search: str = Query(default="", max_length=100),
+    filter_status: str = Query(
+        default="open", pattern="^(open|ready|review|expired|completed|cancelled)$",
+    ),
+    offset: int = Query(default=0, ge=0), limit: int = Query(default=30, ge=1, le=100),
+):
+    if identity is None:
+        raise HTTPException(401, "Откройте приложение из MAX")
+    if identity.max_user_id != configured_superadmin_max_user_id():
+        raise HTTPException(403, "Ожидающие подключения доступны суперадминистратору")
+    response.headers["Cache-Control"] = "private, no-store"
+    tenant = await get_tenant_by_slug(db, tenant_slug)
+    if tenant is None:
+        raise HTTPException(404, "Школа не найдена")
+    from app.services.pending_bindings import OPEN_STATUSES
+    conditions = [PendingBinding.tenant_id == tenant.id]
+    conditions.append(PendingBinding.status.in_(OPEN_STATUSES) if filter_status == "open"
+                      else PendingBinding.status == filter_status)
+    if search.strip():
+        needle = f"%{search.strip()}%"
+        conditions.append(or_(PendingBinding.target_id.ilike(needle),
+                              cast(PendingBinding.max_user_id, String).ilike(needle),
+                              MaxAccount.display_name.ilike(needle),
+                              MaxAccount.username.ilike(needle)))
+    joined = select(PendingBinding, MaxAccount).outerjoin(
+        MaxAccount, MaxAccount.max_user_id == PendingBinding.max_user_id,
+    ).where(*conditions)
+    total = await db.scalar(select(func.count()).select_from(joined.subquery()))
+    rows = (await db.execute(joined.order_by(
+        PendingBinding.last_attempt_at.desc(), PendingBinding.id,
+    ).offset(offset).limit(limit))).all()
+    ticket_names = {}
+    for ticket in await db.scalars(select(SupportTicket).where(
+        SupportTicket.max_user_id.in_([item.max_user_id for item, _ in rows]),
+    ).order_by(SupportTicket.created_at.desc())):
+        ticket_names.setdefault(ticket.max_user_id, f"{ticket.last_name} {ticket.first_name}")
+    contact_targets = [item.target_id for item, _ in rows if item.kind == "contact"]
+    student_targets = [UUID(item.target_id) for item, _ in rows if item.kind == "student"]
+    related = {}
+    for external_id, student in await db.execute(
+        select(Contact.external_contact_id, Student)
+        .join(ContactStudentLink, ContactStudentLink.contact_id == Contact.id)
+        .join(Student, Student.id == ContactStudentLink.student_id)
+        .where(Contact.tenant_id == tenant.id, Student.tenant_id == tenant.id,
+               ContactStudentLink.tenant_id == tenant.id,
+               Contact.external_contact_id.in_(contact_targets))
+    ):
+        related.setdefault(("contact", external_id), []).append(student)
+    for student in await db.scalars(select(Student).where(
+        Student.id.in_(student_targets), Student.tenant_id == tenant.id,
+    )):
+        related[("student", str(student.id))] = [student]
+    school = (await db.execute(select(City.name, Partner.name).join(
+        Partner, Partner.id == tenant.partner_id,
+    ).where(City.id == tenant.city_id))).one()
+    return {"total": total, "items": [{
+        "id": str(item.id), "max_user_id": str(item.max_user_id), "role": item.role,
+        "kind": item.kind,
+        "target_id": None if item.target_id.startswith("sha256:") else item.target_id,
+        "status": item.status, "reason": item.reason,
+        "name": (account.display_name if account else None) or ticket_names.get(item.max_user_id),
+        "name_source": "max" if account and account.display_name else "ticket",
+        "username": account.username if account else None,
+        "tenant_slug": tenant.slug, "school": " · ".join(school),
+        "attempts": item.attempts, "created_at": item.created_at,
+        "last_attempt_at": item.last_attempt_at, "expires_at": item.expires_at,
+        "notified_at": item.notified_at, "notification_attempts": item.notification_attempts,
+        "notification_error": item.notification_error,
+        "students": [{"id": str(student.id), "name": student.display_name,
+                      "group": student.group_name, "lms_id": student.lms_student_id}
+                     for student in related.get((item.kind, item.target_id), [])],
+    } for item, account in rows]}
+
+
+@router.post("/pending/{pending_id}/confirm")
+async def confirm_waiting_binding(
+    pending_id: UUID, payload: PendingBindingAction, db: DbSession, identity: MiniAppIdentityDep,
+):
+    if identity is None:
+        raise HTTPException(401, "Откройте приложение из MAX")
+    require_matching_miniapp_identity(identity, max_user_id=payload.max_user_id,
+                                     tenant_slug=payload.tenant_slug)
+    rate_limit = student_id_entry_limiter.check(f"pending-confirm:{identity.max_user_id}")
+    if not rate_limit.allowed:
+        raise HTTPException(429, "Подождите минуту и попробуйте снова.")
+    from app.services.pending_bindings import confirm_pending_binding
+    try:
+        return await confirm_pending_binding(db, pending_id, identity.max_user_id)
+    except AccessServiceError as exc:
+        raise HTTPException(400, str(exc), headers={"X-Access-Error-Code": exc.code}) from exc
+
+
+@router.post("/pending/{pending_id}/cancel", status_code=204)
+async def cancel_waiting_binding(
+    pending_id: UUID, payload: PendingBindingAction, db: DbSession, identity: MiniAppIdentityDep,
+):
+    if identity is None:
+        raise HTTPException(401, "Откройте приложение из MAX")
+    require_matching_miniapp_identity(identity, max_user_id=payload.max_user_id,
+                                     tenant_slug=payload.tenant_slug)
+    from app.services.pending_bindings import cancel_pending_binding
+    await cancel_pending_binding(db, pending_id, identity.max_user_id,
+                                 owner=identity.max_user_id == configured_superadmin_max_user_id())
 
 
 @router.post("/bot-stopped", response_model=BotStoppedAccessRevokeRead)

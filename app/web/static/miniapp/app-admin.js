@@ -1796,6 +1796,7 @@ function renderAdminPanel() {
       <div class="admin-card-list">
         ${rows || '<div class="empty-state compact-empty"><strong>Связи не найдены</strong><button class="secondary-action" type="button" data-clear-admin-search>Сбросить фильтры</button></div>'}
       </div>
+      ${pendingBindingPanel()}
       <div id="bindingHistoryPanel">${auditPanel("bindings")}</div>
     `;
     refreshIcons();

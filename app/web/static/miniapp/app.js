@@ -2918,6 +2918,7 @@ document.addEventListener("click", (event) => {
     renderAdminPanel();
     if (["history", "audit"].includes(adminTab)) void loadAdminHistory();
     if (adminTab === "contacts" && !auditFeed("bindings").loaded) void loadAuditFeed("bindings");
+    if (adminTab === "contacts") void loadPendingBindings(true);
   }
 
   if ("retryAdminHistory" in target.dataset) {

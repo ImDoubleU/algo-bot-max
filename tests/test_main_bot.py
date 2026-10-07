@@ -96,6 +96,8 @@ class FakeBackendClient:
         tenant_slug: str,
         contact_id: str,
         max_user_id: int | None,
+        username: str | None = None,
+        display_name: str | None = None,
     ) -> dict[str, Any]:
         self.resolve_calls.append(
             {

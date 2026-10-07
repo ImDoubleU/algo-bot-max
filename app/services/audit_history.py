@@ -15,6 +15,14 @@ from app.schemas.miniapp import MiniAppAdminHistoryEntryRead, MiniAppAdminHistor
 from app.services.access import hash_contact_id
 
 EXTRA_COPY = {
+    "pending_binding.saved": ("Подключение ожидает появления профиля", "Привязки"),
+    "pending_binding.ready": ("Профиль для подключения найден", "Привязки"),
+    "pending_binding.review": ("Ожидающее подключение требует проверки", "Привязки"),
+    "pending_binding.waiting": ("Подключение снова ожидает появления профиля", "Привязки"),
+    "pending_binding.notified": ("Отправлено предложение завершить подключение", "Привязки"),
+    "pending_binding.confirmed": ("Ожидающее подключение подтверждено", "Привязки"),
+    "pending_binding.cancelled": ("Ожидающее подключение отменено", "Привязки"),
+    "pending_binding.expired": ("Срок ожидания подключения закончился", "Привязки"),
     "contact_access.resolve_success": ("Ссылка родителя проверена", "Привязки"),
     "contact_access.resolve_failed": ("Ссылка родителя не найдена", "Привязки"),
     "contact_access.resolve_rate_limited": ("Проверка ссылки временно ограничена", "Привязки"),
@@ -48,6 +56,11 @@ EXTRA_COPY = {
     "bot.interaction": ("Действие в боте", "Бот"),
 }
 REASONS = {
+    "pending_expired": "Срок ожидания закончился; нужна свежая ссылка школы",
+    "student_access_closed": "Доступ ученика закрыт",
+    "student_not_found": "Профиль ученика ещё не найден",
+    "ready": "Профиль найден, ожидается подтверждение пользователя",
+    "connected": "Подключение завершено",
     "parent_required": "Родитель ещё не завершил подключение",
     "parent_link_inactive": "Родительская привязка отключена; нужен новый QR-код",
     "parent_disconnected": "Подключение родителя отключено",
@@ -226,6 +239,7 @@ async def history_page(
             or_(
                 AuditLog.action.like("contact_access%"),
                 AuditLog.action.like("student%access%"),
+                AuditLog.action.like("pending_binding.%"),
                 AuditLog.action == "max_bot_access.revoked",
             )
         )

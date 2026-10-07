@@ -10,6 +10,7 @@ from app.models.audit import AuditLog
 from app.models.bank import BankDailyAccrual, BankDeposit, BankOperation, BankRateHistory
 from app.models.communication import SchoolBroadcast
 from app.models.feedback_schedule import FeedbackSchedule
+from app.models.pending_binding import PendingBinding
 from app.models.store import (
     Order,
     OrderItem,
@@ -50,6 +51,7 @@ __all__ = [
     "SupportReply",
     "SupportTicket",
     "FeedbackSchedule",
+    "PendingBinding",
     "AstrocoinLedgerEntry",
     "AstrocoinAccrualRule",
     "AttendanceRecord",
