@@ -199,3 +199,57 @@ async def test_enabled_teacher_can_save_own_schedule_but_not_foreign_group(stora
 
 async def _not_superadmin():
     return False
+
+
+@pytest.mark.asyncio
+async def test_custom_lessons_survive_server_save_without_becoming_repeats(storage):
+    db, tenant, teacher, _, factory = storage
+    data = payload()
+    raw = data.model_dump(mode="json")
+    raw["schedule"]["rows"] += [
+        {
+            "id": str(uuid4()),
+            "date": "2026-10-11",
+            "number": 2,
+            "lesson": None,
+            "topic": "Встреча с разработчиком",
+            "repeat": False,
+            "skipped": False,
+        },
+        {
+            "id": str(uuid4()),
+            "date": "2026-10-18",
+            "number": 3,
+            "lesson": None,
+            "topic": "Экскурсия",
+            "repeat": False,
+            "skipped": False,
+        },
+    ]
+    result = await miniapp.miniapp_save_feedback_schedule(
+        FeedbackScheduleSave.model_validate(raw), db, identity(teacher, tenant), tenant.slug
+    )
+    assert [r["repeat"] for r in result["schedule"]["rows"]] == [False, False, False]
+    async with factory() as fresh:
+        response = await miniapp.miniapp_feedback_schedules(
+            fresh, identity(teacher, tenant), tenant.slug
+        )
+        rows = json.loads(response.body)["schedules"][data.group_name]["schedule"]["rows"]
+        assert rows[-1]["topic"] == "Экскурсия" and rows[-1]["lesson"] is None
+
+
+@pytest.mark.parametrize(
+    "lesson,topic,repeat",
+    [
+        (None, "", False),
+        (None, "   ", False),
+        (None, "Тема", True),
+        (1, "Тема", False),
+        (None, "а" * 201, False),
+    ],
+)
+def test_invalid_custom_material_is_rejected(lesson, topic, repeat):
+    raw = payload().model_dump(mode="json")
+    raw["schedule"]["rows"][0].update(lesson=lesson, topic=topic, repeat=repeat)
+    with pytest.raises(ValidationError):
+        FeedbackScheduleSave.model_validate(raw)

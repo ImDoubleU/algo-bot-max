@@ -906,3 +906,111 @@ def test_feedback_titles_badge_and_enabled_teacher_navigation(feedback_page):
       return {allowed,denied,otherRoleDenied:!canAccessFeedback()};
     }""")
     assert result == {"allowed": True, "denied": True, "otherRoleDenied": True}
+
+
+def test_feedback_chrome_is_compact_and_unnecessary_labels_are_removed(feedback_page):
+    page = feedback_page
+    heading = page.locator("#feedbackView > .section-heading")
+    assert heading.inner_text() == "Обратная связь"
+    assert heading.bounding_box()["height"] < 50
+    text = page.locator("#feedbackWorkspace").inner_text()
+    for removed in [
+        "Можно подготовить",
+        "Впереди",
+        "свои даты и материалы",
+        "Текст ещё не подготовлен",
+    ]:
+        assert removed not in text
+    assert page.locator("#feedbackOutputMeta").is_hidden()
+    assert page.locator(".feedback-weeks button").first.bounding_box()["height"] < 165
+    open_feedback_schedule(page)
+    page.locator('[data-feedback-schedule-row] [name="skipped"]').nth(1).check()
+    disabled = page.locator(".feedback-disabled-row")
+    assert "Выключен" not in disabled.inner_text()
+    assert disabled.evaluate("e=>getComputedStyle(e).backgroundColor") != "rgb(255, 255, 255)"
+
+
+def test_mouse_wheel_scrolls_lessons_only_when_the_strip_can_move(feedback_page):
+    page = feedback_page
+    result = page.evaluate("""() => {
+      const strip=document.querySelector('.feedback-weeks');
+      strip.style.scrollSnapType='none'; strip.scrollLeft=0;
+      const wheel=new WheelEvent('wheel',{deltaY:180,bubbles:true,cancelable:true});
+      strip.dispatchEvent(wheel);
+      const moved=strip.scrollLeft>0 && wheel.defaultPrevented;
+      strip.scrollLeft=strip.scrollWidth;
+      const edge=new WheelEvent('wheel',{deltaY:180,bubbles:true,cancelable:true});
+      strip.dispatchEvent(edge);
+      const zoom=new WheelEvent('wheel',{deltaY:-180,ctrlKey:true,bubbles:true,cancelable:true});
+      strip.dispatchEvent(zoom);
+      return {moved,edgeAllowed:!edge.defaultPrevented,zoomAllowed:!zoom.defaultPrevented};
+    }""")
+    assert result == {"moved": True, "edgeAllowed": True, "zoomAllowed": True}
+
+
+def test_custom_lesson_is_appended_editable_persisted_and_never_auto_generated(feedback_page):
+    page = feedback_page
+    open_feedback_schedule(page)
+    assert page.locator("[data-feedback-add-row]").inner_text() == "Добавить повтор"
+    original = page.evaluate("feedbackState.editor.rows.length")
+    page.locator("[data-feedback-add-custom]").click()
+    topic = page.locator('[data-feedback-schedule-row] [name="topic"]')
+    topic.fill("Встреча с разработчиком")
+    page.locator('#feedbackScheduleForm [type="submit"]').click()
+    page.wait_for_function("!feedbackState.editorDirty")
+    row = page.evaluate("feedbackSchedule(feedbackState.group).rows.at(-1)")
+    assert row["lesson"] is None and row["topic"] == "Встреча с разработчиком"
+    assert page.evaluate("feedbackSchedule(feedbackState.group).rows.length") == original + 1
+    page.locator(f'[data-feedback-row="{row["id"]}"]').click()
+    assert page.locator(".feedback-generate").is_hidden()
+    assert page.locator("#feedbackText").is_enabled()
+    assert page.locator("#feedbackText").input_value() == ""
+    assert page.evaluate("""() => {try{feedbackBuildText();return false;}catch{return true;}}""")
+    page.locator("#feedbackText").fill("Моя ОС для своего занятия")
+    page.reload(wait_until="networkidle")
+    assert page.evaluate("feedbackState.rowId") == row["id"]
+    assert page.locator("#feedbackText").input_value() == "Моя ОС для своего занятия"
+    assert page.locator(".feedback-generate").is_hidden()
+    assert "Встреча с разработчиком" in page.locator(".feedback-weeks").inner_text()
+    open_feedback_schedule(page)
+    topic.fill("Экскурсия")
+    page.locator('#feedbackScheduleForm [type="submit"]').click()
+    assert page.evaluate("feedbackSchedule(feedbackState.group).rows.at(-1).topic") == "Экскурсия"
+
+
+@pytest.mark.parametrize("width", [320, 390, 768])
+def test_mobile_feedback_schedule_and_custom_lesson_are_usable(feedback_page, width):
+    page = feedback_page
+    page.set_viewport_size({"width": width, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
+    open_feedback_schedule(page)
+    page.locator("[data-feedback-add-custom]").click()
+    topic = page.locator('[data-feedback-schedule-row] [name="topic"]')
+    topic.fill("Мобильное занятие")
+    assert topic.bounding_box()["width"] >= 140
+    if width <= 640:
+        assert page.locator(".feedback-schedule-table").evaluate(
+            "e=>e.scrollWidth <= e.clientWidth+1"
+        )
+        assert page.locator("[data-feedback-add-custom]").bounding_box()["height"] >= 44
+    page.locator('#feedbackScheduleForm [type="submit"]').click()
+    page.wait_for_function("!feedbackState.editorDirty")
+    row_id = page.evaluate("feedbackSchedule(feedbackState.group).rows.at(-1).id")
+    page.locator(f'[data-feedback-row="{row_id}"]').click()
+    assert page.locator("#feedbackText").is_enabled()
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
+
+
+def test_mobile_group_strip_keeps_its_position_when_workspace_redraws(feedback_page):
+    page = feedback_page
+    page.set_viewport_size({"width": 390, "height": 844})
+    result = page.evaluate("""async () => {
+      const strip=document.querySelector('.feedback-group-grid');
+      strip.scrollLeft=120;
+      feedbackCaptureUi();
+      const before=strip.scrollLeft;
+      await renderFeedback();
+      return {before,after:document.querySelector('.feedback-group-grid').scrollLeft};
+    }""")
+    assert result["before"] > 0
+    assert abs(result["after"] - result["before"]) < 2

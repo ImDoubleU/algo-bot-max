@@ -17,10 +17,23 @@ class FeedbackScheduleRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: UUID
     date: date
-    lesson: StrictInt = Field(ge=1, le=100)
+    lesson: StrictInt | None = Field(default=None, ge=1, le=100)
+    topic: str | None = Field(default=None, max_length=200)
     number: StrictInt = Field(ge=1, le=999)
     repeat: StrictBool
     skipped: StrictBool
+
+    @model_validator(mode="after")
+    def validate_material(self):
+        if self.lesson is None:
+            if not self.topic or not self.topic.strip():
+                raise ValueError("Укажите тему своего занятия")
+            self.topic = self.topic.strip()
+            if self.repeat:
+                raise ValueError("Занятие со своей темой не является повторением")
+        elif self.topic is not None:
+            raise ValueError("Для материала курса нельзя задавать отдельную тему")
+        return self
 
     @field_validator("date", mode="before")
     @classmethod
