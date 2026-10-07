@@ -70,6 +70,9 @@ async def test_pagination_snapshot_includes_unregistered_attempts_without_leakin
     assert entry.request_id is None and entry.ip_address is None
     assert "request_id" not in entry.payload and "token" not in entry.payload
     assert entry.payload["nested"] == {"safe": "value"}
+    assert entry.payload["students"][0]["name"] == student.display_name
+    assert entry.payload["students"][0]["group"] == student.group_name
+    assert entry.payload["actor_role"] == "student"
     db_session.add(
         AuditLog(
             tenant_id=student.tenant_id,

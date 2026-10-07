@@ -339,9 +339,21 @@ async def history_page(
             .limit(page_size)
         )
     ).all()
+    from app.services.audit_people import history_people
+
+    people = await history_people(
+        db,
+        rows,
+        tenant_id=tenant.id,
+        all_tenants=all_tenants,
+        student_id=student_id,
+    )
     entries = []
     for audit, actor, event_tenant in rows:
         payload = safe_payload(dict(audit.payload or {}))
+        context = people[audit.id]
+        payload["actor_role"] = context["actor_role"]
+        payload["students"] = context["students"]
         if not full:
             for key in ("request_id", "webhook_event_id", "error_type", "http_status", "path"):
                 payload.pop(key, None)
@@ -357,7 +369,8 @@ async def history_page(
                 title=title,
                 category=event_category,
                 status=status,
-                actor_name=(actor.display_name or actor.username if actor else None)
+                actor_name=context["actor_name"]
+                or (actor.display_name or actor.username if actor else None)
                 or (f"Аккаунт MAX {actor_id}" if actor_id else "Система"),
                 actor_max_user_id=actor_id,
                 entity_type=audit.entity_type,

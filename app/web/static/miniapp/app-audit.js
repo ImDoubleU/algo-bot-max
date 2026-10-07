@@ -87,20 +87,32 @@ function auditReadable(value) {
 
 function auditFacts(entry) {
   const p = entry.payload || {};
-  const facts = adminHistoryFacts(entry).map(([name, value]) => [name, auditReadable(value)]);
+  const facts = adminHistoryFacts(entry).filter(([name]) => name !== "Роль" || !p.actor_role).map(([name, value]) => [name, auditReadable(value)]);
   const add = (label, value) => { if (value !== undefined && value !== null && value !== "" && !facts.some(([key]) => key === label)) facts.push([label, auditReadable(value)]); };
   add("Ученик", p.student_name); add("Группа", p.group_name); add("Способ входа", p.source);
   if (p.from_status || p.to_status) add("Изменение", `${auditReadable(p.from_status)} → ${auditReadable(p.to_status)}`);
   if (p.previous_balance !== undefined) add("Баланс", `${p.previous_balance} → ${p.new_balance} AC`);
   if (p.from_quantity !== undefined) add("Остаток", `${p.from_quantity} → ${p.to_quantity}`);
   add("Начислено", p.amount ? `${p.amount} AC` : ""); add("Возвращено", p.refund_astrocoins ? `${p.refund_astrocoins} AC` : "");
-  add("Детей в семье", p.total_links); add("Привязок создано", p.created_links); add("Привязок восстановлено", p.reactivated_links);
+  add("Детей в семье", p.total_links > 1 ? p.total_links : ""); add("Привязок создано", p.created_links || ""); add("Привязок восстановлено", p.reactivated_links || "");
   add("MAX ID получателя", p.target_max_user_id); add("Повторных попыток", p.attempts);
   if (p.before && p.after) {
     const names = { first_name: "Имя", last_name: "Фамилия", group_name: "Группа", course_name: "Курс", teacher_name: "Преподаватель", venue_name: "Площадка", birth_date: "Дата рождения" };
     Object.keys(p.after).filter((key) => JSON.stringify(p.before[key]) !== JSON.stringify(p.after[key])).forEach((key) => add(names[key] || key, `${auditReadable(p.before[key])} → ${auditReadable(p.after[key])}`));
   }
   return facts.slice(0, 12);
+}
+
+function auditStudents(entry) {
+  const students = Array.isArray(entry.payload?.students) ? entry.payload.students : [];
+  return students.map((student) => `<div class="audit-student">
+    <div class="audit-student-main"><span class="audit-person-role">Ученик</span>
+      <button type="button" class="audit-student-link" data-audit-student="${escapeHtml(student.id)}" data-audit-tenant="${escapeHtml(entry.tenantSlug || "")}" title="Открыть карточку ученика · ${escapeHtml(student.id)}">${escapeHtml(student.name)}<i data-lucide="arrow-up-right"></i></button>
+      <span class="audit-student-ids">${[student.lms_id ? `LMS ID ${escapeHtml(student.lms_id)}` : "", student.crm_id ? `CRM ID ${escapeHtml(student.crm_id)}` : ""].filter(Boolean).join(" · ")}</span>
+    </div>
+    <div class="audit-student-context"><span><small>Группа</small>${escapeHtml(student.group || "Не указана")}</span><span><small>Преподаватель</small>${escapeHtml(student.teacher || "Не указан")}${student.teacher_max_user_id ? ` · MAX ID ${escapeHtml(student.teacher_max_user_id)}` : ""}</span></div>
+    ${(student.accounts || []).length ? `<div class="audit-linked-people"><small>Связи сейчас</small>${student.accounts.map((account) => `<span><b>${escapeHtml(auditReadable(account.role))}:</b> ${escapeHtml(account.name || "Имя не указано")} <code>MAX ID ${escapeHtml(account.max_user_id)}</code></span>`).join("")}</div>` : ""}
+  </div>`).join("");
 }
 
 function auditCards(rows, full = false) {
@@ -111,10 +123,13 @@ function auditCards(rows, full = false) {
     previousDay = day;
     const status = { success: ["check", "Выполнено"], denied: ["shield-alert", "Отказ"], error: ["circle-x", "Не выполнено"], partial: ["triangle-alert", "Требует внимания"], pending: ["clock", "В обработке"] }[entry.status] || ["info", "Событие"];
     const facts = auditFacts(entry);
+    const actorName = entry.actorName === `Аккаунт MAX ${entry.actorMaxUserId}` ? "Имя не указано" : entry.actorName;
+    const actorRole = String(entry.payload?.actor_role || entry.payload?.role || "").split(", ").filter(Boolean).map(auditReadable).join(", ");
     return `${heading}<article class="audit-event is-${escapeHtml(entry.status)}">
       <span class="audit-icon"><i data-lucide="${status[0]}"></i></span>
       <div class="audit-copy"><div class="audit-title"><strong>${escapeHtml(entry.title)}</strong><span class="audit-badge">${status[1]}</span></div>
-        <div class="audit-who">${escapeHtml(entry.actorName)}${entry.actorMaxUserId ? ` · MAX ID ${entry.actorMaxUserId}` : ""}</div>
+        <div class="audit-who">${actorRole ? `<span class="audit-person-role">${escapeHtml(actorRole)}</span>` : ""}<strong>${escapeHtml(actorName)}</strong>${entry.actorMaxUserId ? `<code>MAX ID ${escapeHtml(entry.actorMaxUserId)}</code>` : ""}</div>
+        ${auditStudents(entry)}
         ${entry.explanation ? `<p class="audit-explanation">${escapeHtml(entry.explanation)}</p>` : ""}
         ${facts.length ? `<dl class="audit-facts">${facts.map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>` : ""}
         <div class="audit-tags"><span>${escapeHtml(entry.category)}</span>${full && entry.tenantName ? `<span>${escapeHtml(entry.tenantName)}</span>` : ""}</div>
@@ -174,6 +189,11 @@ document.addEventListener("click", (event) => {
   const target = event.target.closest("button"); if (!target) return;
   if (target.dataset.auditRefresh) void loadAuditFeed(target.dataset.auditRefresh, true);
   if (target.dataset.auditMore) void loadAuditFeed(target.dataset.auditMore);
+  if (target.dataset.auditStudent) void (async () => {
+    const tenant = target.dataset.auditTenant;
+    if (tenant && tenant !== apiContext.tenantSlug) await switchTenant(tenant);
+    await openAdminStudentProfile(target.dataset.auditStudent);
+  })();
 });
 document.addEventListener("input", (event) => {
   const { auditKind: kind, auditField: field } = event.target.dataset;
