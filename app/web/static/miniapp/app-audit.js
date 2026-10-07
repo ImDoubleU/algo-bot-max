@@ -10,6 +10,7 @@ function auditFeed(kind) {
   if (!auditFeeds.has(kind)) auditFeeds.set(kind, {
     rows: apiContext.demoMode ? [...state.adminHistory] : [], total: apiContext.demoMode ? state.adminHistory.length : 0,
     loading: false, loaded: apiContext.demoMode, error: "", more: false, snapshot: "", generation: 0,
+    groupMinutes: 5, openGroups: new Set(),
     filters: { q: "", category: "", outcome: "", actor: "", days: "30", from: "", to: "", allTenants: kind === "audit" },
   });
   return auditFeeds.get(kind);
@@ -27,6 +28,7 @@ async function loadAuditFeed(kind, reset = false) {
   if (!reset && (feed.loading || (feed.loaded && !feed.more))) return;
   if (reset) {
     feed.abort?.abort(); feed.loading = false; feed.rows = []; feed.snapshot = ""; feed.loaded = false;
+    feed.openGroups.clear();
   }
   const generation = ++feed.generation;
   const tenant = apiContext.tenantSlug;
@@ -161,11 +163,14 @@ function auditPersonMarkup(person, entry) {
   </div>`;
 }
 
-function auditParticipantsMarkup(model, entry) {
-  if (!isAuditAccrual(entry)) return `<div class="audit-people">${model.people.map((person) => auditPersonMarkup(person, entry)).join("")}</div>`;
+function auditParticipantsMarkup(model, entry, showActor = true) {
+  if (!isAuditAccrual(entry)) {
+    const people = model.people.filter((person) => showActor || !person.actor);
+    return people.length ? `<div class="audit-people">${people.map((person) => auditPersonMarkup(person, entry)).join("")}</div>` : "";
+  }
   const actor = model.people.find((person) => person.actor);
   const authorLabel = entry.action === "miniapp_astrocoins.undone" ? "Отменил" : entry.action === "astrocoins.birthday_rewarded" ? "Автор" : "Начислил";
-  const author = actor ? `<div class="audit-accrual-author" data-audit-actor><span>${authorLabel}</span>${auditPersonNameMarkup(actor, entry)}${actor.ids.length ? `<code>MAX ID ${escapeHtml(actor.ids.join(", "))}</code>` : ""}</div>` : "";
+  const author = actor && showActor ? `<div class="audit-accrual-author" data-audit-actor><span>${authorLabel}</span>${auditPersonNameMarkup(actor, entry)}${actor.ids.length ? `<code>MAX ID ${escapeHtml(actor.ids.join(", "))}</code>` : ""}</div>` : "";
   const pupils = model.people.filter((person) => person.studentId);
   const table = pupils.length ? `<table class="audit-accrual-table" aria-label="Ученики начисления">
     <colgroup><col /><col class="audit-accrual-max-column" /><col class="audit-accrual-lms-column" /></colgroup>
@@ -181,22 +186,78 @@ function auditEventTitle(entry) {
   return entry.title;
 }
 
-function auditCards(rows, full = false) {
+function auditGroups(rows, minutes = 5) {
+  const groups = [];
+  const latestByActor = new Map();
+  const interval = minutes * 60 * 1000;
+  [...rows].sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt)).forEach((entry) => {
+    const stamp = new Date(entry.createdAt).getTime();
+    // Unknown actors remain separate: an IP or the name "Система" is not an identity.
+    const key = entry.actorMaxUserId ? `${entry.actorMaxUserId}:${auditDay(entry.createdAt)}` : null;
+    let group = key ? latestByActor.get(key) : null;
+    if (!group || group.newest - stamp > interval) {
+      group = {id: entry.id, newest: stamp, oldest: stamp, rows: []};
+      groups.push(group);
+      if (key) latestByActor.set(key, group);
+    }
+    group.rows.push(entry); group.oldest = stamp;
+  });
+  return groups;
+}
+
+function auditGroupedCards(rows) {
+  const feed = auditFeed("audit");
+  let previousDay = "";
+  return auditGroups(rows, feed.groupMinutes).map((group) => {
+    const first = group.rows[0];
+    const day = auditDay(first.createdAt);
+    const heading = day !== previousDay ? `<h4 class="audit-day">${escapeHtml(day)}</h4>` : "";
+    previousDay = day;
+    if (group.rows.length === 1) return heading + auditCards(group.rows, true, {grouped: true});
+    const named = group.rows.find((entry) => entry.actorName && !entry.actorName.startsWith("Аккаунт MAX ")) || first;
+    const actor = auditPeople(named).people.find((person) => person.actor);
+    const roles = [...new Set(group.rows.flatMap((entry) => String(entry.payload.actor_role || entry.payload.staff_role || "").split(", ").filter(Boolean)))].map(auditReadable).join(", ");
+    const status = ["error", "denied", "partial", "pending"].find((value) => group.rows.some((entry) => entry.status === value)) || "success";
+    const attention = group.rows.filter((entry) => entry.status !== "success").length;
+    const meaningful = group.rows.filter((entry) => entry.action !== "activity.request");
+    const titles = [...new Set((meaningful.length ? meaningful : group.rows).map(auditEventTitle))];
+    const range = `${auditTime(new Date(group.oldest).toISOString())} — ${auditTime(first.createdAt)}`;
+    return `${heading}<details class="audit-session is-${status}" data-audit-group="${escapeHtml(group.id)}" ${feed.openGroups.has(group.id) ? "open" : ""}>
+      <summary class="audit-session-summary">
+        <span class="audit-session-avatar"><i data-lucide="user-round"></i></span>
+        <span class="audit-session-person">${auditPersonNameMarkup(actor, named)}<span>${roles ? escapeHtml(roles) + " · " : ""}MAX ID ${escapeHtml(String(first.actorMaxUserId))}</span></span>
+        <span class="audit-session-range"><time datetime="${escapeHtml(first.createdAt)}" title="Время Москвы">${escapeHtml(range)}</time><span>${group.rows.length} ${auditActionCount(group.rows.length)}</span></span>
+        <i class="audit-session-chevron" data-lucide="chevron-down"></i>
+        <span class="audit-session-preview">${escapeHtml(titles.slice(0, 3).join(" · "))}${titles.length > 3 ? ` · ещё ${titles.length - 3}` : ""}</span>
+        ${attention ? `<span class="audit-session-warning">Требуют внимания: ${attention}</span>` : ""}
+      </summary>
+      <div class="audit-session-events">${auditCards([...group.rows].reverse(), true, {grouped: true, hideActor: true})}</div>
+    </details>`;
+  }).join("");
+}
+
+function auditActionCount(count) {
+  if (count % 100 >= 11 && count % 100 <= 14) return "действий";
+  return count % 10 === 1 ? "действие" : count % 10 >= 2 && count % 10 <= 4 ? "действия" : "действий";
+}
+
+function auditCards(rows, full = false, {grouped = false, hideActor = false} = {}) {
+  if (full && !grouped) return auditGroupedCards(rows);
   let previousDay = "";
   return rows.map((entry) => {
     const day = auditDay(entry.createdAt);
-    const heading = day !== previousDay ? `<h4 class="audit-day">${escapeHtml(day)}</h4>` : "";
+    const heading = !grouped && day !== previousDay ? `<h4 class="audit-day">${escapeHtml(day)}</h4>` : "";
     previousDay = day;
     const status = {success: ["check", "Выполнено"], denied: ["shield-alert", "Отказ"], error: ["circle-x", "Не выполнено"], partial: ["triangle-alert", "Требует внимания"], pending: ["clock", "В обработке"]}[entry.status] || ["info", "Событие"];
     const model = auditPeople(entry);
     const facts = auditFacts(entry).filter(([key]) => !["Роль", "Способ входа", "Детей в семье", "Привязок создано", "Привязок восстановлено"].includes(key) && !(key === "Ученик" && model.people.some((person) => person.studentId)) && !(key === "Группа" && model.contexts.length));
     const studentDetails = model.people.filter((person) => person.studentId).map((person) => `<div><dt>${escapeHtml(person.name)}</dt><dd>ID ${escapeHtml(person.studentId)}${person.crmId ? ` · CRM ID ${escapeHtml(person.crmId)}` : ""}</dd></div>`).join("");
     const diagnostics = full ? `<div><dt>Событие</dt><dd>${escapeHtml(entry.action)}</dd></div><div><dt>Запись</dt><dd>${escapeHtml(entry.id)}</dd></div>${entry.requestId ? `<div><dt>Запрос</dt><dd>${escapeHtml(entry.requestId)}</dd></div>` : ""}${entry.ipAddress ? `<div><dt>IP</dt><dd>${escapeHtml(entry.ipAddress)}</dd></div>` : ""}<div><dt>Объект</dt><dd>${escapeHtml([entry.entityType, entry.entityId].filter(Boolean).join(" · "))}</dd></div>` : "";
-    return `${heading}<article class="audit-event is-${escapeHtml(entry.status)}">
+    return `${heading}<article class="audit-event is-${escapeHtml(entry.status)}" data-audit-entry="${escapeHtml(entry.id)}">
       <span class="audit-icon" role="img" aria-label="${status[1]}"><i data-lucide="${status[0]}" aria-hidden="true"></i></span>
       <div class="audit-copy">
         <div class="audit-heading"><div class="audit-title"><strong>${escapeHtml(auditEventTitle(entry))}</strong>${entry.status !== "success" ? `<span class="audit-badge">${status[1]}</span>` : ""}</div><time datetime="${escapeHtml(entry.createdAt)}" title="Время Москвы">${escapeHtml(auditTime(entry.createdAt))}</time></div>
-        ${auditParticipantsMarkup(model, entry)}
+        ${auditParticipantsMarkup(model, entry, !hideActor)}
         ${model.contexts.length ? `<div class="audit-context">${model.contexts.map((context) => `<div>${context.group ? `<span><small>Группа</small>${escapeHtml(context.group)}</span>` : ""}${context.teacher ? `<span><small>Преподаватель</small>${escapeHtml(context.teacher)}${context.teacherId ? ` <code>MAX ID ${escapeHtml(context.teacherId)}</code>` : ""}</span>` : ""}</div>`).join("")}</div>` : ""}
         ${entry.explanation ? `<p class="audit-explanation">${escapeHtml(entry.explanation)}</p>` : ""}
         ${facts.length ? `<dl class="audit-facts">${facts.map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>` : ""}
@@ -213,7 +274,7 @@ function auditPanel(kind, compact = false) {
   const attrs = (field) => `data-audit-field="${field}" data-audit-kind="${escapeHtml(kind)}"`;
   const title = full ? "Аудит действий" : kind === "bindings" ? "История подключений" : "История действий";
   return `<section class="audit-panel" data-audit-panel="${escapeHtml(kind)}">
-    <div class="audit-toolbar"><h3>${title}</h3><button class="secondary-action" type="button" data-audit-refresh="${escapeHtml(kind)}" ${feed.loading ? "disabled" : ""}><i data-lucide="refresh-cw"></i>Обновить</button></div>
+    <div class="audit-toolbar">${full ? `<label class="audit-group-control"><span>Интервал</span><select data-audit-group-minutes>${[1, 5, 15, 30].map((minutes) => `<option value="${minutes}" ${feed.groupMinutes === minutes ? "selected" : ""}>${minutes} мин</option>`).join("")}</select></label>` : `<h3>${title}</h3>`}<button class="secondary-action" type="button" data-audit-refresh="${escapeHtml(kind)}" ${feed.loading ? "disabled" : ""}><i data-lucide="refresh-cw"></i>Обновить</button></div>
     ${!compact ? `<div class="audit-filters">
       <label class="audit-search"><span>Поиск</span><input type="search" maxlength="120" ${attrs("q")} value="${escapeHtml(f.q)}" placeholder="Имя, событие, MAX ID" /></label>
       <button type="button" class="audit-filter-toggle secondary-action" data-audit-toggle="${escapeHtml(kind)}" aria-expanded="${Boolean(feed.filtersOpen)}"><i data-lucide="sliders-horizontal"></i>Фильтры</button>
@@ -280,8 +341,21 @@ document.addEventListener("input", (event) => {
   auditSearchTimer = window.setTimeout(() => void loadAuditFeed(kind, true), 450);
 });
 document.addEventListener("change", (event) => {
+  if (event.target.matches("[data-audit-group-minutes]")) {
+    const minutes = Number(event.target.value);
+    if (![1, 5, 15, 30].includes(minutes)) return;
+    auditFeed("audit").groupMinutes = minutes;
+    auditFeed("audit").openGroups.clear(); renderAuditCurrent("audit"); return;
+  }
   const { auditKind: kind, auditField: field } = event.target.dataset;
   if (!kind || ["q", "actor"].includes(field)) return;
   auditFeed(kind).filters[field] = field === "allTenants" ? event.target.checked : event.target.value;
   void loadAuditFeed(kind, true);
 });
+
+document.addEventListener("toggle", (event) => {
+  const groupId = event.target.dataset?.auditGroup;
+  if (!groupId || !event.target.isConnected) return;
+  const openGroups = auditFeed("audit").openGroups;
+  if (event.target.open) openGroups.add(groupId); else openGroups.delete(groupId);
+}, true);

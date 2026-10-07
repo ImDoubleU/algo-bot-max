@@ -130,6 +130,7 @@ def test_coin_history_shows_author_and_only_pupils_with_two_id_columns(
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.route("https://st.max.ru/**", lambda route: route.abort())
     page.goto(base + "/miniapp?demo=1", wait_until="networkidle")
+    page.wait_for_function("typeof state !== 'undefined' && typeof renderAdminPanel === 'function'")
     page.evaluate("""action => {
       state.role = 'admin'; state.adminTab = 'history'; state.staffRoles = ['admin'];
       auditFeed('actions').rows = [normalizeAdminHistoryEntry({id: 'coin-event', action,
@@ -173,5 +174,91 @@ def test_coin_history_shows_author_and_only_pupils_with_two_id_columns(
     if action.endswith("accrued") and width in (390, 1440):
         event.scroll_into_view_if_needed()
         page.screenshot(path=f".deploy_tmp/coin-history-{width}.png")
+    assert not errors, errors
+    page.close()
+
+
+def test_audit_groups_preserve_identity_time_boundaries_and_every_event(binding_browser):
+    browser, base = binding_browser
+    page = browser.new_page()
+    page.route("https://st.max.ru/**", lambda route: route.abort())
+    page.goto(base + "/miniapp?demo=1", wait_until="networkidle")
+    result = page.evaluate("""() => {
+      const event = (id, actor, at) => normalizeAdminHistoryEntry({id,
+        actor_name: 'Одинаковое имя', actor_max_user_id: actor, created_at: at});
+      const rows = [event('a', 1, '2026-10-07T10:10:00Z'),
+        event('other', 2, '2026-10-07T10:09:00Z'),
+        event('b', 1, '2026-10-07T10:08:00Z'),
+        event('edge', 1, '2026-10-07T10:05:00Z'),
+        event('outside', 1, '2026-10-07T10:04:59Z'),
+        event('unknown1', null, '2026-10-07T10:04:00Z'),
+        event('unknown2', null, '2026-10-07T10:03:59Z'),
+        event('afterMidnight', 3, '2026-10-06T21:00:01Z'),
+        event('beforeMidnight', 3, '2026-10-06T20:59:59Z')];
+      const groups = auditGroups([...rows].reverse(), 5);
+      return {groups: groups.map(group => group.rows.map(entry => entry.id)),
+        span: groups[0].newest - groups[0].oldest,
+        count: groups.flatMap(group => group.rows).length,
+        longer: auditGroups(rows, 15)[0].rows.length};
+    }""")
+    assert result == {
+        "groups": [["a", "b", "edge"], ["other"], ["outside"], ["unknown1"],
+                   ["unknown2"], ["afterMidnight"], ["beforeMidnight"]],
+        "span": 300000, "count": 9, "longer": 4,
+    }
+    page.close()
+
+
+@pytest.mark.parametrize("width", [320, 390, 1440])
+def test_grouped_audit_keeps_errors_details_and_open_state_without_grouping_history(
+    binding_browser, width,
+):
+    browser, base = binding_browser
+    page = browser.new_page(viewport={"width": width, "height": 1000})
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.route("https://st.max.ru/**", lambda route: route.abort())
+    page.goto(base + "/miniapp?demo=1", wait_until="networkidle")
+    page.wait_for_function("typeof state !== 'undefined' && typeof renderAdminPanel === 'function'")
+    page.evaluate("""() => {
+      state.role = 'admin'; state.adminTab = 'audit'; state.staffRoles = ['superadmin'];
+      const event = (id, actor, at, status = 'success') => normalizeAdminHistoryEntry({
+        id, actor_name: actor === 100 ? 'Победов Никита' : 'Другой пользователь',
+        actor_max_user_id: actor, created_at: '2026-10-07T' + at + 'Z', status,
+        action: 'miniapp_astrocoins.accrued', title: 'Астрокоины начислены',
+        tenant_slug: apiContext.tenantSlug, request_id: 'request-' + id,
+        payload: {actor_role: 'teacher', students: [{id: 'child-' + id, name: 'Ученик ' + id,
+          lms_id: 'ST-' + id, accounts: [{role: 'parent', max_user_id: 300}]}]}});
+      const rows = [event('a', 100, '10:10:00'), event('other', 200, '10:09:00'),
+        event('b', 100, '10:08:00', 'denied'), event('c', 100, '10:06:00'),
+        event('old', 100, '10:04:00')];
+      auditFeed('audit').rows = rows; auditFeed('audit').total = rows.length;
+      auditFeed('actions').rows = rows; auditFeed('actions').total = rows.length;
+      renderAdminPanel(); setView('admin');
+    }""")
+    group = page.locator(".audit-session")
+    assert group.count() == 1
+    assert "Требуют внимания: 1" in group.locator(".audit-session-summary").inner_text()
+    assert group.locator(".audit-session-summary").inner_text().count("Победов Никита") == 1
+    assert group.locator(".audit-session-summary").inner_text().count("MAX ID 100") == 1
+    assert group.locator(".audit-session-events").is_hidden()
+    group.locator(".audit-session-summary").click()
+    assert group.locator(".audit-event").count() == 3
+    assert "Победов Никита" not in group.locator(".audit-session-events").inner_text()
+    assert group.locator(".audit-event.is-denied").is_visible()
+    group.locator(".audit-details summary").first.click()
+    assert "request-c" in group.locator(".audit-detail-content").first.inner_text()
+    page.wait_for_function("auditFeed('audit').openGroups.has('a')")
+    page.evaluate("renderAuditCurrent('audit')")
+    assert page.locator('.audit-session[open]').count() == 1
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    if width in (390, 1440):
+        page.screenshot(path=f".deploy_tmp/audit-grouped-{width}.png")
+    page.locator("[data-audit-group-minutes]").select_option("15")
+    assert page.locator(".audit-session").first.locator(".audit-event").count() == 4
+    page.locator('[data-admin-tab="history"]').click()
+    assert page.locator(".audit-session").count() == 0
+    assert page.locator(".audit-event").count() == 5
+    assert page.locator("[data-audit-group-minutes]").count() == 0
     assert not errors, errors
     page.close()

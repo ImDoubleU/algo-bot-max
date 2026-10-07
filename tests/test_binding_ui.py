@@ -28,7 +28,11 @@ def binding_browser():
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    class Server(ThreadingHTTPServer):
+        # Chromium loads the miniapp's scripts concurrently; avoid dropped connections.
+        request_queue_size = 128
+
+    server = Server(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         with playwright.sync_playwright() as runtime:
