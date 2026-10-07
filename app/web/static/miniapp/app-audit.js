@@ -129,7 +129,7 @@ function auditPeople(entry) {
     const childIds = [...new Set(accounts.filter((account) => account.role === "student" && (!account.status || account.status === "active")).map((account) => account.max_user_id).filter(Boolean).map(String))];
     const isActor = p.actor_role === "student" && (students.length === 1 || childIds.some((id) => String(id) === String(entry.actorMaxUserId)));
     const person = isActor ? actor : {role: "Ученик", ids: childIds, current: childIds.length > 0};
-    Object.assign(person, {name: student.name, studentId: student.id, lmsId: student.lms_id, crmId: student.crm_id});
+    Object.assign(person, {name: student.name, studentId: student.id, lmsId: student.lms_id, crmId: student.crm_id, studentTenantSlug: student.tenant_slug});
     if (!isActor) people.push(person);
     if (isActor) {
       person.currentIds = childIds.filter((id) => !person.ids.some((known) => String(known) === String(id)));
@@ -151,7 +151,7 @@ function auditPeople(entry) {
 }
 
 function auditPersonNameMarkup(person, entry) {
-  return person.studentId ? `<button type="button" class="audit-student-link" data-audit-student="${escapeHtml(person.studentId)}" data-audit-tenant="${escapeHtml(entry.tenantSlug || "")}">${escapeHtml(person.name)}<i data-lucide="arrow-up-right"></i></button>` : `<strong>${escapeHtml(person.name)}</strong>`;
+  return person.studentId ? `<button type="button" class="audit-student-link" data-audit-student="${escapeHtml(person.studentId)}" data-audit-tenant="${escapeHtml(person.studentTenantSlug || entry.tenantSlug || "")}">${escapeHtml(person.name)}<i data-lucide="arrow-up-right"></i></button>` : `<strong>${escapeHtml(person.name)}</strong>`;
 }
 
 function auditPersonMarkup(person, entry) {
@@ -241,6 +241,19 @@ function auditActionCount(count) {
   return count % 10 === 1 ? "действие" : count % 10 >= 2 && count % 10 <= 4 ? "действия" : "действий";
 }
 
+function auditLinkTargetMarkup(entry) {
+  const target = entry.payload?.link_target;
+  if (!target) return "";
+  const label = target.kind === "contact" ? "ID родителя из ссылки" : "ID ученика из ссылки";
+  const description = target.state === "historical_id_missing"
+    ? "ID ссылки в старом событии не сохранился"
+    : "ID ссылки при входе не был передан";
+  const students = entry.payload.students || [];
+  return `<div class="audit-link-target"><span>${escapeHtml(target.id ? label : description)}</span>
+    ${target.id ? `<code>${escapeHtml(target.id)}</code>` : ""}
+    ${!students.length ? '<code>LMS ID —</code>' : ""}</div>`;
+}
+
 function auditCards(rows, full = false, {grouped = false, hideActor = false} = {}) {
   if (full && !grouped) return auditGroupedCards(rows);
   let previousDay = "";
@@ -257,6 +270,7 @@ function auditCards(rows, full = false, {grouped = false, hideActor = false} = {
       <span class="audit-icon" role="img" aria-label="${status[1]}"><i data-lucide="${status[0]}" aria-hidden="true"></i></span>
       <div class="audit-copy">
         <div class="audit-heading"><div class="audit-title"><strong>${escapeHtml(auditEventTitle(entry))}</strong>${entry.status !== "success" ? `<span class="audit-badge">${status[1]}</span>` : ""}</div><time datetime="${escapeHtml(entry.createdAt)}" title="Время Москвы">${escapeHtml(auditTime(entry.createdAt))}</time></div>
+        ${full ? auditLinkTargetMarkup(entry) : ""}
         ${auditParticipantsMarkup(model, entry, !hideActor)}
         ${model.contexts.length ? `<div class="audit-context">${model.contexts.map((context) => `<div>${context.group ? `<span><small>Группа</small>${escapeHtml(context.group)}</span>` : ""}${context.teacher ? `<span><small>Преподаватель</small>${escapeHtml(context.teacher)}${context.teacherId ? ` <code>MAX ID ${escapeHtml(context.teacherId)}</code>` : ""}</span>` : ""}</div>`).join("")}</div>` : ""}
         ${entry.explanation ? `<p class="audit-explanation">${escapeHtml(entry.explanation)}</p>` : ""}

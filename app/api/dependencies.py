@@ -55,6 +55,8 @@ async def get_miniapp_identity(
         if request is not None:
             request.state.audit_verified_max_user_id = result.max_user_id
             request.state.audit_tenant_slug = result.tenant_slug
+            from app.services.binding_targets import target_from_launch
+            request.state.audit_link_target = target_from_launch(identity.start_param)
         return result
     if not token:
         if is_local_environment(settings.app_env):

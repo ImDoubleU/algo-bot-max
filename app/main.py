@@ -38,6 +38,11 @@ async def lifespan(_: FastAPI):
     audit_worker = (asyncio.create_task(bot_audit_loop())
                     if not is_local_environment(settings.app_env) else None)
     try:
+        # Surface startup errors before the service reports ready.
+        if pending_worker:
+            await asyncio.sleep(0)
+            if pending_worker.done():
+                pending_worker.result()
         yield
     finally:
         if pending_worker:

@@ -368,8 +368,11 @@ async def history_page(
         context = people[audit.id]
         payload["actor_role"] = context["actor_role"]
         payload["students"] = context["students"]
+        if full:
+            payload["link_target"] = context["link_target"]
         if not full:
-            for key in ("request_id", "webhook_event_id", "error_type", "http_status", "path"):
+            for key in ("request_id", "webhook_event_id", "error_type", "http_status", "path",
+                        "contact_id", "link_target"):
                 payload.pop(key, None)
         title, event_category = copy_for(audit.action, payload)
         status = event_status(audit.action, payload)

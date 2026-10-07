@@ -1,6 +1,7 @@
 """Safe activity metadata; business changes retain their existing domain audits."""
 
 import asyncio
+import json
 import logging
 import sqlite3
 from datetime import UTC, datetime
@@ -51,6 +52,11 @@ async def persist_event(
             if tenant_slug
             else None
         )
+        target = (payload or {}).get("link_target") or {}
+        if tenant is None and target.get("tenant_slug"):
+            tenant = await db.scalar(select(Tenant).where(Tenant.slug == target["tenant_slug"]))
+        if tenant is None and target.get("tenant_id"):
+            tenant = await db.get(Tenant, UUID(target["tenant_id"]))
         db.add(
             AuditLog(
                 id=event_id or uuid4(),
@@ -138,6 +144,7 @@ async def persist_request(request, *, request_id, status, elapsed_ms, error_type
                 "detail": getattr(request.state, "audit_detail", None),
                 "requested_max_user_id": requested_id,
                 "error_type": error_type,
+                "link_target": getattr(request.state, "audit_link_target", None),
             },
         )
     except Exception as exc:
@@ -150,8 +157,11 @@ def inbox_metadata(path):
     if not path.exists():
         return []
     with sqlite3.connect("file:" + str(path) + "?mode=ro", uri=True) as db:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(webhook_inbox)")}
+        context = "audit_context" if "audit_context" in columns else "NULL"
         return db.execute(
-            "SELECT event_id,update_type,max_user_id,status,attempts,created_at,error_type "
+            "SELECT event_id,update_type,max_user_id,status,attempts,created_at,error_type,"
+            + context + " "
             "FROM webhook_inbox WHERE status IN ('done','failed') AND audit_exported=0 "
             "ORDER BY rowid LIMIT 200"
         ).fetchall()
@@ -170,7 +180,7 @@ async def bot_audit_loop():
     while True:
         try:
             rows = await asyncio.to_thread(inbox_metadata, path)
-            for key, kind, user_id, status, attempts, created_at, error_type in rows:
+            for key, kind, user_id, status, attempts, created_at, error_type, context in rows:
                 if key in seen:
                     continue
                 await persist_event(
@@ -190,6 +200,7 @@ async def bot_audit_loop():
                         "outcome": "success" if status == "done" else "error",
                         "attempts": attempts,
                         "error_type": error_type,
+                        **(json.loads(context) if context else {}),
                     },
                 )
                 await asyncio.to_thread(mark_exported, path, key)

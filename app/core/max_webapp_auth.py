@@ -16,6 +16,7 @@ class MaxWebAppAuthError(ValueError):
 class MaxWebAppIdentity:
     max_user_id: int
     auth_date: int
+    start_param: str | None = None
 
 
 def verify_max_webapp_data(
@@ -77,4 +78,5 @@ def verify_max_webapp_data(
     return MaxWebAppIdentity(
         max_user_id=max_user_id,
         auth_date=auth_date,
+        start_param=values.get("start_param"),
     )

@@ -10,12 +10,15 @@ import pytest
 from app.core.max_webapp_auth import MaxWebAppAuthError, verify_max_webapp_data
 
 
-def signed_init_data(*, user_id: int, auth_date: int, bot_token: str) -> str:
+def signed_init_data(*, user_id: int, auth_date: int, bot_token: str,
+                     start_param: str | None = None) -> str:
     values = {
         "auth_date": str(auth_date),
         "query_id": "query-1",
         "user": json.dumps({"id": user_id}, separators=(",", ":")),
     }
+    if start_param is not None:
+        values["start_param"] = start_param
     check_string = "\n".join(
         f"{key}={value}" for key, value in sorted(values.items())
     )
