@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from starlette.requests import Request
 
 from app.models.audit import AuditLog
+from app.models.support import SupportTicket
 from app.services import activity_audit
 from tests.test_miniapp_store import db_session, seed_linked_student  # noqa: F401
 
@@ -65,3 +66,51 @@ async def test_bot_export_event_is_idempotent_and_keeps_actor(monkeypatch, db_se
     assert row.payload["max_user_id"] == 53364725
     assert await db_session.scalar(select(func.count()).where(AuditLog.id == key)) == 1
     assert student is not None
+
+
+async def test_permanent_ticket_deletion_is_not_retained_as_history(monkeypatch):
+    saved = []
+
+    async def capture(**kwargs):
+        saved.append(kwargs)
+
+    monkeypatch.setattr(activity_audit, "persist_event", capture)
+    monkeypatch.setattr(
+        activity_audit, "get_settings", lambda: SimpleNamespace(app_env="production")
+    )
+    request = Request({"type": "http", "method": "DELETE", "scheme": "https",
+                       "path": "/api/v1/support/tickets/1", "headers": [],
+                       "query_string": b"", "server": ("example.com", 443), "client": None})
+    request.state.audit_skip = True
+    await activity_audit.persist_request(request, request_id=str(uuid4()), status=204, elapsed_ms=1)
+    assert saved == []
+    await activity_audit.persist_request(request, request_id=str(uuid4()), status=403, elapsed_ms=1)
+    assert len(saved) == 1 and saved[0]["payload"]["outcome"] == "denied"
+
+
+async def test_late_successful_request_does_not_recreate_deleted_ticket_history(
+    monkeypatch, db_session,
+):
+    monkeypatch.setattr(
+        "app.db.session.AsyncSessionLocal",
+        async_sessionmaker(db_session.bind, expire_on_commit=False),
+    )
+    ticket = SupportTicket(request_id=uuid4(), max_user_id=77, role="parent",
+                           first_name="Анна", last_name="Иванова", message="Проблема",
+                           source="miniapp")
+    db_session.add(ticket)
+    await db_session.commit()
+    payload = {"path": f"/api/v1/support/tickets/{ticket.id}/replies", "http_status": 202}
+    key = uuid4()
+    await activity_audit.persist_event(action="activity.request", event_id=key, payload=payload)
+    audit = await db_session.get(AuditLog, key)
+    assert audit is not None
+    await db_session.delete(audit)
+    await db_session.delete(ticket)
+    await db_session.commit()
+    await activity_audit.persist_event(action="activity.request", payload=payload)
+    assert await db_session.scalar(select(func.count()).select_from(AuditLog)) == 0
+    await activity_audit.persist_event(
+        action="activity.request", payload={**payload, "http_status": 403},
+    )
+    assert await db_session.scalar(select(func.count()).select_from(AuditLog)) == 1

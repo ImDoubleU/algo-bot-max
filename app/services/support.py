@@ -207,16 +207,23 @@ async def bot_event(db: AsyncSession, identity, payload) -> dict:
 
 async def deliver_next_reply(db: AsyncSession, client: MaxApiClient) -> bool:
     now = datetime.now(UTC)
-    reply = await db.scalar(select(SupportReply).where(
+    eligible = (
         SupportReply.status.in_(["queued", "retry"]),
         (SupportReply.attempted_at.is_(None)) |
         (SupportReply.attempted_at < now - timedelta(minutes=2)),
-    ).order_by(SupportReply.created_at, SupportReply.id).limit(1)
-        .with_for_update(skip_locked=True))
+    )
+    # Lock the ticket first, as deletion and reply creation do, to avoid deadlocks.
+    ticket = await db.scalar(select(SupportTicket).join(
+        SupportReply, SupportReply.ticket_id == SupportTicket.id
+    ).where(*eligible).order_by(SupportReply.created_at, SupportReply.id).limit(1)
+        .with_for_update(of=SupportTicket, key_share=True, skip_locked=True))
+    if ticket is None:
+        return False
+    reply = await db.scalar(select(SupportReply).where(
+        SupportReply.ticket_id == ticket.id, *eligible,
+    ).order_by(SupportReply.created_at, SupportReply.id).limit(1).with_for_update())
     if reply is None:
         return False
-    ticket = await db.scalar(select(SupportTicket).where(SupportTicket.id == reply.ticket_id)
-                            .with_for_update())
     reply.attempts += 1
     reply.attempted_at = now
     try:

@@ -5,7 +5,7 @@ import logging
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import NAMESPACE_URL, uuid4, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.config import get_settings, is_local_environment
 from app.models.account import MaxAccount
 from app.models.audit import AuditLog
+from app.models.support import SupportPhoto, SupportTicket
 from app.models.tenant import Tenant
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,8 @@ async def persist_event(
     from app.db.session import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
+        if action == "activity.request" and not await live_support_target(db, payload or {}):
+            return
         if event_id and await db.get(AuditLog, event_id):
             return
         account = await db.scalar(select(MaxAccount).where(MaxAccount.max_user_id == user_id))
@@ -68,7 +71,36 @@ async def persist_event(
                 raise
 
 
+async def live_support_target(db, payload):
+    """Do not recreate ticket history from a request that finishes after deletion."""
+    parts = str(payload.get("path", "")).split("/")
+    status = payload.get("http_status", 0)
+    if not 200 <= status < 400 or len(parts) < 6 or parts[:4] != ["", "api", "v1", "support"]:
+        return True
+    if parts[4] == "tickets" and parts[5].isdigit():
+        ticket_id = int(parts[5])
+    elif parts[4] == "photos":
+        try:
+            photo_id = UUID(parts[5])
+        except ValueError:
+            return True
+        photo = await db.get(SupportPhoto, photo_id)
+        if photo is None:
+            return False
+        if photo.ticket_id is None:
+            return True
+        ticket_id = photo.ticket_id
+    else:
+        return True
+    # Share the ticket lock with deletion until this audit entry has committed.
+    return await db.scalar(select(SupportTicket.id).where(
+        SupportTicket.id == ticket_id
+    ).with_for_update(read=True, key_share=True)) is not None
+
+
 async def persist_request(request, *, request_id, status, elapsed_ms, error_type=None):
+    if status == 204 and getattr(request.state, "audit_skip", False):
+        return
     if is_local_environment(get_settings().app_env):
         return
     path = request.url.path

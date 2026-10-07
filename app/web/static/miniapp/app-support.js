@@ -4,6 +4,7 @@ const supportState = {
   imageUrls: new Map(), openTickets: new Set(), loaded: false,
   focusBefore: null, unsaved: new Map(),
   replyDrafts: new Map(), replyKeys: new Map(),
+  deleting: new Set(), counts: {},
 };
 const SUPPORT_ROLES = { parent: "Родитель", student: "Ученик", staff: "Сотрудник" };
 const SUPPORT_STATUSES = { new: "Новые", in_progress: "В работе", resolved: "Решённые" };
@@ -157,6 +158,8 @@ async function supportLoadImages(ticket, container) {
 }
 
 function supportRenderInbox(counts = {}) {
+  supportState.counts = counts;
+  const badge = qs("#supportNewCount"); badge.textContent = String(counts.new || 0); badge.hidden = !counts.new;
   qs("#supportFilters").innerHTML = [["", "Все"], ...Object.entries(SUPPORT_STATUSES)].map(([status, label]) => `
     <button type="button" class="support-filter ${supportState.filter === status ? "is-active" : ""}"
       data-support-filter="${status}" aria-pressed="${supportState.filter === status}">${label}
@@ -185,6 +188,7 @@ function supportRenderInbox(counts = {}) {
           <button class="primary-action" type="submit" ${(ticket.replies || []).some((r) => r.status !== "sent") ? "disabled" : ""}>Ответить и решить</button>
           <span data-reply-result role="status"></span>
         </form>
+        ${supportState.owner ? `<div class="support-ticket-danger"><button type="button" class="secondary-action is-danger" data-support-delete="${ticket.id}"><i data-lucide="trash-2"></i>Удалить тикет</button></div>` : ""}
       </div>
     </details>`).join("") : '<div class="support-empty">Заявок пока нет</div>';
   qs("#supportPrevious").disabled = supportState.offset === 0;
@@ -212,10 +216,11 @@ function supportRenderInbox(counts = {}) {
       if (text) supportState.replyDrafts.set(ticket.id, text); else supportState.replyDrafts.delete(ticket.id);
     });
   });
+  refreshIcons();
 }
 
 async function supportLoadInbox() {
-  if (!supportState.owner) return;
+  if (!supportState.owner || supportState.deleting.size) return;
   const sequence = ++supportState.sequence;
   qs("#supportInboxStatus").textContent = "Загрузка…";
   try {
@@ -226,13 +231,12 @@ async function supportLoadInbox() {
     supportReleaseImages();
     supportState.items = result.items; supportState.total = result.total; supportState.loaded = true;
     supportRenderInbox(result.counts); qs("#supportInboxStatus").textContent = "";
-    const badge = qs("#supportNewCount"); badge.textContent = String(result.counts.new || 0); badge.hidden = !result.counts.new;
   } catch (error) { if (sequence === supportState.sequence) qs("#supportInboxStatus").textContent = error.message; }
 }
 
 async function supportUpdate(event) {
   event.preventDefault(); const form = event.target; const button = form.querySelector("button");
-  if (button.disabled) return; button.disabled = true;
+  if (button.disabled || supportState.deleting.has(Number(form.dataset.supportUpdate))) return; button.disabled = true;
   try {
     const values = Object.fromEntries(new FormData(form));
     await supportApi(`/tickets/${form.dataset.supportUpdate}`, { method: "PATCH",
@@ -246,7 +250,7 @@ async function supportUpdate(event) {
 async function supportReply(event) {
   event.preventDefault(); const form = event.target; const button = form.querySelector("button");
   const id = Number(form.dataset.supportReply);
-  if (button.disabled) return;
+  if (button.disabled || supportState.deleting.has(id)) return;
   const message = form.elements.reply_message.value.trim();
   if (!message) { form.querySelector("[data-reply-result]").textContent = "Напишите ответ"; return; }
   if (!supportState.replyKeys.has(id)) supportState.replyKeys.set(id, crypto.randomUUID());
@@ -260,6 +264,53 @@ async function supportReply(event) {
   finally { button.disabled = false; form.elements.reply_message.disabled = false; }
 }
 
+async function supportDeleteTicket(id) {
+  if (!supportState.owner || supportState.deleting.size) return;
+  const ticket = supportState.items.find((item) => item.id === id);
+  if (!ticket) return;
+  supportState.deleting.add(id);
+  let controls = [];
+  try {
+    const confirmed = await requestConfirmation({
+      title: `Удалить тикет №${id}?`,
+      message: "Тикет, ответы, фотографии и связанная история будут удалены. Восстановить их нельзя.",
+      confirmLabel: "Удалить полностью", cancelLabel: "Отмена", destructive: true,
+    });
+    if (!confirmed) return;
+    ++supportState.sequence;
+    const row = qs(`[data-ticket="${id}"]`);
+    controls = [...(row?.querySelectorAll("button, input, select, textarea") || [])].map((node) => [node, node.disabled]);
+    controls.forEach(([node]) => { node.disabled = true; });
+    qs("#supportInboxStatus").textContent = "Удаление…";
+    await supportApi(`/tickets/${id}`, {method: "DELETE"});
+    supportState.items = supportState.items.filter((item) => item.id !== id);
+    supportState.total = Math.max(0, supportState.total - 1);
+    supportState.openTickets.delete(id); supportState.unsaved.delete(id);
+    supportState.replyDrafts.delete(id); supportState.replyKeys.delete(id);
+    for (const photoId of ticket.photo_ids || []) {
+      const url = supportState.imageUrls.get(photoId);
+      if (url) {
+        if (qs("#supportImageFull").getAttribute("src") === url) {
+          qs("#supportImageDialog").hidden = true; qs("#supportImageFull").removeAttribute("src");
+        }
+        URL.revokeObjectURL(url); supportState.imageUrls.delete(photoId);
+      }
+    }
+    const counts = {...supportState.counts};
+    counts[ticket.status] = Math.max(0, (counts[ticket.status] || 0) - 1);
+    supportRenderInbox(counts);
+    if (supportState.offset >= supportState.total) supportState.offset = Math.max(0, supportState.offset - 30);
+    if (typeof resetAuditFeeds === "function") resetAuditFeeds();
+    supportState.deleting.delete(id);
+    await supportLoadInbox();
+    qs("#supportRefresh").focus();
+  } catch (error) { qs("#supportInboxStatus").textContent = error.message; }
+  finally {
+    supportState.deleting.delete(id);
+    controls.forEach(([node, disabled]) => { if (node.isConnected) node.disabled = disabled; });
+  }
+}
+
 async function supportLoadContext() {
   if (apiContext.demoMode) return;
   try {
@@ -269,9 +320,10 @@ async function supportLoadContext() {
 }
 
 document.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-support-open], [data-support-close], [data-support-role], [data-support-remove-photo], [data-support-tab], [data-support-filter]");
+  const target = event.target.closest("[data-support-open], [data-support-close], [data-support-role], [data-support-remove-photo], [data-support-tab], [data-support-filter], [data-support-delete]");
   if (!target) return;
   if (target.hasAttribute("data-support-open")) supportOpenForm();
+  if (target.dataset.supportDelete) void supportDeleteTicket(Number(target.dataset.supportDelete));
   if (target.hasAttribute("data-support-close")) supportCloseForm();
   if (target.dataset.supportRole && !supportState.saving) { supportSetRole(target.dataset.supportRole); qs("#supportFormStatus").textContent = ""; supportSaveDraft(); }
   if (target.dataset.supportTab) supportSetTab(target.dataset.supportTab);
