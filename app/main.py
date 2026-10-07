@@ -3,7 +3,9 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.router import api_router
 from app.bot.runtime import APP_VERSION, configure_logging
@@ -27,9 +29,17 @@ async def lifespan(_: FastAPI):
     from app.services.support import notification_loop, notifications_enabled
 
     support_worker = asyncio.create_task(notification_loop()) if notifications_enabled() else None
+    from app.services.activity_audit import bot_audit_loop
+
+    audit_worker = (asyncio.create_task(bot_audit_loop())
+                    if not is_local_environment(settings.app_env) else None)
     try:
         yield
     finally:
+        if audit_worker:
+            audit_worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await audit_worker
         if support_worker:
             support_worker.cancel()
             with suppress(asyncio.CancelledError):
@@ -58,6 +68,13 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.add_middleware(BindingDiagnosticsMiddleware)
+
+    async def audited_http_exception(request, exc):
+        request.state.audit_reason = "request_denied"
+        request.state.audit_detail = exc.detail if isinstance(exc.detail, str) else None
+        return await http_exception_handler(request, exc)
+
+    app.add_exception_handler(StarletteHTTPException, audited_http_exception)
     app.include_router(api_router, prefix=settings.api_v1_prefix)
     app.include_router(web_router)
     app.mount("/miniapp/static", StaticFiles(directory=STATIC_ROOT / "miniapp"), name="miniapp")

@@ -2916,7 +2916,8 @@ document.addEventListener("click", (event) => {
     state.adminTab = adminTab;
     state.adminEntitySearch = "";
     renderAdminPanel();
-    if (adminTab === "history") void loadAdminHistory();
+    if (["history", "audit"].includes(adminTab)) void loadAdminHistory();
+    if (adminTab === "contacts" && !auditFeed("bindings").loaded) void loadAuditFeed("bindings");
   }
 
   if ("retryAdminHistory" in target.dataset) {
@@ -2945,6 +2946,7 @@ document.addEventListener("click", (event) => {
     const page = target.closest(".student-profile-page");
     if (page && ["overview", "data", "access", "finance", "history"].includes(tab)) {
       state.studentProfileTab = tab;
+      if (tab === "history" && !auditFeed(`student:${state.studentProfileId}`).loaded) void loadAuditFeed(`student:${state.studentProfileId}`);
       page.querySelectorAll("[data-profile-panel]").forEach((section) => {
         section.hidden = section.dataset.profilePanel !== tab;
       });

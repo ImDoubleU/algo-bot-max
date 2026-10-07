@@ -325,6 +325,11 @@ function normalizeAdminHistoryEntry(item) {
     status: item.status || "success",
     actorName: item.actor_name || "Система",
     actorMaxUserId: item.actor_max_user_id || null,
+    tenantName: item.tenant_name || "",
+    tenantSlug: item.tenant_slug || "",
+    explanation: item.explanation || "",
+    requestId: item.request_id || "",
+    ipAddress: item.ip_address || "",
     entityType: item.entity_type || "",
     entityId: item.entity_id || "",
     payload: item.payload && typeof item.payload === "object" ? item.payload : {},
@@ -333,40 +338,8 @@ function normalizeAdminHistoryEntry(item) {
 }
 
 async function loadAdminHistory(force = false) {
-  if (
-    state.role !== "admin" ||
-    !state.hasAccess ||
-    !apiContext.maxUserId ||
-    apiContext.demoMode
-  ) return;
-  if (state.adminHistoryLoading || (state.adminHistoryLoaded && !force)) return;
-
-  state.adminHistoryLoading = true;
-  state.adminHistoryError = "";
-  if (state.adminTab === "history") renderAdminPanel();
-  try {
-    const response = await apiFetch(
-      apiUrl("/api/v1/miniapp/admin/history", {
-        max_user_id: apiContext.maxUserId,
-        tenant_slug: apiContext.tenantSlug,
-        kind: "actions",
-        period_days: state.adminHistoryPeriod,
-        limit: 150,
-      }),
-    );
-    if (!response.ok) throw new Error(await parseApiError(response));
-    const result = await response.json();
-    state.adminHistory = Array.isArray(result.entries)
-      ? result.entries.map(normalizeAdminHistoryEntry)
-      : [];
-    state.adminHistoryLoaded = true;
-  } catch (error) {
-    state.adminHistoryError = error.message || "Не удалось загрузить историю";
-    showNotice(state.adminHistoryError, "danger");
-  } finally {
-    state.adminHistoryLoading = false;
-    if (state.adminTab === "history") renderAdminPanel();
-  }
+  const kind = state.adminTab === "audit" ? "audit" : "actions";
+  if (force || !auditFeed(kind).loaded) await loadAuditFeed(kind, force);
 }
 
 async function refreshOrderAndInventoryState() {
@@ -478,6 +451,7 @@ async function switchTenant(tenantSlug) {
   state.studentCreateOpen = false;
   state.studentProfileId = "";
   state.studentMutationSaving = "";
+  resetAuditFeeds();
   state.adminHistory = [];
   state.adminHistoryLoaded = false;
   state.adminHistoryError = "";
@@ -496,7 +470,8 @@ async function switchTenant(tenantSlug) {
     await loadCatalog();
     await loadOpsSummary();
     if (isStaffStudentHistoryView()) await loadAdminStudents();
-    if (state.adminTab === "history") await loadAdminHistory();
+    if (["history", "audit"].includes(state.adminTab)) await loadAdminHistory();
+    if (state.adminTab === "contacts") await loadAuditFeed("bindings");
     state.studentInvitations = new Map();
     state.studentInvitationsLoaded = false;
     state.favorites = new Set();
@@ -632,7 +607,7 @@ async function refreshAllData() {
   if (state.adminStudentsLoaded || isStaffStudentHistoryView()) {
     refreshTasks.push(loadAdminStudents(true));
   }
-  if (state.adminHistoryLoaded || state.adminTab === "history") {
+  if (state.adminHistoryLoaded || ["history", "audit"].includes(state.adminTab)) {
     refreshTasks.push(loadAdminHistory(true));
   }
   const results = await Promise.allSettled(refreshTasks);

@@ -1,5 +1,5 @@
 import json
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
@@ -484,6 +484,7 @@ async def miniapp_feedback_catalog(db: DbSession, identity: MiniAppIdentityDep) 
 
 @router.get("/session", response_model=MiniAppSessionRead)
 async def miniapp_session(
+    request: Request,
     db: DbSession,
     identity: MiniAppIdentityDep,
     max_user_id: Annotated[int, Query(gt=0)],
@@ -494,12 +495,15 @@ async def miniapp_session(
         max_user_id=max_user_id,
         tenant_slug=tenant_slug,
     )
-    return await get_miniapp_session(
+    result = await get_miniapp_session(
         db,
         max_user_id=max_user_id,
         tenant_slug=resolved_tenant,
         discover_tenant=tenant_slug is None,
     )
+    request.state.audit_reason = result.access_reason
+    request.state.audit_tenant_slug = result.tenant_slug
+    return result
 
 
 @router.post(
@@ -1130,9 +1134,20 @@ async def miniapp_admin_history(
     identity: MiniAppIdentityDep,
     max_user_id: Annotated[int, Query(gt=0)],
     tenant_slug: str | None = None,
-    kind: Annotated[str, Query(pattern="^(actions|amocrm)$")] = "actions",
-    period_days: Annotated[int, Query(ge=1, le=365)] = 30,
-    limit: Annotated[int, Query(ge=1, le=300)] = 100,
+    kind: Annotated[str, Query(pattern="^(actions|amocrm|bindings|audit)$")] = "actions",
+    period_days: Annotated[int, Query(ge=1, le=3650)] = 30,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    offset: Annotated[int, Query(ge=0, le=1000000)] = 0,
+    snapshot_at: datetime | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    category: Annotated[str | None, Query(max_length=80)] = None,
+    outcome: Annotated[
+        str | None, Query(pattern="^(success|partial|error|denied|pending)$")
+    ] = None,
+    actor_max_user_id: Annotated[int | None, Query(gt=0)] = None,
+    q: Annotated[str | None, Query(max_length=120)] = None,
+    all_tenants: bool = False,
 ) -> MiniAppAdminHistoryRead:
     resolved_tenant = _authorized_tenant_slug(
         identity,
@@ -1147,6 +1162,32 @@ async def miniapp_admin_history(
             kind=kind,
             period_days=period_days,
             limit=limit,
+            offset=offset, snapshot_at=snapshot_at, date_from=date_from, date_to=date_to,
+            category=category, outcome=outcome, actor_max_user_id=actor_max_user_id,
+            q=q, all_tenants=all_tenants,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/students/{student_id}/actions", response_model=MiniAppAdminHistoryRead)
+async def miniapp_student_actions(
+    db: DbSession, identity: MiniAppIdentityDep, student_id: UUID,
+    max_user_id: Annotated[int, Query(gt=0)], tenant_slug: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    offset: Annotated[int, Query(ge=0, le=1000000)] = 0,
+    snapshot_at: datetime | None = None,
+) -> MiniAppAdminHistoryRead:
+    from app.services.audit_history import history_page
+
+    resolved_tenant = _authorized_tenant_slug(
+        identity, max_user_id=max_user_id, tenant_slug=tenant_slug,
+    )
+    try:
+        return await history_page(
+            db, max_user_id=max_user_id, tenant_slug=resolved_tenant,
+            student_id=student_id, limit=limit, offset=offset,
+            snapshot_at=snapshot_at, period_days=3650,
         )
     except MiniAppStoreError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

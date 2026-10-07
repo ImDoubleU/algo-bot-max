@@ -17,8 +17,9 @@ def binding_request_id() -> str:
 
 class BindingDiagnosticsMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        if not (request.url.path.startswith("/api/v1/access/")
-                or request.url.path == "/api/v1/miniapp/session"):
+        if not request.url.path.startswith(
+            ("/api/v1/access/", "/api/v1/miniapp/", "/api/v1/support/")
+        ):
             return await call_next(request)
         try:
             request_id = str(UUID(request.headers.get("X-Request-ID", "")))
@@ -29,22 +30,45 @@ class BindingDiagnosticsMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
             response.headers["X-Request-ID"] = request_id
+            from app.services.activity_audit import persist_request
+
+            await persist_request(
+                request,
+                request_id=request_id,
+                status=response.status_code,
+                elapsed_ms=round((time.monotonic() - started) * 1000),
+            )
             logger.info(
                 "binding_request request_id=%s method=%s path=%r "
                 "outcome=%s status=%s elapsed_ms=%s",
-                request_id, request.method, request.url.path,
-                "failed" if response.status_code >= 500 else (
-                    "ok" if response.status_code < 400 else "denied"
-                ),
-                response.status_code, round((time.monotonic() - started) * 1000),
+                request_id,
+                request.method,
+                request.url.path,
+                "failed"
+                if response.status_code >= 500
+                else ("ok" if response.status_code < 400 else "denied"),
+                response.status_code,
+                round((time.monotonic() - started) * 1000),
             )
             return response
         except Exception as exc:
+            from app.services.activity_audit import persist_request
+
+            await persist_request(
+                request,
+                request_id=request_id,
+                status=500,
+                elapsed_ms=round((time.monotonic() - started) * 1000),
+                error_type=type(exc).__name__,
+            )
             # Exception text may contain SQL parameters, URLs or user input.
             logger.error(
                 "binding_request request_id=%s method=%s path=%r "
                 "outcome=failed error_type=%s elapsed_ms=%s",
-                request_id, request.method, request.url.path, type(exc).__name__,
+                request_id,
+                request.method,
+                request.url.path,
+                type(exc).__name__,
                 round((time.monotonic() - started) * 1000),
             )
             raise

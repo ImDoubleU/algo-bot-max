@@ -37,6 +37,11 @@ class WebhookInbox:
                 "CREATE INDEX IF NOT EXISTS webhook_pending "
                 "ON webhook_inbox (status, max_user_id, created_at)"
             )
+            columns = {row[1] for row in db.execute("PRAGMA table_info(webhook_inbox)")}
+            if "audit_exported" not in columns:
+                db.execute(
+                    "ALTER TABLE webhook_inbox ADD COLUMN audit_exported INTEGER NOT NULL DEFAULT 0"
+                )
         if os.name != "nt":
             path.chmod(0o600)
 
@@ -67,7 +72,8 @@ class WebhookInbox:
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             db.execute(
-                "DELETE FROM webhook_inbox WHERE status IN ('done', 'failed') AND created_at < ?",
+                "DELETE FROM webhook_inbox WHERE status IN ('done', 'failed') "
+                "AND audit_exported = 1 AND created_at < ?",
                 (now - RETENTION_SECONDS,),
             )
             if db.execute("SELECT 1 FROM webhook_inbox WHERE event_id=?", (event_id,)).fetchone():
@@ -92,7 +98,8 @@ class WebhookInbox:
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             db.execute(
-                "DELETE FROM webhook_inbox WHERE status IN ('done', 'failed') AND created_at < ?",
+                "DELETE FROM webhook_inbox WHERE status IN ('done', 'failed') "
+                "AND audit_exported = 1 AND created_at < ?",
                 (now - RETENTION_SECONDS,),
             )
             # A worker that crashed on its final attempt still needs safe finalization.

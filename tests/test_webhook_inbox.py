@@ -147,6 +147,14 @@ def test_old_accepted_backlog_survives_retention_until_processed(tmp_path, monke
     store.finish(claimed)
     assert store.claim() is None
     with sqlite3.connect(store.path) as db:
+        assert db.execute("SELECT count(*) FROM webhook_inbox").fetchone()[0] == 1
+    from app.services.activity_audit import inbox_metadata, mark_exported
+
+    assert len(inbox_metadata(store.path)) == 1
+    mark_exported(store.path, claimed["event_id"])
+    assert inbox_metadata(store.path) == []
+    assert store.claim() is None
+    with sqlite3.connect(store.path) as db:
         assert db.execute("SELECT count(*) FROM webhook_inbox").fetchone()[0] == 0
 
 

@@ -196,6 +196,11 @@ class MiniAppAdminHistoryEntryRead(BaseModel):
     entity_id: str | None = None
     payload: dict[str, object] = Field(default_factory=dict)
     created_at: datetime
+    tenant_name: str | None = None
+    tenant_slug: str | None = None
+    explanation: str | None = None
+    request_id: str | None = None
+    ip_address: str | None = None
 
 
 class MiniAppAdminHistoryRead(BaseModel):
@@ -203,6 +208,11 @@ class MiniAppAdminHistoryRead(BaseModel):
     kind: str
     period_days: int
     entries: list[MiniAppAdminHistoryEntryRead] = Field(default_factory=list)
+    total: int = 0
+    offset: int = 0
+    limit: int = 100
+    has_more: bool = False
+    snapshot_at: datetime | None = None
 
 
 class MiniAppStudentInvitationRead(BaseModel):
