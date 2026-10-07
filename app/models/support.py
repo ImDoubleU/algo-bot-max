@@ -47,3 +47,16 @@ class SupportPhoto(TimestampMixin, Base):
     owner_max_user_id: Mapped[int] = mapped_column(BigInteger, index=True, nullable=False)
     ticket_id: Mapped[int | None] = mapped_column(ForeignKey("support_tickets.id"), index=True)
     content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, deferred=True)
+
+
+class SupportReply(TimestampMixin, Base):
+    __tablename__ = "support_replies"
+
+    id: Mapped[UUID] = uuid_pk()
+    request_id: Mapped[UUID] = mapped_column(unique=True, nullable=False)
+    ticket_id: Mapped[int] = mapped_column(ForeignKey("support_tickets.id"), index=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="queued", nullable=False)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

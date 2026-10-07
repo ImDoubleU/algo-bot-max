@@ -9,8 +9,14 @@ from sqlalchemy.orm import undefer
 from app.api.dependencies import get_miniapp_identity, require_matching_miniapp_identity
 from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
-from app.models.support import SupportPhoto, SupportTicket
-from app.schemas.support import SupportBotEvent, SupportCreate, SupportStatus, SupportUpdate
+from app.models.support import SupportPhoto, SupportReply, SupportTicket
+from app.schemas.support import (
+    SupportBotEvent,
+    SupportCreate,
+    SupportReplyCreate,
+    SupportStatus,
+    SupportUpdate,
+)
 from app.services.product_media import ProductMediaError
 from app.services.staff import configured_superadmin_max_user_id
 from app.services.support import (
@@ -37,7 +43,12 @@ async def verified_identity(
 Identity = Annotated[MiniAppIdentity, Depends(verified_identity)]
 
 
-def public_ticket(ticket: SupportTicket, photo_ids: list) -> dict:
+def public_reply(reply: SupportReply) -> dict:
+    return {"id": str(reply.id), "message": reply.message, "status": reply.status,
+            "created_at": reply.created_at, "sent_at": reply.sent_at}
+
+
+def public_ticket(ticket: SupportTicket, photo_ids: list, replies: list) -> dict:
     return {
         "id": ticket.id, "max_user_id": str(ticket.max_user_id),
         "tenant_slug": ticket.tenant_slug, "role": ticket.role,
@@ -46,6 +57,7 @@ def public_ticket(ticket: SupportTicket, photo_ids: list) -> dict:
         "private_note": ticket.private_note, "created_at": ticket.created_at,
         "updated_at": ticket.updated_at, "photo_ids": [str(p) for p in photo_ids],
         "notification_sent": ticket.notified_at is not None,
+        "replies": [public_reply(reply) for reply in replies],
     }
 
 
@@ -128,8 +140,41 @@ async def inbox(
                               .where(SupportPhoto.ticket_id.in_([t.id for t in tickets])))).all()
     counters = dict((await db.execute(select(SupportTicket.status, func.count())
                                      .group_by(SupportTicket.status))).all())
-    return {"items": [public_ticket(t, [p for tid, p in photos if tid == t.id]) for t in tickets],
+    replies = list((await db.scalars(select(SupportReply).where(
+        SupportReply.ticket_id.in_([t.id for t in tickets])
+    ).order_by(SupportReply.created_at, SupportReply.id))).all())
+    return {"items": [public_ticket(t, [p for tid, p in photos if tid == t.id],
+                                    [r for r in replies if r.ticket_id == t.id]) for t in tickets],
             "total": total, "counts": counters}
+
+
+@router.post("/tickets/{ticket_id}/replies", status_code=202)
+async def reply_to_ticket(ticket_id: int, payload: SupportReplyCreate, db: Db, identity: Identity):
+    require_owner(identity.max_user_id)
+    ticket = await db.scalar(select(SupportTicket).where(SupportTicket.id == ticket_id)
+                             .with_for_update())
+    if ticket is None:
+        raise HTTPException(404, "Заявка не найдена")
+    existing = await db.scalar(select(SupportReply).where(
+        SupportReply.request_id == payload.request_id
+    ))
+    if existing:
+        if existing.ticket_id != ticket_id:
+            raise HTTPException(409, "Этот ответ относится к другой заявке")
+        if existing.message != payload.message:
+            raise HTTPException(409, "Ответ уже создан с другим текстом. Обновите заявку")
+        return public_reply(existing)
+    pending = await db.scalar(select(SupportReply.id).where(
+        SupportReply.ticket_id == ticket_id, SupportReply.status.in_(["queued", "retry"])
+    ).limit(1))
+    if pending:
+        raise HTTPException(409, "Предыдущий ответ ещё отправляется")
+    reply = SupportReply(request_id=payload.request_id, ticket_id=ticket.id,
+                         message=payload.message)
+    db.add(reply)
+    ticket.status = "in_progress"
+    await db.commit()
+    return public_reply(reply)
 
 
 @router.patch("/tickets/{ticket_id}")
