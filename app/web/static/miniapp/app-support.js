@@ -3,6 +3,7 @@ const supportState = {
   items: [], total: 0, offset: 0, filter: "", search: "", sequence: 0,
   imageUrls: new Map(), openTickets: new Set(), loaded: false,
   focusBefore: null, unsaved: new Map(),
+  replyDrafts: new Map(), replyKeys: new Map(),
 };
 const SUPPORT_ROLES = { parent: "Родитель", student: "Ученик", staff: "Сотрудник" };
 const SUPPORT_STATUSES = { new: "Новые", in_progress: "В работе", resolved: "Решённые" };
@@ -175,6 +176,15 @@ function supportRenderInbox(counts = {}) {
           <label>Заметка<textarea name="private_note" class="support-control" rows="2" maxlength="4000">${escapeHtml(ticket.private_note)}</textarea></label>
           <button class="secondary-action" type="submit">Сохранить</button><span data-update-result role="status"></span>
         </form>
+        <div class="support-reply-history">${(ticket.replies || []).map((reply) => `
+          <article class="support-reply"><small>${reply.status === "sent" ? "Отправлен в MAX" : reply.status === "retry" ? "Повторная отправка" : "Ожидает отправки"}</small>
+            <p>${escapeHtml(reply.message)}</p></article>`).join("")}</div>
+        <form data-support-reply="${ticket.id}" class="support-ticket-update">
+          <label>Ответ автору в MAX<textarea name="reply_message" class="support-control" rows="3" maxlength="3500" required ${
+            (ticket.replies || []).some((r) => r.status !== "sent") ? "disabled" : ""}></textarea></label>
+          <button class="primary-action" type="submit" ${(ticket.replies || []).some((r) => r.status !== "sent") ? "disabled" : ""}>Ответить и решить</button>
+          <span data-reply-result role="status"></span>
+        </form>
       </div>
     </details>`).join("") : '<div class="support-empty">Заявок пока нет</div>';
   qs("#supportPrevious").disabled = supportState.offset === 0;
@@ -195,6 +205,12 @@ function supportRenderInbox(counts = {}) {
     const saved = supportState.unsaved.get(ticket.id);
     if (saved) { form.elements.status.value = saved.status; form.elements.private_note.value = saved.private_note; }
     form.addEventListener("input", () => { supportState.unsaved.set(ticket.id, Object.fromEntries(new FormData(form))); });
+    const replyForm = details.querySelector("[data-support-reply]");
+    replyForm.elements.reply_message.value = supportState.replyDrafts.get(ticket.id) || "";
+    replyForm.addEventListener("input", () => {
+      const text = replyForm.elements.reply_message.value;
+      if (text) supportState.replyDrafts.set(ticket.id, text); else supportState.replyDrafts.delete(ticket.id);
+    });
   });
 }
 
@@ -227,6 +243,23 @@ async function supportUpdate(event) {
   finally { button.disabled = false; }
 }
 
+async function supportReply(event) {
+  event.preventDefault(); const form = event.target; const button = form.querySelector("button");
+  const id = Number(form.dataset.supportReply);
+  if (button.disabled) return;
+  const message = form.elements.reply_message.value.trim();
+  if (!message) { form.querySelector("[data-reply-result]").textContent = "Напишите ответ"; return; }
+  if (!supportState.replyKeys.has(id)) supportState.replyKeys.set(id, crypto.randomUUID());
+  button.disabled = true; form.elements.reply_message.disabled = true;
+  try {
+    await supportApi(`/tickets/${id}/replies`, { method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({request_id: supportState.replyKeys.get(id), message}) });
+    supportState.replyKeys.delete(id); supportState.replyDrafts.delete(id);
+    await supportLoadInbox();
+  } catch (error) { form.querySelector("[data-reply-result]").textContent = error.message; }
+  finally { button.disabled = false; form.elements.reply_message.disabled = false; }
+}
+
 async function supportLoadContext() {
   if (apiContext.demoMode) return;
   try {
@@ -249,7 +282,10 @@ document.addEventListener("click", (event) => {
     supportRenderPhotos();
   }
 });
-document.addEventListener("submit", (event) => { if (event.target.matches("[data-support-update]")) void supportUpdate(event); });
+document.addEventListener("submit", (event) => {
+  if (event.target.matches("[data-support-update]")) void supportUpdate(event);
+  if (event.target.matches("[data-support-reply]")) void supportReply(event);
+});
 qs("#supportForm").addEventListener("submit", supportSubmit);
 qs("#supportForm").addEventListener("input", supportSaveDraft);
 qs("#supportFileInput").addEventListener("change", (event) => { supportAddPhotos(event.target.files); event.target.value = ""; });
@@ -277,6 +313,6 @@ document.addEventListener("keydown", (event) => {
 });
 window.setInterval(() => {
   if (supportState.owner && supportState.tab === "inbox" && state.view === "help" && !document.hidden
-    && !supportState.unsaved.size && !qs("#supportInbox").contains(document.activeElement)) void supportLoadInbox();
+    && !supportState.unsaved.size && !supportState.replyDrafts.size && !qs("#supportInbox").contains(document.activeElement)) void supportLoadInbox();
 }, 30000);
 void supportLoadContext();

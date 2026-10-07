@@ -44,6 +44,12 @@ class SupportUpdate(BaseModel):
     private_note: str = Field(default="", max_length=4000)
 
 
+class SupportReplyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    request_id: UUID
+    message: str = Field(min_length=1, max_length=3500)
+
+
 class SupportBotEvent(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     # Identity is taken exclusively from the signed bot token, never from these fields.

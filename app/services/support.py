@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.keyboards import build_miniapp_url, inline_keyboard, miniapp_button
 from app.bot.max_client import MaxApiClient
 from app.core.config import get_settings, is_placeholder
-from app.models.support import SupportDraft, SupportPhoto, SupportTicket
+from app.models.support import SupportDraft, SupportPhoto, SupportReply, SupportTicket
 from app.schemas.support import SupportCreate, clean_name
 from app.services.product_media import (
     ProductMediaError,
@@ -106,8 +106,9 @@ def draft_response(draft: SupportDraft | None) -> dict:
         return {"active": False}
     texts = {
         "role": "Кто сообщает о проблеме?",
-        "first_name": "Напишите своё имя.",
-        "last_name": "Напишите свою фамилию.",
+        "full_name": "Напишите имя и фамилию одним сообщением. Например: Иван Петров.",
+        "first_name": "Напишите имя и фамилию одним сообщением. Например: Иван Петров.",
+        "last_name": "Напишите имя и фамилию одним сообщением. Например: Иван Петров.",
         "message": "Опишите проблему. К сообщению можно прикрепить фотографии.",
         "photos": (
             f"{draft.first_name} {draft.last_name}\n"
@@ -122,6 +123,8 @@ def draft_response(draft: SupportDraft | None) -> dict:
 async def bot_event(db: AsyncSession, identity, payload) -> dict:
     await lock_user(db, identity.max_user_id)
     draft = await db.get(SupportDraft, identity.max_user_id)
+    if draft and draft.stage in {"first_name", "last_name"}:
+        draft.stage = "full_name"
     if payload.action == "start":
         if draft is None:
             draft = SupportDraft(max_user_id=identity.max_user_id, request_id=uuid4(), stage="role")
@@ -147,7 +150,7 @@ async def bot_event(db: AsyncSession, identity, payload) -> dict:
         if payload.role is None:
             raise HTTPException(400, "Выберите роль")
         draft.role = payload.role
-        draft.stage = "first_name"
+        draft.stage = "full_name"
     elif payload.action == "submit":
         if draft.stage != "photos":
             return draft_response(draft)
@@ -159,13 +162,16 @@ async def bot_event(db: AsyncSession, identity, payload) -> dict:
         return {"active": False, "ticket_id": ticket.id,
                 "text": f"Заявка №{ticket.id} отправлена."}
     elif payload.action == "message":
-        if draft.stage in {"first_name", "last_name"}:
+        if draft.stage == "full_name":
             try:
-                name = clean_name(payload.text)
+                parts = payload.text.split()
+                if len(parts) < 2:
+                    raise ValueError("Напишите имя и фамилию одним сообщением")
+                draft.first_name = clean_name(parts[0])
+                draft.last_name = clean_name(" ".join(parts[1:]))
             except ValueError as exc:
                 raise HTTPException(400, str(exc)) from exc
-            setattr(draft, draft.stage, name)
-            draft.stage = "last_name" if draft.stage == "first_name" else "message"
+            draft.stage = "message"
         elif draft.stage == "role":
             return draft_response(draft)
         else:
@@ -199,6 +205,34 @@ async def bot_event(db: AsyncSession, identity, payload) -> dict:
     return draft_response(draft)
 
 
+async def deliver_next_reply(db: AsyncSession, client: MaxApiClient) -> bool:
+    now = datetime.now(UTC)
+    reply = await db.scalar(select(SupportReply).where(
+        SupportReply.status.in_(["queued", "retry"]),
+        (SupportReply.attempted_at.is_(None)) |
+        (SupportReply.attempted_at < now - timedelta(minutes=2)),
+    ).order_by(SupportReply.created_at, SupportReply.id).limit(1)
+        .with_for_update(skip_locked=True))
+    if reply is None:
+        return False
+    ticket = await db.scalar(select(SupportTicket).where(SupportTicket.id == reply.ticket_id)
+                            .with_for_update())
+    reply.attempts += 1
+    reply.attempted_at = now
+    try:
+        await asyncio.to_thread(client.send_message, user_id=ticket.max_user_id,
+                                text=f"Ответ по заявке №{ticket.id}\n\n{reply.message}")
+    except Exception:
+        reply.status = "retry"
+        logger.warning("Support reply delivery failed for reply %s", reply.id)
+    else:
+        reply.status = "sent"
+        reply.sent_at = now
+        ticket.status = "resolved"
+    await db.commit()
+    return True
+
+
 async def notification_loop() -> None:
     from app.db.session import AsyncSessionLocal
 
@@ -209,6 +243,11 @@ async def notification_loop() -> None:
     while True:
         ticket = None
         try:
+            async with AsyncSessionLocal() as reply_db:
+                replied = await deliver_next_reply(reply_db, client)
+            if replied:
+                await asyncio.sleep(1)
+                continue
             async with AsyncSessionLocal() as db:
                 now = datetime.now(UTC)
                 ticket = await db.scalar(select(SupportTicket).where(

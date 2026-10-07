@@ -94,3 +94,46 @@ def test_inbox_escapes_user_text_and_preserves_unsaved_note(feedback_browser):
     assert page.locator('[name="private_note"]').input_value() == "Не потерять заметку"
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     page.close()
+
+
+def test_reply_button_queues_personal_answer_and_shows_delivery_state(feedback_browser):
+    browser, base = feedback_browser
+    page = browser.new_page(viewport={"width": 390, "height": 850})
+    page.route("https://st.max.ru/**", lambda route: route.abort())
+    record = {"id": 7, "role": "parent", "max_user_id": "77", "first_name": "Анна",
+              "last_name": "Иванова", "message": "Не открывается приложение",
+              "source": "bot", "status": "new", "private_note": "", "photo_ids": [],
+              "tenant_slug": "test", "created_at": "2026-10-07T10:00:00Z", "replies": []}
+    sent = []
+
+    def api(route):
+        if route.request.method == "POST":
+            body = route.request.post_data_json
+            sent.append(body)
+            record["status"] = "in_progress"
+            record["replies"] = [{"message": body["message"], "status": "queued"}]
+            payload = {"status": "queued"}
+        else:
+            payload = {"items": [record], "total": 1, "counts": {record["status"]: 1}}
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
+
+    page.route("**/api/v1/support/**", api)
+    page.goto(base + "/miniapp?demo=1&demo_role=teacher&view=help")
+    page.evaluate("supportState.owner = true; "
+                  "document.querySelector('#supportInboxTab').hidden = false")
+    page.locator("#supportInboxTab").click()
+    page.locator(".support-ticket summary").click()
+    page.locator('[name="reply_message"]').fill("Попробуйте открыть приложение снова")
+    page.locator('[data-support-reply] button').click()
+    page.wait_for_function("document.querySelector('.support-reply') !== null")
+    assert sent[0]["message"] == "Попробуйте открыть приложение снова"
+    assert set(sent[0]) == {"message", "request_id"}
+    assert page.locator('[data-support-reply] button').is_disabled()
+    assert "Ожидает отправки" in page.locator(".support-reply").inner_text()
+    record["status"] = "resolved"
+    record["replies"][0]["status"] = "sent"
+    page.locator("#supportRefresh").click()
+    page.wait_for_function("document.querySelector('.support-reply').textContent.includes('Отправлен')")
+    assert page.locator('[data-support-reply] button').is_enabled()
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.close()

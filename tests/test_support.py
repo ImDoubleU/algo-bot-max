@@ -17,8 +17,8 @@ from app.core.miniapp_auth import issue_miniapp_token
 from app.db.session import get_db_session
 from app.main import create_app
 from app.models.base import Base
-from app.models.support import SupportDraft, SupportTicket
-from app.services.support import notification_loop
+from app.models.support import SupportDraft, SupportReply, SupportTicket
+from app.services.support import deliver_next_reply, notification_loop
 
 
 @pytest.fixture
@@ -145,11 +145,13 @@ def event(c, action, **fields):
 def test_bot_form_persists_deduplicates_and_submits(support_client, monkeypatch):
     c, factory = support_client
     assert event(c, "start").json()["stage"] == "role"
-    assert event(c, "role", role="student").json()["stage"] == "first_name"
-    assert event(c, "message", text="Дмитрий", event_id="m1").json()["stage"] == "last_name"
-    assert event(c, "message", text="Дмитрий", event_id="m1").json()["stage"] == "last_name"
-    assert event(c, "start").json()["stage"] == "last_name"  # Resume from database.
-    assert event(c, "message", text="Иванов", event_id="m2").json()["stage"] == "message"
+    name_prompt = event(c, "role", role="student").json()
+    assert name_prompt["stage"] == "full_name"
+    assert "имя и фамилию одним сообщением" in name_prompt["text"]
+    assert event(c, "message", text="Дмитрий", event_id="m0").status_code == 400
+    assert event(c, "start").json()["stage"] == "full_name"
+    assert event(c, "message", text="Дмитрий Иванов", event_id="m1").json()["stage"] == "message"
+    assert event(c, "message", text="Дмитрий Иванов", event_id="m1").json()["stage"] == "message"
 
     async def download(*args, **kwargs):
         return image(), "https://example.com/photo.png"
@@ -254,3 +256,75 @@ def test_notification_only_to_owner_and_failure_is_retried(support_client, monke
     asyncio.run(delivered())
     assert len(calls) == 2
     assert all(call["user_id"] == 4242 for call in calls)
+
+
+def test_personal_reply_access_idempotency_retry_and_resolution(support_client):
+    c, factory = support_client
+    tid = c.post("/api/v1/support/tickets", headers=auth(), json=ticket()).json()["id"]
+    url = f"/api/v1/support/tickets/{tid}/replies"
+    body = {"request_id": str(uuid4()), "message": "Связь восстановлена, попробуйте снова"}
+    assert c.post(url, headers=auth(), json=body).status_code == 403
+    assert c.post(url, json=body).status_code == 401
+    assert c.post(url, headers=auth(4242), json={**body, "max_user_id": 999}).status_code == 422
+    a = c.post(url, headers=auth(4242), json=body)
+    assert a.status_code == 202
+    b = c.post(url, headers=auth(4242), json=body)
+    assert a.json()["id"] == b.json()["id"]
+    assert c.post(url, headers=auth(4242), json={
+        **body, "request_id": str(uuid4()),
+    }).status_code == 409
+    changed = c.post(url, headers=auth(4242), json={**body, "message": "Другой текст"})
+    assert changed.status_code == 409
+    sent = []
+
+    class FakeMax:
+        fail = True
+
+        def send_message(self, **kwargs):
+            sent.append(kwargs)
+            if self.fail:
+                raise RuntimeError("Bot blocked")
+
+    max_client = FakeMax()
+
+    async def delivery():
+        async with factory() as db:
+            assert await deliver_next_reply(db, max_client)
+        async with factory() as db:
+            reply = await db.scalar(select(SupportReply))
+            record = await db.get(SupportTicket, tid)
+            assert reply.status == "retry"
+            assert record.status == "in_progress"
+            reply.attempted_at = datetime.now(UTC) - timedelta(minutes=3)
+            await db.commit()
+        max_client.fail = False
+        async with factory() as db:
+            assert await deliver_next_reply(db, max_client)
+            assert not await deliver_next_reply(db, max_client)
+        async with factory() as db:
+            reply = await db.scalar(select(SupportReply))
+            record = await db.get(SupportTicket, tid)
+            assert reply.status == "sent" and reply.sent_at
+            assert record.status == "resolved"
+            assert reply.attempts == 2
+
+    asyncio.run(delivery())
+    assert len(sent) == 2
+    assert all(item["user_id"] == 77 for item in sent)
+    assert all(body["message"] in item["text"] for item in sent)
+    inbox = c.get("/api/v1/support/tickets", headers=auth(4242)).json()
+    assert inbox["items"][0]["replies"][0]["status"] == "sent"
+
+
+def test_legacy_name_step_resumes_with_combined_prompt(support_client):
+    c, factory = support_client
+
+    async def prepare():
+        async with factory() as db:
+            db.add(SupportDraft(max_user_id=77, request_id=uuid4(), stage="last_name",
+                                role="parent", first_name="Анна"))
+            await db.commit()
+
+    asyncio.run(prepare())
+    assert event(c, "start").json()["stage"] == "full_name"
+    assert event(c, "message", text="Анна Иванова").json()["stage"] == "message"
