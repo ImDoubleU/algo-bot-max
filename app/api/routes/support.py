@@ -28,6 +28,7 @@ from app.services.support import (
     lock_user,
     require_owner,
 )
+from app.services.support_context import ticket_user_contexts
 
 router = APIRouter()
 Db = Annotated[AsyncSession, Depends(get_db_session)]
@@ -49,7 +50,9 @@ def public_reply(reply: SupportReply) -> dict:
             "created_at": reply.created_at, "sent_at": reply.sent_at}
 
 
-def public_ticket(ticket: SupportTicket, photo_ids: list, replies: list) -> dict:
+def public_ticket(
+    ticket: SupportTicket, photo_ids: list, replies: list, user_context: dict,
+) -> dict:
     return {
         "id": ticket.id, "max_user_id": str(ticket.max_user_id),
         "tenant_slug": ticket.tenant_slug, "role": ticket.role,
@@ -59,6 +62,7 @@ def public_ticket(ticket: SupportTicket, photo_ids: list, replies: list) -> dict
         "updated_at": ticket.updated_at, "photo_ids": [str(p) for p in photo_ids],
         "notification_sent": ticket.notified_at is not None,
         "replies": [public_reply(reply) for reply in replies],
+        "user_context": user_context,
     }
 
 
@@ -144,8 +148,10 @@ async def inbox(
     replies = list((await db.scalars(select(SupportReply).where(
         SupportReply.ticket_id.in_([t.id for t in tickets])
     ).order_by(SupportReply.created_at, SupportReply.id))).all())
+    contexts = await ticket_user_contexts(db, tickets)
     return {"items": [public_ticket(t, [p for tid, p in photos if tid == t.id],
-                                    [r for r in replies if r.ticket_id == t.id]) for t in tickets],
+                                    [r for r in replies if r.ticket_id == t.id],
+                                    contexts[t.id]) for t in tickets],
             "total": total, "counts": counters}
 
 
