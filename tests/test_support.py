@@ -16,8 +16,9 @@ from app.core.config import get_settings
 from app.core.miniapp_auth import issue_miniapp_token
 from app.db.session import get_db_session
 from app.main import create_app
+from app.models.audit import AuditLog
 from app.models.base import Base
-from app.models.support import SupportDraft, SupportReply, SupportTicket
+from app.models.support import SupportDraft, SupportPhoto, SupportReply, SupportTicket
 from app.services.support import deliver_next_reply, notification_loop
 
 
@@ -28,6 +29,7 @@ def support_client(monkeypatch):
 
     async def init():
         async with engine.begin() as conn:
+            await conn.exec_driver_sql("PRAGMA foreign_keys=ON")
             await conn.run_sync(Base.metadata.create_all)
 
     asyncio.run(init())
@@ -328,3 +330,78 @@ def test_legacy_name_step_resumes_with_combined_prompt(support_client):
     asyncio.run(prepare())
     assert event(c, "start").json()["stage"] == "full_name"
     assert event(c, "message", text="Анна Иванова").json()["stage"] == "message"
+
+
+@pytest.mark.parametrize("status", ["new", "in_progress", "resolved"])
+def test_owner_can_permanently_delete_ticket_with_photos_replies_and_history(
+    support_client, status, monkeypatch,
+):
+    c, factory = support_client
+    photo_id = c.post("/api/v1/support/photos", headers=auth(),
+                      files={"photo": ("screen.png", image(), "image/png")}).json()["id"]
+    body = ticket(photo_ids=[photo_id])
+    tid = c.post("/api/v1/support/tickets", headers=auth(), json=body).json()["id"]
+    other = c.post("/api/v1/support/tickets", headers=auth(), json=ticket()).json()["id"]
+    pending_photo = c.post("/api/v1/support/photos", headers=auth(),
+                          files={"photo": ("new.png", image(), "image/png")}).json()["id"]
+    url = f"/api/v1/support/tickets/{tid}"
+    flags = []
+
+    async def capture(request, **kwargs):
+        if request.method == "DELETE":
+            flags.append((kwargs["status"], getattr(request.state, "audit_skip", False)))
+
+    monkeypatch.setattr("app.services.activity_audit.persist_request", capture)
+
+    async def prepare():
+        async with factory() as db:
+            row = await db.get(SupportTicket, tid)
+            row.status = status
+            db.add_all([SupportReply(ticket_id=tid, request_id=uuid4(), message="Ответ",
+                                     status=reply_status)
+                        for reply_status in ["sent", "queued", "retry"]])
+            db.add(SupportDraft(max_user_id=77, request_id=row.request_id, stage="photos"))
+            db.add(SupportDraft(max_user_id=88, request_id=uuid4(), stage="message"))
+            paths = [url, url + "/replies", f"/api/v1/support/photos/{photo_id}",
+                     url + "0", f"/api/v1/support/tickets/{other}", "/api/v1/miniapp/session"]
+            db.add_all([AuditLog(action="activity.request", entity_type="activity",
+                                 payload={"path": path}) for path in paths])
+            await db.commit()
+
+    asyncio.run(prepare())
+    assert c.delete(url).status_code == 401
+    assert c.delete(url, headers=auth()).status_code == 403
+    assert c.delete(url, headers=auth(88)).status_code == 403
+    assert c.get("/api/v1/support/tickets", headers=auth(4242)).json()["total"] == 2
+    assert c.delete(url, headers=auth(4242)).status_code == 204
+    assert flags[-1] == (204, True)
+    assert all(not skip for _, skip in flags[:-1])
+    inbox = c.get("/api/v1/support/tickets", headers=auth(4242)).json()
+    assert inbox["total"] == 1 and inbox["items"][0]["id"] == other
+    assert sum(inbox["counts"].values()) == 1
+    assert c.get(f"/api/v1/support/photos/{photo_id}", headers=auth(4242)).status_code == 404
+    assert c.get(f"/api/v1/support/photos/{pending_photo}", headers=auth()).status_code == 200
+    assert c.patch(url, headers=auth(4242), json={"status": "resolved"}).status_code == 404
+    assert c.post(url + "/replies", headers=auth(4242), json={
+        "request_id": str(uuid4()), "message": "Ответ после удаления",
+    }).status_code == 404
+    assert c.delete(url, headers=auth(4242)).status_code == 404
+
+    async def gone():
+        async with factory() as db:
+            assert await db.get(SupportTicket, tid) is None
+            assert await db.scalar(select(func.count()).select_from(SupportReply)) == 0
+            assert await db.scalar(select(func.count()).select_from(SupportPhoto)) == 1
+            assert await db.get(SupportDraft, 77) is None
+            assert await db.get(SupportDraft, 88) is not None
+            paths = [log.payload["path"] for log in await db.scalars(select(AuditLog))]
+            assert set(paths) == {url + "0", f"/api/v1/support/tickets/{other}",
+                                  "/api/v1/miniapp/session"}
+
+            class NoSend:
+                def send_message(self, **kwargs):
+                    pytest.fail("Deleted ticket must not deliver a queued reply")
+
+            assert not await deliver_next_reply(db, NoSend())
+
+    asyncio.run(gone())

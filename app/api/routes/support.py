@@ -1,15 +1,16 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
-from sqlalchemy import func, or_, select
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
 from app.api.dependencies import get_miniapp_identity, require_matching_miniapp_identity
 from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
-from app.models.support import SupportPhoto, SupportReply, SupportTicket
+from app.models.audit import AuditLog
+from app.models.support import SupportDraft, SupportPhoto, SupportReply, SupportTicket
 from app.schemas.support import (
     SupportBotEvent,
     SupportCreate,
@@ -188,6 +189,32 @@ async def update_ticket(ticket_id: int, payload: SupportUpdate, db: Db, identity
     ticket.private_note = payload.private_note
     await db.commit()
     return {"id": ticket.id, "status": ticket.status}
+
+
+@router.delete("/tickets/{ticket_id}", status_code=204)
+async def delete_ticket(ticket_id: int, request: Request, db: Db, identity: Identity):
+    require_owner(identity.max_user_id)
+    ticket = await db.scalar(select(SupportTicket).where(SupportTicket.id == ticket_id)
+                             .with_for_update())
+    if ticket is None:
+        raise HTTPException(404, "Заявка не найдена")
+    photo_ids = list(await db.scalars(select(SupportPhoto.id).where(
+        SupportPhoto.ticket_id == ticket_id
+    )))
+    root = f"/api/v1/support/tickets/{ticket_id}"
+    path = AuditLog.payload["path"].as_string()
+    await db.execute(delete(AuditLog).where(or_(
+        path == root,
+        path.startswith(root + "/", autoescape=True),
+        path.in_([f"/api/v1/support/photos/{photo_id}" for photo_id in photo_ids]),
+        (AuditLog.entity_type == "support_ticket") & (AuditLog.entity_id == str(ticket_id)),
+    )))
+    await db.execute(delete(SupportReply).where(SupportReply.ticket_id == ticket_id))
+    await db.execute(delete(SupportPhoto).where(SupportPhoto.ticket_id == ticket_id))
+    await db.execute(delete(SupportDraft).where(SupportDraft.request_id == ticket.request_id))
+    await db.delete(ticket)
+    await db.commit()
+    request.state.audit_skip = True
 
 
 @router.post("/bot-event")

@@ -19,6 +19,10 @@
 .support-ticket-meta { overflow-wrap:anywhere; }
 .support-ticket-update { display:grid; gap:14px; margin-top:20px; }
 .support-ticket-update button { justify-self:start; }
+.support-ticket-danger { display:flex; justify-content:flex-end; margin-top:22px; padding-top:18px; border-top:1px solid #eee9f3; }
+.support-ticket-danger button { color:#a63838; border-color:#e9bcbc; background:#fff; gap:8px; }
+.support-ticket-danger button:hover { background:#fff4f4; }
+.support-ticket-danger button svg { width:18px; height:18px; }
 .support-ticket-update label, #supportFormFields label { display:grid; gap:8px; font-weight:500; }
 .support-reply { background:#f6f1fc; border-radius:12px; margin-top:16px; padding:14px; }
 .support-reply small { color:#7137bd; }
@@ -60,6 +64,7 @@ textarea.support-control { resize:vertical; }
   .support-ticket summary { flex-wrap:wrap; gap:10px; padding:16px; }
   .support-badge { margin-left:35px; }
   .support-ticket-body { padding:16px; }
+  .support-ticket-danger button { width:100%; justify-content:center; min-height:44px; }
   .support-tab, .support-filter { min-height:44px; padding:10px 12px; font-size:14px; }
   .support-inbox-toolbar { flex-wrap:wrap; }
   #supportFormFields > .primary-action { width:100%; justify-content:center; min-height:48px; }
