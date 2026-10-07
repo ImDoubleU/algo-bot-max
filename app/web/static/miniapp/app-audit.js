@@ -105,8 +105,13 @@ function auditFacts(entry) {
   return facts.slice(0, 12);
 }
 
+function isAuditAccrual(entry) {
+  return ["miniapp_astrocoins.accrued", "miniapp_astrocoins.undone", "astrocoins.birthday_rewarded"].includes(entry.action);
+}
+
 function auditPeople(entry) {
   const p = entry.payload || {};
+  const accrual = isAuditAccrual(entry);
   const students = Array.isArray(p.students) ? p.students : [];
   const role = String(p.actor_role || p.role || "").split(", ").filter(Boolean).map(auditReadable).join(", ");
   const actor = {
@@ -119,7 +124,7 @@ function auditPeople(entry) {
   const additional = [];
   students.forEach((student) => {
     const accounts = Array.isArray(student.accounts) ? student.accounts : [];
-    const childIds = accounts.filter((account) => account.role === "student").map((account) => account.max_user_id);
+    const childIds = [...new Set(accounts.filter((account) => account.role === "student" && (!account.status || account.status === "active")).map((account) => account.max_user_id).filter(Boolean).map(String))];
     const isActor = p.actor_role === "student" && (students.length === 1 || childIds.some((id) => String(id) === String(entry.actorMaxUserId)));
     const person = isActor ? actor : {role: "Ученик", ids: childIds, current: childIds.length > 0};
     Object.assign(person, {name: student.name, studentId: student.id, lmsId: student.lms_id, crmId: student.crm_id});
@@ -129,9 +134,9 @@ function auditPeople(entry) {
       person.ids.push(...person.currentIds);
     }
     person.ids.forEach((id) => representedIds.add(String(id)));
-    accounts.filter((account) => account.role !== "student").forEach((account) => additional.push(account));
+    if (!accrual) accounts.filter((account) => account.role !== "student").forEach((account) => additional.push(account));
     const teacherShown = student.teacher_max_user_id && representedIds.has(String(student.teacher_max_user_id));
-    const context = {group: student.group, teacher: teacherShown ? "" : student.teacher, teacherId: teacherShown ? null : student.teacher_max_user_id};
+    const context = {group: student.group, teacher: teacherShown || accrual ? "" : student.teacher, teacherId: teacherShown || accrual ? null : student.teacher_max_user_id};
     if (context.group || context.teacher) contexts.set(JSON.stringify(context), context);
   });
   additional.forEach((account) => {
@@ -143,13 +148,31 @@ function auditPeople(entry) {
   return {people, contexts: [...contexts.values()]};
 }
 
+function auditPersonNameMarkup(person, entry) {
+  return person.studentId ? `<button type="button" class="audit-student-link" data-audit-student="${escapeHtml(person.studentId)}" data-audit-tenant="${escapeHtml(entry.tenantSlug || "")}">${escapeHtml(person.name)}<i data-lucide="arrow-up-right"></i></button>` : `<strong>${escapeHtml(person.name)}</strong>`;
+}
+
 function auditPersonMarkup(person, entry) {
-  const name = person.studentId ? `<button type="button" class="audit-student-link" data-audit-student="${escapeHtml(person.studentId)}" data-audit-tenant="${escapeHtml(entry.tenantSlug || "")}">${escapeHtml(person.name)}<i data-lucide="arrow-up-right"></i></button>` : `<strong>${escapeHtml(person.name)}</strong>`;
+  const name = auditPersonNameMarkup(person, entry);
   return `<div class="audit-person" ${person.actor ? 'data-audit-actor' : ""}>
     <span class="audit-person-role">${escapeHtml(person.role)}</span>
     <div class="audit-person-name">${name}${person.current ? '<small class="audit-current" title="Текущая привязка; состояние на момент события может отличаться">сейчас</small>' : ""}</div>
     <div class="audit-person-ids">${person.ids.map((id) => `<code>MAX ID ${escapeHtml(id)}${person.currentIds?.includes(id) ? ' <small class="audit-current">сейчас</small>' : ""}</code>`).join("")}${person.lmsId ? `<code>LMS ID ${escapeHtml(person.lmsId)}</code>` : ""}</div>
   </div>`;
+}
+
+function auditParticipantsMarkup(model, entry) {
+  if (!isAuditAccrual(entry)) return `<div class="audit-people">${model.people.map((person) => auditPersonMarkup(person, entry)).join("")}</div>`;
+  const actor = model.people.find((person) => person.actor);
+  const authorLabel = entry.action === "miniapp_astrocoins.undone" ? "Отменил" : entry.action === "astrocoins.birthday_rewarded" ? "Автор" : "Начислил";
+  const author = actor ? `<div class="audit-accrual-author" data-audit-actor><span>${authorLabel}</span>${auditPersonNameMarkup(actor, entry)}${actor.ids.length ? `<code>MAX ID ${escapeHtml(actor.ids.join(", "))}</code>` : ""}</div>` : "";
+  const pupils = model.people.filter((person) => person.studentId);
+  const table = pupils.length ? `<table class="audit-accrual-table" aria-label="Ученики начисления">
+    <colgroup><col /><col class="audit-accrual-max-column" /><col class="audit-accrual-lms-column" /></colgroup>
+    <thead><tr><th scope="col">Ученик</th><th scope="col" title="Текущая привязка ученика">MAX ID</th><th scope="col">LMS ID</th></tr></thead>
+    <tbody>${pupils.map((person) => `<tr><th scope="row">${auditPersonNameMarkup(person, entry)}</th><td>${person.ids.length ? person.ids.map((id) => `<code>${escapeHtml(id)}</code>`).join("") : "—"}</td><td>${escapeHtml(String(person.lmsId || "—"))}</td></tr>`).join("")}</tbody>
+  </table>` : "";
+  return `${author}${table}`;
 }
 
 function auditEventTitle(entry) {
@@ -173,7 +196,7 @@ function auditCards(rows, full = false) {
       <span class="audit-icon" role="img" aria-label="${status[1]}"><i data-lucide="${status[0]}" aria-hidden="true"></i></span>
       <div class="audit-copy">
         <div class="audit-heading"><div class="audit-title"><strong>${escapeHtml(auditEventTitle(entry))}</strong>${entry.status !== "success" ? `<span class="audit-badge">${status[1]}</span>` : ""}</div><time datetime="${escapeHtml(entry.createdAt)}" title="Время Москвы">${escapeHtml(auditTime(entry.createdAt))}</time></div>
-        <div class="audit-people">${model.people.map((person) => auditPersonMarkup(person, entry)).join("")}</div>
+        ${auditParticipantsMarkup(model, entry)}
         ${model.contexts.length ? `<div class="audit-context">${model.contexts.map((context) => `<div>${context.group ? `<span><small>Группа</small>${escapeHtml(context.group)}</span>` : ""}${context.teacher ? `<span><small>Преподаватель</small>${escapeHtml(context.teacher)}${context.teacherId ? ` <code>MAX ID ${escapeHtml(context.teacherId)}</code>` : ""}</span>` : ""}</div>`).join("")}</div>` : ""}
         ${entry.explanation ? `<p class="audit-explanation">${escapeHtml(entry.explanation)}</p>` : ""}
         ${facts.length ? `<dl class="audit-facts">${facts.map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>` : ""}

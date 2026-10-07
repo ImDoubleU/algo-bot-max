@@ -1,4 +1,6 @@
 # ruff: noqa: F811
+import pytest
+
 from tests.test_binding_ui import binding_browser  # noqa: F401
 
 
@@ -112,4 +114,64 @@ def test_audit_pagination_uses_snapshot_and_keeps_all_pages(binding_browser):
         "snapshot": "2026-10-07T10:00:00Z",
         "fullScope": "true",
     }
+    page.close()
+
+
+@pytest.mark.parametrize("width", [320, 390, 1440])
+@pytest.mark.parametrize("action", [
+    "miniapp_astrocoins.accrued", "miniapp_astrocoins.undone", "astrocoins.birthday_rewarded",
+])
+def test_coin_history_shows_author_and_only_pupils_with_two_id_columns(
+    binding_browser, width, action,
+):
+    browser, base = binding_browser
+    page = browser.new_page(viewport={"width": width, "height": 950})
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.route("https://st.max.ru/**", lambda route: route.abort())
+    page.goto(base + "/miniapp?demo=1", wait_until="networkidle")
+    page.evaluate("""action => {
+      state.role = 'admin'; state.adminTab = 'history'; state.staffRoles = ['admin'];
+      auditFeed('actions').rows = [normalizeAdminHistoryEntry({id: 'coin-event', action,
+        title: 'Астрокоины начислены', actor_name: 'Победов Никита', actor_max_user_id: 100,
+        tenant_slug: apiContext.tenantSlug, created_at: '2026-10-07T10:00:00Z',
+        payload: {actor_role: 'teacher', amount: 50, total_astrocoins: 150, students: [
+          {id: 'child-one', name: 'Иванов Александр', lms_id: 'ST-001', group: 'Python',
+            teacher: 'Другой преподаватель', teacher_max_user_id: 987,
+            accounts: [{role: 'student', max_user_id: 111},
+              {role: 'student', max_user_id: 111},
+              {role: 'student', max_user_id: 333, status: 'revoked'},
+              {role: 'parent', max_user_id: 222, name: 'Иванова Мария'}]},
+          {id: 'child-two', name: 'Петров Дмитрий', lms_id: 'ST-002', group: 'Python',
+            accounts: [{role: 'parent', max_user_id: 222, name: 'Иванова Мария'}]},
+          {id: 'child-three', name: '<img src=x onerror=alert(1)>', accounts: []},
+        ]}})];
+      renderAdminPanel(); setView('admin');
+      openAdminStudentProfile = async (id) => { window.openedStudent = id; };
+    }""", action)
+    event = page.locator(".audit-event")
+    author = event.locator(".audit-accrual-author")
+    assert author.is_visible()
+    assert author.inner_text().count("Победов Никита") == 1
+    assert "MAX ID 100" in author.inner_text()
+    if action.endswith("undone"):
+        assert "Отменил" in author.inner_text()
+    table = event.locator(".audit-accrual-table")
+    assert table.locator("thead th").all_text_contents() == ["Ученик", "MAX ID", "LMS ID"]
+    rows = table.locator("tbody tr")
+    assert rows.count() == 3
+    assert rows.nth(0).locator("td").all_text_contents() == ["111", "ST-001"]
+    assert rows.nth(1).locator("td").all_text_contents() == ["—", "ST-002"]
+    assert rows.nth(2).locator("td").all_text_contents() == ["—", "—"]
+    text = event.inner_text()
+    assert "Иванова Мария" not in text and "222" not in text and "333" not in text
+    assert "Другой преподаватель" not in text
+    assert not event.locator("img").count()
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    table.locator('[data-audit-student="child-two"]').click()
+    assert page.evaluate("window.openedStudent") == "child-two"
+    if action.endswith("accrued") and width in (390, 1440):
+        event.scroll_into_view_if_needed()
+        page.screenshot(path=f".deploy_tmp/coin-history-{width}.png")
+    assert not errors, errors
     page.close()
