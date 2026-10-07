@@ -40,3 +40,16 @@ async def test_parent_event_includes_child_group_teacher_and_account_ids(db_sess
     assert child["teacher_max_user_id"] == 53364725
     assert child["accounts"][0]["role"] == "parent"
     assert child["accounts"][0]["max_user_id"] == 53364725
+
+
+async def test_missing_max_parent_name_uses_recorded_family_connection(db_session):
+    student = await seed_linked_student(db_session)
+    account = await grant_store_admin(db_session, tenant_id=student.tenant_id)
+    account.display_name = None
+    account.username = None
+    await db_session.commit()
+    history = await history_page(
+        db_session, max_user_id=53364725, tenant_slug="nizhniy-novgorod-partner-a", kind="bindings"
+    )
+    event = next(e for e in history.entries if e.action == "contact_access_links.created")
+    assert event.payload["students"][0]["accounts"][0]["name"] == "Мама Алисы"

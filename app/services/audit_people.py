@@ -3,9 +3,10 @@
 from collections import defaultdict
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import String, cast, func, select
 
 from app.models.account import MaxAccount, StaffRoleAssignment
+from app.models.audit import AuditLog
 from app.models.enums import AssignmentStatus, StaffRole, StudentAccessStatus
 from app.models.student import Contact, ContactStudentLink, Student, StudentAccessLink
 from app.services.access import hash_contact_id
@@ -90,6 +91,25 @@ async def history_people(db, rows, *, tenant_id, all_tenants=False, student_id=N
         ).all()
     }
     current_links = defaultdict(list)
+    parent_names = defaultdict(set)
+    for parent_id, child_id, parent_name in (
+        await db.execute(
+            select(AuditLog.actor_account_id, ContactStudentLink.student_id, Contact.display_name)
+            .join(
+                Contact,
+                func.replace(cast(Contact.id, String), "-", "")
+                == func.replace(AuditLog.entity_id, "-", ""),
+            )
+            .join(ContactStudentLink, ContactStudentLink.contact_id == Contact.id)
+            .where(
+                AuditLog.action == "contact_access_links.created",
+                ContactStudentLink.student_id.in_(students),
+                Contact.tenant_id.in_(tenant_ids),
+            )
+        )
+    ).all():
+        if parent_name:
+            parent_names[parent_id, child_id].add(parent_name)
     for link, account in (
         await db.execute(
             select(StudentAccessLink, MaxAccount)
@@ -109,7 +129,12 @@ async def history_people(db, rows, *, tenant_id, all_tenants=False, student_id=N
                 "role": link.role.value,
                 "name": students[link.student_id].display_name
                 if link.role.value == "student"
-                else account_name(account),
+                else account_name(account)
+                or (
+                    next(iter(parent_names[account.id, link.student_id]))
+                    if len(parent_names[account.id, link.student_id]) == 1
+                    else ""
+                ),
                 "max_user_id": account.max_user_id,
             }
         )
