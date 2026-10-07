@@ -1,0 +1,197 @@
+"""Batch-resolve people for a history page without changing historical audit data."""
+
+from collections import defaultdict
+from uuid import UUID
+
+from sqlalchemy import select
+
+from app.models.account import MaxAccount, StaffRoleAssignment
+from app.models.enums import AssignmentStatus, StaffRole, StudentAccessStatus
+from app.models.student import Contact, ContactStudentLink, Student, StudentAccessLink
+from app.services.access import hash_contact_id
+from app.services.staff import staff_names_match, teacher_staff_name
+
+
+def identifier(value):
+    try:
+        return UUID(str(value))
+    except (ValueError, TypeError):
+        return None
+
+
+def account_name(account):
+    return " ".join(filter(None, [account.staff_last_name, account.staff_first_name])) or (
+        account.display_name or account.username or ""
+    )
+
+
+async def history_people(db, rows, *, tenant_id, all_tenants=False, student_id=None):
+    tenant_ids = {audit.tenant_id for audit, _, _ in rows if audit.tenant_id}
+    if not all_tenants:
+        tenant_ids = {tenant_id}
+    student_ids, contact_ids, hashes, actor_ids = set(), set(), set(), set()
+    event_students, event_contacts = defaultdict(set), {}
+    for audit, actor, _ in rows:
+        p = audit.payload or {}
+        values = [p.get("student_id"), *(p.get("student_ids") or [])]
+        if audit.entity_type.startswith("student"):
+            values.append(audit.entity_id)
+        for value in values:
+            if key := identifier(value):
+                student_ids.add(key)
+                event_students[audit.id].add(key)
+        if audit.entity_type.startswith("contact") and (key := identifier(audit.entity_id)):
+            contact_ids.add(key)
+            event_contacts[audit.id] = key
+        if p.get("contact_id_hash"):
+            hashes.add(p["contact_id_hash"])
+        if actor:
+            actor_ids.add(actor.id)
+
+    contacts = {}
+    if contact_ids or hashes:
+        query = select(Contact).where(Contact.tenant_id.in_(tenant_ids))
+        if not hashes:
+            query = query.where(Contact.id.in_(contact_ids))
+        for contact in (await db.scalars(query)).all():
+            if contact.id in contact_ids or hash_contact_id(contact.external_contact_id) in hashes:
+                contacts[contact.id] = contact
+        hash_contacts = {
+            (c.tenant_id, hash_contact_id(c.external_contact_id)): c.id for c in contacts.values()
+        }
+        for audit, _, _ in rows:
+            key = hash_contacts.get((audit.tenant_id, (audit.payload or {}).get("contact_id_hash")))
+            if key:
+                event_contacts[audit.id] = key
+        links = (
+            await db.execute(
+                select(ContactStudentLink.contact_id, ContactStudentLink.student_id).where(
+                    ContactStudentLink.contact_id.in_(contacts),
+                    ContactStudentLink.tenant_id.in_(tenant_ids),
+                )
+            )
+        ).all()
+        for audit, _, _ in rows:
+            for contact_key, student_key in links:
+                if event_contacts.get(audit.id) == contact_key:
+                    event_students[audit.id].add(student_key)
+                    student_ids.add(student_key)
+
+    students = {
+        s.id: s
+        for s in (
+            await db.scalars(
+                select(Student).where(
+                    Student.id.in_(student_ids),
+                    Student.tenant_id.in_(tenant_ids),
+                    *([Student.id == student_id] if student_id else []),
+                )
+            )
+        ).all()
+    }
+    current_links = defaultdict(list)
+    for link, account in (
+        await db.execute(
+            select(StudentAccessLink, MaxAccount)
+            .join(
+                MaxAccount,
+                MaxAccount.id == StudentAccessLink.account_id,
+            )
+            .where(
+                StudentAccessLink.student_id.in_(students),
+                StudentAccessLink.tenant_id.in_(tenant_ids),
+                StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+            )
+        )
+    ).all():
+        current_links[link.student_id].append(
+            {
+                "role": link.role.value,
+                "name": students[link.student_id].display_name
+                if link.role.value == "student"
+                else account_name(account),
+                "max_user_id": account.max_user_id,
+            }
+        )
+    roles = defaultdict(list)
+    teachers = (
+        await db.execute(
+            select(MaxAccount, StaffRoleAssignment.tenant_id)
+            .join(
+                StaffRoleAssignment,
+                StaffRoleAssignment.account_id == MaxAccount.id,
+            )
+            .where(
+                StaffRoleAssignment.tenant_id.in_(tenant_ids),
+                StaffRoleAssignment.role == StaffRole.TEACHER,
+                StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+            )
+        )
+    ).all()
+    teacher_ids = {}
+    for s in students.values():
+        matches = {
+            teacher.max_user_id
+            for teacher, school_id in teachers
+            if school_id == s.tenant_id
+            and s.teacher_name
+            and staff_names_match(teacher_staff_name(teacher), s.teacher_name)
+        }
+        teacher_ids[s.id] = next(iter(matches)) if len(matches) == 1 else None
+    for account_id, role in (
+        await db.execute(
+            select(
+                StaffRoleAssignment.account_id,
+                StaffRoleAssignment.role,
+            ).where(
+                StaffRoleAssignment.account_id.in_(actor_ids),
+                StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+                (
+                    StaffRoleAssignment.tenant_id.in_(tenant_ids)
+                    | StaffRoleAssignment.tenant_id.is_(None)
+                ),
+            )
+        )
+    ).all():
+        roles[account_id].append(role.value)
+
+    result = {}
+    for audit, actor, _ in rows:
+        p = audit.payload or {}
+        role = p.get("role") or (
+            "student"
+            if audit.action.startswith("student_qr_access")
+            else "parent"
+            if audit.action.startswith("contact_access")
+            else ", ".join(sorted(set(roles[actor.id])))
+            if actor
+            else ""
+        )
+        subject_students = [
+            students[key] for key in sorted(event_students[audit.id], key=str) if key in students
+        ]
+        contact = contacts.get(event_contacts.get(audit.id))
+        name = account_name(actor) if actor else ""
+        if role == "student" and len(subject_students) == 1:
+            name = subject_students[0].display_name
+        elif role == "parent" and contact and contact.display_name:
+            name = contact.display_name
+        result[audit.id] = {
+            "actor_name": name,
+            "actor_role": role,
+            "students": [
+                {
+                    "id": str(s.id),
+                    "name": s.display_name,
+                    "tenant_id": str(s.tenant_id),
+                    "lms_id": s.lms_student_id,
+                    "crm_id": s.crm_deal_id,
+                    "group": s.group_name,
+                    "teacher": s.teacher_name,
+                    "teacher_max_user_id": teacher_ids[s.id],
+                    "accounts": current_links[s.id],
+                }
+                for s in subject_students
+            ],
+        }
+    return result

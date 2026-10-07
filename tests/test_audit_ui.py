@@ -45,6 +45,33 @@ def test_superadmin_audit_and_mobile_cards(binding_browser):
     page.close()
 
 
+def test_student_context_is_compact_and_opens_profile(binding_browser):
+    browser, base = binding_browser
+    page = browser.new_page(viewport={"width": 390, "height": 850})
+    page.route("https://st.max.ru/**", lambda route: route.abort())
+    page.goto(base + "/miniapp?demo=1", wait_until="networkidle")
+    page.evaluate("""() => {
+      state.role = 'admin'; state.adminTab = 'history'; state.staffRoles = ['admin'];
+      auditFeed('actions').rows = [normalizeAdminHistoryEntry({id: 'event',
+        title: 'Ученик подключился', actor_name: 'Иванов Иван', actor_max_user_id: 123,
+        created_at: '2026-10-07T10:00:00Z', tenant_slug: apiContext.tenantSlug,
+        payload: {actor_role: 'student', students: [{id: 'student-id', name: 'Иванов Иван',
+          group: 'Python, суббота 12:00', teacher: 'Олейник Дмитрий', lms_id: 'ST-1',
+          accounts: [{role: 'parent', name: 'Иванова Мария', max_user_id: 456}]}]}})];
+      renderAdminPanel();
+      openAdminStudentProfile = async (id) => { window.openedStudent = id; };
+      document.querySelector('[data-audit-student]').click();
+    }""")
+    assert page.evaluate("window.openedStudent") == "student-id"
+    assert "MAX ID 456" in page.locator(".audit-student").inner_text()
+    assert (
+        page.evaluate("parseInt(getComputedStyle(document.querySelector('.audit-panel')).padding)")
+        > 0
+    )
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.close()
+
+
 def test_audit_pagination_uses_snapshot_and_keeps_all_pages(binding_browser):
     browser, base = binding_browser
     page = browser.new_page()
@@ -68,6 +95,11 @@ def test_audit_pagination_uses_snapshot_and_keeps_all_pages(binding_browser):
         secondOffset: calls[1].offset, snapshot: calls[1].snapshot_at,
         fullScope: calls[0].all_tenants};
     }""")
-    assert result == {"count": 3, "more": False, "secondOffset": "2",
-                      "snapshot": "2026-10-07T10:00:00Z", "fullScope": "true"}
+    assert result == {
+        "count": 3,
+        "more": False,
+        "secondOffset": "2",
+        "snapshot": "2026-10-07T10:00:00Z",
+        "fullScope": "true",
+    }
     page.close()
