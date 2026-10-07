@@ -7,6 +7,8 @@
 .audit-filters label { display: flex; flex-direction: column; gap: 7px; min-width: 0; font-size: 13px; color: var(--muted); }
 .audit-filters input, .audit-filters select { width: 100%; min-height: 44px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fff; color: var(--ink); font: inherit; }
 .audit-filters .audit-search { grid-column: auto; }
+.audit-filter-toggle { display: none; }
+.audit-filter-extra { display: contents; }
 .audit-filters .audit-checkbox { flex-direction: row; align-items: center; align-self: end; min-height: 44px; }
 .audit-checkbox input { width: 20px; min-height: 20px; accent-color: #7135c8; }
 .audit-count { margin: 12px 0; color: var(--muted); font-size: 12px; }
@@ -61,6 +63,9 @@
   .audit-panel { padding: 12px; }
   .audit-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .audit-filters .audit-search, .audit-filters .audit-checkbox { grid-column: span 2; }
+  .audit-filter-toggle { display: flex; align-items: center; justify-content: center; gap: 8px; grid-column: span 2; border-color: var(--line); background: #fff; }
+  .audit-filter-extra { display: none; }
+  .audit-filter-extra.is-open { display: grid; grid-column: span 2; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .audit-toolbar { align-items: flex-start; }
   .audit-toolbar h3 { font-size: 19px; }
   .audit-event { grid-template-columns: 30px minmax(0, 1fr); gap: 10px; padding: 14px 12px; }

@@ -65,6 +65,15 @@ def test_student_context_is_compact_and_opens_profile(binding_browser):
     assert page.evaluate("window.openedStudent") == "student-id"
     assert "MAX ID 456" in page.locator(".audit-student").inner_text()
     assert (
+        page.evaluate("getComputedStyle(document.querySelector('.audit-filter-extra')).display")
+        == "none"
+    )
+    page.evaluate("document.querySelector('[data-audit-toggle]').click()")
+    assert (
+        page.evaluate("getComputedStyle(document.querySelector('.audit-filter-extra')).display")
+        == "grid"
+    )
+    assert (
         page.evaluate("parseInt(getComputedStyle(document.querySelector('.audit-panel')).padding)")
         > 0
     )

@@ -147,11 +147,14 @@ function auditPanel(kind, compact = false) {
     <div class="audit-toolbar"><h3>${title}</h3><button class="secondary-action" type="button" data-audit-refresh="${escapeHtml(kind)}" ${feed.loading ? "disabled" : ""}><i data-lucide="refresh-cw"></i>Обновить</button></div>
     ${!compact ? `<div class="audit-filters">
       <label class="audit-search"><span>Поиск</span><input type="search" maxlength="120" ${attrs("q")} value="${escapeHtml(f.q)}" placeholder="Имя, событие, MAX ID" /></label>
+      <button type="button" class="audit-filter-toggle secondary-action" data-audit-toggle="${escapeHtml(kind)}" aria-expanded="${Boolean(feed.filtersOpen)}"><i data-lucide="sliders-horizontal"></i>Фильтры</button>
+      <div class="audit-filter-extra ${feed.filtersOpen ? "is-open" : ""}">
       <label><span>Результат</span><select ${attrs("outcome")}><option value="">Все результаты</option>${["success", "denied", "error", "partial", "pending"].map((value) => `<option value="${value}" ${f.outcome === value ? "selected" : ""}>${auditReadable(value)}</option>`).join("")}</select></label>
       <label><span>Раздел</span><select ${attrs("category")}><option value="">Все разделы</option>${AUDIT_CATEGORY_LABELS.map((value) => `<option ${f.category === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}</select></label>
       <label><span>Период</span><select ${attrs("days")}>${[[1, "24 часа"], [7, "7 дней"], [30, "30 дней"], [90, "3 месяца"], [365, "Год"], [3650, "Вся история"]].map(([value, label]) => `<option value="${value}" ${String(value) === f.days ? "selected" : ""}>${label}</option>`).join("")}</select></label>
       <label><span>С даты</span><input type="date" ${attrs("from")} value="${escapeHtml(f.from)}" /></label><label><span>По дату</span><input type="date" ${attrs("to")} value="${escapeHtml(f.to)}" /></label>
       ${full ? `<label><span>MAX ID</span><input inputmode="numeric" maxlength="18" ${attrs("actor")} value="${escapeHtml(f.actor)}" /></label><label class="audit-checkbox"><input type="checkbox" ${attrs("allTenants")} ${f.allTenants ? "checked" : ""} /><span>Все школы и события без школы</span></label>` : ""}
+      </div>
     </div>` : ""}
     <div class="audit-count">Показано ${feed.rows.length} из ${feed.total} · время Москвы</div>
     ${feed.error ? `<div class="audit-error" role="alert">${escapeHtml(feed.error)}<button type="button" class="secondary-action" data-audit-refresh="${escapeHtml(kind)}">Повторить</button></div>` : ""}
@@ -189,6 +192,11 @@ document.addEventListener("click", (event) => {
   const target = event.target.closest("button"); if (!target) return;
   if (target.dataset.auditRefresh) void loadAuditFeed(target.dataset.auditRefresh, true);
   if (target.dataset.auditMore) void loadAuditFeed(target.dataset.auditMore);
+  if (target.dataset.auditToggle) {
+    const kind = target.dataset.auditToggle;
+    auditFeed(kind).filtersOpen = !auditFeed(kind).filtersOpen;
+    renderAuditCurrent(kind);
+  }
   if (target.dataset.auditStudent) void (async () => {
     const tenant = target.dataset.auditTenant;
     if (tenant && tenant !== apiContext.tenantSlug) await switchTenant(tenant);
