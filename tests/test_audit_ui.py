@@ -63,7 +63,8 @@ def test_student_context_is_compact_and_opens_profile(binding_browser):
       document.querySelector('[data-audit-student]').click();
     }""")
     assert page.evaluate("window.openedStudent") == "student-id"
-    assert "MAX ID 456" in page.locator(".audit-student").inner_text()
+    assert "MAX ID 456" in page.locator(".audit-people").inner_text()
+    assert page.locator(".audit-people").inner_text().count("Иванов Иван") == 1
     assert (
         page.evaluate("getComputedStyle(document.querySelector('.audit-filter-extra')).display")
         == "none"
