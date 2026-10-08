@@ -229,6 +229,7 @@ function auditGroupedCards(rows) {
         <span class="audit-session-range"><time datetime="${escapeHtml(first.createdAt)}" title="Время Москвы">${escapeHtml(range)}</time><span>${group.rows.length} ${auditActionCount(group.rows.length)}</span></span>
         <i class="audit-session-chevron" data-lucide="chevron-down"></i>
         <span class="audit-session-preview">${escapeHtml(titles.slice(0, 3).join(" · "))}${titles.length > 3 ? ` · ещё ${titles.length - 3}` : ""}</span>
+        ${auditSessionTargetsMarkup(group.rows)}
         ${attention ? `<span class="audit-session-warning">Требуют внимания: ${attention}</span>` : ""}
       </summary>
       <div class="audit-session-events">${auditCards([...group.rows].reverse(), true, {grouped: true, hideActor: true})}</div>
@@ -239,6 +240,27 @@ function auditGroupedCards(rows) {
 function auditActionCount(count) {
   if (count % 100 >= 11 && count % 100 <= 14) return "действий";
   return count % 10 === 1 ? "действие" : count % 10 >= 2 && count % 10 <= 4 ? "действия" : "действий";
+}
+
+function auditSessionTargetsMarkup(rows) {
+  const targets = new Map();
+  rows.forEach((entry) => {
+    const target = entry.payload?.link_target;
+    if (!target) return;
+    const key = JSON.stringify([target.kind, target.id, target.state, target.tenant_id || target.tenant_slug || entry.tenantSlug]);
+    if (!targets.has(key)) targets.set(key, {target, lmsIds: new Set()});
+    (entry.payload.students || []).forEach((student) => {
+      if (student.lms_id) targets.get(key).lmsIds.add(String(student.lms_id));
+    });
+  });
+  if (!targets.size) return "";
+  return `<span class="audit-session-targets">${[...targets.values()].map(({target, lmsIds}) => {
+    const label = target.kind === "contact" ? "ID родителя из ссылки" : "ID ученика из ссылки";
+    const missing = target.state === "historical_id_missing" ? "ID ссылки не сохранился" : "ID ссылки не передан";
+    return `<span class="audit-session-target"><span>${escapeHtml(target.id ? label : missing)}</span>
+      ${target.id ? `<code>${escapeHtml(target.id)}</code>` : ""}
+      <span class="audit-session-lms">LMS ID <code>${escapeHtml([...lmsIds].join(", ") || "—")}</code></span></span>`;
+  }).join("")}</span>`;
 }
 
 function auditLinkTargetMarkup(entry) {
@@ -290,7 +312,7 @@ function auditPanel(kind, compact = false) {
   return `<section class="audit-panel" data-audit-panel="${escapeHtml(kind)}">
     <div class="audit-toolbar">${full ? `<label class="audit-group-control"><span>Интервал</span><select data-audit-group-minutes>${[1, 5, 15, 30].map((minutes) => `<option value="${minutes}" ${feed.groupMinutes === minutes ? "selected" : ""}>${minutes} мин</option>`).join("")}</select></label>` : `<h3>${title}</h3>`}<button class="secondary-action" type="button" data-audit-refresh="${escapeHtml(kind)}" ${feed.loading ? "disabled" : ""}><i data-lucide="refresh-cw"></i>Обновить</button></div>
     ${!compact ? `<div class="audit-filters">
-      <label class="audit-search"><span>Поиск</span><input type="search" maxlength="120" ${attrs("q")} value="${escapeHtml(f.q)}" placeholder="Имя, событие, MAX ID" /></label>
+      <label class="audit-search"><span>Поиск</span><input type="search" maxlength="120" ${attrs("q")} value="${escapeHtml(f.q)}" placeholder="Имя, MAX ID, ID ссылки" /></label>
       <button type="button" class="audit-filter-toggle secondary-action" data-audit-toggle="${escapeHtml(kind)}" aria-expanded="${Boolean(feed.filtersOpen)}"><i data-lucide="sliders-horizontal"></i>Фильтры</button>
       <div class="audit-filter-extra ${feed.filtersOpen ? "is-open" : ""}">
       <label><span>Результат</span><select ${attrs("outcome")}><option value="">Все результаты</option>${["success", "denied", "error", "partial", "pending"].map((value) => `<option value="${value}" ${f.outcome === value ? "selected" : ""}>${auditReadable(value)}</option>`).join("")}</select></label>

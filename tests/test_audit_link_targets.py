@@ -172,3 +172,52 @@ def test_audit_target_visible_without_duplicate_lms_ids(binding_browser, width):
     assert "LMS ID —" in unknown.inner_text()
     assert not page.evaluate("document.documentElement.scrollWidth > innerWidth")
     page.close()
+
+
+@pytest.mark.parametrize("width", [320, 390, 1440])
+def test_collapsed_audit_shows_original_targets_and_lms_without_hashes(binding_browser, width):
+    browser, base = binding_browser
+    page = browser.new_page(viewport={"width": width, "height": 1000})
+    page.route("https://st.max.ru/**", lambda route: route.abort())
+    page.goto(base + "/miniapp?demo=1", wait_until="networkidle")
+    page.evaluate("""() => {
+      state.role = 'admin'; state.adminTab = 'audit';
+      const event = (id, actor, target, students = []) => normalizeAdminHistoryEntry({
+        id, actor_max_user_id: actor, actor_name: 'Екатерина Фролова',
+        action: 'contact_access_link.failed', status: 'denied',
+        created_at: '2026-10-08T10:30:00Z', tenant_slug: 'school',
+        payload: {link_target: target, contact_id_hash: 'HASH-ONLY', students}});
+      const child = {id: 'student-1', name: 'Ученик', lms_id: '70768525', accounts: []};
+      auditFeed('audit').rows = [
+        event('known-a', 100, {kind: 'contact', id: '34297169'}, [child]),
+        event('known-b', 100, {kind: 'contact', id: '34297169'}),
+        event('missing', 100, {kind: 'contact', id: 'NEW-987'}),
+        event('old-a', 92515478, {kind: 'contact', state: 'historical_id_missing'}),
+        event('old-b', 92515478, {kind: 'contact', state: 'historical_id_missing'})
+      ];
+      renderAdminPanel(); setView('admin');
+    }""")
+    group = page.locator('.audit-session').filter(has=page.locator('[data-audit-entry="known-a"]'))
+    summary = group.locator('.audit-session-summary')
+    targets = summary.locator('.audit-session-targets')
+    assert targets.is_visible()
+    target_text = ' '.join(targets.inner_text().split())
+    assert target_text.count('34297169') == 1
+    assert target_text.count('LMS ID 70768525') == 1
+    assert 'ID родителя из ссылки' in target_text
+    assert 'NEW-987' in target_text
+    assert 'LMS ID —' in target_text
+    assert 'HASH-ONLY' not in target_text
+    old = page.locator('.audit-session').filter(has=page.locator('[data-audit-entry="old-a"]'))
+    assert 'ID ссылки не сохранился' in old.locator('.audit-session-targets').inner_text()
+    assert 'LMS ID —' in ' '.join(old.locator('.audit-session-targets').inner_text().split())
+    assert not page.evaluate('document.documentElement.scrollWidth > innerWidth')
+    summary.click()
+    assert targets.is_hidden()
+    known = group.locator('[data-audit-entry="known-a"]')
+    assert known.locator('.audit-link-target').is_visible()
+    assert '34297169' in known.locator('.audit-link-target').inner_text()
+    assert known.locator('.audit-people').inner_text().count('LMS ID 70768525') == 1
+    summary.click()
+    assert targets.is_visible()
+    page.close()
