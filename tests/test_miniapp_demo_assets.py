@@ -23,7 +23,7 @@ def test_miniapp_static_assets_share_cache_version() -> None:
     # CSS is captured separately because its extension is not JavaScript.
     versions.extend(re.findall(r"styles\.css\?v=([0-9.]+)", source))
     assert versions
-    assert set(versions) == {"0.91.36"}
+    assert set(versions) == {"0.91.37"}
 
 
 def test_help_contains_searchable_accordion_and_full_faq() -> None:
@@ -34,7 +34,7 @@ def test_help_contains_searchable_accordion_and_full_faq() -> None:
     assert "Скоро..." not in index_source
     assert 'id="helpSearchInput"' in index_source
     assert 'id="helpCategoryFilters"' in index_source
-    assert 'app-help.js?v=0.91.36' in index_source
+    assert 'app-help.js?v=0.91.37' in index_source
     assert help_source.count("\n  helpFaq(") >= 125
     assert "Родителю нужно подтвердить связь" in help_source
     assert "Может ли ученик войти до подключения родителя?" in help_source
@@ -64,11 +64,16 @@ def test_help_contains_searchable_accordion_and_full_faq() -> None:
         "6. Работа преподавателя",
         "7. Рассылки и отчёты",
         "8. Управление",
-        "9. Если что-то не работает",
+        "9. Обращения в поддержку",
+        "10. Если что-то не работает",
     ]
     assert [help_source.index(label) for label in category_labels] == sorted(
         help_source.index(label) for label in category_labels
     )
+    assert "Как сообщить о проблеме через бота?" in help_source
+    assert "Как ответить автору и решить тикет?" in help_source
+    assert "Чем отличаются MAX ID, LMS ID и ID родителя?" in help_source
+    assert not re.search(r"\b(?:аудит|ОС)\b|обратная связь", help_source, re.IGNORECASE)
 
     screenshot_paths = set(
         re.findall(r'src: "/miniapp/static/(assets/help/[^"]+)"', help_source)
