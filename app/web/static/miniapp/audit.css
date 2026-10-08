@@ -32,6 +32,11 @@
 .audit-session-chevron { width: 16px; height: 16px; color: var(--muted); }
 .audit-session[open] > summary .audit-session-chevron { transform: rotate(180deg); }
 .audit-session-preview { grid-column: 2 / 4; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.audit-session-targets { grid-column: 2 / 4; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.audit-session-target { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 6px 9px; border-radius: 8px; background: #f6f2fc; color: #635279; font-size: 12px; }
+.audit-session-target code { color: #302041; overflow-wrap: anywhere; min-width: 0; }
+.audit-session-lms { display: inline-flex; flex-wrap: wrap; gap: 4px; min-width: 0; margin-left: auto; }
+.audit-session[open] > .audit-session-summary .audit-session-targets { display: none; }
 .audit-session-warning { grid-column: 2 / 4; justify-self: start; padding: 3px 6px; border-radius: 5px; background: #fff5da; color: #9a7119; font-size: 11px; }
 .audit-session-events { padding: 0 16px 6px 58px; border-top: 1px solid #f0ebf4; }
 .audit-session-events .audit-event { grid-template-columns: 18px minmax(0, 1fr); gap: 10px; margin: 0; padding: 14px 0; border: 0; border-bottom: 1px solid #f0ebf4; border-radius: 0; }
