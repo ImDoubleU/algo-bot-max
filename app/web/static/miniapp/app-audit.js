@@ -114,6 +114,7 @@ function isAuditAccrual(entry) {
 function auditPeople(entry) {
   const p = entry.payload || {};
   const accrual = isAuditAccrual(entry);
+  const binding = Boolean(p.binding_subject);
   const students = Array.isArray(p.students) ? p.students : [];
   const role = String(p.actor_role || p.role || "").split(", ").filter(Boolean).map(auditReadable).join(", ");
   const actor = {
@@ -127,7 +128,8 @@ function auditPeople(entry) {
   students.forEach((student) => {
     const accounts = Array.isArray(student.accounts) ? student.accounts : [];
     const childIds = [...new Set(accounts.filter((account) => account.role === "student" && (!account.status || account.status === "active")).map((account) => account.max_user_id).filter(Boolean).map(String))];
-    const isActor = p.actor_role === "student" && (students.length === 1 || childIds.some((id) => String(id) === String(entry.actorMaxUserId)));
+    const actorMatchesStudent = childIds.some((id) => String(id) === String(entry.actorMaxUserId));
+    const isActor = p.actor_role === "student" && (binding ? p.binding_subject.confirmed && students.length === 1 || actorMatchesStudent : students.length === 1 || actorMatchesStudent);
     const person = isActor ? actor : {role: "Ученик", ids: childIds, current: childIds.length > 0};
     Object.assign(person, {name: student.name, studentId: student.id, lmsId: student.lms_id, crmId: student.crm_id, studentTenantSlug: student.tenant_slug});
     if (!isActor) people.push(person);
@@ -136,9 +138,9 @@ function auditPeople(entry) {
       person.ids.push(...person.currentIds);
     }
     person.ids.forEach((id) => representedIds.add(String(id)));
-    if (!accrual) accounts.filter((account) => account.role !== "student").forEach((account) => additional.push(account));
+    if (!accrual && !binding) accounts.filter((account) => account.role !== "student").forEach((account) => additional.push(account));
     const teacherShown = student.teacher_max_user_id && representedIds.has(String(student.teacher_max_user_id));
-    const context = {group: student.group, teacher: teacherShown || accrual ? "" : student.teacher, teacherId: teacherShown || accrual ? null : student.teacher_max_user_id};
+    const context = {group: student.group, teacher: teacherShown || accrual ? "" : student.teacher, teacherId: teacherShown || accrual || binding ? null : student.teacher_max_user_id};
     if (context.group || context.teacher) contexts.set(JSON.stringify(context), context);
   });
   additional.forEach((account) => {
@@ -181,6 +183,7 @@ function auditParticipantsMarkup(model, entry, showActor = true) {
 }
 
 function auditEventTitle(entry) {
+  if (entry.payload.binding_subject) return entry.title;
   if (entry.action === "student_qr_access_link.created") return entry.payload.created === false ? "Повторный вход по QR-коду" : "Подключение по QR-коду";
   if (entry.action === "contact_access_links.created") return entry.payload.created_links || entry.payload.reactivated_links ? "Подключение по ссылке" : "Повторный вход по ссылке";
   return entry.title;
@@ -276,6 +279,17 @@ function auditLinkTargetMarkup(entry) {
     ${!students.length ? '<code>LMS ID —</code>' : ""}</div>`;
 }
 
+function historyBindingTargetMarkup(entry) {
+  const subject = entry.payload?.binding_subject;
+  if (!subject || entry.payload.students?.length) return "";
+  const targetLabel = subject.target_kind === "contact" ? "ID из ссылки родителя" : "ID ученика из ссылки";
+  return `<div class="history-binding-target">
+    <div><span>Ученик</span><strong>${escapeHtml(subject.name || (subject.state === "not_added" ? "Ещё не добавлен" : "Профиль не определён"))}</strong></div>
+    <div><span>LMS ID</span><code>${escapeHtml(subject.lms_id || "не найден")}</code></div>
+    ${subject.target_id ? `<div><span>${targetLabel}</span><code>${escapeHtml(subject.target_id)}</code></div>` : ""}
+  </div>`;
+}
+
 function auditCards(rows, full = false, {grouped = false, hideActor = false} = {}) {
   if (full && !grouped) return auditGroupedCards(rows);
   let previousDay = "";
@@ -285,8 +299,9 @@ function auditCards(rows, full = false, {grouped = false, hideActor = false} = {
     previousDay = day;
     const status = {success: ["check", "Выполнено"], denied: ["shield-alert", "Отказ"], error: ["circle-x", "Не выполнено"], partial: ["triangle-alert", "Требует внимания"], pending: ["clock", "В обработке"]}[entry.status] || ["info", "Событие"];
     const model = auditPeople(entry);
-    const facts = auditFacts(entry).filter(([key]) => !["Роль", "Способ входа", "Детей в семье", "Привязок создано", "Привязок восстановлено"].includes(key) && !(key === "Ученик" && model.people.some((person) => person.studentId)) && !(key === "Группа" && model.contexts.length));
-    const studentDetails = model.people.filter((person) => person.studentId).map((person) => `<div><dt>${escapeHtml(person.name)}</dt><dd>ID ${escapeHtml(person.studentId)}${person.crmId ? ` · CRM ID ${escapeHtml(person.crmId)}` : ""}</dd></div>`).join("");
+    const binding = !full && Boolean(entry.payload.binding_subject);
+    const facts = binding ? [] : auditFacts(entry).filter(([key]) => !["Роль", "Способ входа", "Детей в семье", "Привязок создано", "Привязок восстановлено"].includes(key) && !(key === "Ученик" && model.people.some((person) => person.studentId)) && !(key === "Группа" && model.contexts.length));
+    const studentDetails = binding ? "" : model.people.filter((person) => person.studentId).map((person) => `<div><dt>${escapeHtml(person.name)}</dt><dd>ID ${escapeHtml(person.studentId)}${person.crmId ? ` · CRM ID ${escapeHtml(person.crmId)}` : ""}</dd></div>`).join("");
     const diagnostics = full ? `<div><dt>Событие</dt><dd>${escapeHtml(entry.action)}</dd></div><div><dt>Запись</dt><dd>${escapeHtml(entry.id)}</dd></div>${entry.requestId ? `<div><dt>Запрос</dt><dd>${escapeHtml(entry.requestId)}</dd></div>` : ""}${entry.ipAddress ? `<div><dt>IP</dt><dd>${escapeHtml(entry.ipAddress)}</dd></div>` : ""}<div><dt>Объект</dt><dd>${escapeHtml([entry.entityType, entry.entityId].filter(Boolean).join(" · "))}</dd></div>` : "";
     return `${heading}<article class="audit-event is-${escapeHtml(entry.status)}" data-audit-entry="${escapeHtml(entry.id)}">
       <span class="audit-icon" role="img" aria-label="${status[1]}"><i data-lucide="${status[0]}" aria-hidden="true"></i></span>
@@ -294,6 +309,7 @@ function auditCards(rows, full = false, {grouped = false, hideActor = false} = {
         <div class="audit-heading"><div class="audit-title"><strong>${escapeHtml(auditEventTitle(entry))}</strong>${entry.status !== "success" ? `<span class="audit-badge">${status[1]}</span>` : ""}</div><time datetime="${escapeHtml(entry.createdAt)}" title="Время Москвы">${escapeHtml(auditTime(entry.createdAt))}</time></div>
         ${full ? auditLinkTargetMarkup(entry) : ""}
         ${auditParticipantsMarkup(model, entry, !hideActor)}
+        ${binding ? historyBindingTargetMarkup(entry) : ""}
         ${model.contexts.length ? `<div class="audit-context">${model.contexts.map((context) => `<div>${context.group ? `<span><small>Группа</small>${escapeHtml(context.group)}</span>` : ""}${context.teacher ? `<span><small>Преподаватель</small>${escapeHtml(context.teacher)}${context.teacherId ? ` <code>MAX ID ${escapeHtml(context.teacherId)}</code>` : ""}</span>` : ""}</div>`).join("")}</div>` : ""}
         ${entry.explanation ? `<p class="audit-explanation">${escapeHtml(entry.explanation)}</p>` : ""}
         ${facts.length ? `<dl class="audit-facts">${facts.map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>` : ""}
@@ -312,7 +328,7 @@ function auditPanel(kind, compact = false) {
   return `<section class="audit-panel" data-audit-panel="${escapeHtml(kind)}">
     <div class="audit-toolbar">${full ? `<label class="audit-group-control"><span>Интервал</span><select data-audit-group-minutes>${[1, 5, 15, 30].map((minutes) => `<option value="${minutes}" ${feed.groupMinutes === minutes ? "selected" : ""}>${minutes} мин</option>`).join("")}</select></label>` : `<h3>${title}</h3>`}<button class="secondary-action" type="button" data-audit-refresh="${escapeHtml(kind)}" ${feed.loading ? "disabled" : ""}><i data-lucide="refresh-cw"></i>Обновить</button></div>
     ${!compact ? `<div class="audit-filters">
-      <label class="audit-search"><span>Поиск</span><input type="search" maxlength="120" ${attrs("q")} value="${escapeHtml(f.q)}" placeholder="Имя, MAX ID, ID ссылки" /></label>
+      <label class="audit-search"><span>Поиск</span><input type="search" maxlength="120" ${attrs("q")} value="${escapeHtml(f.q)}" placeholder="Имя, MAX ID, LMS ID, ID ссылки" /></label>
       <button type="button" class="audit-filter-toggle secondary-action" data-audit-toggle="${escapeHtml(kind)}" aria-expanded="${Boolean(feed.filtersOpen)}"><i data-lucide="sliders-horizontal"></i>Фильтры</button>
       <div class="audit-filter-extra ${feed.filtersOpen ? "is-open" : ""}">
       <label><span>Результат</span><select ${attrs("outcome")}><option value="">Все результаты</option>${["success", "denied", "error", "partial", "pending"].map((value) => `<option value="${value}" ${f.outcome === value ? "selected" : ""}>${auditReadable(value)}</option>`).join("")}</select></label>

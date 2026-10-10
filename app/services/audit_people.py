@@ -29,6 +29,22 @@ def account_name(account):
 
 
 async def history_people(db, rows, *, tenant_id, all_tenants=False, student_id=None):
+    # A failed first visit can precede account creation; its audit has only the MAX ID.
+    # Resolve the name from the current account instead of displaying an anonymous ID forever.
+    missing_actor_ids = {
+        (audit.payload or {}).get("max_user_id") for audit, actor, _ in rows
+        if actor is None and type((audit.payload or {}).get("max_user_id")) is int
+        and 0 < (audit.payload or {})["max_user_id"] < 2**63
+    }
+    actors = {
+        account.max_user_id: account for account in await db.scalars(
+            select(MaxAccount).where(MaxAccount.max_user_id.in_(missing_actor_ids))
+        )
+    } if missing_actor_ids else {}
+    rows = [
+        (audit, actor or actors.get((audit.payload or {}).get("max_user_id")), school)
+        for audit, actor, school in rows
+    ]
     tenant_ids = {audit.tenant_id for audit, _, _ in rows if audit.tenant_id}
     if not all_tenants:
         tenant_ids = {tenant_id}
@@ -245,7 +261,9 @@ async def history_people(db, rows, *, tenant_id, all_tenants=False, student_id=N
         if target is None and p.get("reason") == "not_linked":
             target = {"kind": "unknown", "id": None, "state": "not_provided"}
         name = account_name(actor) if actor else ""
-        if role == "student" and len(subject_students) == 1:
+        if (role == "student" and len(subject_students) == 1
+                and audit.action in {"student_qr_access_link.created",
+                                     "student_qr_access_link.restored"}):
             name = subject_students[0].display_name
         elif role == "parent" and contact and contact.display_name:
             name = contact.display_name
