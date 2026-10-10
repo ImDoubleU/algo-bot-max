@@ -68,16 +68,14 @@ function renderTeacherInvitations() {
                 <strong>${escapeHtml(student.name)}</strong>
                 <small>${escapeHtml(student.group)}</small>
                 <span class="teacher-qr-statuses" aria-label="Статусы подключения">
-                  <span class="link-status ${parentConnected ? "is-active" : "is-pending"}">
-                    <i data-lucide="${parentConnected ? "link" : "mail"}"></i>
-                    ${parentConnected ? "Родитель подключен" : "Родитель не подключен"}
-                  </span>
+                  ${parentConnected
+                    ? '<span class="link-status is-active"><i data-lucide="link"></i>Родитель подключен</span>'
+                    : `<button type="button" class="link-status is-pending parent-invitation-trigger" data-open-parent-invitation="${escapeHtml(student.id)}" aria-haspopup="dialog" aria-label="Ссылка для подключения родителя: ${escapeHtml(student.name)}"><i data-lucide="mail"></i>Родитель не подключен<i class="parent-invitation-arrow" data-lucide="chevron-right"></i></button>`}
                   <span class="link-status ${studentConnected ? "is-active" : "is-pending"}">
                     <i data-lucide="${studentConnected ? "user-check" : "user"}"></i>
                     ${studentConnected ? "Ученик подключен" : "Ученик не подключен"}
                   </span>
                 </span>
-                ${parentConnected || !data.message ? "" : `<span class="teacher-qr-note">${escapeHtml(data.message)}</span>`}
               </span>
               <button type="button" class="secondary-action" data-open-student-qr="${escapeHtml(student.id)}">Показать</button>
             </article>

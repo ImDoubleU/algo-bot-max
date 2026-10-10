@@ -138,6 +138,54 @@ function studentInvitationData(studentId) {
   return state.teacherInvitations.get(studentId)?.data || state.studentInvitations.get(studentId)?.data;
 }
 
+function openParentInvitationPreview(studentId) {
+  if (!hasStudentQrCapabilities()) return;
+  const student = studentsForStudentQrCapabilities().find((item) => item.id === studentId);
+  const invitation = state.teacherInvitations.get(studentId)?.data;
+  const dialog = qs("#parentInvitationDialog");
+  if (!student || !invitation || invitation.parent_connected !== false || !dialog) return;
+  closeStudentQrPreview();
+  state.parentInvitationStudentId = studentId;
+  qs("#parentInvitationDialogTitle").textContent = student.name;
+  qs("#parentInvitationDialogGroup").textContent = student.group || "";
+  const links = invitation.parent_invitations || [];
+  qs("#parentInvitationLinks").innerHTML = links.length ? links.map((parent, index) => `
+    <article class="parent-invitation-item">
+      <div class="parent-invitation-heading"><span class="parent-invitation-icon"><i data-lucide="mail"></i></span><strong>${escapeHtml(parent.parent_name || (links.length > 1 ? `Родитель ${index + 1}` : "Родитель"))}</strong>${invitation.demo ? '<span class="parent-invitation-demo">Пример</span>' : ""}</div>
+      <label class="parent-invitation-link-field"><span>Ссылка для подключения</span><input type="text" readonly value="${escapeHtml(parent.bot_url)}" aria-label="Ссылка для ${escapeHtml(parent.parent_name || "родителя")}" /></label>
+      <button class="primary-action parent-invitation-copy" type="button" data-copy-parent-link="${escapeHtml(studentId)}" data-parent-invitation-index="${index}"><i data-lucide="copy"></i>Скопировать ссылку</button>
+    </article>`).join("") : '<div class="parent-invitation-empty"><i data-lucide="user-round-search"></i><strong>Контакт родителя ещё не загружен</strong></div>';
+  dialog.hidden = false;
+  syncDialogBodyClass();
+  refreshIcons();
+  qs("#closeParentInvitationDialogButton")?.focus();
+}
+
+function closeParentInvitationPreview() {
+  const dialog = qs("#parentInvitationDialog");
+  if (!dialog || dialog.hidden) return;
+  const studentId = state.parentInvitationStudentId;
+  dialog.hidden = true;
+  state.parentInvitationStudentId = "";
+  qs("#parentInvitationLinks").replaceChildren();
+  syncDialogBodyClass();
+  qs(`[data-open-parent-invitation="${CSS.escape(studentId)}"]`)?.focus();
+}
+
+async function copyParentInvitationLink(studentId, index, button) {
+  if (!hasStudentQrCapabilities() || state.parentInvitationStudentId !== studentId) return;
+  const invitation = state.teacherInvitations.get(studentId)?.data;
+  const parent = invitation?.parent_invitations?.[Number(index)];
+  if (!parent?.bot_url) return;
+  button.disabled = true;
+  try {
+    const copied = await copyTextToClipboard(parent.bot_url);
+    showNotice(copied ? "Ссылка для родителя скопирована" : "Не удалось скопировать ссылку", copied ? "ok" : "danger");
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function copyStudentInvitationLink(studentId) {
   const invitation = studentInvitationData(studentId);
   const link = String(invitation?.bot_url || "").trim();
@@ -157,6 +205,7 @@ function openStudentQrPreview(studentId) {
   const invitation = studentInvitationData(studentId);
   const dialog = qs("#studentQrDialog");
   if (!student || !invitation || !dialog) return;
+  closeParentInvitationPreview();
   state.qrPreviewStudentId = studentId;
   qs("#studentQrDialogTitle").textContent = student.name;
   qs("#studentQrDialogGroup").textContent = student.group || "";

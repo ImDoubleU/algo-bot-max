@@ -460,6 +460,7 @@ async function switchTenant(tenantSlug) {
   state.studentRegistryGroupFilter = "all";
   state.studentRegistryVisibleCount = STUDENT_REGISTRY_PAGE_SIZE;
   state.teacherInvitations = new Map();
+  closeParentInvitationPreview();
   state.teacherInvitationsLoaded = false;
   state.teacherInvitationGroup = "all";
   syncTenantToUrl();
@@ -618,6 +619,7 @@ async function refreshAllData() {
   });
   state.studentInvitations = new Map();
   state.studentInvitationsLoaded = false;
+  closeParentInvitationPreview();
   state.teacherInvitations = new Map();
   state.teacherInvitationsLoaded = false;
   await loadParentInvitations();
@@ -837,6 +839,7 @@ function setRole(role) {
   const roleChanged = state.role !== role;
   state.role = role;
   if (roleChanged) {
+    closeParentInvitationPreview();
     state.studentGroupFilter = "all";
     state.accrualGroup = "";
     state.accrualNameFilter = "";
