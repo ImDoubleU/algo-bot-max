@@ -230,7 +230,9 @@ async def history_page(
     if date_from and date_to and date_from > date_to:
         raise MiniAppStoreError("Начало периода должно быть раньше окончания")
     if not full:
-        conditions.append(AuditLog.action.not_in(["activity.request", "bot.interaction"]))
+        from app.services.binding_history import ordinary_binding_events
+
+        conditions.append(ordinary_binding_events(db, snapshot=snapshot))
     if kind == "amocrm":
         conditions.append(AuditLog.action.in_(AMOCRM_AUDIT_ACTIONS))
     elif kind == "actions":
@@ -242,6 +244,7 @@ async def history_page(
                 AuditLog.action.like("student%access%"),
                 AuditLog.action.like("pending_binding.%"),
                 AuditLog.action == "max_bot_access.revoked",
+                AuditLog.action.in_(["activity.request", "bot.interaction"]),
             )
         )
     if student_id is not None:
@@ -279,6 +282,55 @@ async def history_page(
             for action, (title, cat) in {**AUDIT_ACTION_COPY, **EXTRA_COPY}.items()
             if text in title.lower() or text in cat.lower()
         ]
+        if not full:
+            for action, title in {
+                "bot.interaction": "Ученик открыл свой QR-код Родитель открыл ссылку",
+                "activity.request": "Ученик открыл свой QR-код Родитель открыл ссылку",
+                "contact_access.resolve_failed": "Родитель пытался подключиться",
+                "contact_access_link.failed": "Родитель пытался подключиться",
+                "student_qr_access_link.failed": "Ученик пытался подключиться",
+                "pending_binding.saved": (
+                    "Ученик пытался подключиться Родитель пытался подключиться"
+                ),
+            }.items():
+                if text in title.lower():
+                    matching.append(action)
+        student_text = or_(
+            func.lower(Student.last_name + " " + Student.first_name)
+            .contains(text, autoescape=True),
+            func.lower(Student.first_name + " " + Student.last_name)
+            .contains(text, autoescape=True),
+            func.lower(Student.lms_student_id).contains(text, autoescape=True),
+        )
+        student_key = func.replace(cast(Student.id, String), "-", "")
+        direct_student = select(Student.id).where(
+            Student.tenant_id == AuditLog.tenant_id, student_text,
+            or_(
+                func.replace(AuditLog.payload["student_id"].as_string(), "-", "") == student_key,
+                (AuditLog.payload["link_target"]["kind"].as_string() == "student")
+                & (func.replace(AuditLog.payload["link_target"]["id"].as_string(), "-", "")
+                   == student_key),
+                AuditLog.entity_type.like("student%")
+                & (func.replace(AuditLog.entity_id, "-", "") == student_key),
+                func.replace(cast(AuditLog.payload["student_ids"], String), "-", "")
+                .contains(student_key),
+            ),
+        ).correlate(AuditLog).exists()
+        contact_student = (
+            select(ContactStudentLink.id)
+            .join(Student, Student.id == ContactStudentLink.student_id)
+            .join(Contact, Contact.id == ContactStudentLink.contact_id)
+            .where(
+                Contact.tenant_id == AuditLog.tenant_id, Student.tenant_id == AuditLog.tenant_id,
+                student_text,
+                or_(
+                    Contact.external_contact_id == AuditLog.payload["contact_id"].as_string(),
+                    (AuditLog.payload["link_target"]["kind"].as_string() == "contact")
+                    & (Contact.external_contact_id
+                       == AuditLog.payload["link_target"]["id"].as_string()),
+                ),
+            ).correlate(AuditLog).exists()
+        )
         conditions.append(
             or_(
                 func.lower(AuditLog.action).contains(text, autoescape=True),
@@ -286,6 +338,8 @@ async def history_page(
                 cast(MaxAccount.max_user_id, String).contains(text, autoescape=True),
                 func.lower(cast(AuditLog.payload, String)).contains(text, autoescape=True),
                 AuditLog.action.in_(matching),
+                direct_student,
+                contact_student,
             )
         )
     if category:
@@ -303,7 +357,12 @@ async def history_page(
                 )
             )
         else:
-            conditions.append(AuditLog.action.in_(matching))
+            category_condition = AuditLog.action.in_(matching)
+            if not full and category == "Привязки":
+                from app.services.binding_history import link_visit
+
+                category_condition = or_(category_condition, link_visit(AuditLog))
+            conditions.append(category_condition)
     if outcome:
         result = func.coalesce(
             AuditLog.payload["result"].as_string(), AuditLog.payload["outcome"].as_string(), ""
@@ -339,7 +398,12 @@ async def history_page(
         select(AuditLog, MaxAccount, Tenant)
         .outerjoin(
             MaxAccount,
-            MaxAccount.id == AuditLog.actor_account_id,
+            or_(
+                MaxAccount.id == AuditLog.actor_account_id,
+                (AuditLog.actor_account_id.is_(None))
+                & (cast(MaxAccount.max_user_id, String)
+                   == AuditLog.payload["max_user_id"].as_string()),
+            ),
         )
         .outerjoin(Tenant, Tenant.id == AuditLog.tenant_id)
         .where(*conditions)
@@ -377,6 +441,17 @@ async def history_page(
                 payload.pop(key, None)
         title, event_category = copy_for(audit.action, payload)
         status = event_status(audit.action, payload)
+        explanation = REASONS.get(str(payload.get("reason")), str(payload.get("detail") or ""))
+        if not full:
+            from app.services.binding_history import binding_presentation
+
+            presentation = binding_presentation(audit.action, payload, context)
+            if presentation:
+                payload["binding_subject"] = presentation["subject"]
+                payload["actor_role"] = presentation["role"]
+                title = presentation["title"] or title
+                explanation = presentation["explanation"] or explanation
+                event_category = "Привязки"
         actor_id = actor.max_user_id if actor else (audit.payload or {}).get("max_user_id")
         if not isinstance(actor_id, int):
             actor_id = None
@@ -397,9 +472,7 @@ async def history_page(
                 created_at=audit.created_at,
                 tenant_name=event_tenant.name if event_tenant else "Без выбранной школы",
                 tenant_slug=event_tenant.slug if event_tenant else None,
-                explanation=REASONS.get(
-                    str(payload.get("reason")), str(payload.get("detail") or "")
-                ),
+                explanation=explanation,
                 request_id=str(payload.get("request_id") or "") if full else None,
                 ip_address=audit.ip_address if full else None,
             )
