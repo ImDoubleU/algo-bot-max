@@ -237,7 +237,7 @@ async def test_reset_does_not_touch_other_child_or_other_parent(db_session):
     assert await reset_bindings(db_session, target) == []
 
 
-async def test_reset_two_student_profiles_then_parent_and_child_register_correctly(db_session):
+async def test_reset_replaced_student_profiles_then_parent_and_child_register_correctly(db_session):
     from deploy.reset_student_bindings import reset_bindings
 
     await seed_two_students_for_one_contact(db_session)
@@ -248,11 +248,13 @@ async def test_reset_two_student_profiles_then_parent_and_child_register_correct
         token=issue_teacher_student_invitation_token(target.tenant_id, target.id),
     )
     await create_invited_student_access_link(db_session, student_payload)
+    assert len(await reset_bindings(db_session, target)) == 1
+    await db_session.commit()
     child_payload = student_payload.model_copy(update={"max_user_id": 9012})
     _, _, old_child = await create_invited_student_access_link(db_session, child_payload)
     child_link_id = old_child.id
     snapshots = await reset_bindings(db_session, target)
-    assert len(snapshots) == 2
+    assert len(snapshots) == 1
     await db_session.commit()
     parents = await create_contact_access_links(
         db_session,

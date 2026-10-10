@@ -7,9 +7,11 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -128,6 +130,16 @@ class ContactStudentLink(TimestampMixin, Base):
 class StudentAccessLink(TimestampMixin, Base):
     __tablename__ = "student_access_links"
     __table_args__ = (
+        Index(
+            "uq_student_access_active_student", "student_id", unique=True,
+            postgresql_where=text("role = 'STUDENT' AND status = 'ACTIVE'"),
+            sqlite_where=text("role = 'STUDENT' AND status = 'ACTIVE'"),
+        ),
+        Index(
+            "uq_student_access_active_account", "account_id", unique=True,
+            postgresql_where=text("role = 'STUDENT' AND status = 'ACTIVE'"),
+            sqlite_where=text("role = 'STUDENT' AND status = 'ACTIVE'"),
+        ),
         UniqueConstraint(
             "tenant_id",
             "account_id",
