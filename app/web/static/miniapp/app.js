@@ -2712,6 +2712,20 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const parentInvitationStudentId = target.dataset.openParentInvitation;
+  if (parentInvitationStudentId) {
+    openParentInvitationPreview(parentInvitationStudentId);
+    return;
+  }
+  if (target.dataset.copyParentLink) {
+    void copyParentInvitationLink(target.dataset.copyParentLink, target.dataset.parentInvitationIndex, target);
+    return;
+  }
+  if (target.id === "closeParentInvitationDialogButton") {
+    closeParentInvitationPreview();
+    return;
+  }
+
   const previewStudentId = target.dataset.openStudentQr;
   if (previewStudentId) {
     openStudentQrPreview(previewStudentId);
@@ -3411,6 +3425,10 @@ qs("#studentQrDialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) closeStudentQrPreview();
 });
 
+qs("#parentInvitationDialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) closeParentInvitationPreview();
+});
+
 qs("#confirmationDialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) settleConfirmation(false);
 });
@@ -3424,6 +3442,19 @@ qs("#teacherProfileDialog")?.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  const parentDialog = qs("#parentInvitationDialog");
+  if (!parentDialog.hidden && event.key === "Tab") {
+    const controls = [...parentDialog.querySelectorAll("button:not([disabled]), input")];
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (!parentDialog.contains(document.activeElement) ||
+        (event.shiftKey && document.activeElement === first) ||
+        (!event.shiftKey && document.activeElement === last)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first)?.focus();
+    }
+    return;
+  }
   const productCard = event.target instanceof Element ? event.target.closest("[data-product-card]") : null;
   if (productCard && !event.target.closest("button, input, select, textarea, a") && ["Enter", " "].includes(event.key)) {
     event.preventDefault();
@@ -3431,6 +3462,10 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   if (event.key !== "Escape") return;
+  if (!parentDialog.hidden) {
+    closeParentInvitationPreview();
+    return;
+  }
   if (qs("#productSortMenu")?.open) {
     qs("#productSortMenu").open = false;
     qs("#productSortMenu > summary")?.focus();

@@ -141,6 +141,7 @@ const state = {
   teacherInvitationsLoaded: false,
   teacherInvitationGroup: "all",
   qrPreviewStudentId: "",
+  parentInvitationStudentId: "",
   qrBrightnessRequested: false,
   productImporting: false,
   productImportFile: null,
@@ -2335,6 +2336,7 @@ function applyAccessGate(message = state.accessMessage || "") {
   if (gate) gate.hidden = !locked;
   if (shell) shell.hidden = locked;
   if (locked) {
+    closeParentInvitationPreview();
     const title = qs("#accessGateTitle");
     const titles = {
       parent_required: "Нужно подключить родителя",
@@ -2459,6 +2461,10 @@ async function loadTeacherInvitations(force = false) {
                 available: true,
                 parent_connected: false,
                 student_connected: false,
+                parent_invitations: [{
+                  parent_name: "Родитель",
+                  bot_url: `https://example.invalid/parent/${encodeURIComponent(student.id)}`,
+                }],
                 message: "Родитель еще не подключен. Попросите его открыть письмо школы и перейти по персональной ссылке.",
                 demo: true,
                 qr_data_url: "/miniapp/static/assets/safe-qr-placeholder.svg",

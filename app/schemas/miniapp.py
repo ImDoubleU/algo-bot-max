@@ -215,6 +215,11 @@ class MiniAppAdminHistoryRead(BaseModel):
     snapshot_at: datetime | None = None
 
 
+class MiniAppParentInvitationRead(BaseModel):
+    parent_name: str | None = None
+    bot_url: str
+
+
 class MiniAppStudentInvitationRead(BaseModel):
     student_id: UUID
     student_name: str
@@ -226,6 +231,7 @@ class MiniAppStudentInvitationRead(BaseModel):
     bot_url: str | None = None
     qr_data_url: str | None = None
     qr_download_url: str | None = None
+    parent_invitations: list[MiniAppParentInvitationRead] = Field(default_factory=list)
 
 
 class MiniAppStudentAccessPolicyRead(BaseModel):

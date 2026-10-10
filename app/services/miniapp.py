@@ -99,6 +99,7 @@ from app.schemas.miniapp import (
     MiniAppOrderRead,
     MiniAppOrderStatusHistoryRead,
     MiniAppOrderWarehouseAssignmentCreate,
+    MiniAppParentInvitationRead,
     MiniAppProductCodeRead,
     MiniAppProductImportRead,
     MiniAppProductRead,
@@ -3625,6 +3626,7 @@ async def get_miniapp_student_invitation(
             StudentAccessLink.status == StudentAccessStatus.ACTIVE,
         )
     )
+    parent_invitations: list[MiniAppParentInvitationRead] = []
     if parent_link is not None:
         _require_student_account_access(student, tenant)
     else:
@@ -3658,18 +3660,15 @@ async def get_miniapp_student_invitation(
             .limit(1)
         )
         if parent_link is None:
-            return _student_invitation_to_read(
-                tenant,
-                student,
-                None,
-                student_connected=student_connected,
-            )
+            by_student = await _parent_invitations_by_student(db, tenant, [student.id])
+            parent_invitations = by_student.get(student.id, [])
 
     return _student_invitation_to_read(
         tenant,
         student,
         parent_link,
         student_connected=student_connected,
+        parent_invitations=parent_invitations,
     )
 
 
@@ -3679,6 +3678,7 @@ def _student_invitation_to_read(
     parent_link: StudentAccessLink | None,
     *,
     student_connected: bool,
+    parent_invitations: list[MiniAppParentInvitationRead] | None = None,
 ) -> MiniAppStudentInvitationRead:
     settings = get_settings()
     if is_placeholder(settings.max_bot_username):
@@ -3733,7 +3733,48 @@ def _student_invitation_to_read(
         bot_url=bot_url,
         qr_data_url=f"/miniapp/qr/{invitation_token}.png?preview=1",
         qr_download_url=f"/miniapp/qr/{invitation_token}.png",
+        parent_invitations=parent_invitations or [],
     )
+
+
+async def _parent_invitations_by_student(
+    db: AsyncSession,
+    tenant: Tenant,
+    student_ids: list[UUID],
+) -> dict[UUID, list[MiniAppParentInvitationRead]]:
+    """Build links only for imported contacts of already-authorized students."""
+    from app.services.deep_links import DeepLinkError, build_max_bot_shop_deeplink
+
+    if not student_ids:
+        return {}
+    settings = get_settings()
+    if is_placeholder(settings.max_bot_username):
+        return {}
+    contacts = (
+        await db.execute(
+            select(ContactStudentLink.student_id, Contact)
+            .join(Contact, Contact.id == ContactStudentLink.contact_id)
+            .where(
+                ContactStudentLink.tenant_id == tenant.id,
+                Contact.tenant_id == tenant.id,
+                ContactStudentLink.student_id.in_(student_ids),
+            )
+            .order_by(Contact.display_name, Contact.external_contact_id)
+        )
+    ).all()
+    result: dict[UUID, list[MiniAppParentInvitationRead]] = {}
+    for student_id, contact in contacts:
+        try:
+            url = build_max_bot_shop_deeplink(
+                str(settings.max_bot_username), contact.external_contact_id, tenant_slug=tenant.slug
+            )
+        except DeepLinkError:
+            logger.warning("Invalid parent invitation contact: %s", contact.id)
+            continue
+        result.setdefault(student_id, []).append(
+            MiniAppParentInvitationRead(parent_name=contact.display_name, bot_url=url)
+        )
+    return result
 
 
 async def list_miniapp_teacher_invitations(
@@ -3800,6 +3841,9 @@ async def list_miniapp_teacher_invitations(
     for link in parent_links:
         parent_link_by_student.setdefault(UUID(str(link.student_id)), link)
 
+    parent_invitations_by_student = await _parent_invitations_by_student(
+        db, tenant, [student.id for student in students if student.id not in parent_link_by_student]
+    )
     student_connected_ids = {
         UUID(str(student_id))
         for student_id in await db.scalars(
@@ -3823,6 +3867,7 @@ async def list_miniapp_teacher_invitations(
                     student,
                     None,
                     student_connected=student_connected,
+                    parent_invitations=parent_invitations_by_student.get(student.id, []),
                 )
             )
             continue
