@@ -11271,6 +11271,16 @@ body[data-active-role="teacher"] .dashboard-spotlight {
   background: #ffffff;
 }
 
+.teacher-qr-preview {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+}
+
+.teacher-qr-card > .secondary-action {
+  grid-column: 3;
+  grid-row: 1;
+}
+
 .teacher-qr-placeholder {
   width: 48px;
   color: var(--muted);
@@ -11284,6 +11294,8 @@ body[data-active-role="teacher"] .dashboard-spotlight {
 }
 
 .teacher-qr-copy {
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -11291,18 +11303,24 @@ body[data-active-role="teacher"] .dashboard-spotlight {
 }
 
 .teacher-qr-statuses {
+  grid-column: 2 / -1;
+  grid-row: 2;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 4px 12px;
 }
 
-.teacher-qr-copy .link-status {
+.teacher-qr-statuses .link-status {
   grid-column: auto;
   min-width: 0;
   max-width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.teacher-qr-statuses .link-status svg {
+  flex-shrink: 0;
 }
 
 .teacher-qr-copy strong,
@@ -11317,7 +11335,7 @@ body[data-active-role="teacher"] .dashboard-spotlight {
   font-size: 11px;
 }
 
-.teacher-qr-copy .link-status.is-pending {
+.teacher-qr-statuses .link-status.is-pending {
   color: #7a5900;
 }
 
@@ -11462,16 +11480,20 @@ body[data-active-role="teacher"] .dashboard-spotlight {
 
   .teacher-qr-preview {
     width: 52px;
+    grid-row: 1;
   }
 
   .teacher-qr-statuses {
-    gap: 4px 8px;
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .teacher-qr-statuses .link-status {
     gap: 3px;
     font-size: 10px;
-    white-space: nowrap;
+    white-space: normal;
     overflow-wrap: normal;
   }
 
@@ -11482,6 +11504,7 @@ body[data-active-role="teacher"] .dashboard-spotlight {
 
   .teacher-qr-card .secondary-action {
     grid-column: 1 / -1;
+    grid-row: 3;
     min-height: 40px;
     width: 100%;
     padding-inline: 10px;
@@ -14911,7 +14934,7 @@ svg + .icon-fallback {
   gap: 8px;
 }
 
-.teacher-qr-copy .parent-invitation-trigger {
+.teacher-qr-statuses .parent-invitation-trigger {
   min-height: 36px;
   padding: 6px 8px;
   border: 1px solid #e5cf8b;
@@ -14922,7 +14945,7 @@ svg + .icon-fallback {
   cursor: pointer;
 }
 
-.teacher-qr-copy .parent-invitation-trigger:hover {
+.teacher-qr-statuses .parent-invitation-trigger:hover {
   border-color: #b9932a;
   background: #ffefb5;
 }
@@ -15050,7 +15073,7 @@ svg + .icon-fallback {
 }
 
 @media (max-width: 600px) {
-  .teacher-qr-copy .parent-invitation-trigger {
+  .teacher-qr-statuses .parent-invitation-trigger {
     min-height: 44px;
     font-size: 11px;
     white-space: normal;
