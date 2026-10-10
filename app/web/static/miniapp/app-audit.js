@@ -87,7 +87,7 @@ function auditDay(value) {
 function auditReadable(value) {
   const staffLabels = {curator: "Куратор", partner_director: "Директор", warehouse_manager: "Сотрудник склада"};
   if (typeof value === "string" && staffLabels[value]) return staffLabels[value];
-  const labels = { parent: "Родитель", student: "Ученик", teacher: "Преподаватель", admin: "Администратор", superadmin: "Суперадминистратор", active: "Активен", revoked: "Отключён", departed: "Завершил обучение", archived: "В архиве", id_entry: "Ссылка из письма", parent_qr: "QR родителя", teacher_qr: "QR преподавателя", success: "Выполнено", denied: "Отказ", error: "Не выполнено", partial: "Требует внимания", pending: "В обработке" };
+  const labels = { parent: "Родитель", student: "Ученик", teacher: "Преподаватель", admin: "Администратор", superadmin: "Суперадминистратор", active: "Активен", revoked: "Отключён", departed: "Завершил обучение", archived: "В архиве", id_entry: "Ссылка из письма", parent_qr: "QR родителя", teacher_qr: "QR преподавателя", success: "Выполнено", denied: "Отказ", error: "Не выполнено", attention: "Требует внимания", partial: "Выполнено частично", pending: "В обработке" };
   if (Array.isArray(value)) return value.map(auditReadable).join(", ");
   if (value && typeof value === "object") return JSON.stringify(value);
   return labels[value] || String(value ?? "—");
@@ -301,7 +301,7 @@ function auditCards(rows, full = false, {grouped = false, hideActor = false, sho
     const day = auditDay(entry.createdAt);
     const heading = !grouped && day !== previousDay ? `<h4 class="audit-day">${escapeHtml(day)}</h4>` : "";
     previousDay = day;
-    const status = {success: ["check", "Выполнено"], denied: ["shield-alert", "Отказ"], error: ["circle-x", "Не выполнено"], partial: ["triangle-alert", "Требует внимания"], pending: ["clock", "В обработке"]}[entry.status] || ["info", "Событие"];
+    const status = {success: ["check", "Выполнено"], denied: ["shield-alert", "Отказ"], error: ["circle-x", "Не выполнено"], partial: ["triangle-alert", "Выполнено частично"], pending: ["clock", "В обработке"]}[entry.status] || ["info", "Событие"];
     const model = auditPeople(entry);
     const binding = !full && Boolean(entry.payload.binding_subject);
     const facts = binding ? [] : auditFacts(entry).filter(([key]) => !["Роль", "Способ входа", "Детей в семье", "Привязок создано", "Привязок восстановлено"].includes(key) && !(key === "Ученик" && model.people.some((person) => person.studentId)) && !(key === "Группа" && model.contexts.length));
@@ -336,7 +336,7 @@ function auditPanel(kind, compact = false) {
       <label class="audit-search"><span>Поиск</span><input type="search" maxlength="120" ${attrs("q")} value="${escapeHtml(f.q)}" placeholder="Имя, MAX ID, LMS ID, ID ссылки" /></label>
       <button type="button" class="audit-filter-toggle secondary-action" data-audit-toggle="${escapeHtml(kind)}" aria-expanded="${Boolean(feed.filtersOpen)}"><i data-lucide="sliders-horizontal"></i>Фильтры</button>
       <div class="audit-filter-extra ${feed.filtersOpen ? "is-open" : ""}">
-      <label><span>Результат</span><select ${attrs("outcome")}><option value="">Все результаты</option>${["success", "denied", "error", "partial", "pending"].map((value) => `<option value="${value}" ${f.outcome === value ? "selected" : ""}>${auditReadable(value)}</option>`).join("")}</select></label>
+      <label><span>Результат</span><select ${attrs("outcome")}><option value="">Все результаты</option>${["attention", "success", "denied", "error", "partial", "pending"].map((value) => `<option value="${value}" ${f.outcome === value ? "selected" : ""}>${auditReadable(value)}</option>`).join("")}</select></label>
       <label><span>Раздел</span><select ${attrs("category")}><option value="">Все разделы</option>${AUDIT_CATEGORY_LABELS.map((value) => `<option ${f.category === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}</select></label>
       <label><span>Период</span><select ${attrs("days")}>${[[1, "24 часа"], [7, "7 дней"], [30, "30 дней"], [90, "3 месяца"], [365, "Год"], [3650, "Вся история"]].map(([value, label]) => `<option value="${value}" ${String(value) === f.days ? "selected" : ""}>${label}</option>`).join("")}</select></label>
       <label><span>С даты</span><input type="date" ${attrs("from")} value="${escapeHtml(f.from)}" /></label><label><span>По дату</span><input type="date" ${attrs("to")} value="${escapeHtml(f.to)}" /></label>

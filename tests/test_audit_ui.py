@@ -95,6 +95,47 @@ def test_superadmin_audit_and_mobile_cards(binding_browser):
     page.close()
 
 
+def test_attention_filter_sends_composite_outcome_and_resets_existing_results(binding_browser):
+    browser, base = binding_browser
+    page = browser.new_page(viewport={"width": 390, "height": 850})
+    page.route("https://st.max.ru/**", lambda route: route.abort())
+    page.goto(base + "/miniapp?demo=1", wait_until="networkidle")
+    page.evaluate("""async () => {
+      apiContext.demoMode = false; apiContext.maxUserId = 1; state.hasAccess = true;
+      state.role = 'admin'; state.staffRoles = ['superadmin']; state.adminTab = 'audit';
+      resetAuditFeeds(); window.filterCalls = [];
+      apiFetch = async url => {
+        const params = Object.fromEntries(new URL(url, location.href).searchParams);
+        window.filterCalls.push(params);
+        const statuses = params.outcome === 'attention'
+          ? ['denied', 'error', 'partial', 'pending'] : ['success'];
+        return new Response(JSON.stringify({total: statuses.length, has_more: false,
+          snapshot_at: '2026-10-10T10:00:00Z', entries: statuses.map(status => ({
+            id: status, title: status, status, created_at: '2026-10-10T09:00:00Z', payload: {}
+          }))}), {status: 200});
+      };
+      setView('admin'); await loadAuditFeed('audit', true);
+    }""")
+    page.locator('[data-audit-toggle="audit"]').click()
+    result = page.locator('[data-audit-kind="audit"][data-audit-field="outcome"]')
+    assert result.locator('option[value="attention"]').inner_text() == "Требует внимания"
+    assert result.locator('option[value="partial"]').inner_text() == "Выполнено частично"
+    result.select_option("attention")
+    page.wait_for_function("filterCalls.length === 2 && !auditFeed('audit').loading")
+    assert page.evaluate("filterCalls[1].outcome") == "attention"
+    assert page.evaluate("filterCalls[1].offset") == "0"
+    assert page.evaluate("filterCalls[1].snapshot_at || null") is None
+    assert page.evaluate("auditFeed('audit').rows.map(row => row.status)") == [
+        "denied", "error", "partial", "pending",
+    ]
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    result.select_option("")
+    page.wait_for_function("filterCalls.length === 3 && !auditFeed('audit').loading")
+    assert page.evaluate("filterCalls[2].outcome || null") is None
+    assert page.evaluate("auditFeed('audit').rows.map(row => row.status)") == ["success"]
+    page.close()
+
+
 def test_student_context_is_compact_and_opens_profile(binding_browser):
     browser, base = binding_browser
     page = browser.new_page(viewport={"width": 390, "height": 850})
