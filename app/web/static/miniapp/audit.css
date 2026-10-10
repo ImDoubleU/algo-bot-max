@@ -3,6 +3,8 @@
 .audit-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .audit-toolbar h3 { margin: 0; font-size: 20px; }
 .audit-toolbar button { display: flex; gap: 8px; align-items: center; }
+.audit-school-scope { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; font-size: 12px; color: var(--muted); }
+.audit-school-scope select { min-height: 40px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 8px 12px; color: var(--ink); font: inherit; }
 .audit-filters { display: grid; grid-template-columns: 1.7fr repeat(5, minmax(0, 1fr)); gap: 10px; padding: 14px; background: #f7f5fa; border-radius: 12px; }
 .audit-filters label { display: flex; flex-direction: column; gap: 7px; min-width: 0; font-size: 12px; color: var(--muted); }
 .audit-filters input, .audit-filters select { width: 100%; min-height: 44px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: #fff; color: var(--ink); font: inherit; }

@@ -4,6 +4,54 @@ import pytest
 from tests.test_binding_ui import binding_browser  # noqa: F401
 
 
+@pytest.mark.parametrize("width", [320, 390, 1440])
+def test_general_history_global_scope_is_visible_and_superadmin_only(binding_browser, width):
+    browser, base = binding_browser
+    page = browser.new_page(viewport={"width": width, "height": 950})
+    page.route("https://st.max.ru/**", lambda route: route.abort())
+    page.goto(base + "/miniapp?demo=1", wait_until="networkidle")
+    page.evaluate("""async () => {
+      apiContext.demoMode = false; apiContext.maxUserId = 1; state.hasAccess = true;
+      state.role = 'admin'; state.staffRoles = ['superadmin']; state.adminTab = 'history';
+      resetAuditFeeds(); window.historyScopeCalls = [];
+      apiFetch = async url => {
+        const params = Object.fromEntries(new URL(url, location.href).searchParams);
+        window.historyScopeCalls.push(params);
+        return new Response(JSON.stringify({total: 1, has_more: false, entries: [{
+          id: 'connection', action: 'student_qr_access_link.created', title: 'Ученик подключился',
+          tenant_name: 'Бор', tenant_slug: 'bor', created_at: '2026-10-10T06:40:00Z',
+          payload: {binding_subject: {confirmed: true}}
+        }]}), {status: 200});
+      };
+      setView('admin'); await loadAuditFeed('actions', true);
+    }""")
+    scope = page.locator('.audit-school-scope select')
+    assert scope.is_visible() and scope.input_value() == "true"
+    assert page.evaluate("historyScopeCalls[0].all_tenants") == "true"
+    assert "Бор" in page.locator('.audit-tags').inner_text()
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    scope.select_option("false")
+    page.wait_for_function("historyScopeCalls.length === 2 && !auditFeed('actions').loading")
+    assert page.evaluate("historyScopeCalls[1].all_tenants || null") is None
+    assert scope.input_value() == "false"
+    assert "Бор" not in page.locator('.audit-tags').inner_text()
+    result = page.evaluate("""async () => {
+      state.staffRoles = ['admin']; resetAuditFeeds();
+      const defaultScope = auditFeed('actions').filters.allTenants;
+      auditFeed('actions').filters.allTenants = true;
+      await loadAuditFeed('actions', true);
+      const adminScope = historyScopeCalls.at(-1).all_tenants || null;
+      const adminControl = !!document.querySelector('.audit-school-scope');
+      state.staffRoles = ['superadmin'];
+      await loadAuditFeed('student:pupil', true);
+      return {defaultScope, adminScope, adminControl,
+        studentScope: historyScopeCalls.at(-1).all_tenants || null};
+    }""")
+    assert result == {"defaultScope": False, "adminScope": None, "adminControl": False,
+                      "studentScope": None}
+    page.close()
+
+
 def test_superadmin_audit_and_mobile_cards(binding_browser):
     browser, base = binding_browser
     page = browser.new_page(viewport={"width": 390, "height": 850})
