@@ -7,6 +7,7 @@ from functools import wraps
 from uuid import UUID
 
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.binding_diagnostics import binding_request_id
@@ -35,6 +36,12 @@ from app.services.student_invitations import (
 
 logger = logging.getLogger(__name__)
 
+STUDENT_PROFILE_ALREADY_BOUND_MESSAGE = (
+    "Этот ученик уже подключён к другому аккаунту MAX. "
+    "Войдите с ранее подключённого аккаунта. Если подключение ошибочное, "
+    "попросите школу снять его."
+)
+
 
 class AccessServiceError(RuntimeError):
     def __init__(self, message: str, *, code: str = "binding_failed"):
@@ -48,7 +55,30 @@ def audited_binding(function):
     @wraps(function)
     async def wrapped(db, payload):
         try:
-            return await function(db, payload)
+            try:
+                return await function(db, payload)
+            except IntegrityError as exc:
+                original = exc.orig
+                constraint = getattr(original, "constraint_name", None)
+                if not constraint:
+                    constraint = getattr(getattr(original, "diag", None), "constraint_name", None)
+                # asyncpg wraps the PostgreSQL error; SQLite reports the column instead.
+                detail = str(original)
+                if constraint == "uq_student_access_active_student" or (
+                    "uq_student_access_active_student" in detail
+                    or "UNIQUE constraint failed: student_access_links.student_id" in detail
+                ):
+                    raise AccessServiceError(STUDENT_PROFILE_ALREADY_BOUND_MESSAGE,
+                                             code="student_profile_already_bound") from exc
+                if constraint == "uq_student_access_active_account" or (
+                    "uq_student_access_active_account" in detail
+                    or "UNIQUE constraint failed: student_access_links.account_id" in detail
+                ):
+                    raise AccessServiceError(
+                        "Этот MAX-аккаунт уже привязан к другому ученику. "
+                        "Попросите школу проверить привязку.", code="student_already_bound",
+                    ) from exc
+                raise
         except AccessServiceError as exc:
             await db.rollback()
             tenant = await get_tenant_by_slug(db, payload.tenant_slug)
@@ -288,6 +318,9 @@ async def ensure_single_account_binding(
 ) -> None:
     # Serialize every binding writer for this MAX account, across all schools.
     await db.scalar(select(MaxAccount.id).where(MaxAccount.id == account_id).with_for_update())
+    if role == StudentAccessRole.STUDENT:
+        # Different MAX accounts must serialize on the same pupil as well.
+        await db.scalar(select(Student.id).where(Student.id == student_id).with_for_update())
     links = (
         await db.scalars(
             select(StudentAccessLink).where(
@@ -316,6 +349,16 @@ async def ensure_single_account_binding(
                 "Сначала попросите школу снять прежнюю привязку.",
                 code="student_already_bound",
             )
+    if role == StudentAccessRole.STUDENT:
+        other_account = await db.scalar(select(StudentAccessLink.account_id).where(
+            StudentAccessLink.student_id == student_id,
+            StudentAccessLink.role == StudentAccessRole.STUDENT,
+            StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+            StudentAccessLink.account_id != account_id,
+        ).limit(1))
+        if other_account is not None:
+            raise AccessServiceError(STUDENT_PROFILE_ALREADY_BOUND_MESSAGE,
+                                     code="student_profile_already_bound")
 
 
 async def get_active_parent_access_link(

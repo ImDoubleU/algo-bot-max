@@ -68,6 +68,7 @@ REASONS = {
     "contact_not_found": "Семья по ссылке не найдена",
     "contact_has_no_students": "Для контакта не найдены доступные ученики",
     "student_already_bound": "MAX-аккаунт уже привязан к другому ученику",
+    "student_profile_already_bound": "Ученик уже подключён к другому аккаунту MAX",
     "account_role_conflict": "MAX-аккаунт используется с другой ролью",
     "access_revoked": "Доступ отключён школой",
     "access_expired": "Закончился срок доступа после обучения",
