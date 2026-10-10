@@ -1143,7 +1143,7 @@ async def miniapp_admin_history(
     date_to: date | None = None,
     category: Annotated[str | None, Query(max_length=80)] = None,
     outcome: Annotated[
-        str | None, Query(pattern="^(success|partial|error|denied|pending)$")
+        str | None, Query(pattern="^(attention|success|partial|error|denied|pending)$")
     ] = None,
     actor_max_user_id: Annotated[int | None, Query(gt=0)] = None,
     q: Annotated[str | None, Query(max_length=120)] = None,

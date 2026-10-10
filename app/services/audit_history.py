@@ -365,8 +365,12 @@ async def history_page(
                 category_condition = or_(category_condition, link_visit(AuditLog))
             conditions.append(category_condition)
     if outcome:
-        result = func.coalesce(
-            AuditLog.payload["result"].as_string(), AuditLog.payload["outcome"].as_string(), ""
+        result = func.lower(
+            func.coalesce(
+                func.nullif(AuditLog.payload["result"].as_string(), ""),
+                AuditLog.payload["outcome"].as_string(),
+                "",
+            )
         )
         status_expr = case(
             (
@@ -386,15 +390,21 @@ async def history_page(
             ),
             (
                 or_(
-                    AuditLog.payload["incomplete_leads"].as_string().not_in(["{}", "null", ""]),
-                    AuditLog.payload["unmatched_lead_ids"].as_string().not_in(["[]", "null", ""]),
+                    AuditLog.payload["incomplete_leads"].as_string().not_in(
+                        ["{}", "[]", "null", ""]
+                    ),
+                    AuditLog.payload["unmatched_lead_ids"].as_string().not_in(
+                        ["{}", "[]", "null", ""]
+                    ),
                 ),
                 "partial",
             ),
             (result.in_(["queued", "pending", "processing"]), "pending"),
             else_="success",
         )
-        conditions.append(status_expr == outcome)
+        conditions.append(
+            status_expr != "success" if outcome == "attention" else status_expr == outcome
+        )
     stmt = (
         select(AuditLog, MaxAccount, Tenant)
         .outerjoin(

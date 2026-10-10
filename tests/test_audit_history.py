@@ -167,6 +167,56 @@ async def test_student_history_permissions_and_scope(db_session):
     assert error.value.status_code == 403
 
 
+async def test_attention_filter_includes_all_unsuccessful_statuses_and_paginates(db_session):
+    student, actor = await context(db_session)
+    assignment = await db_session.scalar(select(StaffRoleAssignment))
+    assignment.role = StaffRole.SUPERADMIN
+    now = datetime.now(UTC)
+    cases = [
+        ({"outcome": "denied"}, "denied"),
+        ({"result": "", "outcome": "DENIED"}, "denied"),
+        ({"result": "failed"}, "error"),
+        ({"error": "Delivery failed"}, "error"),
+        ({"incomplete_leads": {"123": "missing"}}, "partial"),
+        ({"unmatched_lead_ids": [123]}, "partial"),
+        ({"result": "processing"}, "pending"),
+        ({"result": "success", "incomplete_leads": [], "unmatched_lead_ids": {}}, "success"),
+        ({"result": "success", "incomplete_leads": {}, "unmatched_lead_ids": []}, "success"),
+        ({}, "success"),
+    ]
+    rows = [
+        AuditLog(
+            tenant_id=student.tenant_id,
+            actor_account_id=actor.id,
+            action="activity.request",
+            entity_type="activity",
+            created_at=now - timedelta(seconds=i + 1),
+            payload=payload,
+        )
+        for i, (payload, _) in enumerate(cases)
+    ]
+    db_session.add_all(rows)
+    await db_session.commit()
+    expected = {row.id: status for row, (_, status) in zip(rows, cases, strict=True)}
+    first = await page(db_session, kind="audit", category="Запросы", outcome="attention", limit=3)
+    second = await page(
+        db_session, kind="audit", category="Запросы", outcome="attention", limit=10,
+        offset=3, snapshot_at=first.snapshot_at,
+    )
+    assert first.total == second.total == 7
+    assert first.has_more and not second.has_more
+    entries = first.entries + second.entries
+    assert {entry.id: entry.status for entry in entries} == {
+        row_id: status for row_id, status in expected.items() if status != "success"
+    }
+    for status in {"success", "error", "denied", "partial", "pending"}:
+        filtered = await page(db_session, kind="audit", category="Запросы", outcome=status)
+        assert {entry.id for entry in filtered.entries} == {
+            row_id for row_id, value in expected.items() if value == status
+        }
+        assert all(entry.status == status for entry in filtered.entries)
+
+
 def test_sensitive_payload_is_removed_recursively():
     cleaned = safe_payload(
         {
