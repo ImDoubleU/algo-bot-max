@@ -67,15 +67,15 @@ function renderTeacherInvitations() {
               <span class="teacher-qr-copy">
                 <strong>${escapeHtml(student.name)}</strong>
                 <small>${escapeHtml(student.group)}</small>
-                <span class="teacher-qr-statuses" aria-label="Статусы подключения">
+              </span>
+              <span class="teacher-qr-statuses" aria-label="Статусы подключения">
                   ${parentConnected
-                    ? '<span class="link-status is-active"><i data-lucide="link"></i>Родитель подключен</span>'
-                    : `<button type="button" class="link-status is-pending parent-invitation-trigger" data-open-parent-invitation="${escapeHtml(student.id)}" aria-haspopup="dialog" aria-label="Ссылка для подключения родителя: ${escapeHtml(student.name)}"><i data-lucide="mail"></i>Родитель не подключен<i class="parent-invitation-arrow" data-lucide="chevron-right"></i></button>`}
+                    ? '<span class="link-status is-active"><i data-lucide="link"></i><span>Родитель подключен</span></span>'
+                    : `<button type="button" class="link-status is-pending parent-invitation-trigger" data-open-parent-invitation="${escapeHtml(student.id)}" aria-haspopup="dialog" aria-label="Ссылка для подключения родителя: ${escapeHtml(student.name)}"><i data-lucide="mail"></i><span>Родитель не подключен</span><i class="parent-invitation-arrow" data-lucide="chevron-right"></i></button>`}
                   <span class="link-status ${studentConnected ? "is-active" : "is-pending"}">
                     <i data-lucide="${studentConnected ? "user-check" : "user"}"></i>
-                    ${studentConnected ? "Ученик подключен" : "Ученик не подключен"}
+                    <span>${studentConnected ? "Ученик подключен" : "Ученик не подключен"}</span>
                   </span>
-                </span>
               </span>
               <button type="button" class="secondary-action" data-open-student-qr="${escapeHtml(student.id)}">Показать</button>
             </article>
