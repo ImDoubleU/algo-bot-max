@@ -7,26 +7,32 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.91.42" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.91.43" />
     <link rel="stylesheet" href="/miniapp/static/feedback-preview.css?v=7" />
-    <link rel="stylesheet" href="/miniapp/static/support.css?v=0.91.42" />
-  <link rel="stylesheet" href="/miniapp/static/audit.css?v=0.91.42" />
+    <link rel="stylesheet" href="/miniapp/static/support.css?v=0.91.43" />
+  <link rel="stylesheet" href="/miniapp/static/audit.css?v=0.91.43" />
   </head>
   <body class="is-booting">
     <main id="accessGate" class="access-gate" hidden>
       <section class="access-gate-card">
-        <span class="brand-mark" aria-hidden="true">A</span>
-        <p class="eyebrow">Algo MAX</p>
+        <div class="access-gate-brand"><span class="brand-mark" aria-hidden="true">A</span><span>Algo MAX</span></div>
+        <div id="accessGateConnected" class="access-gate-connected" hidden>
+          <i data-lucide="circle-check" aria-hidden="true"></i><span>Профиль ученика подключён</span>
+        </div>
         <h1 id="accessGateTitle">Сначала привяжите профиль</h1>
-        <p id="accessGateMessage">
+        <p id="accessGateMessage" role="status" aria-live="polite">
           Откройте чат с ботом по ссылке из письма школы. После привязки личный
           кабинет станет доступен автоматически.
         </p>
-        <a class="primary-action access-gate-action" href="https://max.ru/id525601030904_3_bot">
-          Открыть бота
-        </a>
-        <button type="button" class="secondary-action" data-support-open>Сообщить о проблеме</button>
-        <button id="retryAccessButton" type="button" class="secondary-action access-gate-retry">Проверить доступ</button>
+        <div id="accessGateParentStep" class="access-gate-parent-step" hidden>
+          <span class="access-gate-step-icon"><i data-lucide="mail" aria-hidden="true"></i></span>
+          <div><strong>Что сделать родителю</strong><p>Открыть письмо школы, перейти по персональной ссылке и нажать «Начать» в боте.</p></div>
+        </div>
+        <div class="access-gate-actions">
+          <button id="retryAccessButton" type="button" class="secondary-action access-gate-retry">Проверить доступ</button>
+          <a class="primary-action access-gate-action" href="https://max.ru/id525601030904_3_bot">Открыть бота</a>
+          <button type="button" class="secondary-action access-gate-support" data-support-open><i data-lucide="circle-help" aria-hidden="true"></i><span>Сообщить о проблеме</span></button>
+        </div>
       </section>
     </main>
 
@@ -1264,18 +1270,18 @@
     </div>
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app-core.js?v=0.91.42"></script>
-    <script src="/miniapp/static/app-shell.js?v=0.91.42"></script>
-    <script src="/miniapp/static/app-store.js?v=0.91.42"></script>
-    <script src="/miniapp/static/app-admin.js?v=0.91.42"></script>
-    <script src="/miniapp/static/app-audit.js?v=0.91.42"></script>
-    <script src="/miniapp/static/app-communications.js?v=0.91.42"></script>
-    <script src="/miniapp/static/app-bank.js?v=0.91.42"></script>
-    <script src="/miniapp/static/app-help.js?v=0.91.42"></script>
-    <script src="/miniapp/static/app-feedback-model.js?v=0.91.42"></script>
-    <script src="/miniapp/static/app-feedback.js?v=0.91.42"></script>
-    <script src="/miniapp/static/app-support.js?v=0.91.42"></script>
-    <script src="/miniapp/static/app-pending-bindings.js?v=0.91.42"></script>
-    <script src="/miniapp/static/app.js?v=0.91.42"></script>
+    <script src="/miniapp/static/app-core.js?v=0.91.43"></script>
+    <script src="/miniapp/static/app-shell.js?v=0.91.43"></script>
+    <script src="/miniapp/static/app-store.js?v=0.91.43"></script>
+    <script src="/miniapp/static/app-admin.js?v=0.91.43"></script>
+    <script src="/miniapp/static/app-audit.js?v=0.91.43"></script>
+    <script src="/miniapp/static/app-communications.js?v=0.91.43"></script>
+    <script src="/miniapp/static/app-bank.js?v=0.91.43"></script>
+    <script src="/miniapp/static/app-help.js?v=0.91.43"></script>
+    <script src="/miniapp/static/app-feedback-model.js?v=0.91.43"></script>
+    <script src="/miniapp/static/app-feedback.js?v=0.91.43"></script>
+    <script src="/miniapp/static/app-support.js?v=0.91.43"></script>
+    <script src="/miniapp/static/app-pending-bindings.js?v=0.91.43"></script>
+    <script src="/miniapp/static/app.js?v=0.91.43"></script>
   </body>
 </html>

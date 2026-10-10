@@ -2333,13 +2333,24 @@ function applyAccessGate(message = state.accessMessage || "") {
   const locked = !apiContext.demoMode && !state.hasAccess;
   const gate = qs("#accessGate");
   const shell = qs(".app-shell");
+  const waitingForParent = locked && state.accessReason === "parent_required";
   if (gate) gate.hidden = !locked;
+  gate?.classList.toggle("is-waiting-parent", waitingForParent);
+  const connected = qs("#accessGateConnected");
+  const parentStep = qs("#accessGateParentStep");
+  const botAction = qs(".access-gate-action");
+  const retry = qs("#retryAccessButton");
+  if (connected) connected.hidden = !waitingForParent;
+  if (parentStep) parentStep.hidden = !waitingForParent;
+  if (botAction) botAction.hidden = waitingForParent;
+  retry?.classList.toggle("primary-action", waitingForParent);
+  retry?.classList.toggle("secondary-action", !waitingForParent);
   if (shell) shell.hidden = locked;
   if (locked) {
     closeParentInvitationPreview();
     const title = qs("#accessGateTitle");
     const titles = {
-      parent_required: "Нужно подключить родителя",
+      parent_required: "Осталось подключить родителя",
       parent_disconnected: "Нужно обновить подключение",
       not_linked: "Подключите профиль",
       access_expired: "Доступ к кабинету закончился",
@@ -2355,7 +2366,9 @@ function applyAccessGate(message = state.accessMessage || "") {
   }
   if (locked) {
     const label = qs("#accessGateMessage");
-    if (label) label.textContent = message || "Родителю нужно открыть ссылку из письма школы, а ученику — свой QR-код у преподавателя. Завершите подключение в боте и нажмите «Проверить доступ».";
+    if (label) label.textContent = waitingForParent
+      ? "Кабинет откроется после входа родителя."
+      : message || "Родителю нужно открыть ссылку из письма школы, а ученику — свой QR-код у преподавателя. Завершите подключение в боте и нажмите «Проверить доступ».";
   }
   document.body.dataset.access = locked ? "locked" : "granted";
   refreshIcons();

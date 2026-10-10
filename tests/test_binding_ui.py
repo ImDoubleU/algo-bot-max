@@ -81,7 +81,7 @@ def test_access_screen_mobile_guidance_and_retry(binding_browser, scenario):
     text = gate.inner_text()
     assert "HTTP" not in text and "401" not in text
     if scenario == "parent_required":
-        assert "Нужно подключить родителя" in text
+        assert "Осталось подключить родителя" in text
     elif scenario == "expired":
         assert "Привязка сохранена" in text and "Нужно подключить родителя" not in text
     elif scenario == "network":
