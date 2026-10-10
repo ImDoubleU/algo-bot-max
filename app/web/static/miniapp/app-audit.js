@@ -6,12 +6,16 @@ function fullAuditEnabled() {
   return primaryStaffRole() === "superadmin" || (apiContext.demoMode && state.role === "admin");
 }
 
+function globalHistoryEnabled(kind) {
+  return fullAuditEnabled() && ["actions", "audit"].includes(kind);
+}
+
 function auditFeed(kind) {
   if (!auditFeeds.has(kind)) auditFeeds.set(kind, {
     rows: apiContext.demoMode ? [...state.adminHistory] : [], total: apiContext.demoMode ? state.adminHistory.length : 0,
     loading: false, loaded: apiContext.demoMode, error: "", more: false, snapshot: "", generation: 0,
     groupMinutes: 5, openGroups: new Set(),
-    filters: { q: "", category: "", outcome: "", actor: "", days: "30", from: "", to: "", allTenants: kind === "audit" },
+    filters: { q: "", category: "", outcome: "", actor: "", days: "30", from: "", to: "", allTenants: globalHistoryEnabled(kind) },
   });
   return auditFeeds.get(kind);
 }
@@ -50,7 +54,7 @@ async function loadAuditFeed(kind, reset = false) {
       q: filters.q || undefined, category: filters.category || undefined,
       outcome: filters.outcome || undefined, actor_max_user_id: filters.actor || undefined,
       period_days: filters.days, date_from: filters.from || undefined, date_to: filters.to || undefined,
-      all_tenants: kind === "audit" && filters.allTenants ? "true" : undefined,
+      all_tenants: globalHistoryEnabled(kind) && filters.allTenants ? "true" : undefined,
     }), { signal: feed.abort.signal });
     if (!response.ok) throw new Error(await parseApiError(response));
     const result = await response.json();
@@ -290,7 +294,7 @@ function historyBindingTargetMarkup(entry) {
   </div>`;
 }
 
-function auditCards(rows, full = false, {grouped = false, hideActor = false} = {}) {
+function auditCards(rows, full = false, {grouped = false, hideActor = false, showTenants = false} = {}) {
   if (full && !grouped) return auditGroupedCards(rows);
   let previousDay = "";
   return rows.map((entry) => {
@@ -313,7 +317,7 @@ function auditCards(rows, full = false, {grouped = false, hideActor = false} = {
         ${model.contexts.length ? `<div class="audit-context">${model.contexts.map((context) => `<div>${context.group ? `<span><small>Группа</small>${escapeHtml(context.group)}</span>` : ""}${context.teacher ? `<span><small>Преподаватель</small>${escapeHtml(context.teacher)}${context.teacherId ? ` <code>MAX ID ${escapeHtml(context.teacherId)}</code>` : ""}</span>` : ""}</div>`).join("")}</div>` : ""}
         ${entry.explanation ? `<p class="audit-explanation">${escapeHtml(entry.explanation)}</p>` : ""}
         ${facts.length ? `<dl class="audit-facts">${facts.map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>` : ""}
-        <div class="audit-footer"><div class="audit-tags">${entry.payload.source ? `<span>${escapeHtml(auditReadable(entry.payload.source))}</span>` : `<span>${escapeHtml(entry.category)}</span>`}${full && entry.tenantName ? `<span>${escapeHtml(entry.tenantName)}</span>` : ""}</div>
+        <div class="audit-footer"><div class="audit-tags">${entry.payload.source ? `<span>${escapeHtml(auditReadable(entry.payload.source))}</span>` : `<span>${escapeHtml(entry.category)}</span>`}${(full || showTenants) && entry.tenantName ? `<span>${escapeHtml(entry.tenantName)}</span>` : ""}</div>
           ${studentDetails || full ? `<details class="audit-details ${full ? "audit-technical" : ""}"><summary>${full ? "Детали аудита" : "ID ученика"}</summary><div class="audit-detail-content"><dl class="audit-facts">${studentDetails}${diagnostics}</dl>${full ? `<pre>${escapeHtml(JSON.stringify(entry.payload, null, 2))}</pre>` : ""}</div></details>` : ""}
         </div>
       </div>
@@ -327,6 +331,7 @@ function auditPanel(kind, compact = false) {
   const title = full ? "Аудит действий" : kind === "bindings" ? "История подключений" : "История действий";
   return `<section class="audit-panel" data-audit-panel="${escapeHtml(kind)}">
     <div class="audit-toolbar">${full ? `<label class="audit-group-control"><span>Интервал</span><select data-audit-group-minutes>${[1, 5, 15, 30].map((minutes) => `<option value="${minutes}" ${feed.groupMinutes === minutes ? "selected" : ""}>${minutes} мин</option>`).join("")}</select></label>` : `<h3>${title}</h3>`}<button class="secondary-action" type="button" data-audit-refresh="${escapeHtml(kind)}" ${feed.loading ? "disabled" : ""}><i data-lucide="refresh-cw"></i>Обновить</button></div>
+    ${kind === "actions" && globalHistoryEnabled(kind) && !compact ? `<label class="audit-school-scope"><span>Школы</span><select ${attrs("allTenants")}><option value="true" ${f.allTenants ? "selected" : ""}>Все школы</option><option value="false" ${!f.allTenants ? "selected" : ""}>Текущая школа</option></select></label>` : ""}
     ${!compact ? `<div class="audit-filters">
       <label class="audit-search"><span>Поиск</span><input type="search" maxlength="120" ${attrs("q")} value="${escapeHtml(f.q)}" placeholder="Имя, MAX ID, LMS ID, ID ссылки" /></label>
       <button type="button" class="audit-filter-toggle secondary-action" data-audit-toggle="${escapeHtml(kind)}" aria-expanded="${Boolean(feed.filtersOpen)}"><i data-lucide="sliders-horizontal"></i>Фильтры</button>
@@ -340,7 +345,7 @@ function auditPanel(kind, compact = false) {
     </div>` : ""}
     <div class="audit-count">Показано ${feed.rows.length} из ${feed.total} · время Москвы</div>
     ${feed.error ? `<div class="audit-error" role="alert">${escapeHtml(feed.error)}<button type="button" class="secondary-action" data-audit-refresh="${escapeHtml(kind)}">Повторить</button></div>` : ""}
-    <div class="audit-timeline">${auditCards(feed.rows, full)}</div>
+    <div class="audit-timeline">${auditCards(feed.rows, full, {showTenants: globalHistoryEnabled(kind) && f.allTenants})}</div>
     ${feed.loading ? '<div class="audit-loading" role="status">Загружаем события…</div>' : !feed.rows.length && !feed.error ? '<div class="empty-state compact-empty">Событий за этот период нет</div>' : ""}
     ${feed.more ? `<button type="button" class="secondary-action audit-more" data-audit-more="${escapeHtml(kind)}" ${feed.loading ? "disabled" : ""}>Показать ещё 100</button>` : ""}
   </section>`;
@@ -401,7 +406,7 @@ document.addEventListener("change", (event) => {
   }
   const { auditKind: kind, auditField: field } = event.target.dataset;
   if (!kind || ["q", "actor"].includes(field)) return;
-  auditFeed(kind).filters[field] = field === "allTenants" ? event.target.checked : event.target.value;
+  auditFeed(kind).filters[field] = field === "allTenants" ? (event.target.type === "checkbox" ? event.target.checked : event.target.value === "true") : event.target.value;
   void loadAuditFeed(kind, true);
 });
 
