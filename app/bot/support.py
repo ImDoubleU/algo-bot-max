@@ -1,10 +1,22 @@
+from urllib.parse import parse_qs, urlsplit
+
 from app.bot.backend_client import BackendApiError
 from app.bot.keyboards import callback_button, inline_keyboard
 from app.bot.models import BotResponse
 
 
-def support_keyboard(stage):
+def support_keyboard(stage, result=None):
+    result = result or {}
     rows = []
+    if stage in {"conversation", "choose", "closed"}:
+        if stage == "choose":
+            rows = [[callback_button(t["label"], f"support:choose:{t['id']}")]
+                    for t in result.get("tickets", [])]
+        elif stage == "closed":
+            rows = [[callback_button("Ответить по обращению",
+                                     f"support:reply:{result['ticket_id']}")]]
+        rows.append([callback_button("Завершить диалог", "support:exit")])
+        return inline_keyboard(rows)
     if stage == "role":
         rows = [[callback_button(label, f"support:role:{role}")] for role, label in (
             ("parent", "Я родитель"), ("student", "Я ученик"), ("staff", "Я сотрудник"),
@@ -32,9 +44,6 @@ def support_response(bot, user_id, action, **fields):
         result = bot.backend_client.support_event(max_user_id=user_id,
             tenant_slug=bot.current_tenant_slug(user_id), action=action, **fields)
     except BackendApiError as exc:
-        if action == "message" and exc.status_code not in {400, 422, 429}:
-            # Do not break ordinary bot commands if support is temporarily unavailable.
-            return None
         text = "Не удалось отправить данные. Попробуйте ещё раз."
         if exc.status_code in {400, 429}:
             text = str(exc).split(": ", 1)[-1]
@@ -44,14 +53,26 @@ def support_response(bot, user_id, action, **fields):
             return None
         return BotResponse(result.get("text", "Заявка отправлена."),
                            bot.main_menu_attachments(user_id))
-    return BotResponse(result["text"], support_keyboard(result["stage"]))
+    return BotResponse(result["text"], support_keyboard(result["stage"], result))
+
+
+def is_navigation_message(text):
+    lowered = text.casefold()
+    if lowered.startswith("/") or lowered.split(maxsplit=1)[:1] == ["start"]:
+        return True
+    if lowered.startswith(("shop_", "cid_", "sid_", "student_", "staff_", "staffi_",
+                           "contact_", "contact:", "id_", "id:")):
+        return True
+    parsed = urlsplit(text) if lowered.startswith(("https://", "http://")) else None
+    return bool(parsed and parsed.hostname in {"max.ru", "www.max.ru"}
+                and "start" in parse_qs(parsed.query))
 
 
 def handle_support_message(bot, user_id, body):
     if not hasattr(bot.backend_client, "support_event") or user_id is None:
         return None
     text = str(body.get("text") or "").strip()
-    if text.startswith("/"):
+    if is_navigation_message(text):
         cancel_support(bot, user_id)
         return None
     photos = [a.get("payload", {}).get("url") for a in body.get("attachments") or []

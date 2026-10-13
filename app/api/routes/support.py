@@ -1,8 +1,9 @@
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
@@ -10,10 +11,17 @@ from app.api.dependencies import get_miniapp_identity, require_matching_miniapp_
 from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
 from app.models.audit import AuditLog
-from app.models.support import SupportDraft, SupportPhoto, SupportReply, SupportTicket
+from app.models.support import (
+    SupportConversation,
+    SupportDraft,
+    SupportPhoto,
+    SupportReply,
+    SupportTicket,
+)
 from app.schemas.support import (
     SupportBotEvent,
     SupportCreate,
+    SupportRead,
     SupportReplyCreate,
     SupportStatus,
     SupportUpdate,
@@ -47,7 +55,8 @@ Identity = Annotated[MiniAppIdentity, Depends(verified_identity)]
 
 def public_reply(reply: SupportReply) -> dict:
     return {"id": str(reply.id), "message": reply.message, "status": reply.status,
-            "created_at": reply.created_at, "sent_at": reply.sent_at}
+            "created_at": reply.created_at, "sent_at": reply.sent_at,
+            "author": reply.author, "photo_ids": reply.photo_ids, "read_at": reply.read_at}
 
 
 def public_ticket(
@@ -62,6 +71,7 @@ def public_ticket(
         "updated_at": ticket.updated_at, "photo_ids": [str(p) for p in photo_ids],
         "notification_sent": ticket.notified_at is not None,
         "replies": [public_reply(reply) for reply in replies],
+        "unread_count": sum(r.author == "user" and r.read_at is None for r in replies),
         "user_context": user_context,
     }
 
@@ -139,7 +149,8 @@ async def inbox(
                            SupportTicket.message.icontains(value, autoescape=True)))
     total = await db.scalar(select(func.count()).select_from(SupportTicket).where(*filters))
     tickets = list((await db.scalars(select(SupportTicket).where(*filters)
-                                    .order_by(SupportTicket.id.desc())
+                                    .order_by(SupportTicket.updated_at.desc(),
+                                              SupportTicket.id.desc())
                                     .offset(offset).limit(limit))).all())
     photos = (await db.execute(select(SupportPhoto.ticket_id, SupportPhoto.id)
                               .where(SupportPhoto.ticket_id.in_([t.id for t in tickets])))).all()
@@ -149,10 +160,26 @@ async def inbox(
         SupportReply.ticket_id.in_([t.id for t in tickets])
     ).order_by(SupportReply.created_at, SupportReply.id))).all())
     contexts = await ticket_user_contexts(db, tickets)
+    unread_total = await db.scalar(select(func.count()).select_from(SupportReply).where(
+        SupportReply.author == "user", SupportReply.read_at.is_(None),
+    ))
     return {"items": [public_ticket(t, [p for tid, p in photos if tid == t.id],
                                     [r for r in replies if r.ticket_id == t.id],
                                     contexts[t.id]) for t in tickets],
-            "total": total, "counts": counters}
+            "total": total, "counts": counters, "unread_total": unread_total}
+
+
+@router.post("/tickets/{ticket_id}/read", status_code=204)
+async def read_messages(ticket_id: int, payload: SupportRead, db: Db, identity: Identity):
+    require_owner(identity.max_user_id)
+    if await db.get(SupportTicket, ticket_id) is None:
+        raise HTTPException(404, "Заявка не найдена")
+    # Acknowledge only displayed messages, not new arrivals during a page refresh.
+    await db.execute(update(SupportReply).where(
+        SupportReply.ticket_id == ticket_id, SupportReply.id.in_(payload.reply_ids),
+        SupportReply.author == "user", SupportReply.read_at.is_(None),
+    ).values(read_at=datetime.now(UTC)))
+    await db.commit()
 
 
 @router.post("/tickets/{ticket_id}/replies", status_code=202)
@@ -177,7 +204,7 @@ async def reply_to_ticket(ticket_id: int, payload: SupportReplyCreate, db: Db, i
     if pending:
         raise HTTPException(409, "Предыдущий ответ ещё отправляется")
     reply = SupportReply(request_id=payload.request_id, ticket_id=ticket.id,
-                         message=payload.message)
+                         message=payload.message, created_at=datetime.now(UTC))
     db.add(reply)
     ticket.status = "in_progress"
     await db.commit()
@@ -200,6 +227,10 @@ async def update_ticket(ticket_id: int, payload: SupportUpdate, db: Db, identity
 @router.delete("/tickets/{ticket_id}", status_code=204)
 async def delete_ticket(ticket_id: int, request: Request, db: Db, identity: Identity):
     require_owner(identity.max_user_id)
+    user_id = await db.scalar(select(SupportTicket.max_user_id).where(
+        SupportTicket.id == ticket_id))
+    if user_id is not None:
+        await lock_user(db, user_id)
     ticket = await db.scalar(select(SupportTicket).where(SupportTicket.id == ticket_id)
                              .with_for_update())
     if ticket is None:
@@ -218,6 +249,9 @@ async def delete_ticket(ticket_id: int, request: Request, db: Db, identity: Iden
     await db.execute(delete(SupportReply).where(SupportReply.ticket_id == ticket_id))
     await db.execute(delete(SupportPhoto).where(SupportPhoto.ticket_id == ticket_id))
     await db.execute(delete(SupportDraft).where(SupportDraft.request_id == ticket.request_id))
+    await db.execute(update(SupportConversation).where(
+        SupportConversation.ticket_id == ticket_id,
+    ).values(ticket_id=None, paused=True, pending_messages=[]))
     await db.delete(ticket)
     await db.commit()
     request.state.audit_skip = True

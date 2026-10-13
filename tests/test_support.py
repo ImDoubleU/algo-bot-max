@@ -307,7 +307,7 @@ def test_personal_reply_access_idempotency_retry_and_resolution(support_client):
             reply = await db.scalar(select(SupportReply))
             record = await db.get(SupportTicket, tid)
             assert reply.status == "sent" and reply.sent_at
-            assert record.status == "resolved"
+            assert record.status == "waiting"
             assert reply.attempts == 2
 
     asyncio.run(delivery())

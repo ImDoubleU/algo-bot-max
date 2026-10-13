@@ -4,7 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 SupportRole = Literal["parent", "student", "staff"]
-SupportStatus = Literal["new", "in_progress", "resolved"]
+SupportStatus = Literal["new", "in_progress", "waiting", "resolved"]
 
 
 def clean_name(value: str) -> str:
@@ -55,8 +55,14 @@ class SupportBotEvent(BaseModel):
     # Identity is taken exclusively from the signed bot token, never from these fields.
     max_user_id: int = Field(gt=0)
     tenant_slug: str = Field(min_length=1, max_length=160)
-    action: Literal["start", "role", "message", "submit", "cancel"]
+    action: Literal["start", "role", "message", "submit", "cancel", "reply", "choose", "exit"]
+    ticket_id: int | None = Field(default=None, gt=0)
     role: SupportRole | None = None
     text: str = Field(default="", max_length=4000)
     photo_urls: list[str] = Field(default_factory=list, max_length=5)
     event_id: str = Field(default="", max_length=200)
+
+
+class SupportRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reply_ids: list[UUID] = Field(max_length=500)
