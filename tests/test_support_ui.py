@@ -125,15 +125,15 @@ def test_reply_button_queues_personal_answer_and_shows_delivery_state(feedback_b
     page.locator(".support-ticket summary").click()
     page.locator('[name="reply_message"]').fill("Попробуйте открыть приложение снова")
     page.locator('[data-support-reply] button').click()
-    page.wait_for_function("document.querySelector('.support-reply') !== null")
+    page.wait_for_function("document.querySelector('.support-reply-staff') !== null")
     assert sent[0]["message"] == "Попробуйте открыть приложение снова"
     assert set(sent[0]) == {"message", "request_id"}
     assert page.locator('[data-support-reply] button').is_disabled()
-    assert "Ожидает отправки" in page.locator(".support-reply").inner_text()
-    record["status"] = "resolved"
+    assert "Ожидает отправки" in page.locator(".support-reply-staff").inner_text()
+    record["status"] = "waiting"
     record["replies"][0]["status"] = "sent"
     page.locator("#supportRefresh").click()
-    page.wait_for_function("document.querySelector('.support-reply').textContent.includes('Отправлен')")
+    page.wait_for_function("document.querySelector('.support-reply-staff').textContent.includes('Отправлен')")
     assert page.locator('[data-support-reply] button').is_enabled()
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     page.close()
