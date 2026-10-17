@@ -117,6 +117,9 @@ class Settings(BaseSettings):
         alias="INITIAL_SUPERADMIN_MAX_USER_ID",
     )
     feedback_teacher_max_user_ids: str = Field(default="", alias="FEEDBACK_TEACHER_MAX_USER_IDS")
+    feedback_all_teachers_enabled: bool = Field(
+        default=False, alias="FEEDBACK_ALL_TEACHERS_ENABLED"
+    )
     initial_superadmin_username: str | None = Field(
         default="ImDoubleU",
         alias="INITIAL_SUPERADMIN_USERNAME",

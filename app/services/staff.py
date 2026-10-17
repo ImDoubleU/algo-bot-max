@@ -36,12 +36,16 @@ def superadmin_identity_is_allowed(max_user_id: int) -> bool:
 def feedback_teacher_is_enabled(
     max_user_id: int, staff_roles: list[StaffRole] | set[StaffRole]
 ) -> bool:
+    if StaffRole.TEACHER not in staff_roles:
+        return False
+    if get_settings().feedback_all_teachers_enabled:
+        return True
     allowed_ids = {
         int(value.strip())
         for value in get_settings().feedback_teacher_max_user_ids.split(",")
         if value.strip().isdigit() and int(value.strip()) > 0
     }
-    return max_user_id in allowed_ids and StaffRole.TEACHER in staff_roles
+    return max_user_id in allowed_ids
 
 
 def normalize_staff_name(value: str | None) -> str:

@@ -139,6 +139,29 @@ async def test_foreign_group_and_tenant_are_denied(storage):
 
 
 @pytest.mark.asyncio
+async def test_teacher_cannot_create_custom_group_in_school_without_teacher_role(
+    storage, monkeypatch,
+):
+    db, tenant, teacher, _, _ = storage
+    other_school = Tenant(slug="foreign-city", name="Other school",
+                          city=City(slug="foreign-city", name="Other city"),
+                          partner_id=tenant.partner_id)
+    db.add(other_school)
+    await db.commit()
+    monkeypatch.setattr(miniapp, "is_global_superadmin", lambda *a, **k: _not_superadmin())
+    monkeypatch.setattr(miniapp, "feedback_teacher_is_enabled", lambda *a, **k: True)
+    raw = payload().model_dump(mode="json")
+    raw["group_name"] = "Своя группа"
+    raw["schedule"]["custom_group"] = True
+    with pytest.raises(HTTPException) as denied:
+        await miniapp.miniapp_save_feedback_schedule(
+            FeedbackScheduleSave.model_validate(raw), db, identity(teacher, other_school),
+            other_school.slug,
+        )
+    assert denied.value.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_out_of_course_material_rejected_and_repeat_normalized(storage):
     db, tenant, a, _, _ = storage
     bad = payload()

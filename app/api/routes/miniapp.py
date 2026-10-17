@@ -366,6 +366,10 @@ async def _feedback_schedule_scope(db, identity, tenant_slug):
     account = await db.get(MaxAccount, owner_id)
     roles = await active_staff_roles_for_tenant(db, tenant_id=tenant_id, account_id=owner_id)
     if StaffRole.TEACHER not in roles:
+        if not await is_global_superadmin(db, account_id=owner_id):
+            raise HTTPException(
+                status_code=403, detail="Нет доступа преподавателя в выбранной школе"
+            )
         return owner_id, tenant_id, set()
     candidates = (
         await db.scalars(

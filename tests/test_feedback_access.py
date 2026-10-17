@@ -96,10 +96,26 @@ def test_feedback_teacher_allowlist_does_not_grant_other_roles(monkeypatch):
     monkeypatch.setattr(
         staff,
         "get_settings",
-        lambda: SimpleNamespace(feedback_teacher_max_user_ids="777, 888, invalid, -1"),
+        lambda: SimpleNamespace(
+            feedback_teacher_max_user_ids="777, 888, invalid, -1",
+            feedback_all_teachers_enabled=False,
+        ),
     )
     assert staff.feedback_teacher_is_enabled(777, [StaffRole.TEACHER])
     assert staff.feedback_teacher_is_enabled(888, [StaffRole.TEACHER, StaffRole.ADMIN])
     assert not staff.feedback_teacher_is_enabled(999, [StaffRole.TEACHER])
     assert not staff.feedback_teacher_is_enabled(777, [StaffRole.ADMIN])
     assert not staff.feedback_teacher_is_enabled(777, [])
+
+
+def test_all_teachers_access_requires_teacher_role(monkeypatch):
+    from app.models.enums import StaffRole
+    from app.services import staff
+
+    monkeypatch.setattr(staff, "get_settings", lambda: SimpleNamespace(
+        feedback_teacher_max_user_ids="", feedback_all_teachers_enabled=True,
+    ))
+    assert staff.feedback_teacher_is_enabled(999, [StaffRole.TEACHER])
+    assert not staff.feedback_teacher_is_enabled(999, [StaffRole.ADMIN])
+    assert not staff.feedback_teacher_is_enabled(999, [StaffRole.CURATOR])
+    assert not staff.feedback_teacher_is_enabled(999, [])
