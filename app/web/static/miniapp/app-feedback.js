@@ -139,7 +139,7 @@ function feedbackRestoreWorkspace(saved, groups) {
   }
   try {
     const custom = saved.tab === "groups" && feedbackSchedule(saved.group).rows.find((row) => row.id === saved.rowId)?.lesson == null;
-    const lesson = custom ? null : feedbackInteger(saved.lesson, 1, feedbackState.catalog[saved.course].length, "Материал");
+    const lesson = custom || saved.lesson === null ? null : feedbackInteger(saved.lesson, 1, feedbackState.catalog[saved.course].length, "Материал");
     const offset = feedbackInteger(saved.offset, -99, 999, "Номер");
     if (typeof saved.date !== "string" || (saved.date && !feedbackValidDate(saved.date))) return;
     Object.assign(feedbackState, { tab: saved.tab, group: saved.tab === "groups" ? saved.group : "",
@@ -199,7 +199,7 @@ function feedbackRestoreUi() {
 
 function feedbackGenerate() {
   feedbackState.text = feedbackBuildText();
-  feedbackState.generated = structuredClone(Object.fromEntries(["group", "rowId", "course", "lesson", "date", "offset", "mode", "repeat", "coins", "absent", "extraAbsent"].map((key) => [key, feedbackState[key]])));
+  feedbackState.generated = structuredClone(Object.fromEntries(["group", "rowId", "course", "lesson", "date", "offset", "mode", "repeat", "coins", "absent", "extraAbsent", "customTopic"].map((key) => [key, feedbackState[key]])));
   feedbackState.edited = false; feedbackState.stale = false;
 }
 
@@ -302,9 +302,10 @@ function feedbackSelectGroup(group, rowId = "") {
     const signature = (value) => JSON.stringify([value.course, value.lesson, value.date, value.offset, value.mode, value.repeat, value.coins]);
     if (cached.generated && signature(cached.generated) !== signature(feedbackState)) {
       if (cached.edited) feedbackState.stale = true;
-      else if (row && !feedbackState.customTopic) feedbackGenerate();
+      else if (row) feedbackGenerate();
     }
-  } else if (row && !feedbackState.customTopic) feedbackGenerate();
+    if (row && !cached.generated && !cached.edited && !cached.text.trim()) feedbackGenerate();
+  } else if (row) feedbackGenerate();
 }
 
 async function renderFeedback() {
@@ -380,14 +381,14 @@ async function renderFeedback() {
         <form id="feedbackComposeForm" class="feedback-compose-card" novalidate>
           <div class="feedback-card-heading"><span class="feedback-step">1</span><div><h2>Настройки</h2></div></div>
           ${feedbackFormMarkup()}
-          <button class="primary-action feedback-generate" type="submit" ${feedbackState.customTopic || !feedbackState.course || (feedbackState.tab === "groups" && !feedbackState.group) ? "hidden disabled" : ""}><i data-lucide="sparkles"></i>Подготовить сообщение</button>
+          <button class="primary-action feedback-generate" type="submit" ${!feedbackState.course || (feedbackState.tab === "groups" && !feedbackState.group) ? "hidden disabled" : ""}><i data-lucide="sparkles"></i>${feedbackState.lesson === null ? "Подготовить шаблон" : "Подготовить сообщение"}</button>
         </form>
         <section class="feedback-output-card" aria-label="Обратная связь">
           <div class="feedback-card-heading"><span class="feedback-step">2</span><div><h2>Обратная связь</h2></div></div>
           <div class="feedback-output-meta" id="feedbackOutputMeta" ${feedbackState.generated ? "" : "hidden"}>${feedbackOutputMeta()}</div>
           <p class="feedback-stale-note" ${feedbackState.stale ? "" : "hidden"}>Параметры изменены. Обновите сообщение.</p>
           <label class="feedback-editor-label" for="feedbackText">Текст сообщения</label>
-          <textarea id="feedbackText" class="feedback-text" maxlength="20000" placeholder="Сообщение о занятии" ${feedbackState.generated || feedbackState.customTopic ? "" : "disabled"}>${escapeHtml(feedbackState.text)}</textarea>
+          <textarea id="feedbackText" class="feedback-text" maxlength="20000" placeholder="Сообщение о занятии" ${feedbackState.generated || (feedbackState.rowId && feedbackState.lesson === null) ? "" : "disabled"}>${escapeHtml(feedbackState.text)}</textarea>
           <div class="feedback-output-actions"><button class="primary-action" data-feedback-copy type="button" ${feedbackState.text.trim() && !feedbackState.stale ? "" : "disabled"}><i data-lucide="copy"></i>Скопировать</button></div>
         </section>
       </div>
@@ -462,8 +463,8 @@ function feedbackGroupDialogMarkup() {
 
 function feedbackLessonOptions(course, selected) {
   const lessons = feedbackState.catalog[course] || [];
-  const invalid = !Number.isInteger(Number(selected)) || Number(selected) < 1 || Number(selected) > lessons.length;
-  return `${invalid ? '<option value="" selected>Выберите материал</option>' : ""}${lessons.map((lesson, index) => `<option value="${index + 1}" ${index + 1 === Number(selected) ? "selected" : ""}>${escapeHtml(lesson.title)}${lesson.topic ? ` — ${escapeHtml(lesson.topic)}` : ""}</option>`).join("")}`;
+  const invalid = selected == null || !Number.isInteger(Number(selected)) || Number(selected) < 1 || Number(selected) > lessons.length;
+  return `<option value="" ${invalid ? "selected" : ""}>Без темы</option>${lessons.map((lesson, index) => `<option value="${index + 1}" ${index + 1 === Number(selected) ? "selected" : ""}>${escapeHtml(lesson.title)}${lesson.topic ? ` — ${escapeHtml(lesson.topic)}` : ""}</option>`).join("")}`;
 }
 
 function feedbackLessonTopic(course, lesson) {
@@ -472,7 +473,7 @@ function feedbackLessonTopic(course, lesson) {
 }
 
 function feedbackRowTopic(course, row) {
-  return row.lesson == null ? row.topic : feedbackLessonTopic(course, row.lesson);
+  return row.lesson == null ? row.topic || "Без темы" : feedbackLessonTopic(course, row.lesson);
 }
 
 function feedbackScheduleEditorMarkup() {
@@ -488,7 +489,7 @@ function feedbackScheduleEditorMarkup() {
       <tbody>${editor.rows.map((row) => `<tr class="${row.skipped ? "feedback-disabled-row" : ""}" data-feedback-schedule-row="${escapeHtml(row.id)}">
         <td data-label="№ занятия"><input name="number" type="number" min="1" max="999" step="1" value="${escapeHtml(row.number)}" ${row.skipped ? 'disabled title="Выключенное занятие не имеет номера в календаре"' : ""} required aria-label="Номер занятия"></td>
         <td data-label="Дата"><input name="date" type="date" min="2000-01-01" max="2100-12-31" value="${escapeHtml(row.date)}" required aria-label="Дата занятия ${escapeHtml(row.number)}"></td>
-        <td data-label="Тема">${row.lesson == null ? `<input name="topic" maxlength="200" required value="${escapeHtml(row.topic)}" aria-label="Тема занятия ${escapeHtml(row.number)}">` : `<select name="lesson" required aria-label="Материал занятия ${escapeHtml(row.number)}">${feedbackLessonOptions(editor.course, row.lesson)}</select>`}</td>
+        <td data-label="Тема"><select name="lesson" aria-label="Материал занятия ${escapeHtml(row.number)}">${feedbackLessonOptions(editor.course, row.lesson)}</select>${row.lesson == null ? `<input name="topic" maxlength="200" placeholder="Название темы (необязательно)" value="${escapeHtml(row.topic || "")}" aria-label="Тема занятия ${escapeHtml(row.number)}">` : ""}</td>
         <td class="feedback-row-kind">${row.skipped || row.lesson == null ? "" : row.repeat ? '<span class="feedback-repeat-badge">Повторение</span>' : '<span class="feedback-new-material">Новая тема</span>'}</td>
         <td class="feedback-row-enabled"><input name="skipped" type="checkbox" ${row.skipped ? "checked" : ""} aria-label="Выключить занятие ${escapeHtml(row.number)}"></td>
         <td class="feedback-row-delete"><button class="icon-button" type="button" data-feedback-remove-row="${escapeHtml(row.id)}" aria-label="Удалить занятие ${escapeHtml(row.number)}"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table></div>
@@ -524,8 +525,8 @@ function feedbackCaptureSchedule() {
     members: feedbackCustomGroup() ? feedbackUniqueNames(form.elements.members.value.split(/[,;\n]/)) : [],
     rows: [...form.querySelectorAll("[data-feedback-schedule-row]")].map((row) => ({
       id: row.dataset.feedbackScheduleRow, number: Number(row.querySelector('[name="number"]').value),
-      date: row.querySelector('[name="date"]').value, lesson: row.querySelector('[name="topic"]') ? null : Number(row.querySelector('[name="lesson"]').value),
-      ...(row.querySelector('[name="topic"]') ? { topic: row.querySelector('[name="topic"]').value } : {}),
+      date: row.querySelector('[name="date"]').value, lesson: row.querySelector('[name="lesson"]').value === "" ? null : Number(row.querySelector('[name="lesson"]').value),
+      ...(row.querySelector('[name="lesson"]').value === "" ? { topic: row.querySelector('[name="topic"]')?.value || "" } : {}),
       repeat: false, skipped: row.querySelector('[name="skipped"]').checked,
     })) });
 }
@@ -539,14 +540,12 @@ function feedbackRedrawEditor() {
 
 function feedbackFormMarkup() {
   if (!feedbackState.course || (feedbackState.tab === "groups" && !feedbackState.group)) return "";
-  if (feedbackState.customTopic) return `<label>Тема занятия<input value="${escapeHtml(feedbackState.customTopic)}" readonly></label>
-    <label class="feedback-custom-date">Дата занятия<input type="date" name="date" min="2000-01-01" max="2100-12-31" value="${feedbackState.date}" required></label>`;
   const lesson = feedbackState.catalog[feedbackState.course]?.[feedbackState.lesson - 1];
   const groupStudents = feedbackState.group ? feedbackGroupStudents() : [];
   return `<label>Курс<select name="course" id="feedbackCourse">${feedbackCourseOptions(feedbackState.course)}</select></label>
     <div class="feedback-fields-two"><label>Материал курса<select name="lesson" id="feedbackLesson">${feedbackLessonOptions(feedbackState.course, feedbackState.lesson)}</select></label>
       <label>Дата занятия<input type="date" name="date" min="2000-01-01" max="2100-12-31" value="${feedbackState.date}" required></label></div>
-    <div class="feedback-material"><span><i data-lucide="book-open"></i>Из материалов курса</span><p>${escapeHtml((lesson?.educational_results || "").slice(0, 200))}${(lesson?.educational_results || "").length > 200 ? "…" : ""}</p></div>
+    ${lesson ? `<div class="feedback-material"><span><i data-lucide="book-open"></i>Из материалов курса</span><p>${escapeHtml((lesson.educational_results || "").slice(0, 200))}${(lesson.educational_results || "").length > 200 ? "…" : ""}</p></div>` : ""}
     <div class="feedback-attendance"><h3>Кого не было на занятии?</h3>
       <div class="feedback-student-chips">${groupStudents.map((student) => `<label><input type="checkbox" name="absent" value="${escapeHtml(student.name)}" ${feedbackState.absent.includes(student.name) ? "checked" : ""}><span>${escapeHtml(student.name)}<i data-lucide="check"></i></span></label>`).join("")}</div>
       <label class="feedback-add-names">${groupStudents.length ? "Другие имена" : "Отсутствующие ученики"}<input name="extraAbsent" maxlength="2000" value="${escapeHtml(feedbackState.extraAbsent)}" placeholder="Имена через запятую"></label></div>
@@ -563,9 +562,12 @@ function feedbackReadForm(validate = false) {
   }
   const values = new FormData(form);
   if (!feedbackState.course) return false;
-  if (feedbackState.customTopic) { feedbackState.date = values.get("date"); return true; }
-  Object.assign(feedbackState, { course: values.get("course"), lesson: Number(values.get("lesson")), date: values.get("date"),
-    offset: feedbackState.offset, mode: feedbackState.group ? (feedbackCustomGroup() ? feedbackSchedule(feedbackState.group).mode : "group") : (values.has("coins") ? "group" : "online"), repeat: Boolean(feedbackState.group && feedbackSchedule(feedbackState.group).rows.find((row) => row.id === feedbackState.rowId)?.repeat), coins: feedbackState.group ? !feedbackCustomGroup() : values.has("coins"),
+  const lesson = values.get("lesson") === "" ? null : Number(values.get("lesson"));
+  const row = feedbackState.group && feedbackSchedule(feedbackState.group).rows.find((item) => item.id === feedbackState.rowId);
+  const number = row ? row.number : Number(feedbackState.lesson) + feedbackState.offset;
+  const offset = row || lesson === null || feedbackState.lesson === null ? number - Number(lesson) : feedbackState.offset;
+  Object.assign(feedbackState, { course: values.get("course"), lesson, date: values.get("date"),
+    offset, customTopic: lesson === null ? row?.topic || "" : "", mode: feedbackState.group ? (feedbackCustomGroup() ? feedbackSchedule(feedbackState.group).mode : "group") : (values.has("coins") ? "group" : "online"), repeat: lesson !== null && Boolean(row?.repeat), coins: feedbackState.group ? !feedbackCustomGroup() : values.has("coins"),
     absent: values.getAll("absent"), extraAbsent: values.get("extraAbsent").trim() });
   return true;
 }
@@ -636,10 +638,11 @@ function feedbackBuildText() {
   const formattedDate = feedbackState.date.split("-").reverse().join(".");
   const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Moscow", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
   const greeting = hour >= 6 && hour < 12 ? "Доброе утро" : hour >= 12 && hour < 18 ? "Добрый день" : "Добрый вечер";
-  const educational = feedbackState.repeat ? "Сегодня мы с ребятами повторяли тему предыдущего занятия, чтобы укрепить знания по ней." : lesson.educational_results;
+  const educational = lesson ? (feedbackState.repeat ? "Сегодня мы с ребятами повторяли тему предыдущего занятия, чтобы укрепить знания по ней." : lesson.educational_results) : "";
   const absentText = feedbackAbsentText(feedbackState);
-  return [`Обратная связь урок №${String(number).padStart(2, "0")} от ${formattedDate}`,
-    `${greeting}, уважаемые родители!`, educational, absentText,
+  const heading = [`Обратная связь урок №${String(number).padStart(2, "0")} от ${formattedDate}`,
+    `${greeting}, уважаемые родители!`].join("\n\n");
+  return heading + (educational ? "\n\n" : "\n\n\n\n") + [educational, absentText,
     feedbackCoinText(feedbackState),
     "На онлайн-платформе «Алгоритмика» предоставлен весь материал, пройденный на уроках, и прогресс ребенка.", "Удачной недели!"].filter(Boolean).join("\n\n");
 }
@@ -771,6 +774,7 @@ document.addEventListener("change", async (event) => {
     }
     else feedbackState.stale = Boolean(feedbackState.generated);
     if (event.target.id === "feedbackCourse") feedbackState.lesson = 1;
+    if (event.target.id === "feedbackLesson" && !feedbackState.edited && feedbackValidDate(feedbackState.date)) feedbackGenerate();
     if (["feedbackCourse", "feedbackLesson"].includes(event.target.id)) void renderFeedback();
     else {
       const note = qs(".feedback-stale-note"); if (note) note.hidden = !feedbackState.stale;

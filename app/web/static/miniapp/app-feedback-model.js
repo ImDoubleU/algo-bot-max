@@ -35,13 +35,12 @@ function feedbackInteger(value, min, max, label) {
 }
 
 function feedbackValidateMessage(input, catalog) {
-  if (input?.customTopic) throw new Error("Для занятия со своей темой сообщение вводится вручную");
   if (!input || typeof input !== "object" || !Object.hasOwn(catalog, input.course)) {
     throw new Error("Выберите курс из списка");
   }
-  const lesson = feedbackInteger(input.lesson, 1, catalog[input.course].length, "Материал урока");
+  const lesson = input.lesson === null ? null : feedbackInteger(input.lesson, 1, catalog[input.course].length, "Материал урока");
   const offset = feedbackInteger(input.offset, -99, 999, "Смещение номера");
-  const number = lesson + offset;
+  const number = (lesson || 0) + offset;
   if (!Number.isSafeInteger(number) || number < 1 || number > 999) throw new Error("Номер занятия должен быть от 1 до 999");
   if (!feedbackValidDate(input.date)) throw new Error("Укажите существующую дату занятия с 2000 по 2100 год");
   if (!["group", "online", "individual"].includes(input.mode)) throw new Error("Выберите формат занятия");
@@ -191,7 +190,7 @@ function feedbackAppendLesson(schedule) {
   const last = result.rows.filter((row) => !row.skipped).at(-1);
   const number = Math.max(...result.rows.filter((row) => !row.skipped).map((row) => row.number)) + 1;
   feedbackInteger(number, 1, 999, "Номер занятия");
-  result.rows.push({ ...feedbackNewRow(feedbackNextDate(last.date, feedbackCadence(schedule)), null, number), topic: "Новое занятие" });
+  result.rows.push({ ...feedbackNewRow(feedbackNextDate(last.date, feedbackCadence(schedule)), null, number), topic: "" });
   return result;
 }
 
@@ -249,7 +248,7 @@ function feedbackValidateSchedule(schedule, catalog) {
     ids.add(row.id);
     const number = feedbackInteger(row.number, 1, 999, "Номер занятия");
     if (row.lesson == null) {
-      if (typeof row.topic !== "string" || !row.topic.trim() || row.topic.length > 200 || row.repeat) throw new Error("Укажите тему своего занятия");
+      if (typeof row.topic !== "string" || row.topic.length > 200 || row.repeat) throw new Error("Проверьте тему своего занятия");
     } else feedbackInteger(row.lesson, 1, catalog[schedule.course].length, "Материал урока");
     if (!row.skipped && numbers.has(number)) throw new Error(`Номер занятия ${number} повторяется. Укажите разные номера.`);
     if (!row.skipped) numbers.add(number);
@@ -279,7 +278,7 @@ function feedbackRestore(raw, catalog, groups) {
       if (Array.isArray(saved?.rows)) {
         schedule = { ...saved, course: saved.course, mode: saved.mode, rows: saved.rows.map((row) => ({
           id: row.id, date: row.date, lesson: row.lesson == null ? null : Number(row.lesson), number: Number(row.number),
-          ...(row.lesson == null ? { topic: row.topic } : {}),
+          ...(row.lesson == null ? { topic: row.topic ?? "" } : {}),
           repeat: row.repeat, skipped: row.skipped,
         })) };
       } else {

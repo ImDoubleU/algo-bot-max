@@ -954,7 +954,7 @@ def test_mouse_wheel_scrolls_lessons_only_when_the_strip_can_move(feedback_page)
     assert result == {"moved": True, "edgeAllowed": True, "zoomAllowed": True}
 
 
-def test_custom_lesson_is_appended_editable_persisted_and_never_auto_generated(feedback_page):
+def test_custom_lesson_is_appended_editable_persisted_with_template_only(feedback_page):
     page = feedback_page
     open_feedback_schedule(page)
     assert page.locator("[data-feedback-add-row]").inner_text() == "Добавить повтор"
@@ -968,15 +968,17 @@ def test_custom_lesson_is_appended_editable_persisted_and_never_auto_generated(f
     assert row["lesson"] is None and row["topic"] == "Встреча с разработчиком"
     assert page.evaluate("feedbackSchedule(feedbackState.group).rows.length") == original + 1
     page.locator(f'[data-feedback-row="{row["id"]}"]').click()
-    assert page.locator(".feedback-generate").is_hidden()
+    assert page.locator(".feedback-generate").inner_text() == "Подготовить шаблон"
     assert page.locator("#feedbackText").is_enabled()
-    assert page.locator("#feedbackText").input_value() == ""
-    assert page.evaluate("""() => {try{feedbackBuildText();return false;}catch{return true;}}""")
+    template = page.locator("#feedbackText").input_value()
+    assert "Обратная связь урок" in template and "Удачной недели!" in template
+    assert "Встреча с разработчиком" not in template
+    assert page.evaluate("feedbackBuildText()") == template
     page.locator("#feedbackText").fill("Моя ОС для своего занятия")
     page.reload(wait_until="networkidle")
     assert page.evaluate("feedbackState.rowId") == row["id"]
     assert page.locator("#feedbackText").input_value() == "Моя ОС для своего занятия"
-    assert page.locator(".feedback-generate").is_hidden()
+    assert page.locator(".feedback-generate").is_visible()
     assert "Встреча с разработчиком" in page.locator(".feedback-weeks").inner_text()
     open_feedback_schedule(page)
     topic.fill("Экскурсия")

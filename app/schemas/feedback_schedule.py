@@ -26,9 +26,7 @@ class FeedbackScheduleRow(BaseModel):
     @model_validator(mode="after")
     def validate_material(self):
         if self.lesson is None:
-            if not self.topic or not self.topic.strip():
-                raise ValueError("Укажите тему своего занятия")
-            self.topic = self.topic.strip()
+            self.topic = (self.topic or "").strip()
             if self.repeat:
                 raise ValueError("Занятие со своей темой не является повторением")
         elif self.topic is not None:
