@@ -12,6 +12,7 @@ def user_record():
     return {
         "id": 7, "role": "parent", "max_user_id": "53364725", "first_name": "Анна",
         "last_name": "Иванова", "message": "Не открывается приложение",
+        "city_name": "Бор", "child_full_name": "Александра Иванова",
         "source": "bot", "status": "new", "private_note": "", "photo_ids": [],
         "created_at": "2026-10-07T10:00:00Z", "replies": [], "user_context": {
             "account": {"id": "account-uuid", "name": "Анна Иванова",
@@ -56,6 +57,10 @@ def test_ticket_user_details_and_navigation_are_clear_and_fit_screen(binding_bro
     page.locator(".support-ticket > summary").click()
     panel = page.locator(".support-user-panel")
     assert "53364725" in panel.inner_text()
+    assert "Город (со слов автора)" in panel.inner_text()
+    assert "Бор" in panel.inner_text()
+    assert "Ребёнок (со слов родителя)" in panel.inner_text()
+    assert "Александра Иванова" in panel.inner_text()
     assert panel.locator(".support-user-facts").first.locator(
         "div", has=page.locator("dt", has_text="Роли в системе"),
     ).locator("dd").inner_text() == "Родитель"
@@ -95,6 +100,8 @@ def test_unknown_user_and_untrusted_identity_fields_do_not_create_profiles(bindi
     record = user_record()
     record["user_context"] = {"account": None, "students": [], "staff": []}
     record["first_name"] = '<img src=x onerror="window.xss=true">'
+    record["city_name"] = '<img src=x onerror="window.xss=true">'
+    record["child_full_name"] = '<img src=x onerror="window.xss=true">'
     page.evaluate("record => { supportState.owner = true; supportState.items = [record]; "
                   "supportSetTab('inbox'); supportRenderInbox({new:1}); }", record)
     page.locator(".support-ticket > summary").click()
@@ -102,6 +109,7 @@ def test_unknown_user_and_untrusted_identity_fields_do_not_create_profiles(bindi
     assert not page.locator("[data-audit-student]").count()
     assert not page.locator("[data-support-user-history]").count()
     assert not page.locator(".support-ticket-title img").count()
+    assert not page.locator(".support-user-facts img").count()
     assert not page.evaluate("Boolean(window.xss)")
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     page.close()

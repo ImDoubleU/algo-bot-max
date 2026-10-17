@@ -152,8 +152,9 @@ def test_bot_form_persists_deduplicates_and_submits(support_client, monkeypatch)
     assert "имя и фамилию одним сообщением" in name_prompt["text"]
     assert event(c, "message", text="Дмитрий", event_id="m0").status_code == 400
     assert event(c, "start").json()["stage"] == "full_name"
-    assert event(c, "message", text="Дмитрий Иванов", event_id="m1").json()["stage"] == "message"
-    assert event(c, "message", text="Дмитрий Иванов", event_id="m1").json()["stage"] == "message"
+    assert event(c, "message", text="Дмитрий Иванов", event_id="m1").json()["stage"] == "city"
+    assert event(c, "message", text="Дмитрий Иванов", event_id="m1").json()["stage"] == "city"
+    assert event(c, "message", text="Бор", event_id="m2").json()["stage"] == "message"
 
     async def download(*args, **kwargs):
         return image(), "https://example.com/photo.png"
@@ -168,6 +169,7 @@ def test_bot_form_persists_deduplicates_and_submits(support_client, monkeypatch)
     assert event(c, "submit").json()["active"] is False
     inbox = c.get("/api/v1/support/tickets", headers=auth(4242)).json()
     assert inbox["items"][0]["source"] == "bot"
+    assert inbox["items"][0]["city_name"] == "Бор"
     assert len(inbox["items"][0]["photo_ids"]) == 1
 
     async def count():
@@ -211,7 +213,8 @@ def test_bot_wiring_handles_photo_only_message_and_callback():
 
 def test_notification_only_to_owner_and_failure_is_retried(support_client, monkeypatch):
     c, factory = support_client
-    c.post("/api/v1/support/tickets", headers=auth(), json=ticket())
+    c.post("/api/v1/support/tickets", headers=auth(), json=ticket(
+        city_name="Бор", child_full_name="Константин Агафонов"))
     calls = []
 
     class FakeMax:
@@ -258,6 +261,8 @@ def test_notification_only_to_owner_and_failure_is_retried(support_client, monke
     asyncio.run(delivered())
     assert len(calls) == 2
     assert all(call["user_id"] == 4242 for call in calls)
+    assert all("Город: Бор" in call["text"] and "Ребёнок: Константин Агафонов" in call["text"]
+               for call in calls)
 
 
 def test_personal_reply_access_idempotency_retry_and_waiting_for_user(support_client):
@@ -329,7 +334,7 @@ def test_legacy_name_step_resumes_with_combined_prompt(support_client):
 
     asyncio.run(prepare())
     assert event(c, "start").json()["stage"] == "full_name"
-    assert event(c, "message", text="Анна Иванова").json()["stage"] == "message"
+    assert event(c, "message", text="Анна Иванова").json()["stage"] == "city"
 
 
 @pytest.mark.parametrize("status", ["new", "in_progress", "resolved"])

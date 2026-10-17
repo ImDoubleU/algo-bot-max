@@ -66,6 +66,7 @@ def public_ticket(
         "id": ticket.id, "max_user_id": str(ticket.max_user_id),
         "tenant_slug": ticket.tenant_slug, "role": ticket.role,
         "first_name": ticket.first_name, "last_name": ticket.last_name,
+        "city_name": ticket.city_name, "child_full_name": ticket.child_full_name,
         "message": ticket.message, "source": ticket.source, "status": ticket.status,
         "private_note": ticket.private_note, "created_at": ticket.created_at,
         "updated_at": ticket.updated_at, "photo_ids": [str(p) for p in photo_ids],
