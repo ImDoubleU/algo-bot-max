@@ -260,7 +260,7 @@ def test_notification_only_to_owner_and_failure_is_retried(support_client, monke
     assert all(call["user_id"] == 4242 for call in calls)
 
 
-def test_personal_reply_access_idempotency_retry_and_resolution(support_client):
+def test_personal_reply_access_idempotency_retry_and_waiting_for_user(support_client):
     c, factory = support_client
     tid = c.post("/api/v1/support/tickets", headers=auth(), json=ticket()).json()["id"]
     url = f"/api/v1/support/tickets/{tid}/replies"
@@ -307,7 +307,7 @@ def test_personal_reply_access_idempotency_retry_and_resolution(support_client):
             reply = await db.scalar(select(SupportReply))
             record = await db.get(SupportTicket, tid)
             assert reply.status == "sent" and reply.sent_at
-            assert record.status == "resolved"
+            assert record.status == "waiting"
             assert reply.attempts == 2
 
     asyncio.run(delivery())

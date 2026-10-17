@@ -15,8 +15,7 @@ def support_keyboard(stage, result=None):
         elif stage == "closed":
             rows = [[callback_button("Ответить по обращению",
                                      f"support:reply:{result['ticket_id']}")]]
-        rows.append([callback_button("Завершить диалог", "support:exit")])
-        return inline_keyboard(rows)
+        return inline_keyboard(rows) if rows else None
     if stage == "role":
         rows = [[callback_button(label, f"support:role:{role}")] for role, label in (
             ("parent", "Я родитель"), ("student", "Я ученик"), ("staff", "Я сотрудник"),
