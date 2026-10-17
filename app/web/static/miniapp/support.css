@@ -64,6 +64,9 @@
 .pending-bindings-empty { margin:6px 0; color:#81788d; font-size:13px; }
 .support-ticket-update { display:grid; gap:14px; margin-top:20px; }
 .support-ticket-update button { justify-self:start; }
+.support-ticket-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.support-ticket-actions button { gap:8px; }
+.support-ticket-actions button svg { width:18px; height:18px; flex-shrink:0; }
 .support-ticket-danger { display:flex; justify-content:flex-end; margin-top:22px; padding-top:18px; border-top:1px solid #eee9f3; }
 .support-ticket-danger button { color:#a63838; border-color:#e9bcbc; background:#fff; gap:8px; }
 .support-ticket-danger button:hover { background:#fff4f4; }

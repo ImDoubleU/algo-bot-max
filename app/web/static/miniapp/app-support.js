@@ -281,7 +281,10 @@ function supportRenderInbox(counts = {}) {
         <form data-support-update="${ticket.id}" class="support-ticket-update">
           <label>Статус<select name="status" class="support-control">${Object.entries(SUPPORT_STATUSES).map(([s,l]) => `<option value="${s}" ${s === ticket.status ? "selected" : ""}>${l}</option>`).join("")}</select></label>
           <label>Внутренняя заметка (не отправляется пользователю)<textarea name="private_note" class="support-control" rows="2" maxlength="4000">${escapeHtml(ticket.private_note)}</textarea></label>
-          <button class="secondary-action" type="submit">Сохранить</button><span data-update-result role="status"></span>
+          <div class="support-ticket-actions">
+            <button class="secondary-action" type="submit">Сохранить</button>
+            ${supportState.owner && ticket.status !== "resolved" ? '<button class="primary-action" type="submit" data-support-resolve><i data-lucide="circle-check"></i>Завершить тикет</button>' : ""}
+          </div><span data-update-result role="status"></span>
         </form>
         <form data-support-reply="${ticket.id}" class="support-ticket-update">
           <label>Ответ автору в MAX<textarea name="reply_message" class="support-control" rows="3" maxlength="3500" required ${
@@ -340,16 +343,24 @@ async function supportLoadInbox() {
 }
 
 async function supportUpdate(event) {
-  event.preventDefault(); const form = event.target; const button = form.querySelector("button");
-  if (button.disabled || supportState.deleting.has(Number(form.dataset.supportUpdate))) return; button.disabled = true;
+  event.preventDefault(); const form = event.target;
+  if (!supportState.owner || form.dataset.saving || supportState.deleting.has(Number(form.dataset.supportUpdate))) return;
+  const controls = [...form.querySelectorAll("button, select, textarea")].map((node) => [node, node.disabled]);
+  const values = Object.fromEntries(new FormData(form));
+  if (event.submitter?.hasAttribute("data-support-resolve")) values.status = "resolved";
+  form.dataset.saving = "1";
+  controls.forEach(([node]) => { node.disabled = true; });
+  form.querySelector("[data-update-result]").textContent = "";
   try {
-    const values = Object.fromEntries(new FormData(form));
     await supportApi(`/tickets/${form.dataset.supportUpdate}`, { method: "PATCH",
       headers: {"Content-Type": "application/json"}, body: JSON.stringify(values) });
     supportState.unsaved.delete(Number(form.dataset.supportUpdate));
     await supportLoadInbox();
   } catch (error) { form.querySelector("[data-update-result]").textContent = error.message; }
-  finally { button.disabled = false; }
+  finally {
+    delete form.dataset.saving;
+    controls.forEach(([node, disabled]) => { if (node.isConnected) node.disabled = disabled; });
+  }
 }
 
 async function supportReply(event) {
