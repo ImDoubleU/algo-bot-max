@@ -17,7 +17,7 @@ from fastapi import (
     status,
 )
 from pydantic import ValidationError
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
@@ -393,7 +393,6 @@ async def miniapp_feedback_schedules(
             select(FeedbackSchedule).where(
                 FeedbackSchedule.teacher_account_id == owner_id,
                 FeedbackSchedule.tenant_id == tenant_id,
-                FeedbackSchedule.group_name.in_(groups),
             )
         )
     ).all()
@@ -403,6 +402,7 @@ async def miniapp_feedback_schedules(
                 "schedules": {
                     record.group_name: {"schedule": record.schedule, "revision": record.revision}
                     for record in records
+                    if record.group_name in groups or record.schedule.get("custom_group") is True
                 }
             }
         ),
@@ -420,9 +420,14 @@ async def miniapp_save_feedback_schedule(
 ) -> dict:
     owner_id, tenant_id, groups = await _feedback_schedule_scope(db, identity, tenant_slug)
     if payload.group_name not in groups:
-        raise HTTPException(
-            status_code=403, detail="Группа не закреплена за вашим профилем преподавателя"
-        )
+        imported = await db.scalar(select(Student.id).where(
+            Student.tenant_id == tenant_id,
+            func.trim(Student.group_name) == payload.group_name,
+        ).limit(1))
+        if not payload.schedule.custom_group or imported is not None:
+            raise HTTPException(
+                status_code=403, detail="Группа не закреплена за вашим профилем преподавателя"
+            )
     catalog = json.loads(await run_in_threadpool(_feedback_catalog_json))
     if payload.schedule.course not in catalog or any(
         row.lesson is not None and row.lesson > len(catalog[payload.schedule.course])
@@ -430,8 +435,13 @@ async def miniapp_save_feedback_schedule(
     ):
         raise HTTPException(status_code=422, detail="Материал выходит за пределы выбранного курса")
     data = payload.schedule.model_dump(mode="json")
+    if payload.group_name in groups:
+        data.update(custom_group=False, mode="group", members=[])
     seen = set()
     for row in data["rows"]:
+        if row["skipped"]:
+            row["repeat"] = False
+            continue
         row["repeat"] = row["lesson"] is not None and row["lesson"] in seen
         if row["lesson"] is not None:
             seen.add(row["lesson"])

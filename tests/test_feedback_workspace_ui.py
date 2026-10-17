@@ -253,7 +253,7 @@ def test_switching_courses_resizes_schedule_before_anchor_edit(feedback_page):
     assert page.evaluate("feedbackState.editor.rows[0].date") == "2026-10-04"
 
 
-def test_first_row_date_rebases_following_lessons_and_selects_first(feedback_page):
+def test_first_row_date_rebases_following_lessons_and_keeps_selected_lesson(feedback_page):
     page = feedback_page
     page.evaluate("""async () => {
       const group=feedbackState.group;
@@ -269,10 +269,10 @@ def test_first_row_date_rebases_following_lessons_and_selects_first(feedback_pag
         "2026-09-19",
     ]
     page.locator('#feedbackScheduleForm [type="submit"]').click()
-    assert page.evaluate("feedbackState.lesson") == 1
-    assert page.evaluate("feedbackState.date") == "2026-09-05"
+    assert page.evaluate("feedbackState.lesson") == 5
+    assert page.evaluate("feedbackState.date") == "2026-10-03"
     page.reload(wait_until="networkidle")
-    assert page.evaluate("feedbackState.lesson") == 1
+    assert page.evaluate("feedbackState.lesson") == 5
 
 
 def test_imported_course_names_resolve_exactly_without_python_fallback(feedback_page):
@@ -471,6 +471,9 @@ def test_message_rejects_fractional_nonfinite_and_invalid_context(feedback_page)
 def test_per_lesson_dates_material_numbers_and_repetition_persist(feedback_page):
     page = feedback_page
     open_feedback_schedule(page)
+    page.locator('#feedbackScheduleForm [name="firstDate"]').fill("2026-10-03")
+    page.locator('#feedbackScheduleForm [name="firstDate"]').press("Tab")
+    page.evaluate("feedbackRenumber(feedbackState.editor.rows,100);feedbackRedrawEditor()")
     row = page.locator("[data-feedback-schedule-row]").nth(1)
     row_id = row.get_attribute("data-feedback-schedule-row")
     row.locator('[name="date"]').fill("2026-10-07")
@@ -496,7 +499,7 @@ def test_per_lesson_dates_material_numbers_and_repetition_persist(feedback_page)
     assert row.locator(".feedback-repeat-badge").is_visible()
 
 
-def test_message_edits_need_confirmation_before_regeneration_or_switch(feedback_page):
+def test_message_edits_need_confirmation_for_regeneration_and_survive_switch(feedback_page):
     page = feedback_page
     row_id = page.evaluate("feedbackState.rowId")
     submit = page.locator('#feedbackComposeForm [type="submit"]')
@@ -509,15 +512,13 @@ def test_message_edits_need_confirmation_before_regeneration_or_switch(feedback_
     assert page.locator("#feedbackText").input_value() == text
     next_row = page.locator(f'.feedback-weeks button:not([data-feedback-row="{row_id}"])').first
     next_row.click()
-    assert page.locator("#confirmationDialog").is_visible()
-    page.locator("#cancelConfirmationButton").click()
-    assert page.locator("#feedbackText").input_value() == text
-    next_row.click()
-    page.locator("#confirmConfirmationButton").click()
+    assert not page.locator("#confirmationDialog").is_visible()
     generated = page.locator("#feedbackText").input_value()
     assert generated and "Моя ручная правка" not in generated
     page.reload(wait_until="networkidle")
     assert page.locator("#feedbackText").input_value() == generated
+    page.locator(f'.feedback-weeks [data-feedback-row="{row_id}"]').click()
+    assert page.locator("#feedbackText").input_value() == text
 
 
 def test_schedule_remove_confirmation_undo_and_unsaved_guard(feedback_page):
@@ -550,8 +551,9 @@ def test_cancelled_lesson_cannot_generate_feedback(feedback_page):
     page.locator(f'[data-feedback-schedule-row="{selected}"] [name="skipped"]').check()
     page.locator('#feedbackScheduleForm [type="submit"]').click()
     page.locator('#feedbackComposeForm [type="submit"]').click()
-    assert "отменённым" in page.locator("#noticeMessage").inner_text()
-    assert page.locator("#feedbackText").input_value() == ""
+    assert page.evaluate("feedbackState.rowId") != selected
+    assert not page.locator(f'.feedback-weeks [data-feedback-row="{selected}"]').count()
+    assert page.locator("#feedbackText").input_value()
 
 
 def test_corrupt_schedule_recovers_and_old_drafts_are_not_restored(feedback_page):
@@ -565,7 +567,7 @@ def test_corrupt_schedule_recovers_and_old_drafts_are_not_restored(feedback_page
     }""")
     page.reload(wait_until="networkidle")
     assert page.locator("#feedbackComposeForm").is_visible()
-    assert page.locator("#feedbackText").input_value() == ""
+    assert "Старое сообщение" not in page.locator("#feedbackText").input_value()
     assert page.evaluate(
         '!Object.hasOwn(JSON.parse(localStorage.getItem(feedbackStorageKey)),"drafts")'
     )
@@ -606,7 +608,7 @@ def test_absent_name_normalization_and_profile_isolation(feedback_page):
         "?demo=1&demo_role=admin&feedback_preview=1&view=feedback",
         wait_until="networkidle",
     )
-    assert page.locator("#feedbackText").input_value() == ""
+    assert not page.evaluate("feedbackState.edited")
     page.goto(
         f"{base.scheme}://{base.netloc}/miniapp?demo=1&demo_role=parent&feedback_preview=1",
         wait_until="networkidle",
@@ -692,6 +694,7 @@ def test_edits_keep_generated_metadata_until_message_is_regenerated(feedback_pag
 
 def test_additional_parameters_are_removed_and_coin_switch_sets_format(feedback_page):
     page = feedback_page
+    page.locator('[data-feedback-tab="manual"]').click()
     assert (
         page.locator(
             '.feedback-advanced, #feedbackComposeForm [name="mode"], '
@@ -707,6 +710,7 @@ def test_additional_parameters_are_removed_and_coin_switch_sets_format(feedback_
 
 def test_astrocoin_checkbox_defaults_on_and_updates_text_without_regeneration(feedback_page):
     page = feedback_page
+    page.locator('[data-feedback-tab="manual"]').click()
     coins = page.locator('#feedbackComposeForm [name="coins"]')
     assert coins.is_checked()
     assert coins.is_visible()
@@ -727,10 +731,9 @@ def test_astrocoin_checkbox_defaults_on_and_updates_text_without_regeneration(fe
     assert text.count("Начислены астрокоины") == 1
     assert "Моя правка" in text
     coins.uncheck()
-    row_id = page.evaluate("feedbackState.rowId")
-    page.locator(f'.feedback-weeks button:not([data-feedback-row="{row_id}"])').first.click()
+    page.locator('[data-feedback-tab="groups"]').click()
     page.locator("#confirmConfirmationButton").click()
-    assert coins.is_checked()
+    assert page.evaluate("feedbackState.coins")
     submit.click()
     assert "Начислены астрокоины" in page.locator("#feedbackText").input_value()
 
@@ -750,7 +753,7 @@ def test_reopening_app_restores_feedback_text_settings_and_unsaved_schedule(feed
     page.locator("[data-feedback-row]").nth(3).click()
     page.wait_for_function("feedbackState.generated?.lesson === 4")
     page.locator('#feedbackComposeForm [name="extraAbsent"]').fill("Маша")
-    page.locator('#feedbackComposeForm [name="coins"]').uncheck()
+    page.locator('#feedbackComposeForm [name="extraAbsent"]').press("Tab")
     page.locator("#feedbackText").fill("Текст с ручными правками")
     open_feedback_schedule(page)
     page.locator('[data-feedback-schedule-row] [name="date"]').nth(5).fill("2026-12-03")
@@ -767,7 +770,7 @@ def test_reopening_app_restores_feedback_text_settings_and_unsaved_schedule(feed
     assert page.evaluate("feedbackState.rowId") == selected
     assert page.locator("#feedbackText").input_value() == "Текст с ручными правками"
     assert page.locator('#feedbackComposeForm [name="extraAbsent"]').input_value() == "Маша"
-    assert not page.locator('#feedbackComposeForm [name="coins"]').is_checked()
+    assert page.evaluate("feedbackState.coins") is True
     assert page.locator(".feedback-schedule-settings").evaluate("e => e.open")
     assert page.locator(".feedback-series-settings").evaluate("e => e.open")
     assert (
@@ -845,6 +848,7 @@ def test_manual_workspace_resumes_but_leaving_feedback_disables_resume(feedback_
 
 def test_coin_switch_updates_absence_instructions_and_preserves_manual_text(feedback_page):
     page = feedback_page
+    page.locator('[data-feedback-tab="manual"]').click()
     page.locator('#feedbackComposeForm [name="extraAbsent"]').fill("Иван")
     page.locator('#feedbackComposeForm [type="submit"]').click()
     text = page.locator("#feedbackText").input_value()
@@ -862,7 +866,9 @@ def test_coin_switch_updates_absence_instructions_and_preserves_manual_text(feed
 def test_feedback_scroll_position_survives_reopening(feedback_page):
     page = feedback_page
     page.set_viewport_size({"width": 390, "height": 844})
-    page.locator("[data-feedback-row]").nth(8).click()
+    row_id = page.evaluate("feedbackSchedule(feedbackState.group).rows[8].id")
+    page.locator("#feedbackActiveLesson").select_option(row_id)
+    page.wait_for_function("feedbackState.lesson===9")
     page.locator("#feedbackText").fill("Длинный текст\n" * 150)
     page.evaluate("""() => {
       const text=document.querySelector('#feedbackText');
@@ -921,7 +927,7 @@ def test_feedback_chrome_is_compact_and_unnecessary_labels_are_removed(feedback_
         "Текст ещё не подготовлен",
     ]:
         assert removed not in text
-    assert page.locator("#feedbackOutputMeta").is_hidden()
+    assert page.locator("#feedbackOutputMeta").is_visible()
     assert page.locator(".feedback-weeks button").first.bounding_box()["height"] < 165
     open_feedback_schedule(page)
     page.locator('[data-feedback-schedule-row] [name="skipped"]').nth(1).check()
@@ -996,7 +1002,11 @@ def test_mobile_feedback_schedule_and_custom_lesson_are_usable(feedback_page, wi
     page.locator('#feedbackScheduleForm [type="submit"]').click()
     page.wait_for_function("!feedbackState.editorDirty")
     row_id = page.evaluate("feedbackSchedule(feedbackState.group).rows.at(-1).id")
-    page.locator(f'[data-feedback-row="{row_id}"]').click()
+    if width <= 640:
+        page.locator("#feedbackActiveLesson").select_option(row_id)
+        page.wait_for_function("feedbackState.customTopic !== ''")
+    else:
+        page.locator(f'[data-feedback-row="{row_id}"]').click()
     assert page.locator("#feedbackText").is_enabled()
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
 

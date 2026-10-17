@@ -44,7 +44,7 @@ function feedbackValidateMessage(input, catalog) {
   const number = lesson + offset;
   if (!Number.isSafeInteger(number) || number < 1 || number > 999) throw new Error("Номер занятия должен быть от 1 до 999");
   if (!feedbackValidDate(input.date)) throw new Error("Укажите существующую дату занятия с 2000 по 2100 год");
-  if (!["group", "online"].includes(input.mode)) throw new Error("Выберите формат занятия");
+  if (!["group", "online", "individual"].includes(input.mode)) throw new Error("Выберите формат занятия");
   return { lesson, offset, number };
 }
 
@@ -78,10 +78,67 @@ function feedbackRenumber(rows, firstNumber = 1) {
 function feedbackMarkRepeats(schedule) {
   const seen = new Set();
   for (const row of schedule.rows) {
+    if (row.skipped) { row.repeat = false; continue; }
     row.repeat = row.lesson != null && seen.has(row.lesson);
     if (row.lesson != null) seen.add(row.lesson);
   }
   return schedule;
+}
+
+function feedbackCurrentRow(schedule, today) {
+  const active = schedule.rows.filter((row) => !row.skipped);
+  return active.filter((row) => row.date <= today).sort((a, b) => b.date.localeCompare(a.date))[0]
+    || active[0] || null;
+}
+
+function feedbackCadence(schedule) {
+  if (schedule.cadence) return schedule.cadence;
+  const dates = schedule.rows.filter((row) => !row.skipped).map((row) => row.date);
+  const gaps = dates.slice(1).map((value, i) => Math.round((new Date(`${value}T12:00:00Z`) - new Date(`${dates[i]}T12:00:00Z`)) / 86400000));
+  if (gaps.length && gaps.filter((gap) => gap === 7).length > gaps.length / 2) return { kind: "interval", interval: 7 };
+  if (gaps.length && gaps.every((gap) => gap === gaps[0]) && gaps[0] > 0 && gaps[0] <= 60) return { kind: "interval", interval: gaps[0] };
+  const weekdays = [...new Set(dates.map((date) => new Date(`${date}T12:00:00Z`).getUTCDay()))];
+  if (weekdays.length > 1 && weekdays.length < 7) return { kind: "weekdays", weekdays };
+  return { kind: "interval", interval: 7 };
+}
+
+function feedbackNextDate(date, cadence) {
+  if (cadence.kind !== "weekdays") return feedbackShiftDate(date, cadence.interval || 7);
+  for (let days = 1; days <= 7; days++) {
+    const next = feedbackShiftDate(date, days);
+    if (cadence.weekdays.includes(new Date(`${next}T12:00:00Z`).getUTCDay())) return next;
+  }
+  throw new Error("Выберите дни занятий");
+}
+
+function feedbackPreviousDate(date, cadence) {
+  if (cadence.kind !== "weekdays") return feedbackShiftDate(date, -(cadence.interval || 7));
+  for (let days = 1; days <= 7; days++) {
+    const previous = feedbackShiftDate(date, -days);
+    if (cadence.weekdays.includes(new Date(`${previous}T12:00:00Z`).getUTCDay())) return previous;
+  }
+  throw new Error("Выберите дни занятий");
+}
+
+function feedbackRedistribute(schedule, before) {
+  const active = before.rows.filter((row) => !row.skipped);
+  if (!schedule.rows.some((row) => !row.skipped)) throw new Error("Оставьте включённым хотя бы одно занятие");
+  const cadence = feedbackCadence(before);
+  let index = 0;
+  let last = active[0]?.date || feedbackToday();
+  for (const row of schedule.rows) if (!row.skipped) {
+    const previousIndex = active.findIndex((item) => item.id === row.id);
+    if (previousIndex < 0) row.date = index ? feedbackNextDate(last, cadence) : last;
+    else {
+      row.date = active[previousIndex].date;
+      const delta = index - previousIndex;
+      for (let step = 0; step < Math.abs(delta); step++) row.date = delta > 0 ? feedbackNextDate(row.date, cadence) : feedbackPreviousDate(row.date, cadence);
+      if (!index) row.date = active[0].date;
+    }
+    last = row.date; index++;
+  }
+  feedbackRenumber(schedule.rows, before.rows.find((row) => !row.skipped)?.number || 1);
+  return feedbackMarkRepeats(schedule);
 }
 
 function feedbackChangeCourse(schedule, course, catalog) {
@@ -101,8 +158,7 @@ function feedbackChangeCourse(schedule, course, catalog) {
   }
   for (const row of custom) { row.date = feedbackShiftDate(result.rows.at(-1).date, 7); result.rows.push(row); }
   if (result.rows.every((row) => row.skipped)) result.rows[0].skipped = false;
-  feedbackRenumber(result.rows, schedule.rows.find((row) => !row.skipped)?.number || 1);
-  feedbackMarkRepeats(result);
+  feedbackRedistribute(result, schedule);
   feedbackValidateSchedule(result, catalog);
   return result;
 }
@@ -113,6 +169,7 @@ function feedbackRebaseSchedule(schedule, date) {
   const first = result.rows.find((row) => !row.skipped);
   const days = Math.round((new Date(`${date}T12:00:00Z`) - new Date(`${first.date}T12:00:00Z`)) / 86400000);
   result.rows.forEach((row) => { row.date = feedbackShiftDate(row.date, days); });
+  if (result.cadence?.kind === "weekdays") result.cadence.weekdays = result.cadence.weekdays.map((day) => ((day + days) % 7 + 7) % 7);
   return result;
 }
 
@@ -121,23 +178,20 @@ function feedbackInsertRepeat(schedule, rowId) {
   if (result.rows.length >= 100) throw new Error("Максимум 100 занятий в расписании");
   const index = result.rows.findIndex((row) => row.id === rowId && !row.skipped && row.lesson != null);
   if (index < 0) throw new Error("Выберите включённое занятие для повторения");
-  const firstNumber = result.rows.find((row) => !row.skipped).number;
   const source = result.rows[index];
-  const added = feedbackNewRow(feedbackShiftDate(source.date, 7), source.lesson);
+  const added = feedbackNewRow(source.date, source.lesson);
   added.repeat = true;
-  result.rows.slice(index + 1).forEach((row) => { row.date = feedbackShiftDate(row.date, 7); });
   result.rows.splice(index + 1, 0, added);
-  feedbackRenumber(result.rows, firstNumber);
-  return result;
+  return feedbackRedistribute(result, schedule);
 }
 
 function feedbackAppendLesson(schedule) {
   if (schedule.rows.length >= 100) throw new Error("Максимум 100 занятий в расписании");
   const result = structuredClone(schedule);
-  const last = result.rows.at(-1);
+  const last = result.rows.filter((row) => !row.skipped).at(-1);
   const number = Math.max(...result.rows.filter((row) => !row.skipped).map((row) => row.number)) + 1;
   feedbackInteger(number, 1, 999, "Номер занятия");
-  result.rows.push({ ...feedbackNewRow(feedbackShiftDate(last.date, 7), null, number), topic: "Новое занятие" });
+  result.rows.push({ ...feedbackNewRow(feedbackNextDate(last.date, feedbackCadence(schedule)), null, number), topic: "Новое занятие" });
   return result;
 }
 
@@ -146,12 +200,15 @@ function feedbackToggleLesson(schedule, rowId, skipped) {
   const index = result.rows.findIndex((row) => row.id === rowId);
   if (index < 0) throw new Error("Занятие не найдено");
   if (result.rows[index].skipped === skipped) return result;
-  const firstNumber = result.rows.find((row) => !row.skipped)?.number || 1;
   result.rows[index].skipped = skipped;
-  if (result.rows.every((row) => row.skipped)) throw new Error("Оставьте включённым хотя бы одно занятие");
-  result.rows.slice(index + 1).forEach((row) => { row.date = feedbackShiftDate(row.date, skipped ? -7 : 7); });
-  feedbackRenumber(result.rows, firstNumber);
-  return result;
+  return feedbackRedistribute(result, schedule);
+}
+
+function feedbackRemoveLesson(schedule, rowId) {
+  const result = structuredClone(schedule);
+  if (!result.rows.some((row) => row.id === rowId)) throw new Error("Занятие не найдено");
+  result.rows = result.rows.filter((row) => row.id !== rowId);
+  return feedbackRedistribute(result, schedule);
 }
 
 function feedbackSeries(course, startDate, firstLesson, firstNumber, count, interval, catalog, weekdays = null) {
@@ -180,12 +237,13 @@ function feedbackSeries(course, startDate, firstLesson, firstNumber, count, inte
 
 function feedbackValidateSchedule(schedule, catalog) {
   if (!schedule || !Object.hasOwn(catalog, schedule.course)) throw new Error("Выберите курс расписания");
-  if (!["group", "online"].includes(schedule.mode)) throw new Error("Выберите формат группы");
+  if (!["group", "online", "individual"].includes(schedule.mode)) throw new Error("Выберите формат группы");
   if (!Array.isArray(schedule.rows) || !schedule.rows.length || schedule.rows.length > 100) {
     throw new Error("В расписании должно быть от 1 до 100 занятий");
   }
   const ids = new Set();
   const numbers = new Set();
+  let lastDate = "", lastNumber = null;
   for (const row of schedule.rows) {
     if (!row || typeof row.id !== "string" || !row.id || ids.has(row.id)) throw new Error("Занятия должны иметь разные идентификаторы");
     ids.add(row.id);
@@ -196,6 +254,11 @@ function feedbackValidateSchedule(schedule, catalog) {
     if (!row.skipped && numbers.has(number)) throw new Error(`Номер занятия ${number} повторяется. Укажите разные номера.`);
     if (!row.skipped) numbers.add(number);
     if (!feedbackValidDate(row.date)) throw new Error(`Проверьте дату занятия №${number}`);
+    if (!row.skipped) {
+      if (lastDate && row.date <= lastDate) throw new Error("Даты включённых занятий должны идти по порядку без повторов");
+      if (lastNumber !== null && number !== lastNumber + 1) throw new Error("Номера включённых занятий должны идти подряд");
+      lastDate = row.date; lastNumber = number;
+    }
     if (typeof row.repeat !== "boolean" || typeof row.skipped !== "boolean") throw new Error("Проверьте отметки повторения и отмены");
   }
   if (schedule.rows.every((row) => row.skipped)) throw new Error("Оставьте включённым хотя бы одно занятие");
@@ -210,10 +273,11 @@ function feedbackRestore(raw, catalog, groups) {
   for (const group of groups) {
     if (!Object.hasOwn(schedules, group)) continue;
     const saved = { ...schedules[group], course: feedbackResolveCourse(schedules[group]?.course, catalog) };
+    if (!saved.course && saved.rows?.length === 0) continue;
     try {
       let schedule;
       if (Array.isArray(saved?.rows)) {
-        schedule = { course: saved.course, mode: saved.mode, rows: saved.rows.map((row) => ({
+        schedule = { ...saved, course: saved.course, mode: saved.mode, rows: saved.rows.map((row) => ({
           id: row.id, date: row.date, lesson: row.lesson == null ? null : Number(row.lesson), number: Number(row.number),
           ...(row.lesson == null ? { topic: row.topic } : {}),
           repeat: row.repeat, skipped: row.skipped,
@@ -229,6 +293,8 @@ function feedbackRestore(raw, catalog, groups) {
         schedule = { course: saved.course, mode: saved.mode, rows: feedbackSeries(saved.course,
           date.toISOString().slice(0, 10), first, first + offset, catalog[saved.course].length - first + 1, 7, catalog) };
       }
+      feedbackRenumber(schedule.rows, schedule.rows.find((row) => !row.skipped)?.number || 1);
+      feedbackMarkRepeats(schedule);
       feedbackValidateSchedule(schedule, catalog);
       restored.schedules[group] = schedule;
     } catch { restored.recovered += 1; }

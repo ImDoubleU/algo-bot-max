@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.db.base  # noqa: F401
@@ -199,6 +200,79 @@ async def test_enabled_teacher_can_save_own_schedule_but_not_foreign_group(stora
 
 async def _not_superadmin():
     return False
+
+
+@pytest.mark.asyncio
+async def test_custom_groups_are_private_and_do_not_create_astrocoin_students(storage):
+    db, tenant, teacher, other, factory = storage
+    before = await db.scalar(select(func.count()).select_from(Student))
+    raw = payload().model_dump(mode="json")
+    raw["group_name"] = "Индивидуально: Маша"
+    raw["schedule"].update(custom_group=True, mode="individual", members=["Маша Иванова"],
+                           cadence={"kind": "weekdays", "weekdays": [1, 3]})
+    saved = await miniapp.miniapp_save_feedback_schedule(
+        FeedbackScheduleSave.model_validate(raw), db, identity(teacher, tenant), tenant.slug
+    )
+    assert saved["schedule"]["custom_group"] is True
+    assert saved["schedule"]["members"] == ["Маша Иванова"]
+    assert await db.scalar(select(func.count()).select_from(Student)) == before
+    async with factory() as fresh:
+        own = await miniapp.miniapp_feedback_schedules(
+            fresh, identity(teacher, tenant), tenant.slug
+        )
+        assert json.loads(own.body)["schedules"][raw["group_name"]] == saved
+        foreign = await miniapp.miniapp_feedback_schedules(
+            fresh, identity(other, tenant), tenant.slug
+        )
+        assert raw["group_name"] not in json.loads(foreign.body)["schedules"]
+
+
+@pytest.mark.asyncio
+async def test_imported_group_cannot_be_converted_to_custom_or_disable_astrocoins(storage):
+    db, tenant, teacher, _, _ = storage
+    raw = payload().model_dump(mode="json")
+    raw["schedule"].update(custom_group=True, mode="online", members=["Постороннее имя"])
+    result = await miniapp.miniapp_save_feedback_schedule(
+        FeedbackScheduleSave.model_validate(raw), db, identity(teacher, tenant), tenant.slug
+    )
+    assert result["schedule"]["custom_group"] is False
+    assert result["schedule"]["mode"] == "group"
+    assert result["schedule"]["members"] == []
+
+
+@pytest.mark.asyncio
+async def test_custom_group_flag_does_not_grant_access_to_foreign_imported_group(storage):
+    db, tenant, teacher, other, _ = storage
+    db.add(Student(tenant_id=tenant.id, student_access_code="foreign-custom-guard",
+                   first_name="Student", group_name="Чужая импортированная группа",
+                   teacher_name=other.display_name))
+    await db.commit()
+    raw = payload().model_dump(mode="json")
+    raw["group_name"] = "Чужая импортированная группа"
+    raw["schedule"]["custom_group"] = True
+    with pytest.raises(HTTPException) as denied:
+        await miniapp.miniapp_save_feedback_schedule(
+            FeedbackScheduleSave.model_validate(raw), db, identity(teacher, tenant), tenant.slug
+        )
+    assert denied.value.status_code == 403
+
+
+@pytest.mark.parametrize("change", ["backwards_date", "same_date", "number_gap", "empty_weekdays"])
+def test_new_schedule_rules_reject_invalid_order_and_cadence(change):
+    raw = payload().model_dump(mode="json")
+    first = raw["schedule"]["rows"][0]
+    second = {**first, "id": str(uuid4()), "date": "2026-10-11", "lesson": 2, "number": 2}
+    raw["schedule"]["rows"].append(second)
+    if change == "backwards_date":
+        second["date"] = "2026-10-01"
+    elif change == "same_date":
+        second["date"] = first["date"]
+    elif change == "number_gap":
+        second["number"] = 3
+    else:
+        raw["schedule"]["cadence"] = {"kind": "weekdays", "weekdays": []}
+    with pytest.raises(ValidationError):
+        FeedbackScheduleSave.model_validate(raw)
 
 
 @pytest.mark.asyncio
