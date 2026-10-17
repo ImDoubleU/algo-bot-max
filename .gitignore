@@ -21,6 +21,7 @@ pip-wheel-metadata/
 max_bot_venv/
 max_bot/
 .venv/
+.venv-support/
 venv/
 
 # Local secrets and credentials
