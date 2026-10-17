@@ -1,7 +1,17 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer, LargeBinary, String, Text
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, uuid_pk
@@ -60,3 +70,19 @@ class SupportReply(TimestampMixin, Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    author: Mapped[str] = mapped_column(String(16), default="staff", nullable=False)
+    photo_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notification_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SupportConversation(TimestampMixin, Base):
+    __tablename__ = "support_conversations"
+
+    max_user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    ticket_id: Mapped[int | None] = mapped_column(
+        ForeignKey("support_tickets.id", ondelete="SET NULL"), index=True,
+    )
+    paused: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    pending_messages: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
