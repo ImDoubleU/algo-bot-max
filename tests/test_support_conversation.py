@@ -86,7 +86,7 @@ def test_multiple_tickets_hold_messages_until_choice(support_client):
     assert inbox(c)["unread_total"] == 2
 
 
-def test_pending_photos_are_saved_before_selection_and_deleted_on_exit(
+def test_pending_photos_survive_old_exit_and_are_deleted_on_cancel(
     support_client, monkeypatch,
 ):
     c, factory = support_client
@@ -127,17 +127,19 @@ def test_pending_photos_are_saved_before_selection_and_deleted_on_exit(
     photo_id = asyncio.run(buffered_photo())
     assert c.get(f"/api/v1/support/photos/{photo_id}", headers=auth()).status_code == 200
     event(c, "exit")
+    assert c.get(f"/api/v1/support/photos/{photo_id}", headers=auth()).status_code == 200
+    event(c, "cancel")
     assert c.get(f"/api/v1/support/photos/{photo_id}", headers=auth()).status_code == 404
 
 
-def test_owner_is_checked_not_current_city_and_exit_stops_capture(support_client):
+def test_owner_is_checked_not_current_city_and_cancel_stops_capture(support_client):
     c, factory = support_client
     tid = create_answered(c, factory)
     path = "/api/v1/support/bot-event"
     assert c.post(path, headers=auth(88), json={"max_user_id": 88,
         "tenant_slug": "test-city", "action": "reply", "ticket_id": tid}).status_code == 404
     assert event(c, "reply", ticket_id=tid).status_code == 200
-    assert event(c, "exit").json()["active"] is False
+    assert event(c, "cancel").json()["active"] is False
     assert event(c, "message", text="Не в поддержку", event_id="out").json()["active"] is False
     assert inbox(c)["unread_total"] == 0
     event(c, "reply", ticket_id=tid)
