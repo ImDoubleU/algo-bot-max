@@ -129,11 +129,13 @@ def draft_response(draft: SupportDraft | None) -> dict:
 
 async def bot_event(db: AsyncSession, identity, payload) -> dict:
     await lock_user(db, identity.max_user_id)
+    if payload.action == "exit":
+        return await conversation_event(db, identity, payload)
     draft = await db.get(SupportDraft, identity.max_user_id)
     if payload.action in {"reply", "choose"} and draft:
         raise HTTPException(400, "Сначала отправьте или отмените новую заявку")
-    if payload.action in {"start", "cancel", "exit"}:
-        result = await conversation_event(db, identity, payload)
+    if payload.action in {"start", "cancel"}:
+        await conversation_event(db, identity, payload)
     if draft and draft.stage in {"first_name", "last_name"}:
         draft.stage = "full_name"
     if payload.action == "start":
@@ -142,7 +144,7 @@ async def bot_event(db: AsyncSession, identity, payload) -> dict:
             db.add(draft)
             await db.flush()
         return draft_response(draft)
-    if payload.action in {"cancel", "exit"}:
+    if payload.action == "cancel":
         if draft:
             if draft.photo_ids:
                 await db.execute(delete(SupportPhoto).where(
@@ -150,7 +152,7 @@ async def bot_event(db: AsyncSession, identity, payload) -> dict:
                     SupportPhoto.ticket_id.is_(None),
                 ))
             await db.delete(draft)
-        return result if payload.action == "exit" else {"active": False, "text": "Заявка отменена."}
+        return {"active": False, "text": "Заявка отменена."}
     if draft is None:
         return await conversation_event(db, identity, payload)
     if payload.event_id and payload.event_id in draft.event_ids:

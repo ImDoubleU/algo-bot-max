@@ -67,8 +67,8 @@ async def append_message(db, ticket, payload):
             SupportPhoto.ticket_id.is_(None),
         )))
         if len(photos) != len(saved_ids):
-            raise HTTPException(400, "Фото дополнения устарело. Отмените диалог, "
-                                "затем прикрепите сообщение и фото заново")
+            raise HTTPException(400, "Фото дополнения устарело. Отправьте /menu, "
+                                "затем откройте обращение и прикрепите сообщение и фото заново")
         for photo in photos:
             photo.ticket_id = ticket.id
         photo_ids.extend(saved_ids)
@@ -83,9 +83,14 @@ async def append_message(db, ticket, payload):
 
 
 async def conversation_event(db, identity, payload):
+    if payload.action == "exit":
+        # Old MAX messages retain their buttons. Do not let them pause routing,
+        # discard pending messages/photos, or cancel a new-ticket draft.
+        return {"active": False, "text": "Закрыть обращение может только администратор. "
+                "Для дополнения нажмите «Ответить по обращению» под ответом поддержки."}
     user_id = identity.max_user_id
     conversation = await db.get(SupportConversation, user_id)
-    if payload.action in {"exit", "cancel", "start"}:
+    if payload.action in {"cancel", "start"}:
         if conversation is None:
             conversation = SupportConversation(max_user_id=user_id)
             db.add(conversation)
@@ -99,7 +104,7 @@ async def conversation_event(db, identity, payload):
         conversation.ticket_id = None
         conversation.paused = True
         conversation.pending_messages = []
-        return {"active": False, "text": "Диалог завершён. Обращение сохранено. "
+        return {"active": False, "text": "Вы вернулись в меню. Обращение сохранено. "
                 "Продолжить можно кнопкой «Ответить по обращению» под ответом поддержки."}
 
     if payload.action not in {"reply", "choose", "message"}:
@@ -180,4 +185,4 @@ async def conversation_event(db, identity, payload):
         conversation.ticket_id = ticket.id
     await append_message(db, ticket, payload.model_dump())
     return conversation_response(ticket.id, f"Сообщение добавлено в обращение №{ticket.id}. "
-                                 "Можно написать дополнение или завершить диалог.")
+                                 "Можно написать дополнение.")
