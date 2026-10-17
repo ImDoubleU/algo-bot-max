@@ -481,10 +481,10 @@ function feedbackScheduleEditorMarkup() {
   const cadence = feedbackCadence(editor);
   feedbackState.editor = editor;
   return `<form id="feedbackScheduleForm">
-      <div class="${feedbackCustomGroup() ? "feedback-fields-two" : "feedback-schedule-course"}"><label>Курс группы<select name="course">${feedbackCourseOptions(editor.course)}</select></label>
+      <div class="feedback-schedule-header ${feedbackCustomGroup() ? "has-format" : ""}"><label>Курс группы<select name="course">${feedbackCourseOptions(editor.course)}</select></label>
+        <label class="feedback-first-date">Дата первого занятия<input name="firstDate" type="date" min="2000-01-01" max="2100-12-31" value="${editor.rows.find((row) => !row.skipped)?.date || feedbackToday()}" required></label>
         ${feedbackCustomGroup() ? `<label>Формат<select name="mode">${feedbackModeOptions(editor.mode)}</select></label>` : ""}</div>
       ${feedbackCustomGroup() ? `<label class="feedback-group-members">Ученики<textarea name="members" maxlength="12000" rows="3">${escapeHtml((editor.members || []).join("\n"))}</textarea></label>` : ""}
-      <label class="feedback-first-date">Дата первого занятия<input name="firstDate" type="date" min="2000-01-01" max="2100-12-31" value="${editor.rows.find((row) => !row.skipped)?.date || feedbackToday()}" required></label>
       <div class="feedback-schedule-table-wrap"><table class="feedback-schedule-table"><thead><tr><th scope="col">№ занятия</th><th scope="col">Дата</th><th scope="col">Материал курса</th><th scope="col">Повторение</th><th scope="col">Выключено</th><th scope="col"><span class="feedback-editor-label">Действия</span></th></tr></thead>
       <tbody>${editor.rows.map((row) => `<tr class="${row.skipped ? "feedback-disabled-row" : ""}" data-feedback-schedule-row="${escapeHtml(row.id)}">
         <td data-label="№ занятия"><input name="number" type="number" min="1" max="999" step="1" value="${escapeHtml(row.number)}" ${row.skipped ? 'disabled title="Выключенное занятие не имеет номера в календаре"' : ""} required aria-label="Номер занятия"></td>

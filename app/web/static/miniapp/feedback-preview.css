@@ -202,7 +202,9 @@
 .feedback-group-toolbar svg { width:16px; height:16px; }
 .feedback-lesson-picker { display:none; }
 .feedback-assign-course { display:grid; grid-template-columns:2fr 1fr auto; align-items:end; gap:14px; margin:20px 0; padding:18px; border:1px solid var(--line); border-radius:12px; background:#fff; }
-.feedback-schedule-course { margin-top:16px; }
+.feedback-schedule-header { display:grid; grid-template-columns:minmax(0,2fr) minmax(180px,1fr); align-items:end; gap:14px; margin-top:16px; }
+.feedback-schedule-header.has-format { grid-template-columns:minmax(0,2fr) minmax(180px,1fr) minmax(180px,1fr); }
+.feedback-schedule-header .feedback-first-date { max-width:none; margin:0; }
 .feedback-group-members { margin-top:16px; }
 #feedbackWorkspace .feedback-group-members textarea, #feedbackWorkspace .feedback-group-dialog textarea { width:100%; min-width:0; box-sizing:border-box; padding:10px 12px; border:1px solid #dfd8e8; border-radius:9px; background:#fff; font:inherit; font-weight:400; resize:vertical; }
 .feedback-group-dialog { width:min(560px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); overflow:auto; }
@@ -210,6 +212,7 @@
 .feedback-group-dialog h3 { margin:0; }
 #feedbackWorkspace input, #feedbackWorkspace select, #feedbackWorkspace textarea, #feedbackWorkspace dialog { font-family:Manrope,system-ui,sans-serif; }
 @media (max-width:640px) {
+  .feedback-schedule-header, .feedback-schedule-header.has-format { grid-template-columns:minmax(0,1fr); gap:12px; }
   .feedback-lesson-picker { display:grid; grid-template-columns:44px minmax(0,1fr) 44px; align-items:end; gap:8px; margin-bottom:12px; }
   #feedbackWorkspace .feedback-lesson-picker label { min-width:0; gap:5px; font-size:12px; }
   .feedback-lesson-picker .icon-button { width:44px; height:44px; min-width:0; }
