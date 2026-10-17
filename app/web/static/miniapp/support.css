@@ -71,6 +71,15 @@
 .support-ticket-update label, #supportFormFields label { display:grid; gap:8px; font-weight:500; }
 .support-reply { background:#f6f1fc; border-radius:12px; margin-top:16px; padding:14px; }
 .support-reply small { color:#7137bd; }
+.support-reply-history { max-width:100%; }
+.support-reply header { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+.support-reply time { color:#625c70; font-size:12px; }
+.support-reply-user { background:#eff8f7; border-left:3px solid #13867c; margin-right:20px; }
+.support-reply-staff { background:#f6f1fc; border-left:3px solid #7137bd; margin-left:20px; }
+.support-reply .support-ticket-photos:empty { display:none; }
+.support-reply small { display:block; margin-top:8px; }
+.support-unread { color:#11685f; background:#dcf5ee; padding:4px 8px; border-radius:4px; font-size:12px; }
+.support-badge-waiting { color:#795c00; background:#fff4c6; }
 .support-reply p { white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0 0; }
 .support-control { width:100%; box-sizing:border-box; border:1px solid #dcd2ed; border-radius:12px; background:#fff; color:#211933; padding:13px 14px; font:inherit; min-height:46px; }
 textarea.support-control { resize:vertical; }

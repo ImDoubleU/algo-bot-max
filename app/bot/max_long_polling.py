@@ -1706,6 +1706,7 @@ class LongPollingBot:
         self.cleanup_customer_onboarding()
         user = update.get("user") or {}
         user_id = user.get("user_id")
+        cancel_support(self, user_id)
         chat_id = update.get("chat_id")
         payload = update.get("payload")
         self.restore_onboarding(user_id)
@@ -1938,7 +1939,11 @@ class LongPollingBot:
             parts = payload.split(":")
             action = parts[1] if len(parts) > 1 else "start"
             fields = {"role": parts[2]} if action == "role" and len(parts) == 3 else {}
-            if action not in {"start", "role", "submit", "cancel"}:
+            if action in {"reply", "choose"}:
+                if len(parts) != 3 or not parts[2].isascii() or not parts[2].isdigit():
+                    return
+                fields = {"ticket_id": int(parts[2])}
+            if action not in {"start", "role", "submit", "cancel", "reply", "choose", "exit"}:
                 action = "start"
             response = support_response(self, user_id, action, **fields)
             if callback_id and hasattr(self.client, "answer_callback"):

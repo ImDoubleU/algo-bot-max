@@ -7,7 +7,7 @@ const supportState = {
   deleting: new Set(), counts: {},
 };
 const SUPPORT_ROLES = { parent: "Родитель", student: "Ученик", staff: "Сотрудник" };
-const SUPPORT_STATUSES = { new: "Новые", in_progress: "В работе", resolved: "Решённые" };
+const SUPPORT_STATUSES = { new: "Новые", in_progress: "В работе", waiting: "Ожидают ответа", resolved: "Решённые" };
 
 async function supportApi(path, options = {}) {
   const response = await apiFetch(`/api/v1/support${path}`, options);
@@ -226,6 +226,39 @@ function supportUserMarkup(ticket) {
   </section>`;
 }
 
+function supportConversationMarkup(ticket) {
+  const replyPhotos = new Set((ticket.replies || []).flatMap((r) => r.photo_ids || []));
+  const originalPhotos = (ticket.photo_ids || []).filter((id) => !replyPhotos.has(id));
+  const original = `<article class="support-reply support-reply-user"><header><strong>${escapeHtml(ticket.first_name)} ${escapeHtml(ticket.last_name)}</strong><time>${escapeHtml(supportUserDate(ticket.created_at))}</time></header>
+    <p class="support-ticket-message">${escapeHtml(ticket.message)}</p><div class="support-ticket-photos" data-conversation-photos="initial"></div></article>`;
+  return {originalPhotos, html: `<section class="support-reply-history" aria-label="Переписка"><h4>Переписка</h4>${original}${(ticket.replies || []).map((reply) => `
+    <article class="support-reply ${reply.author === "user" ? "support-reply-user" : "support-reply-staff"}">
+      <header><strong>${reply.author === "user" ? escapeHtml(`${ticket.first_name} ${ticket.last_name}`) : "Поддержка"}</strong><time>${escapeHtml(supportUserDate(reply.created_at))}</time></header>
+      ${reply.message ? `<p>${escapeHtml(reply.message)}</p>` : ""}
+      <div class="support-ticket-photos" data-conversation-photos="${escapeHtml(reply.id || "")}"></div>
+      <small data-message-state="${escapeHtml(reply.id || "")}">${reply.author === "user" ? reply.read_at ? "Прочитано" : "Новое сообщение" : reply.status === "sent" ? `Отправлен в MAX · ${escapeHtml(supportUserDate(reply.sent_at))}` : reply.status === "retry" ? "Повторная отправка" : "Ожидает отправки"}</small>
+    </article>`).join("")}</section>`};
+}
+
+async function supportMarkRead(ticket, details) {
+  const ids = (ticket.replies || []).filter((r) => r.author === "user" && !r.read_at).map((r) => r.id);
+  if (!ids.length || details.dataset.reading) return;
+  details.dataset.reading = "1";
+  try {
+    for (let i = 0; i < ids.length; i += 500) {
+      await supportApi(`/tickets/${ticket.id}/read`, {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({reply_ids: ids.slice(i, i + 500)})});
+    }
+    for (const reply of ticket.replies || []) if (ids.includes(reply.id)) {
+      reply.read_at = new Date().toISOString();
+      const stateLabel = details.querySelector(`[data-message-state="${CSS.escape(reply.id)}"]`);
+      if (stateLabel) stateLabel.textContent = "Прочитано";
+    }
+    ticket.unread_count = 0;
+    const badge = details.querySelector(".support-unread"); if (badge) badge.remove();
+  } catch (_) { delete details.dataset.reading; }
+}
+
 function supportRenderInbox(counts = {}) {
   supportState.counts = counts;
   const badge = qs("#supportNewCount"); badge.textContent = String(counts.new || 0); badge.hidden = !counts.new;
@@ -239,22 +272,20 @@ function supportRenderInbox(counts = {}) {
         <strong>${escapeHtml(ticket.last_name)} ${escapeHtml(ticket.first_name)}</strong>
         <small>${escapeHtml(SUPPORT_ROLES[ticket.role])} · ${new Date(ticket.created_at).toLocaleString("ru-RU", {timeZone: "Europe/Moscow", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"})}</small></span>
         <span class="support-badge support-badge-${ticket.status}">${escapeHtml(SUPPORT_STATUSES[ticket.status])}</span>
+        ${ticket.unread_count ? `<span class="support-unread">Новых: ${ticket.unread_count}</span>` : ""}
       </summary>
-      <div class="support-ticket-body"><p class="support-ticket-message">${escapeHtml(ticket.message)}</p>
+      <div class="support-ticket-body">
+        ${supportConversationMarkup(ticket).html}
         ${supportUserMarkup(ticket)}
-        <div class="support-ticket-photos" data-ticket-photos="${ticket.id}"></div>
         <form data-support-update="${ticket.id}" class="support-ticket-update">
           <label>Статус<select name="status" class="support-control">${Object.entries(SUPPORT_STATUSES).map(([s,l]) => `<option value="${s}" ${s === ticket.status ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-          <label>Заметка<textarea name="private_note" class="support-control" rows="2" maxlength="4000">${escapeHtml(ticket.private_note)}</textarea></label>
+          <label>Внутренняя заметка (не отправляется пользователю)<textarea name="private_note" class="support-control" rows="2" maxlength="4000">${escapeHtml(ticket.private_note)}</textarea></label>
           <button class="secondary-action" type="submit">Сохранить</button><span data-update-result role="status"></span>
         </form>
-        <div class="support-reply-history">${(ticket.replies || []).map((reply) => `
-          <article class="support-reply"><small>${reply.status === "sent" ? "Отправлен в MAX" : reply.status === "retry" ? "Повторная отправка" : "Ожидает отправки"}</small>
-            <p>${escapeHtml(reply.message)}</p></article>`).join("")}</div>
         <form data-support-reply="${ticket.id}" class="support-ticket-update">
           <label>Ответ автору в MAX<textarea name="reply_message" class="support-control" rows="3" maxlength="3500" required ${
-            (ticket.replies || []).some((r) => r.status !== "sent") ? "disabled" : ""}></textarea></label>
-          <button class="primary-action" type="submit" ${(ticket.replies || []).some((r) => r.status !== "sent") ? "disabled" : ""}>Ответить и решить</button>
+            (ticket.replies || []).some((r) => ["queued", "retry"].includes(r.status)) ? "disabled" : ""}></textarea></label>
+          <button class="primary-action" type="submit" ${(ticket.replies || []).some((r) => ["queued", "retry"].includes(r.status)) ? "disabled" : ""}>Отправить ответ</button>
           <span data-reply-result role="status"></span>
         </form>
         ${supportState.owner ? `<div class="support-ticket-danger"><button type="button" class="secondary-action is-danger" data-support-delete="${ticket.id}"><i data-lucide="trash-2"></i>Удалить тикет</button></div>` : ""}
@@ -266,11 +297,15 @@ function supportRenderInbox(counts = {}) {
   qs("#supportPageLabel").textContent = `${supportState.offset + 1}–${supportState.offset + supportState.items.length} из ${supportState.total}`;
   qsa(".support-ticket").forEach((details) => {
     const ticket = supportState.items.find((t) => t.id === Number(details.dataset.ticket));
-    const photos = details.querySelector("[data-ticket-photos]");
     function opened() {
       if (details.open) {
         supportState.openTickets.add(ticket.id);
-        if (!photos.dataset.loaded) { photos.dataset.loaded = "1"; void supportLoadImages(ticket, photos); }
+        const groups = [{id: "initial", photo_ids: supportConversationMarkup(ticket).originalPhotos}, ...(ticket.replies || [])];
+        for (const group of groups) {
+          const photos = details.querySelector(`[data-conversation-photos="${CSS.escape(String(group.id || ""))}"]`);
+          if (photos && !photos.dataset.loaded) { photos.dataset.loaded = "1"; void supportLoadImages({photo_ids: group.photo_ids || []}, photos); }
+        }
+        void supportMarkRead(ticket, details);
       } else supportState.openTickets.delete(ticket.id);
     }
     details.addEventListener("toggle", opened); if (details.open) opened();

@@ -12,10 +12,16 @@ from PIL import Image
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.keyboards import build_miniapp_url, inline_keyboard, miniapp_button
+from app.bot.keyboards import build_miniapp_url, callback_button, inline_keyboard, miniapp_button
 from app.bot.max_client import MaxApiClient
 from app.core.config import get_settings, is_placeholder
-from app.models.support import SupportDraft, SupportPhoto, SupportReply, SupportTicket
+from app.models.support import (
+    SupportConversation,
+    SupportDraft,
+    SupportPhoto,
+    SupportReply,
+    SupportTicket,
+)
 from app.schemas.support import SupportCreate, clean_name
 from app.services.product_media import (
     ProductMediaError,
@@ -24,6 +30,7 @@ from app.services.product_media import (
     create_remote_product_image_client,
 )
 from app.services.staff import configured_superadmin_max_user_id
+from app.services.support_conversation import conversation_event
 
 logger = logging.getLogger(__name__)
 ROLE_LABELS = {"parent": "Родитель", "student": "Ученик", "staff": "Сотрудник"}
@@ -123,6 +130,10 @@ def draft_response(draft: SupportDraft | None) -> dict:
 async def bot_event(db: AsyncSession, identity, payload) -> dict:
     await lock_user(db, identity.max_user_id)
     draft = await db.get(SupportDraft, identity.max_user_id)
+    if payload.action in {"reply", "choose"} and draft:
+        raise HTTPException(400, "Сначала отправьте или отмените новую заявку")
+    if payload.action in {"start", "cancel", "exit"}:
+        result = await conversation_event(db, identity, payload)
     if draft and draft.stage in {"first_name", "last_name"}:
         draft.stage = "full_name"
     if payload.action == "start":
@@ -131,7 +142,7 @@ async def bot_event(db: AsyncSession, identity, payload) -> dict:
             db.add(draft)
             await db.flush()
         return draft_response(draft)
-    if payload.action == "cancel":
+    if payload.action in {"cancel", "exit"}:
         if draft:
             if draft.photo_ids:
                 await db.execute(delete(SupportPhoto).where(
@@ -139,9 +150,9 @@ async def bot_event(db: AsyncSession, identity, payload) -> dict:
                     SupportPhoto.ticket_id.is_(None),
                 ))
             await db.delete(draft)
-        return {"active": False, "text": "Заявка отменена."}
+        return result if payload.action == "exit" else {"active": False, "text": "Заявка отменена."}
     if draft is None:
-        return {"active": False, "text": "Нажмите «Сообщить о проблеме», чтобы создать заявку."}
+        return await conversation_event(db, identity, payload)
     if payload.event_id and payload.event_id in draft.event_ids:
         return draft_response(draft)
     if payload.action == "role":
@@ -212,10 +223,17 @@ async def deliver_next_reply(db: AsyncSession, client: MaxApiClient) -> bool:
         (SupportReply.attempted_at.is_(None)) |
         (SupportReply.attempted_at < now - timedelta(minutes=2)),
     )
-    # Lock the ticket first, as deletion and reply creation do, to avoid deadlocks.
+    # Conversation routing and deletion take the same user -> ticket lock order.
+    user_id = await db.scalar(select(SupportTicket.max_user_id).join(
+        SupportReply, SupportReply.ticket_id == SupportTicket.id,
+    ).where(*eligible).order_by(SupportReply.created_at, SupportReply.id).limit(1))
+    if user_id is None:
+        return False
+    await lock_user(db, user_id)
     ticket = await db.scalar(select(SupportTicket).join(
         SupportReply, SupportReply.ticket_id == SupportTicket.id
-    ).where(*eligible).order_by(SupportReply.created_at, SupportReply.id).limit(1)
+    ).where(*eligible, SupportTicket.max_user_id == user_id)
+        .order_by(SupportReply.created_at, SupportReply.id).limit(1)
         .with_for_update(of=SupportTicket, key_share=True, skip_locked=True))
     if ticket is None:
         return False
@@ -228,14 +246,64 @@ async def deliver_next_reply(db: AsyncSession, client: MaxApiClient) -> bool:
     reply.attempted_at = now
     try:
         await asyncio.to_thread(client.send_message, user_id=ticket.max_user_id,
-                                text=f"Ответ по заявке №{ticket.id}\n\n{reply.message}")
+                                text=f"Ответ по заявке №{ticket.id}\n\n{reply.message}\n\n"
+                                "Чтобы дополнить обращение, нажмите кнопку ниже "
+                                "и отправьте сообщение сюда.",
+                                attachments=inline_keyboard([[callback_button(
+                                    f"Ответить по обращению №{ticket.id}",
+                                    f"support:reply:{ticket.id}",
+                                )]]))
     except Exception:
         reply.status = "retry"
         logger.warning("Support reply delivery failed for reply %s", reply.id)
     else:
         reply.status = "sent"
         reply.sent_at = now
-        ticket.status = "resolved"
+        newer_message = await db.scalar(select(SupportReply.id).where(
+            SupportReply.ticket_id == ticket.id, SupportReply.author == "user",
+            SupportReply.created_at > reply.created_at,
+        ).limit(1))
+        if ticket.status not in {"resolved", "new"} and not newer_message:
+            ticket.status = "waiting"
+        if not await db.get(SupportDraft, ticket.max_user_id):
+            conversation = await db.get(SupportConversation, ticket.max_user_id)
+            if conversation:
+                conversation.paused = False
+                conversation.ticket_id = None
+    await db.commit()
+    return True
+
+
+async def notify_next_message(db: AsyncSession, client: MaxApiClient, owner_id: int) -> bool:
+    now = datetime.now(UTC)
+    eligible = (
+        SupportReply.author == "user", SupportReply.notified_at.is_(None),
+        (SupportReply.notification_attempted_at.is_(None)) |
+        (SupportReply.notification_attempted_at < now - timedelta(minutes=2)),
+    )
+    ticket = await db.scalar(select(SupportTicket).join(
+        SupportReply, SupportReply.ticket_id == SupportTicket.id,
+    ).where(*eligible).order_by(SupportReply.created_at, SupportReply.id).limit(1)
+        .with_for_update(of=SupportTicket, skip_locked=True))
+    if ticket is None:
+        return False
+    message = await db.scalar(select(SupportReply).where(
+        SupportReply.ticket_id == ticket.id, *eligible,
+    ).order_by(SupportReply.created_at, SupportReply.id).limit(1).with_for_update())
+    message.notification_attempted_at = now
+    try:
+        await asyncio.to_thread(
+            client.send_message, user_id=owner_id,
+            text=f"Ответ пользователя по обращению №{ticket.id}\n"
+                 f"{ticket.first_name} {ticket.last_name}\n\n{message.message[:1500]}\n"
+                 f"Фотографий: {len(message.photo_ids)}",
+            attachments=inline_keyboard([[miniapp_button(
+                "Открыть тикеты", build_miniapp_url(view="help"),
+            )]]),
+        )
+        message.notified_at = now
+    except Exception:
+        logger.warning("Support incoming notification failed for message %s", message.id)
     await db.commit()
     return True
 
@@ -253,6 +321,11 @@ async def notification_loop() -> None:
             async with AsyncSessionLocal() as reply_db:
                 replied = await deliver_next_reply(reply_db, client)
             if replied:
+                await asyncio.sleep(1)
+                continue
+            async with AsyncSessionLocal() as message_db:
+                notified = await notify_next_message(message_db, client, owner_id)
+            if notified:
                 await asyncio.sleep(1)
                 continue
             async with AsyncSessionLocal() as db:
