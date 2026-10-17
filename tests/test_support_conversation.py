@@ -49,6 +49,7 @@ def test_plain_reply_history_read_receipts_and_deduplication(support_client):
     assert event(c, "message", text="Всё ещё ошибка", event_id="m1").json()["ticket_id"] == tid
     event(c, "message", text="Всё ещё ошибка", event_id="m1")
     record = inbox(c)["items"][0]
+    assert record["city_name"] is None and record["child_full_name"] is None
     assert record["status"] == "new"
     assert len(record["replies"]) == 2
     assert record["unread_count"] == 1
@@ -167,6 +168,8 @@ def test_new_ticket_draft_is_not_mixed_with_conversation(support_client):
     assert event(c, "reply", ticket_id=tid).status_code == 400
     event(c, "role", role="parent")
     event(c, "message", text="Анна Иванова")
+    event(c, "message", text="Бор")
+    event(c, "message", text="Иван Иванов")
     event(c, "message", text="Другая проблема")
     assert inbox(c)["unread_total"] == 0
     assert event(c, "submit").json()["ticket_id"] != tid

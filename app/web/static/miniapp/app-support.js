@@ -210,6 +210,7 @@ function supportUserMarkup(ticket) {
   const statedName = `${ticket.last_name} ${ticket.first_name}`.trim();
   return `<section class="support-user-panel"><div class="support-user-panel-heading"><h4>Пользователь</h4>${supportState.owner && fullAuditEnabled() ? `<button type="button" class="text-action" data-support-user-history="${escapeHtml(ticket.max_user_id)}">Действия пользователя</button>` : ""}</div>
     ${supportUserFacts([["MAX ID автора", ticket.max_user_id], ["Роли в системе", roles.map(auditReadable).join(", ")],
+      ["Город (со слов автора)", ticket.city_name], ["Ребёнок (со слов родителя)", ticket.child_full_name],
       ["Имя в MAX", account?.name && account.name !== statedName ? account.name : ""],
       ["ФИО сотрудника", account?.staff_name && ![statedName, account.name].includes(account.staff_name) ? account.staff_name : ""],
       ["Логин", account?.username ? `@${account.username.replace(/^@/, "")}` : ""], ["Телефон", account?.phone],

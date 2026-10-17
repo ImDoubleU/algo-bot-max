@@ -22,7 +22,7 @@ from app.models.support import (
     SupportReply,
     SupportTicket,
 )
-from app.schemas.support import SupportCreate, clean_name
+from app.schemas.support import SupportCreate, clean_child_name, clean_city, clean_name
 from app.services.product_media import (
     ProductMediaError,
     _decoded_product_image,
@@ -99,6 +99,7 @@ async def create_ticket(
     ticket = SupportTicket(
         request_id=payload.request_id, max_user_id=max_user_id, tenant_slug=tenant_slug,
         role=payload.role, first_name=payload.first_name, last_name=payload.last_name,
+        city_name=payload.city_name, child_full_name=payload.child_full_name,
         message=payload.message, source=source,
     )
     db.add(ticket)
@@ -108,18 +109,37 @@ async def create_ticket(
     return ticket
 
 
+def contact_details(ticket: SupportTicket | SupportDraft) -> str:
+    lines = []
+    if ticket.city_name:
+        lines.append(f"Город: {ticket.city_name}")
+    if ticket.child_full_name:
+        lines.append(f"Ребёнок: {ticket.child_full_name}")
+    return "".join(f"{line}\n" for line in lines)
+
+
+def next_details_stage(draft: SupportDraft) -> str:
+    if not draft.city_name:
+        return "city"
+    if draft.role == "parent" and not draft.child_full_name:
+        return "child_name"
+    return "photos" if draft.message else "message"
+
+
 def draft_response(draft: SupportDraft | None) -> dict:
     if draft is None:
         return {"active": False}
     texts = {
         "role": "Кто сообщает о проблеме?",
+        "city": "Напишите ваш город. Например: Нижний Новгород.",
+        "child_name": "Напишите имя и фамилию ребёнка одним сообщением. Например: Иван Петров.",
         "full_name": "Напишите имя и фамилию одним сообщением. Например: Иван Петров.",
         "first_name": "Напишите имя и фамилию одним сообщением. Например: Иван Петров.",
         "last_name": "Напишите имя и фамилию одним сообщением. Например: Иван Петров.",
         "message": "Опишите проблему. К сообщению можно прикрепить фотографии.",
         "photos": (
             f"{draft.first_name} {draft.last_name}\n"
-            f"{ROLE_LABELS.get(draft.role, '')}\n\n{draft.message}\n\n"
+            f"{ROLE_LABELS.get(draft.role, '')}\n{contact_details(draft)}\n{draft.message}\n\n"
             f"Фотографий: {len(draft.photo_ids)} из 5.\n"
             "Можно добавить фото или отправить заявку."
         ),
@@ -143,6 +163,8 @@ async def bot_event(db: AsyncSession, identity, payload) -> dict:
             draft = SupportDraft(max_user_id=identity.max_user_id, request_id=uuid4(), stage="role")
             db.add(draft)
             await db.flush()
+        if draft.stage in {"message", "photos"}:
+            draft.stage = next_details_stage(draft)
         return draft_response(draft)
     if payload.action == "cancel":
         if draft:
@@ -157,6 +179,12 @@ async def bot_event(db: AsyncSession, identity, payload) -> dict:
         return await conversation_event(db, identity, payload)
     if payload.event_id and payload.event_id in draft.event_ids:
         return draft_response(draft)
+    # Older drafts keep their description and photos while collecting missing details.
+    if draft.stage in {"message", "photos"}:
+        stage = next_details_stage(draft)
+        if stage != draft.stage:
+            draft.stage = stage
+            return draft_response(draft)
     if payload.action == "role":
         if draft.stage != "role":
             return draft_response(draft)
@@ -170,6 +198,7 @@ async def bot_event(db: AsyncSession, identity, payload) -> dict:
         ticket = await create_ticket(db, identity.max_user_id, SupportCreate(
             request_id=draft.request_id, role=draft.role, first_name=draft.first_name,
             last_name=draft.last_name, message=draft.message, photo_ids=draft.photo_ids,
+            city_name=draft.city_name, child_full_name=draft.child_full_name,
         ), tenant_slug=identity.tenant_slug, source="bot")
         await db.delete(draft)
         return {"active": False, "ticket_id": ticket.id,
@@ -184,7 +213,19 @@ async def bot_event(db: AsyncSession, identity, payload) -> dict:
                 draft.last_name = clean_name(" ".join(parts[1:]))
             except ValueError as exc:
                 raise HTTPException(400, str(exc)) from exc
-            draft.stage = "message"
+            draft.stage = next_details_stage(draft)
+        elif draft.stage in {"city", "child_name"}:
+            if payload.photo_urls:
+                raise HTTPException(400, "Сейчас отправьте только текст. "
+                                    "Фотографии можно добавить к описанию проблемы.")
+            try:
+                if draft.stage == "city":
+                    draft.city_name = clean_city(payload.text)
+                else:
+                    draft.child_full_name = clean_child_name(payload.text)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            draft.stage = next_details_stage(draft)
         elif draft.stage == "role":
             return draft_response(draft)
         else:
@@ -343,6 +384,7 @@ async def notification_loop() -> None:
                     text = (
                         f"Новая заявка №{ticket.id}\n"
                         f"{ROLE_LABELS[ticket.role]}: {ticket.first_name} {ticket.last_name}\n"
+                        f"{contact_details(ticket)}"
                         f"MAX ID: {ticket.max_user_id}\n\n{ticket.message[:1500]}\n\n"
                         "Тикеты: миниприложение → Помощь."
                     )

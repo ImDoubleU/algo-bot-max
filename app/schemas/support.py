@@ -16,12 +16,29 @@ def clean_name(value: str) -> str:
     return value
 
 
+def clean_city(value: str) -> str:
+    value = " ".join(value.split())
+    if (not value or len(value) > 120 or not any(c.isalpha() for c in value)
+            or any(not (c.isalpha() or c.isdigit() or c in " -'’.") for c in value)):
+        raise ValueError("Напишите название города, например: Нижний Новгород")
+    return value
+
+
+def clean_child_name(value: str) -> str:
+    parts = value.split()
+    if len(parts) < 2 or len(" ".join(parts)) > 160:
+        raise ValueError("Напишите имя и фамилию ребёнка одним сообщением")
+    return " ".join(clean_name(part) for part in parts)
+
+
 class SupportCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     request_id: UUID
     role: SupportRole
     first_name: str = Field(min_length=1, max_length=80)
     last_name: str = Field(min_length=1, max_length=80)
+    city_name: str | None = Field(default=None, max_length=120)
+    child_full_name: str | None = Field(default=None, max_length=160)
     message: str = Field(min_length=1, max_length=4000)
     photo_ids: list[UUID] = Field(default_factory=list, max_length=5)
 
@@ -29,6 +46,16 @@ class SupportCreate(BaseModel):
     @classmethod
     def name(cls, value):
         return clean_name(value)
+
+    @field_validator("city_name")
+    @classmethod
+    def city(cls, value):
+        return clean_city(value) if value is not None else None
+
+    @field_validator("child_full_name")
+    @classmethod
+    def child_name(cls, value):
+        return clean_child_name(value) if value is not None else None
 
     @field_validator("photo_ids")
     @classmethod
