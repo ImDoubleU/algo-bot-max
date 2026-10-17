@@ -3770,6 +3770,12 @@ document.addEventListener("input", (event) => {
   }
   if (!(target instanceof HTMLInputElement)) return;
 
+  if (target.id === "teacherQrSearch") {
+    state.teacherInvitationSearch = target.value;
+    renderTeacherInvitations();
+    return;
+  }
+
   if (target.id === "productCropZoom") {
     state.productPhotoCropZoom = Number(target.value) || 1;
     drawProductCropPreview();

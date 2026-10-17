@@ -32,6 +32,10 @@ function renderTeacherInvitations() {
     ${groups.map((group) => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`).join("")}
   `;
   groupSelect.value = state.teacherInvitationGroup;
+  const searchInput = qs("#teacherQrSearch");
+  if (searchInput && searchInput.value !== state.teacherInvitationSearch) {
+    searchInput.value = state.teacherInvitationSearch;
+  }
 
   if (state.teacherInvitationsLoading) {
     list.innerHTML = '<div class="empty-state compact-empty">Загружаем QR-коды...</div>';
@@ -47,8 +51,11 @@ function renderTeacherInvitations() {
     return;
   }
 
-  const visibleStudents = qrStudents.filter(
-    (student) => state.teacherInvitationGroup === "all" || studentGroupName(student) === state.teacherInvitationGroup,
+  const normalizeName = (value) => String(value || "").toLocaleLowerCase("ru-RU").replaceAll("ё", "е");
+  const searchWords = normalizeName(state.teacherInvitationSearch).trim().split(/\s+/).filter(Boolean);
+  const visibleStudents = qrStudents.filter((student) =>
+    (state.teacherInvitationGroup === "all" || studentGroupName(student) === state.teacherInvitationGroup) &&
+    searchWords.every((word) => normalizeName(student.name).includes(word)),
   );
   list.innerHTML = visibleStudents.length
     ? visibleStudents.map((student) => {
@@ -92,7 +99,7 @@ function renderTeacherInvitations() {
           </article>
         `;
       }).join("")
-    : '<div class="empty-state compact-empty">В этой группе учеников нет</div>';
+    : `<div class="empty-state compact-empty">${searchWords.length ? "Ученики не найдены" : "В этой группе учеников нет"}</div>`;
   refreshIcons();
 }
 

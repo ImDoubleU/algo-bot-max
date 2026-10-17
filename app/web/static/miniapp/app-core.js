@@ -140,6 +140,7 @@ const state = {
   teacherInvitationsLoading: false,
   teacherInvitationsLoaded: false,
   teacherInvitationGroup: "all",
+  teacherInvitationSearch: "",
   qrPreviewStudentId: "",
   parentInvitationStudentId: "",
   qrBrightnessRequested: false,

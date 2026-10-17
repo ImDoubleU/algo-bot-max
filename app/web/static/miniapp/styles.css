@@ -11317,6 +11317,7 @@ body[data-active-role="teacher"] .dashboard-spotlight {
 
 .teacher-qr-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -11326,9 +11327,28 @@ body[data-active-role="teacher"] .dashboard-spotlight {
   min-width: 0;
 }
 
-.teacher-qr-head select {
-  width: min(320px, 42vw);
-  min-width: 190px;
+.teacher-qr-filters {
+  display: flex;
+  flex: 1 1 500px;
+  max-width: 680px;
+  gap: 10px;
+}
+
+.teacher-qr-filters input,
+.teacher-qr-filters select {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+}
+
+.teacher-qr-filters input {
+  min-height: 44px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
 }
 
 .teacher-qr-list {
@@ -11578,9 +11598,11 @@ body[data-active-role="teacher"] .dashboard-spotlight {
     flex-direction: column;
   }
 
-  .teacher-qr-head select {
+  .teacher-qr-filters {
+    flex: none;
+    flex-direction: column;
     width: 100%;
-    min-width: 0;
+    max-width: none;
   }
 
   .teacher-qr-list {
