@@ -1,4 +1,4 @@
-"""Missing-profile attempts. Matching never creates access without confirmation."""
+"""Complete authenticated missing-profile attempts once their exact target is available."""
 
 import asyncio
 import hashlib
@@ -27,9 +27,11 @@ from app.services.student_invitations import (
 
 logger = logging.getLogger(__name__)
 OPEN_STATUSES = ("pending", "ready", "review")
+PENDING_BINDING_WAIT_DAYS = 30
 WAITING_MESSAGE = (
-    "Профиль ребёнка пока не найден. Мы сохранили вашу попытку и сообщим, "
-    "когда можно будет подключиться. Проверьте, что открыли ссылку из письма вашей школы."
+    "Ребёнка пока не добавили в систему. Мы сохранили вашу попытку входа и сообщим, "
+    "когда подключение станет доступно.\n\n"
+    "Если у вас есть вопросы, обратитесь к вашему куратору."
 )
 ALREADY_CONNECTED_MESSAGE = (
     "Ваш аккаунт MAX уже подключён. Откройте личный кабинет из меню бота."
@@ -132,7 +134,8 @@ async def remember_missing_binding(db, payload, reason):
         item = PendingBinding(tenant_id=tenant.id, max_user_id=payload.max_user_id, role=role,
                               kind=kind, target_id=target, fingerprint=key, issuer=issuer,
                               sponsor_link_id=sponsor, status="pending", reason=reason, attempts=1,
-                              last_attempt_at=now, expires_at=now + timedelta(days=30),
+                              last_attempt_at=now,
+                              expires_at=now + timedelta(days=PENDING_BINDING_WAIT_DAYS),
                               notification_attempts=0)
         db.add(item)
         await db.flush()
@@ -145,7 +148,7 @@ async def remember_missing_binding(db, payload, reason):
         item.reason = reason
         item.issuer, item.sponsor_link_id = issuer, sponsor
         if item.status not in OPEN_STATUSES or utc(item.expires_at) <= now:
-            item.expires_at = now + timedelta(days=30)
+            item.expires_at = now + timedelta(days=PENDING_BINDING_WAIT_DAYS)
         item.status = "pending"
         item.notified_at = None
         item.notification_attempts = 0
@@ -186,14 +189,13 @@ async def target_students(db, item):
         if student is None:
             return tenant, [], "student_not_found"
         students = [student]
-        if item.issuer == "parent":
-            from app.services.access import get_active_parent_access_link
-            parent = await get_active_parent_access_link(
-                db, tenant_id=tenant.id, student_id=student.id,
-                sponsor_access_link_id=item.sponsor_link_id,
-            )
-            if parent is None:
-                return tenant, [], "parent_link_inactive"
+        from app.services.access import get_active_parent_access_link
+        parent = await get_active_parent_access_link(
+            db, tenant_id=tenant.id, student_id=student.id,
+            sponsor_access_link_id=item.sponsor_link_id if item.issuer == "parent" else None,
+        )
+        if parent is None:
+            return tenant, [], "parent_link_inactive"
     students = [student for student in students if student_access_window(student, tenant).allowed]
     if not students:
         return tenant, [], "student_access_closed"
@@ -308,7 +310,8 @@ async def recover_historical_missing_bindings(db):
             tenant_id=tenant_id, max_user_id=user_id, kind="contact", role="parent",
             target_id=target, fingerprint=key, status="pending", reason="contact_not_found",
             attempts=attempts, last_attempt_at=failure.created_at, created_at=failure.created_at,
-            expires_at=utc(failure.created_at) + timedelta(days=30), notification_attempts=0,
+            expires_at=utc(failure.created_at) + timedelta(days=PENDING_BINDING_WAIT_DAYS),
+            notification_attempts=0,
         )
         db.add(item)
         await db.flush()
@@ -418,10 +421,65 @@ async def confirm_pending_binding(db, pending_id, max_user_id):
             "student_names": [student.display_name for student in students]}
 
 
+async def connect_pending_automatically(db, item, tenant):
+    from app.services.access import create_contact_access_links, create_invited_student_access_link
+
+    if item.kind == "contact":
+        await create_contact_access_links(db, AccessLinkCreate(
+            tenant_slug=tenant.slug, contact_id=item.target_id, max_user_id=item.max_user_id,
+            role=StudentAccessRole.PARENT,
+        ), commit=False)
+    else:
+        token = (issue_teacher_student_invitation_token(tenant.id, UUID(item.target_id))
+                 if item.issuer == "teacher" else issue_student_invitation_token(
+                     tenant.id, UUID(item.target_id), item.sponsor_link_id))
+        await create_invited_student_access_link(db, StudentInvitationLinkCreate(
+            tenant_slug=tenant.slug, token=token, max_user_id=item.max_user_id,
+        ), commit=False)
+    item.status, item.reason = "completed", "auto_connected"
+    actor_id = await db.scalar(select(MaxAccount.id).where(
+        MaxAccount.max_user_id == item.max_user_id))
+    record_event(db, item, "auto_connected", account_id=actor_id)
+
+
+async def notify_automatic_connection(db, item, client, now):
+    if client is None or item.notified_at or item.notification_attempts >= 10:
+        return
+    tenant, _, reason = await target_students(db, item)
+    if reason != "already_connected":
+        item.reason = "auto_notification_cancelled"
+        record_event(db, item, "notification_cancelled")
+        return
+    backoff = min(3600, 60 * 2 ** min(item.notification_attempts, 6))
+    if item.notification_attempted_at and utc(item.notification_attempted_at) > now - timedelta(
+        seconds=backoff,
+    ):
+        return
+    from app.bot.keyboards import cabinet_keyboard
+    item.notification_attempts += 1
+    item.notification_attempted_at = now
+    try:
+        await asyncio.to_thread(
+            client.send_message, user_id=item.max_user_id,
+            text="Ребёнок добавлен в систему. Доступ к Algo MAX открыт.\n\n"
+                 "Теперь вы можете открыть личный кабинет.",
+            attachments=cabinet_keyboard(item.max_user_id, tenant.slug, item.role),
+        )
+        item.notified_at, item.notification_error = now, None
+        record_event(db, item, "access_notified")
+    except Exception:
+        item.notification_error = "Не удалось доставить уведомление в MAX"
+        logger.warning("Automatic connection notification failed: %s", item.id)
+
+
 async def process_pending_batch(db, *, client=None, now=None, tenant_ids=None):
+    from app.services.access import AccessServiceError
+
     now = now or datetime.now(UTC)
     query = select(PendingBinding).where(
-        PendingBinding.status.in_(OPEN_STATUSES),
+        or_(PendingBinding.status.in_(OPEN_STATUSES),
+            (PendingBinding.status == "completed") & (PendingBinding.reason == "auto_connected")
+            & PendingBinding.notified_at.is_(None) & (PendingBinding.notification_attempts < 10)),
         (PendingBinding.last_checked_at.is_(None)
          | (PendingBinding.last_checked_at < now - timedelta(seconds=30))),
     )
@@ -441,12 +499,18 @@ async def process_pending_batch(db, *, client=None, now=None, tenant_ids=None):
         if account is None:
             continue
         item = await db.scalar(select(PendingBinding).where(
-            PendingBinding.id == pending_id, PendingBinding.status.in_(OPEN_STATUSES),
+            PendingBinding.id == pending_id,
         ).with_for_update(skip_locked=True).execution_options(populate_existing=True))
-        if item is None:
+        if item is None or item.status not in OPEN_STATUSES and not (
+            item.status == "completed" and item.reason == "auto_connected"
+            and not item.notified_at and item.notification_attempts < 10
+        ):
             continue
         processed += 1
         item.last_checked_at = now
+        if item.status == "completed":
+            await notify_automatic_connection(db, item, client, now)
+            continue
         if await account_has_access(db, account.id):
             item.status, item.reason = "cancelled", "account_already_connected"
             record_event(db, item, "cancelled", account_id=account.id)
@@ -464,40 +528,33 @@ async def process_pending_batch(db, *, client=None, now=None, tenant_ids=None):
                 "contact_not_found", "contact_has_no_students", "student_not_found",
             } else "review"
             changed = item.status != status or item.reason != reason
-            if item.status == "ready":
-                item.notified_at = None
             item.status = status
             item.reason = reason
             if changed:
                 record_event(db, item, "waiting" if status == "pending" else "review")
             continue
-        if item.status != "ready":
-            item.status, item.reason = "ready", "ready"
-            record_event(db, item, "ready")
-        if client is None or item.notified_at or item.notification_attempts >= 10:
-            continue
-        backoff = min(3600, 60 * 2 ** min(item.notification_attempts, 6))
-        if item.notification_attempted_at and utc(item.notification_attempted_at) > now - timedelta(
-            seconds=backoff,
-        ):
-            continue
-        from app.bot.keyboards import callback_button, inline_keyboard
-        item.notification_attempts += 1
-        item.notification_attempted_at = now
-        attachments = inline_keyboard([
-            [callback_button("Завершить подключение", f"pending:confirm:{item.id}")],
-            [callback_button("Отменить ожидание", f"pending:cancel:{item.id}")],
-        ])
         try:
-            await asyncio.to_thread(client.send_message, user_id=item.max_user_id,
-                                    text="Теперь можно завершить подключение к Algo MAX.\n\n"
-                                    "Нажмите кнопку с аккаунта MAX, который хотите подключить.",
-                                    attachments=attachments)
-            item.notified_at, item.notification_error = now, None
-            record_event(db, item, "notified")
-        except Exception:
-            item.notification_error = "Не удалось доставить уведомление в MAX"
-            logger.warning("Pending binding notification failed: %s", item.id)
+            # Grant links and persist the completion together before any MAX notification.
+            async with db.begin_nested():
+                await connect_pending_automatically(db, item, tenant)
+        except AccessServiceError as exc:
+            item = await db.get(PendingBinding, pending_id, populate_existing=True)
+            item.status, item.reason = "review", exc.code
+            record_event(db, item, "review")
+            continue
+        await db.commit()
+        # Reacquire the same account -> pending lock order after committing the access grant.
+        account = await db.scalar(select(MaxAccount).where(
+            MaxAccount.max_user_id == user_id,
+        ).with_for_update(skip_locked=True))
+        if account is None:
+            continue
+        item = await db.scalar(select(PendingBinding).where(
+            PendingBinding.id == pending_id, PendingBinding.status == "completed",
+            PendingBinding.reason == "auto_connected",
+        ).with_for_update(skip_locked=True).execution_options(populate_existing=True))
+        if item:
+            await notify_automatic_connection(db, item, client, now)
     await db.commit()
     return processed
 

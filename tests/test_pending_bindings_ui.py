@@ -35,6 +35,7 @@ def test_pending_inbox_is_compact_private_and_cancel_requires_confirmation(bindi
 
     page.route("**/api/v1/access/pending**", api)
     page.goto(base + "/miniapp?demo=1&demo_role=admin&view=admin", wait_until="networkidle")
+    assert page.evaluate("typeof apiContext !== 'undefined'"), errors
     page.evaluate("""() => {
       apiContext.demoMode = false; apiContext.tenantSlug = 'school'; apiContext.maxUserId = 4242;
       state.staffRoles = ['superadmin']; state.hasAccess = true; state.adminTab = 'contacts';
@@ -44,7 +45,7 @@ def test_pending_inbox_is_compact_private_and_cancel_requires_confirmation(bindi
     panel = page.locator(".pending-bindings-panel")
     assert "Фролова Екатерина" in panel.inner_text()
     assert "Имя из заявки" in panel.inner_text() and "MAX ID 7777777" in panel.inner_text()
-    assert "Ждёт подтверждения" in panel.inner_text() and "LMS ID ST-001" in panel.inner_text()
+    assert "Профиль найден" in panel.inner_text() and "LMS ID ST-001" in panel.inner_text()
     assert "13:30" in panel.inner_text()
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     Path(".deploy_tmp").mkdir(exist_ok=True)

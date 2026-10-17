@@ -1,5 +1,5 @@
 const pendingBindingsState = {tenant: "", items: [], total: 0, offset: 0, search: "", filter: "open", loading: false, loaded: false, error: "", sequence: 0};
-const PENDING_BINDING_LABELS = {pending: "Ожидает профиля", ready: "Ждёт подтверждения", review: "Нужна проверка", completed: "Подключён", expired: "Срок закончился", cancelled: "Отменён"};
+const PENDING_BINDING_LABELS = {pending: "Ожидает профиля", ready: "Профиль найден", review: "Нужна проверка", completed: "Подключён", expired: "Срок закончился", cancelled: "Отменён"};
 
 function pendingBindingsEnabled() {
   return primaryStaffRole() === "superadmin" || (apiContext.demoMode && state.role === "admin");
@@ -10,6 +10,8 @@ function pendingBindingDate(value) {
 }
 
 function pendingBindingReason(value) {
+  if (value === "auto_connected") return "Доступ открыт автоматически";
+  if (value === "auto_notification_cancelled") return "Уведомление отменено: доступ изменился";
   if (value === "account_already_connected") return "У аккаунта уже есть действующий доступ";
   return {contact_not_found: "Семья ещё не найдена", contact_id_not_found: "Семья ещё не найдена", contact_has_no_students: "У контакта пока нет учеников", student_not_found: "Ученик ещё не найден", ready: "Профиль найден", account_role_conflict: "Аккаунт уже используется с другой ролью", student_already_bound: "Аккаунт подключён к другому ученику", access_revoked: "Связь отключена школой", student_access_closed: "Доступ ученика закрыт", parent_link_inactive: "Нужна действующая связь родителя", school_inactive: "Школа отключена", pending_expired: "Нужна свежая ссылка школы", bot_stopped: "Пользователь остановил бота", cancelled: "Ожидание отменено", connected: "Подключение завершено"}[value] || "Требует проверки школы";
 }
@@ -19,7 +21,7 @@ function pendingBindingRows() {
     <div class="pending-binding-heading"><strong>${escapeHtml(item.name || (item.username ? `@${item.username}` : "Имя в MAX не указано"))}</strong><span class="pending-binding-status is-${escapeHtml(item.status)}">${escapeHtml(PENDING_BINDING_LABELS[item.status] || "Нужна проверка")}</span></div>
     <div class="pending-binding-identity"><span>${escapeHtml(auditReadable(item.role))}</span><span>MAX ID ${escapeHtml(item.max_user_id)}</span>${item.name && item.name_source === "ticket" ? "<span>Имя из заявки</span>" : ""}${item.username && item.name ? `<span>@${escapeHtml(item.username.replace(/^@/, ""))}</span>` : ""}<span>${item.target_id ? `${item.kind === "contact" ? "ID контакта" : "ID ученика"}: ${escapeHtml(item.target_id)}` : "ID из старой попытки сохранён по хешу"}</span></div>
     ${(item.students || []).length ? `<div class="pending-binding-students">${item.students.map(student => `<div><button type="button" class="audit-student-link" data-audit-student="${escapeHtml(student.id)}" data-audit-tenant="${escapeHtml(item.tenant_slug)}">${escapeHtml(student.name)}<i data-lucide="arrow-up-right"></i></button><span>${escapeHtml([student.group, student.lms_id ? `LMS ID ${student.lms_id}` : ""].filter(Boolean).join(" · "))}</span></div>`).join("")}</div>` : ""}
-    <div class="pending-binding-details"><span>${escapeHtml(pendingBindingReason(item.reason))}</span><span>Попыток: ${item.attempts}</span><span>Последняя: ${pendingBindingDate(item.last_attempt_at)}</span>${item.notified_at ? `<span>Уведомление: ${pendingBindingDate(item.notified_at)}</span>` : item.notification_error ? `<span class="pending-binding-error">${escapeHtml(item.notification_error)}</span>` : item.status === "ready" ? "<span>Уведомление в очереди</span>" : ""}<span>Ожидание до ${pendingBindingDate(item.expires_at)}</span></div>
+    <div class="pending-binding-details"><span>${escapeHtml(pendingBindingReason(item.reason))}</span><span>Попыток: ${item.attempts}</span><span>Последняя: ${pendingBindingDate(item.last_attempt_at)}</span>${item.notified_at ? `<span>Уведомление: ${pendingBindingDate(item.notified_at)}</span>` : item.notification_error ? `<span class="pending-binding-error">${escapeHtml(item.notification_error)}</span>` : item.reason === "auto_connected" ? "<span>Сообщение об открытии доступа в очереди</span>" : item.status === "ready" ? "<span>Автоматическое подключение в очереди</span>" : ""}<span>Ожидание до ${pendingBindingDate(item.expires_at)}</span></div>
     ${["pending", "ready", "review"].includes(item.status) ? `<button type="button" class="text-action pending-binding-cancel" data-pending-cancel="${escapeHtml(item.id)}">Отменить ожидание</button>` : ""}
   </article>`).join("");
 }
@@ -32,7 +34,7 @@ function pendingBindingPanel() {
   }
   return `<section class="pending-bindings-panel" aria-labelledby="pendingBindingsTitle">
     <div class="pending-bindings-title"><h3 id="pendingBindingsTitle">Ожидают подключения</h3><button type="button" class="secondary-action" data-pending-refresh><i data-lucide="refresh-cw"></i>Обновить</button></div>
-    <div class="pending-bindings-filters"><input class="support-control" type="search" data-pending-search aria-label="Поиск ожидающих подключений" placeholder="Имя, MAX ID или ID из ссылки" value="${escapeHtml(pendingBindingsState.search)}"><select class="support-control" data-pending-filter aria-label="Статус ожидающего подключения">${[["open", "Ожидающие"], ["ready", "Ждут подтверждения"], ["review", "Нужна проверка"], ["completed", "Подключённые"], ["expired", "Срок закончился"], ["cancelled", "Отменённые"]].map(([value, label]) => `<option value="${value}" ${pendingBindingsState.filter === value ? "selected" : ""}>${label}</option>`).join("")}</select></div>
+    <div class="pending-bindings-filters"><input class="support-control" type="search" data-pending-search aria-label="Поиск ожидающих подключений" placeholder="Имя, MAX ID или ID из ссылки" value="${escapeHtml(pendingBindingsState.search)}"><select class="support-control" data-pending-filter aria-label="Статус ожидающего подключения">${[["open", "Ожидающие"], ["ready", "Профиль найден"], ["review", "Нужна проверка"], ["completed", "Подключённые"], ["expired", "Срок закончился"], ["cancelled", "Отменённые"]].map(([value, label]) => `<option value="${value}" ${pendingBindingsState.filter === value ? "selected" : ""}>${label}</option>`).join("")}</select></div>
     <div class="pending-bindings-content" role="status">${pendingBindingsContent()}</div>
   </section>`;
 }

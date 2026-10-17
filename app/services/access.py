@@ -53,10 +53,10 @@ def audited_binding(function):
     """Undo incomplete family writes before persisting a rejected binding."""
 
     @wraps(function)
-    async def wrapped(db, payload):
+    async def wrapped(db, payload, *, commit=True):
         try:
             try:
-                return await function(db, payload)
+                return await function(db, payload, commit=commit)
             except IntegrityError as exc:
                 original = exc.orig
                 constraint = getattr(original, "constraint_name", None)
@@ -80,6 +80,8 @@ def audited_binding(function):
                     ) from exc
                 raise
         except AccessServiceError as exc:
+            if not commit:
+                raise
             await db.rollback()
             tenant = await get_tenant_by_slug(db, payload.tenant_slug)
             from app.services.pending_bindings import WAITING_MESSAGE, remember_missing_binding
@@ -554,6 +556,7 @@ async def revoke_access_for_stopped_bot(
 async def create_contact_access_links(
     db: AsyncSession,
     payload: AccessLinkCreate,
+    *, commit: bool = True,
 ) -> list[StudentAccessLink]:
     if payload.role != StudentAccessRole.PARENT:
         raise AccessServiceError(
@@ -656,7 +659,10 @@ async def create_contact_access_links(
     await complete_matching_pending(db, tenant_id=contact.tenant_id,
                                     max_user_id=payload.max_user_id, kind="contact",
                                     target=normalize_contact_id(payload.contact_id))
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
     logger.info(
         "binding_completed %s",
         json.dumps(
@@ -683,6 +689,7 @@ async def create_contact_access_links(
 async def create_invited_student_access_link(
     db: AsyncSession,
     payload: StudentInvitationLinkCreate,
+    *, commit: bool = True,
 ) -> tuple[Tenant, Student, StudentAccessLink]:
     try:
         invitation = verify_student_invitation_details(payload.token)
@@ -817,7 +824,10 @@ async def create_invited_student_access_link(
     await complete_matching_pending(db, tenant_id=tenant.id,
                                     max_user_id=payload.max_user_id, kind="student",
                                     target=str(student.id))
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
     await db.refresh(link)
     logger.info(
         "binding_completed %s",

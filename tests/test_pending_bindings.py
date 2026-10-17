@@ -23,6 +23,7 @@ from app.services.access import (
 )
 from app.services.crm_sync import CrmSyncDefaults, upsert_crm_student_rows
 from app.services.pending_bindings import (
+    WAITING_MESSAGE,
     cancel_pending_binding,
     confirm_pending_binding,
     pending_binding_loop,
@@ -85,7 +86,7 @@ async def import_missing_children(db):
     ], defaults=CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнёр A"))
 
 
-async def test_import_notifies_once_and_explicit_confirmation_connects_whole_family(db_session):
+async def test_import_connects_whole_family_and_notifies_once_without_confirmation(db_session):
     await seed_two_students_for_one_contact(db_session)
     item = await wait_for_contact(db_session)
     identifier, expiry = item.id, utc(item.expires_at)
@@ -98,9 +99,9 @@ async def test_import_notifies_once_and_explicit_confirmation_connects_whole_fam
     await process_pending_batch(db_session, client=client)
     assert len(client.sent_messages) == 1 and client.sent_messages[0]["user_id"] == 77
     buttons = client.sent_messages[0]["attachments"][0]["payload"]["buttons"]
-    assert buttons[0][0]["payload"] == f"pending:confirm:{identifier}"
-    assert "Александр" not in client.sent_messages[0]["text"]  # No family info before confirmation.
-    assert await db_session.scalar(select(func.count(StudentAccessLink.id))) == 0
+    assert "pending:confirm:" not in str(buttons)
+    assert "Доступ к Algo MAX открыт" in client.sent_messages[0]["text"]
+    assert await db_session.scalar(select(func.count(StudentAccessLink.id))) == 2
     await process_pending_batch(db_session, client=client,
                                 now=datetime.now(UTC) + timedelta(minutes=1))
     assert len(client.sent_messages) == 1
@@ -113,6 +114,50 @@ async def test_import_notifies_once_and_explicit_confirmation_connects_whole_fam
     assert (await db_session.get(PendingBinding, identifier)).status == "completed"
     await confirm_pending_binding(db_session, identifier, 77)
     assert await db_session.scalar(select(func.count(StudentAccessLink.id))) == 2
+
+
+async def test_attempts_keep_thirty_days_and_existing_deadline(db_session):
+    await seed_two_students_for_one_contact(db_session)
+    before = datetime.now(UTC)
+    item = await wait_for_contact(db_session)
+    assert before + timedelta(days=30) <= utc(item.expires_at) <= (
+        datetime.now(UTC) + timedelta(days=30))
+    old_expiry = datetime.now(UTC) + timedelta(days=30)
+    item.expires_at = old_expiry
+    await db_session.commit()
+    again = await wait_for_contact(db_session)
+    assert utc(again.expires_at) == old_expiry
+    item.status = "expired"
+    item.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    await db_session.commit()
+    before = datetime.now(UTC)
+    renewed = await wait_for_contact(db_session)
+    assert before + timedelta(days=30) <= utc(renewed.expires_at) <= (
+        datetime.now(UTC) + timedelta(days=30))
+
+
+async def test_waiting_expires_at_thirty_days_without_sending_a_message(db_session):
+    await seed_two_students_for_one_contact(db_session)
+    item = await wait_for_contact(db_session)
+    expiry = utc(item.expires_at)
+    client = SimulationMaxClient()
+    await process_pending_batch(db_session, client=client, now=expiry - timedelta(days=1))
+    assert item.status == "pending"
+    await process_pending_batch(db_session, client=client, now=expiry)
+    assert item.status == "expired"
+    assert not client.sent_messages
+
+
+def test_waiting_message_is_consistent_and_does_not_repeat_invitation_instructions():
+    from app.bot.backend_client import BackendApiError
+    from app.bot.error_messages import format_backend_error
+
+    rendered = format_backend_error(BackendApiError(
+        "HTTP 404", status_code=404, error_code="pending_waiting"))
+    assert rendered == WAITING_MESSAGE
+    assert "Ребёнка пока не добавили в систему" in rendered
+    assert "обратитесь к вашему куратору" in rendered
+    assert "ссылк" not in rendered.casefold()
 
 
 async def test_delivery_retries_survive_reopening_without_duplicate_notification(db_session):
@@ -128,14 +173,96 @@ async def test_delivery_retries_survive_reopening_without_duplicate_notification
     now = datetime.now(UTC)
     await process_pending_batch(db_session, client=FailedMax(), now=now)
     item = await db_session.get(PendingBinding, identifier)
-    assert item.status == "ready" and not item.notified_at and item.notification_attempts == 1
+    assert item.status == "completed" and not item.notified_at and item.notification_attempts == 1
+    assert await db_session.scalar(select(func.count(StudentAccessLink.id))) == 2
     assert "secret-token" not in item.notification_error
     client = SimulationMaxClient()
     await process_pending_batch(db_session, client=client, now=now + timedelta(seconds=40))
     assert not client.sent_messages
     await process_pending_batch(db_session, client=client, now=now + timedelta(minutes=3))
     assert len(client.sent_messages) == 1
+    assert await db_session.scalar(select(func.count(StudentAccessLink.id))) == 2
+
+
+async def test_access_is_committed_before_notification_and_retries_after_restarting(db_session):
+    await seed_two_students_for_one_contact(db_session)
+    item = await wait_for_contact(db_session)
+    identifier = item.id
+    await import_missing_children(db_session)
+    now = datetime.now(UTC)
+    await process_pending_batch(db_session, now=now)
+    assert item.status == "completed" and item.reason == "auto_connected"
+    assert not item.notified_at
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    client = SimulationMaxClient()
+    async with factory() as fresh:
+        assert await fresh.scalar(select(func.count(StudentAccessLink.id))) == 2
+        await process_pending_batch(fresh, client=client, now=now + timedelta(minutes=1))
+        assert (await fresh.get(PendingBinding, identifier)).notified_at
+        await process_pending_batch(fresh, client=client, now=now + timedelta(minutes=2))
+    assert len(client.sent_messages) == 1
+
+
+async def test_old_notified_attempt_gets_access_without_another_message(db_session):
+    await seed_two_students_for_one_contact(db_session)
+    item = await wait_for_contact(db_session)
+    item.status, item.reason = "ready", "ready"
+    item.notified_at = datetime.now(UTC) - timedelta(days=1)
+    notified_at = item.notified_at
+    item.notification_attempts = 1
+    await db_session.commit()
+    await import_missing_children(db_session)
+    client = SimulationMaxClient()
+    await process_pending_batch(db_session, client=client)
+    assert item.status == "completed" and utc(item.notified_at) == notified_at
+    assert item.notification_attempts == 1
+    assert await db_session.scalar(select(func.count(StudentAccessLink.id))) == 2
+    assert not client.sent_messages
+
+
+async def test_revoked_access_prevents_a_delayed_success_notification(db_session):
+    await seed_two_students_for_one_contact(db_session)
+    item = await wait_for_contact(db_session)
+    await import_missing_children(db_session)
+    now = datetime.now(UTC)
+    await process_pending_batch(db_session, now=now)
+    assert item.status == "completed" and not item.notified_at
+    await revoke_access_for_stopped_bot(db_session, BotStoppedAccessRevoke(
+        tenant_slug=TENANT, max_user_id=77,
+    ))
+    client = SimulationMaxClient()
+    await process_pending_batch(db_session, client=client, now=now + timedelta(minutes=1))
+    assert item.reason == "auto_notification_cancelled"
+    assert not client.sent_messages
+
+
+async def test_binding_failure_rolls_back_the_family_and_keeps_attempt_for_review(
+    db_session, monkeypatch,
+):
+    import app.services.access as access
+    from app.models.account import MaxAccount
+
+    await seed_two_students_for_one_contact(db_session)
+    item = await wait_for_contact(db_session)
+    await import_missing_children(db_session)
+    account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 77))
+    account_id, tenant_id = account.id, item.tenant_id
+
+    async def rejected(db, payload, *, commit):
+        assert not commit
+        student_id = await db.scalar(select(Student.id))
+        db.add(StudentAccessLink(tenant_id=tenant_id, student_id=student_id,
+                                 account_id=account_id, role=StudentAccessRole.PARENT))
+        await db.flush()
+        raise AccessServiceError("Связь отозвана", code="access_revoked")
+
+    monkeypatch.setattr(access, "create_contact_access_links", rejected)
+    client = SimulationMaxClient()
+    await process_pending_batch(db_session, client=client)
+    await db_session.refresh(item)
+    assert item.status == "review" and item.reason == "access_revoked"
     assert await db_session.scalar(select(func.count(StudentAccessLink.id))) == 0
+    assert not client.sent_messages
 
 
 async def test_expiry_and_bot_stop_cancel_unlinked_attempts(db_session):
@@ -192,8 +319,9 @@ async def test_registered_accounts_do_not_receive_or_confirm_stale_offers(db_ses
     identifier = item.id
     await import_missing_children(db_session)
     client = SimulationMaxClient()
-    await process_pending_batch(db_session, client=client)
-    assert len(client.sent_messages) == 1
+    item.status, item.reason = "ready", "ready"
+    item.notified_at = datetime.now(UTC)
+    await db_session.commit()
     account = await db_session.scalar(select(MaxAccount).where(MaxAccount.max_user_id == 77))
     if access_kind == "parent":
         await create_contact_access_links(db_session, AccessLinkCreate(
@@ -210,7 +338,7 @@ async def test_registered_accounts_do_not_receive_or_confirm_stale_offers(db_ses
     assert item.status == "cancelled" and item.reason == "account_already_connected"
     await process_pending_batch(db_session, client=client,
                                 now=datetime.now(UTC) + timedelta(minutes=2))
-    assert len(client.sent_messages) == 1  # A stale delivered button cannot create another link.
+    assert not client.sent_messages  # An old delivered button cannot create another link.
     with pytest.raises(AccessServiceError) as caught:
         await create_contact_access_links(db_session, AccessLinkCreate(
             tenant_slug=TENANT, contact_id="MISSING", max_user_id=77, role="parent"))
@@ -246,7 +374,7 @@ async def test_worker_discards_staff_waiting_before_import_or_notification(db_se
 
 
 async def test_valid_missing_invitation_waits_for_exact_uuid_and_keeps_parent_gate(db_session):
-    from app.services.access import get_effective_customer_access_link
+    from app.services.access import get_effective_customer_access_link, get_or_create_max_account
     await seed_two_students_for_one_contact(db_session)
     tenant = await db_session.scalar(select(Tenant))
     tenant_id, student_id = tenant.id, uuid4()
@@ -264,16 +392,27 @@ async def test_valid_missing_invitation_waits_for_exact_uuid_and_keeps_parent_ga
     await db_session.commit()
     client = SimulationMaxClient()
     await process_pending_batch(db_session, client=client)
-    assert len(client.sent_messages) == 1
+    assert item.status == "review" and item.reason == "parent_link_inactive"
+    assert not client.sent_messages
+    assert await db_session.scalar(select(func.count(StudentAccessLink.id))) == 0
+    parent = await get_or_create_max_account(db_session, AccessLinkCreate(
+        tenant_slug=TENANT, contact_id="new-parent", max_user_id=88, role="parent"))
+    db_session.add(StudentAccessLink(tenant_id=tenant_id, student_id=student_id,
+                                     account_id=parent.id, role=StudentAccessRole.PARENT))
+    await db_session.commit()
+    await process_pending_batch(db_session, client=client,
+                                now=datetime.now(UTC) + timedelta(minutes=1))
+    assert len(client.sent_messages) == 1 and item.status == "completed"
     result = await confirm_pending_binding(db_session, identifier, 99)
     assert result["role"] == "student"
     link = await db_session.scalar(select(StudentAccessLink).where(
         StudentAccessLink.student_id == student_id,
+        StudentAccessLink.role == StudentAccessRole.STUDENT,
     ))
     assert link.status == StudentAccessStatus.ACTIVE
     assert await get_effective_customer_access_link(db_session, tenant_id=tenant_id,
                                                    student_id=student_id,
-                                                   account_id=link.account_id) is None
+                                                   account_id=link.account_id) is not None
 
 
 async def test_cancel_cannot_be_used_to_modify_another_user_or_existing_links(db_session):
@@ -311,7 +450,7 @@ async def test_historical_hash_matches_only_school_contact_and_merges_new_attemp
     await import_missing_children(db_session)
     await process_pending_batch(db_session, client=client)
     assert len(client.sent_messages) == 1
-    assert await db_session.scalar(select(func.count(StudentAccessLink.id))) == 0
+    assert await db_session.scalar(select(func.count(StudentAccessLink.id))) == 2
 
 
 async def test_historical_hash_can_resolve_after_import_without_another_click(db_session):
@@ -337,7 +476,7 @@ async def test_historical_hash_can_resolve_after_import_without_another_click(db
     await process_pending_batch(db_session, client=client)
     assert client.sent_messages[0]["user_id"] == 77
     item = await db_session.scalar(select(PendingBinding))
-    assert item.target_id == "999" and item.status == "ready"
+    assert item.target_id == "999" and item.status == "completed"
     await confirm_pending_binding(db_session, item.id, 77)
     assert await db_session.scalar(select(func.count(StudentAccessLink.id))) == 2
 

@@ -21,6 +21,10 @@ EXTRA_COPY = {
     "pending_binding.waiting": ("Подключение снова ожидает появления профиля", "Привязки"),
     "pending_binding.notified": ("Отправлено предложение завершить подключение", "Привязки"),
     "pending_binding.confirmed": ("Ожидающее подключение подтверждено", "Привязки"),
+    "pending_binding.auto_connected": ("Доступ открыт автоматически", "Привязки"),
+    "pending_binding.access_notified": ("Отправлено сообщение об открытии доступа", "Привязки"),
+    "pending_binding.notification_cancelled": (
+        "Сообщение об открытии доступа отменено", "Привязки"),
     "pending_binding.cancelled": ("Ожидающее подключение отменено", "Привязки"),
     "pending_binding.expired": ("Срок ожидания подключения закончился", "Привязки"),
     "contact_access.resolve_success": ("Ссылка родителя проверена", "Привязки"),
