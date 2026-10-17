@@ -202,8 +202,7 @@
 .feedback-group-toolbar svg { width:16px; height:16px; }
 .feedback-lesson-picker { display:none; }
 .feedback-assign-course { display:grid; grid-template-columns:2fr 1fr auto; align-items:end; gap:14px; margin:20px 0; padding:18px; border:1px solid var(--line); border-radius:12px; background:#fff; }
-.feedback-imported-coins { display:flex; align-items:center; gap:8px; font-size:13px; color:#775c13; align-self:center; }
-.feedback-imported-coins svg { width:18px; height:18px; }
+.feedback-schedule-course { margin-top:16px; }
 .feedback-group-members { margin-top:16px; }
 #feedbackWorkspace .feedback-group-members textarea, #feedbackWorkspace .feedback-group-dialog textarea { width:100%; min-width:0; box-sizing:border-box; padding:10px 12px; border:1px solid #dfd8e8; border-radius:9px; background:#fff; font:inherit; font-weight:400; resize:vertical; }
 .feedback-group-dialog { width:min(560px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); overflow:auto; }
@@ -222,7 +221,6 @@
   .feedback-assign-course { grid-template-columns:minmax(0,1fr); padding:14px; }
   .feedback-group-toolbar { gap:8px; }
   .feedback-group-toolbar button { min-height:44px; }
-  .feedback-imported-coins { min-height:44px; }
   .feedback-group-dialog { padding:16px; }
   .feedback-compose-card { scroll-margin-top:76px; }
 }
