@@ -147,14 +147,15 @@ function feedbackRestoreWorkspace(saved, groups) {
       date: saved.date, customTopic: custom ? feedbackSchedule(saved.group).rows.find((row) => row.id === saved.rowId).topic : "",
       coins: saved.tab === "groups" ? !feedbackCustomGroup(saved.group) : saved.coins !== false,
       mode: saved.tab === "groups" ? (feedbackCustomGroup(saved.group) ? feedbackSchedule(saved.group).mode : "group") : saved.mode,
-      repeat: Boolean(saved.repeat), absent: Array.isArray(saved.absent) ? saved.absent.filter((name) => typeof name === "string").slice(0, 100) : [],
+      repeat: saved.tab === "groups" && Boolean(feedbackState.repeat), absent: Array.isArray(saved.absent) ? saved.absent.filter((name) => typeof name === "string").slice(0, 100) : [],
       extraAbsent: typeof saved.extraAbsent === "string" ? saved.extraAbsent.slice(0, 2000) : "",
       text: typeof saved.text === "string" ? saved.text.slice(0, 20000) : "",
       edited: Boolean(saved.edited), stale: Boolean(saved.stale) });
     if (saved.generated) {
       feedbackValidateMessage(saved.generated, feedbackState.catalog);
       feedbackState.generated = structuredClone(saved.generated);
-      if (saved.generated.mode !== feedbackState.mode || saved.generated.coins !== feedbackState.coins) {
+      if (saved.generated.mode !== feedbackState.mode || saved.generated.coins !== feedbackState.coins
+        || saved.generated.repeat !== feedbackState.repeat) {
         if (feedbackState.edited) feedbackState.stale = true;
         else feedbackGenerate();
       }
@@ -563,7 +564,7 @@ function feedbackReadForm(validate = false) {
   const values = new FormData(form);
   if (!feedbackState.course) return false;
   const lesson = values.get("lesson") === "" ? null : Number(values.get("lesson"));
-  const row = feedbackState.group && feedbackSchedule(feedbackState.group).rows.find((item) => item.id === feedbackState.rowId);
+  const row = feedbackState.group ? feedbackSchedule(feedbackState.group).rows.find((item) => item.id === feedbackState.rowId) : null;
   const number = row ? row.number : Number(feedbackState.lesson) + feedbackState.offset;
   const offset = row || lesson === null || feedbackState.lesson === null ? number - Number(lesson) : feedbackState.offset;
   Object.assign(feedbackState, { course: values.get("course"), lesson, date: values.get("date"),
@@ -677,7 +678,7 @@ document.addEventListener("submit", async (event) => {
       showNotice(creating ? "Группа добавлена" : "Курс назначен");
     } else if (event.target.id === "feedbackComposeForm") {
       if (!feedbackReadForm(true)) return;
-      const row = feedbackState.group && feedbackSchedule(feedbackState.group).rows.find((item) => item.id === feedbackState.rowId);
+      const row = feedbackState.group ? feedbackSchedule(feedbackState.group).rows.find((item) => item.id === feedbackState.rowId) : null;
       if (row?.skipped) throw new Error("Занятие отмечено отменённым. Сначала измените отметку в расписании.");
       if (feedbackState.edited && !await requestConfirmation({ title: "Подготовить текст заново?", message: "Ручные правки в текущем сообщении будут заменены текстом по материалам урока.", confirmLabel: "Подготовить заново", cancelLabel: "Оставить правки" })) return;
       feedbackGenerate();
@@ -816,6 +817,7 @@ document.addEventListener("click", async (event) => {
       if (data.feedbackTab) {
         feedbackState.tab = data.feedbackTab;
         if (data.feedbackTab === "manual") {
+          feedbackState.repeat = false;
           feedbackState.group = ""; feedbackState.rowId = ""; feedbackState.customTopic = ""; feedbackState.lesson ||= 1; feedbackState.offset = 0; feedbackState.editorDirty = false;
           feedbackState.course ||= Object.keys(feedbackState.catalog)[0];
           if (feedbackState.generated?.group) { feedbackState.text = ""; feedbackState.generated = null; feedbackState.edited = false; }
