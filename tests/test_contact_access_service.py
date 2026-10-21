@@ -164,7 +164,7 @@ async def test_binding_limits_apply_across_schools(db_session):
             ),
         )
     await db_session.rollback()
-    with pytest.raises(AccessServiceError, match="уже используется учеником"):
+    with pytest.raises(AccessServiceError, match="уже используется учеником") as conflict:
         await create_contact_access_links(
             db_session,
             AccessLinkCreate(
@@ -174,6 +174,8 @@ async def test_binding_limits_apply_across_schools(db_session):
                 role=StudentAccessRole.PARENT,
             ),
         )
+    assert conflict.value.existing_role == "student"
+    assert conflict.value.response_headers["X-Access-Existing-Role"] == "student"
     await db_session.rollback()
     await create_contact_access_links(
         db_session,
@@ -184,7 +186,7 @@ async def test_binding_limits_apply_across_schools(db_session):
             role=StudentAccessRole.PARENT,
         ),
     )
-    with pytest.raises(AccessServiceError, match="уже используется родителем"):
+    with pytest.raises(AccessServiceError, match="уже используется родителем") as conflict:
         await db_session.refresh(other)
         await create_invited_student_access_link(
             db_session,
@@ -194,6 +196,8 @@ async def test_binding_limits_apply_across_schools(db_session):
                 token=issue_teacher_student_invitation_token(other.tenant_id, other.id),
             ),
         )
+    assert conflict.value.existing_role == "parent"
+    assert conflict.value.response_headers["X-Access-Existing-Role"] == "parent"
 
 
 async def test_registration_reset_allows_parent_to_register_again(db_session):

@@ -25,6 +25,7 @@ from app.bot.keyboards import (
     CALLBACK_ONBOARDING_RESTART,
     CALLBACK_ROLE_PARENT,
     CALLBACK_ROLE_STUDENT,
+    account_role_conflict_keyboard,
     build_miniapp_url,
     cabinet_keyboard,
     inline_keyboard_with_main_menu,
@@ -1378,6 +1379,10 @@ class LongPollingBot:
                     return BotResponse(
                         format_backend_error(exc), self.main_menu_attachments(user_id),
                     )
+                if exc.error_code == "account_role_conflict":
+                    return BotResponse(
+                        format_backend_error(exc), account_role_conflict_keyboard(),
+                    )
                 fallback = self.catalog_search_fallback_response(
                     payload=payload,
                     user_id=user_id,
@@ -1506,7 +1511,9 @@ class LongPollingBot:
             return BotResponse(
                 format_backend_error(exc) if exc.error_code == "pending_waiting" else
                 (f"Не получилось привязать профиль ученика.\n\n{format_backend_error(exc)}"),
-                self.main_menu_attachments(user_id),
+                account_role_conflict_keyboard()
+                if exc.error_code == "account_role_conflict"
+                else self.main_menu_attachments(user_id),
             )
 
         tenant_slug = str(result.get("tenant_slug") or self.default_tenant_slug)
@@ -1673,7 +1680,9 @@ class LongPollingBot:
                 return BotResponse(
                     format_backend_error(exc) if exc.error_code == "pending_waiting" else
                     (f"Не получилось привязать профиль.\n\n{format_backend_error(exc)}"),
-                    role_selection_keyboard(),
+                    account_role_conflict_keyboard()
+                    if exc.error_code == "account_role_conflict"
+                    else role_selection_keyboard(),
                 )
 
             links = result.get("links") or []

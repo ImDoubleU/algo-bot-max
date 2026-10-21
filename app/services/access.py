@@ -44,9 +44,19 @@ STUDENT_PROFILE_ALREADY_BOUND_MESSAGE = (
 
 
 class AccessServiceError(RuntimeError):
-    def __init__(self, message: str, *, code: str = "binding_failed"):
+    def __init__(
+        self, message: str, *, code: str = "binding_failed", existing_role: str | None = None,
+    ):
         super().__init__(message)
         self.code = code
+        self.existing_role = existing_role
+
+    @property
+    def response_headers(self) -> dict[str, str]:
+        headers = {"X-Access-Error-Code": self.code}
+        if self.existing_role in {"parent", "student"}:
+            headers["X-Access-Existing-Role"] = self.existing_role
+        return headers
 
 
 def audited_binding(function):
@@ -338,10 +348,12 @@ async def ensure_single_account_binding(
                     "Этот MAX-профиль уже используется учеником. "
                     "Для родительского кабинета откройте ссылку с профиля родителя",
                     code="account_role_conflict",
+                    existing_role=link.role.value,
                 )
             raise AccessServiceError(
                 "Этот MAX-профиль уже используется родителем. Откройте QR-код с профиля ребенка",
                 code="account_role_conflict",
+                existing_role=link.role.value,
             )
         if role == StudentAccessRole.STUDENT and (
             link.tenant_id != tenant_id or link.student_id != student_id

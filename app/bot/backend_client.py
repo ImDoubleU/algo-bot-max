@@ -17,12 +17,14 @@ class BackendApiError(RuntimeError):
         detail: str | None = None,
         error_code: str | None = None,
         request_id: str | None = None,
+        existing_role: str | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.detail = detail
         self.error_code = error_code
         self.request_id = request_id
+        self.existing_role = existing_role
 
 
 class AccessBackendClient:
@@ -96,6 +98,7 @@ class AccessBackendClient:
                 status_code=exc.code,
                 detail=detail,
                 error_code=exc.headers.get("X-Access-Error-Code"),
+                existing_role=exc.headers.get("X-Access-Existing-Role"),
                 request_id=exc.headers.get("X-Request-ID") or request_id,
             ) from exc
         except error.URLError as exc:

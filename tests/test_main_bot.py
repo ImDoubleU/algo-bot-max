@@ -639,6 +639,58 @@ def test_binding_errors_never_expose_server_text(status):
     assert "500" not in text
 
 
+@pytest.mark.parametrize("entry", ["parent", "student", "resolve"])
+@pytest.mark.parametrize("existing_role, label", [("parent", "родитель"), ("student", "ученик")])
+def test_role_conflict_explains_separate_accounts_without_role_or_help_buttons(
+    monkeypatch, entry, existing_role, label,
+):
+    from app.bot.backend_client import BackendApiError
+
+    backend = FakeBackendClient(linked=False)
+    bot = LongPollingBot(FakeMaxClient(), backend_client=backend)
+
+    def fail(**kwargs):
+        raise BackendApiError(
+            "private backend details", status_code=409, error_code="account_role_conflict",
+            existing_role=existing_role,
+        )
+
+    if entry == "parent":
+        bot.handle_contact_payload_response(payload="cid_30420713", user_id=77)
+        monkeypatch.setattr(backend, "create_links", fail)
+        response = bot.handle_role_selection_response(user_id=77, role="parent")
+    elif entry == "student":
+        monkeypatch.setattr(backend, "create_student_invite_link", fail, raising=False)
+        response = bot.handle_student_invitation_response(token="teacher-token", user_id=77)
+    else:
+        monkeypatch.setattr(backend, "resolve_contact", fail)
+        response = bot.handle_contact_payload_response(
+            payload="shop_n-novgorod~30420713", user_id=77,
+        )
+
+    assert "Родителю и ребёнку нужны отдельные аккаунты MAX" in response.text
+    assert f"Этот аккаунт MAX уже подключён как {label}." in response.text
+    assert "с одной из этих ролей" not in response.text
+    assert "Нельзя подключить один аккаунт одновременно как родителя и как ученика" in response.text
+    assert "ссылку из письма школы" in response.text
+    assert "QR-код в отдельном аккаунте MAX ребёнка" in response.text
+    assert "private backend details" not in response.text
+    buttons = [
+        button
+        for attachment in response.attachments
+        for row in attachment["payload"]["buttons"]
+        for button in row
+    ]
+    assert [button["text"] for button in buttons] == [
+        "Сообщить о проблеме",
+    ]
+    assert {button["payload"] for button in buttons} == {
+        "support:start",
+    }
+    assert backend.link_calls == []
+    assert bot.user_menu_roles == {}
+
+
 def test_restarted_parent_role_can_finish_with_contact_message():
     backend = FakeBackendClient(linked=False)
     first = LongPollingBot(FakeMaxClient(), backend_client=backend)

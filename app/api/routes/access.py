@@ -188,7 +188,7 @@ async def create_link(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
-            headers={"X-Access-Error-Code": exc.code},
+            headers=exc.response_headers,
         ) from exc
 
     tenant_id = UUID(str(links[0].tenant_id))
@@ -234,7 +234,7 @@ async def create_student_invite_link(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
-            headers={"X-Access-Error-Code": exc.code},
+            headers=exc.response_headers,
         ) from exc
     return StudentInvitationLinkRead(
         tenant_slug=tenant.slug,
@@ -349,7 +349,7 @@ async def confirm_waiting_binding(
     try:
         return await confirm_pending_binding(db, pending_id, identity.max_user_id)
     except AccessServiceError as exc:
-        raise HTTPException(400, str(exc), headers={"X-Access-Error-Code": exc.code}) from exc
+        raise HTTPException(400, str(exc), headers=exc.response_headers) from exc
 
 
 @router.post("/pending/{pending_id}/cancel", status_code=204)

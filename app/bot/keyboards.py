@@ -200,6 +200,14 @@ def role_selection_keyboard() -> list[dict[str, Any]]:
     )
 
 
+def account_role_conflict_keyboard() -> list[dict[str, Any]]:
+    return inline_keyboard(
+        [
+            [callback_button("Сообщить о проблеме", CALLBACK_SUPPORT)],
+        ]
+    )
+
+
 def onboarding_contact_keyboard() -> list[dict[str, Any]]:
     return inline_keyboard_with_main_menu(
         [
