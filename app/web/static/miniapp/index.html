@@ -7,10 +7,10 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.91.50" />
-    <link rel="stylesheet" href="/miniapp/static/feedback-preview.css?v=0.91.50" />
-    <link rel="stylesheet" href="/miniapp/static/support.css?v=0.91.50" />
-  <link rel="stylesheet" href="/miniapp/static/audit.css?v=0.91.50" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.91.57" />
+    <link rel="stylesheet" href="/miniapp/static/feedback-preview.css?v=0.91.57" />
+    <link rel="stylesheet" href="/miniapp/static/support.css?v=0.91.57" />
+  <link rel="stylesheet" href="/miniapp/static/audit.css?v=0.91.57" />
   </head>
   <body class="is-booting">
     <main id="accessGate" class="access-gate" hidden>
@@ -360,16 +360,17 @@
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Заказы</p>
-                <h2>Статусы и выдача</h2>
+                <h2>Заказы</h2>
               </div>
               <div class="toolbar orders-search-toolbar">
                 <label class="search-field">
                   <i data-lucide="search"></i>
-                  <input id="orderSearch" type="search" placeholder="Номер, ученик или товар" />
+                  <input id="orderSearch" type="search" placeholder="Ученик, заказ, товар" />
                   <button id="clearOrderSearch" class="search-clear" type="button" title="Очистить поиск" aria-label="Очистить поиск" hidden><i data-lucide="x"></i></button>
                 </label>
               </div>
             </div>
+            <div id="orderViewSwitcher" class="order-view-switcher" role="group" aria-label="Вид заказов" hidden></div>
             <div id="orderStatusTabs" class="order-status-tabs" role="tablist" aria-label="Статусы заказов"></div>
             <section id="orderFulfillmentSummary" class="order-fulfillment-summary" hidden></section>
             <div id="ordersTable" class="orders-list">
@@ -1273,18 +1274,17 @@
     </div>
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app-core.js?v=0.91.50"></script>
-    <script src="/miniapp/static/app-shell.js?v=0.91.50"></script>
-    <script src="/miniapp/static/app-store.js?v=0.91.50"></script>
-    <script src="/miniapp/static/app-admin.js?v=0.91.50"></script>
-    <script src="/miniapp/static/app-audit.js?v=0.91.50"></script>
-    <script src="/miniapp/static/app-communications.js?v=0.91.50"></script>
-    <script src="/miniapp/static/app-bank.js?v=0.91.50"></script>
-    <script src="/miniapp/static/app-help.js?v=0.91.50"></script>
-    <script src="/miniapp/static/app-feedback-model.js?v=0.91.50"></script>
-    <script src="/miniapp/static/app-feedback.js?v=0.91.50"></script>
-    <script src="/miniapp/static/app-support.js?v=0.91.50"></script>
-    <script src="/miniapp/static/app-pending-bindings.js?v=0.91.50"></script>
-    <script src="/miniapp/static/app.js?v=0.91.50"></script>
+    <script src="/miniapp/static/app-core.js?v=0.91.57"></script>
+    <script src="/miniapp/static/app-shell.js?v=0.91.57"></script>
+    <script src="/miniapp/static/app-store.js?v=0.91.57"></script>
+    <script src="/miniapp/static/app-admin.js?v=0.91.57"></script>
+    <script src="/miniapp/static/app-audit.js?v=0.91.57"></script>
+    <script src="/miniapp/static/app-communications.js?v=0.91.57"></script>
+    <script src="/miniapp/static/app-bank.js?v=0.91.57"></script>
+    <script src="/miniapp/static/app-help.js?v=0.91.57"></script>
+    <script src="/miniapp/static/app-feedback-model.js?v=0.91.57"></script>
+    <script src="/miniapp/static/app-feedback.js?v=0.91.57"></script>
+    <script src="/miniapp/static/app-support.js?v=0.91.57"></script>
+    <script src="/miniapp/static/app.js?v=0.91.57"></script>
   </body>
 </html>

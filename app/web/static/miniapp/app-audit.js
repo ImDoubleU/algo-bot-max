@@ -356,9 +356,7 @@ function renderAuditCurrent(kind) {
   const field = active?.dataset?.auditField;
   const start = typeof active?.selectionStart === "number" ? active.selectionStart : null;
   if (["history", "audit"].includes(state.adminTab) && kind === (state.adminTab === "audit" ? "audit" : "actions")) renderAdminHistory();
-  else if (kind === "bindings" && state.adminTab === "contacts") {
-    const panel = qs("#bindingHistoryPanel"); if (panel) panel.innerHTML = auditPanel(kind);
-  } else if (kind === `student:${state.studentProfileId}`) {
+  else if (kind === `student:${state.studentProfileId}`) {
     const panel = qs("#studentActionTimeline"); if (panel) panel.innerHTML = auditPanel(kind, true);
   }
   if (field) {

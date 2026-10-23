@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from datetime import UTC, date, datetime, time, timedelta
@@ -5,6 +6,7 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -80,6 +82,7 @@ from app.schemas.miniapp import (
     MiniAppCatalogRead,
     MiniAppCrmCityDistributionRead,
     MiniAppCrmImportRead,
+    MiniAppDigitalOrderIssue,
     MiniAppInventoryAdjustmentCreate,
     MiniAppInventoryAdjustmentRead,
     MiniAppInventoryTransferCreate,
@@ -900,6 +903,8 @@ def _product_to_read(
 
     if product.fulfillment_type == ProductFulfillmentType.DIGITAL_CODE:
         available_total = sum(code.status == ProductCodeStatus.AVAILABLE for code in product_codes)
+    elif product.fulfillment_type == ProductFulfillmentType.DIGITAL_MANUAL:
+        available_total = 20  # Per-order quantity limit; codes are procured after purchase.
     else:
         for inventory in product.inventory_items:
             if not getattr(inventory, "is_active", True):
@@ -2786,9 +2791,12 @@ async def upsert_miniapp_product(
                     select(ProductCode.id).where(ProductCode.product_id == product.id).limit(1)
                 )
             )
-            if has_inventory or has_codes:
+            has_orders = bool(await db.scalar(
+                select(OrderItem.id).where(OrderItem.product_id == product.id).limit(1)
+            ))
+            if has_inventory or has_codes or has_orders:
                 raise MiniAppStoreError(
-                    "Нельзя менять способ выдачи у товара с остатками или кодами",
+                    "Нельзя менять способ выдачи у товара с остатками, кодами или заказами",
                     status_code=409,
                 )
         product.category_id = category.id
@@ -3495,6 +3503,8 @@ async def get_miniapp_session(
         unrestricted_student_ids=unrestricted_order_student_ids,
         issued_code_student_ids=(set(linked_students_by_id) if staff_roles else None),
     )
+    for order in orders:
+        order.teacher_visible = order.id in (visible_order_ids or set())
     ledger = await _ledger_for_students(
         db,
         tenant_id=tenant.id,
@@ -4473,10 +4483,12 @@ async def create_miniapp_order(
     fulfillment_types = {product.fulfillment_type for product in products}
     if len(fulfillment_types) != 1:
         raise MiniAppStoreError(
-            "Товары с кодами и товары со склада нужно оформить отдельными заказами",
+            "Товары со склада, электронные под заказ и с автовыдачей "
+            "оформляются отдельными заказами",
             status_code=409,
         )
     is_digital_order = fulfillment_types == {ProductFulfillmentType.DIGITAL_CODE}
+    is_manual_digital = fulfillment_types == {ProductFulfillmentType.DIGITAL_MANUAL}
 
     total_astrocoins = sum(
         products_by_id[product_id].price_astrocoins * quantity
@@ -4489,7 +4501,7 @@ async def create_miniapp_order(
         )
 
     locked_inventories: list[WarehouseInventory] = []
-    if not is_digital_order:
+    if not is_digital_order and not is_manual_digital:
         locked_inventories = list(
             (
                 await db.scalars(
@@ -4534,6 +4546,9 @@ async def create_miniapp_order(
     order_plan: list[tuple[Product, int, WarehouseInventory | None, list[ProductCode]]] = []
     for product_id, quantity in quantities.items():
         product = products_by_id[product_id]
+        if is_manual_digital:
+            order_plan.append((product, quantity, None, []))
+            continue
         if is_digital_order:
             codes = available_codes_by_product.get(product_id, [])[:quantity]
             if len(codes) < quantity:
@@ -4577,7 +4592,8 @@ async def create_miniapp_order(
         student_id=student.id,
         created_by_account_id=account.id,
         order_number=order_number,
-        status=(OrderStatus.ISSUED_TO_STUDENT if is_digital_order else OrderStatus.RESERVED),
+        status=(OrderStatus.ISSUED_TO_STUDENT if is_digital_order else
+                OrderStatus.CREATED if is_manual_digital else OrderStatus.RESERVED),
         total_astrocoins=total_astrocoins,
         teacher_name=student.teacher_name,
         venue_name=student.venue_name,
@@ -4720,6 +4736,8 @@ async def create_miniapp_order(
             comment=(
                 "Цифровой товар оплачен и готов к использованию"
                 if is_digital_order
+                else "Электронный товар оплачен. Ожидается покупка и отправка кода сотрудником"
+                if is_manual_digital
                 else "Заказ создан в приложении Algo MAX"
             ),
         )
@@ -4808,6 +4826,8 @@ async def create_miniapp_order(
         message=(
             "Цифровой товар оплачен и выдан ученику."
             if is_digital_order
+            else "Электронный товар оплачен. Купите код и отправьте его в карточке заказа."
+            if is_manual_digital
             else "Заказ зарезервирован и ожидает подтверждения склада."
         ),
     )
@@ -5540,6 +5560,91 @@ async def cancel_miniapp_order(
     )
 
 
+async def issue_miniapp_digital_order(
+    db: AsyncSession,
+    *,
+    order_id: UUID,
+    payload: MiniAppDigitalOrderIssue,
+    default_tenant_slug: str,
+) -> MiniAppOrderActionRead:
+    tenant, account, order, student, staff_role = await _load_order_action_context(
+        db, order_id=order_id, payload=payload,
+        default_tenant_slug=default_tenant_slug, require_manager=True,
+    )
+    if staff_role not in STORE_ADMIN_ROLES:
+        raise MiniAppStoreError(
+            "Отправить код может только администратор или директор", status_code=403,
+        )
+    if not order.items or any(
+        item.product.fulfillment_type != ProductFulfillmentType.DIGITAL_MANUAL
+        for item in order.items
+    ):
+        raise MiniAppStoreError("Это не электронный заказ с ручной выдачей", status_code=409)
+    requested = {item.order_item_id: [code.strip() for code in item.codes]
+                 for item in payload.items}
+    if len(requested) != len(payload.items) or set(requested) != {item.id for item in order.items}:
+        raise MiniAppStoreError("Укажите коды для всех позиций заказа без повторов")
+    all_codes = [code for codes in requested.values() for code in codes]
+    if any(not code or len(code) > 500 for code in all_codes):
+        raise MiniAppStoreError("Каждый код должен содержать от 1 до 500 символов")
+    if len(set(all_codes)) != len(all_codes):
+        raise MiniAppStoreError("Один код указан несколько раз")
+    if any(len(requested[item.id]) != item.quantity for item in order.items):
+        raise MiniAppStoreError("Количество кодов должно совпадать с количеством товаров")
+    if order.status == OrderStatus.ISSUED_TO_STUDENT:
+        if all(set(requested[item.id]) == {code.code for code in item.digital_codes}
+               for item in order.items):
+            return MiniAppOrderActionRead(order=_order_to_read(order, student))
+        raise MiniAppStoreError("Коды по этому заказу уже выданы", status_code=409)
+    if order.status not in {OrderStatus.CREATED, OrderStatus.PROBLEM}:
+        raise MiniAppStoreError("Нельзя отправить код по закрытому заказу", status_code=409)
+    if await db.scalar(select(ProductCode.id).where(
+        ProductCode.tenant_id == tenant.id, ProductCode.code.in_(all_codes),
+    ).limit(1)):
+        raise MiniAppStoreError(
+            "Один из кодов уже сохранён или выдан. Проверьте коды", status_code=409,
+        )
+
+    issued_at = datetime.now(UTC)
+    for item in order.items:
+        for value in requested[item.id]:
+            item.digital_codes.append(ProductCode(
+                tenant_id=tenant.id, product_id=item.product_id, code=value,
+                status=ProductCodeStatus.ISSUED, issued_to_student_id=student.id,
+                issued_at=issued_at,
+            ))
+    previous_status = order.status
+    order.status = OrderStatus.ISSUED_TO_STUDENT
+    db.add(OrderStatusHistory(
+        tenant_id=tenant.id, order_id=order.id, actor_account_id=account.id,
+        from_status=previous_status, to_status=order.status,
+        comment=payload.comment or "Электронный товар: код отправлен ученику",
+    ))
+    db.add(AuditLog(
+        tenant_id=tenant.id, actor_account_id=account.id,
+        action="miniapp_order.digital_issued", entity_type="order", entity_id=str(order.id),
+        payload={"order_number": order.order_number, "student_id": str(student.id),
+                 "code_count": len(all_codes), "actor_role": staff_role.value},
+    ))
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise MiniAppStoreError("Один из кодов уже сохранён или выдан", status_code=409) from exc
+    history = await _order_status_history_for_order(db, tenant_id=tenant.id, order_id=order.id)
+    await schedule_order_notification(
+        db, tenant=tenant, order=order, student=student, issued_codes=all_codes,
+    )
+    await schedule_staff_order_notification(
+        db, tenant=tenant, order=order, student=student, event_key="orders.issued",
+        title="Электронный товар выдан", actor_name=account.display_name,
+        message="Код отправлен ученику и доступен в карточке заказа.",
+    )
+    _sync_order_to_sheets(tenant_slug=tenant.slug, order=order, student=student,
+                         account=account, comment=payload.comment)
+    return MiniAppOrderActionRead(order=_order_to_read(order, student, status_history=history))
+
+
 async def issue_miniapp_order(
     db: AsyncSession,
     *,
@@ -6205,6 +6310,98 @@ async def set_miniapp_warehouse_preference(
     )
 
 
+def _clear_customer_onboarding(max_user_id: int) -> None:
+    import os
+    from pathlib import Path
+
+    from app.bot.onboarding_state import OnboardingState
+    from app.bot.runtime import MARKER_FILE
+
+    state_path = Path(os.getenv(
+        "MAX_ONBOARDING_STATE_PATH", str(MARKER_FILE.parent / "storage/bot/onboarding.sqlite3"),
+    ))
+    if state_path.exists():
+        OnboardingState(state_path).delete(max_user_id)
+
+
+async def _detach_customer_account(
+    db: AsyncSession, *, actor: MaxAccount, target_link: StudentAccessLink, staff_role: StaffRole,
+) -> MiniAppAccessStatusRead:
+    from app.models.pending_binding import PendingBinding
+    from app.services.pending_bindings import OPEN_STATUSES
+
+    target = await db.scalar(
+        select(MaxAccount).where(MaxAccount.id == target_link.account_id).with_for_update()
+    )
+    if target is None:
+        raise MiniAppStoreError("Аккаунт привязанной связи не найден", status_code=404)
+    links = list(await db.scalars(
+        select(StudentAccessLink)
+        .where(StudentAccessLink.account_id == target.id)
+        .with_for_update()
+    ))
+    # Validate every affected child before changing any of the account's links.
+    for item in links:
+        roles = await active_staff_roles_for_tenant(
+            db, tenant_id=item.tenant_id, account_id=actor.id, allowed_roles=STORE_ADMIN_ROLES,
+        )
+        role = next((value for value in STAFF_ROLE_PRIORITY if value in roles), None)
+        if role is None:
+            raise MiniAppStoreError(
+                "Нет прав на полную отвязку аккаунта в другом городе", status_code=403,
+            )
+        scope = await staff_venue_scope_ids(
+            db, tenant_id=item.tenant_id, account_id=actor.id, role=role,
+        )
+        if scope is not None:
+            venue = await db.scalar(select(Student.venue_id).where(Student.id == item.student_id))
+            if venue not in scope:
+                raise MiniAppStoreError(
+                    "Нет прав на отвязку аккаунта у другой площадки", status_code=403,
+                )
+    now = datetime.now(UTC)
+    parents = []
+    for item in links:
+        if item.role == StudentAccessRole.PARENT:
+            parents.append(item)
+        item.status = StudentAccessStatus.REVOKED
+        item.revoked_at = now
+        item.revoked_reason = "registration_reset"
+        db.add(AuditLog(
+            tenant_id=item.tenant_id, actor_account_id=actor.id,
+            action="student_access_link.registration_reset", entity_type="student_access_link",
+            entity_id=str(item.id), payload={
+                "student_id": str(item.student_id),
+                "target_account_id": str(target.id), "role": item.role.value,
+                "reason": "account_detached", "actor_role": staff_role.value,
+            },
+        ))
+    if parents:
+        await revoke_dependent_student_links(
+            db, parent_links=parents, revoked_at=now, reason="sponsor_revoked",
+        )
+    pending = list(await db.scalars(
+        select(PendingBinding).where(
+            PendingBinding.max_user_id == target.max_user_id,
+            (PendingBinding.status.in_(OPEN_STATUSES)) | (
+                (PendingBinding.status == "completed")
+                & (PendingBinding.reason == "auto_connected")
+                & PendingBinding.notified_at.is_(None)
+            ),
+        ).with_for_update()
+    ))
+    for attempt in pending:
+        attempt.status = "cancelled"
+        attempt.reason = "registration_reset"
+        attempt.last_checked_at = now
+    await asyncio.to_thread(_clear_customer_onboarding, target.max_user_id)
+    await db.commit()
+    return MiniAppAccessStatusRead(
+        student_id=target_link.student_id,
+        role=target_link.role, status=StudentAccessStatus.REVOKED,
+    )
+
+
 async def update_miniapp_access_link_status(
     db: AsyncSession,
     *,
@@ -6268,6 +6465,12 @@ async def update_miniapp_access_link_status(
                 "Нет доступа к связи ученика другой площадки",
                 status_code=403,
             )
+
+    if payload.detach_account:
+        if payload.status != StudentAccessStatus.REVOKED:
+            raise MiniAppStoreError("Для отвязки аккаунта выберите отключение связи")
+        return await _detach_customer_account(
+            db, actor=account, target_link=link, staff_role=staff_role)
 
     if payload.status == StudentAccessStatus.ACTIVE:
         try:

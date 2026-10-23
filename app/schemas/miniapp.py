@@ -591,6 +591,7 @@ class MiniAppOrderRead(BaseModel):
     order_number: int
     student_id: UUID
     student_name: str
+    teacher_visible: bool = False
     status: OrderStatus
     total_astrocoins: int
     teacher_name: str | None = None
@@ -625,6 +626,15 @@ class MiniAppOrderActionCreate(BaseModel):
     max_user_id: int = Field(gt=0)
     tenant_slug: str | None = None
     comment: str | None = Field(default=None, max_length=500)
+
+
+class MiniAppDigitalOrderItemIssue(BaseModel):
+    order_item_id: UUID
+    codes: list[str] = Field(min_length=1, max_length=20)
+
+
+class MiniAppDigitalOrderIssue(MiniAppOrderActionCreate):
+    items: list[MiniAppDigitalOrderItemIssue] = Field(min_length=1, max_length=20)
 
 
 class MiniAppOrderItemPickBatchItem(BaseModel):
@@ -779,6 +789,7 @@ class MiniAppAccessStatusUpdate(BaseModel):
     max_user_id: int = Field(gt=0)
     tenant_slug: str | None = None
     status: StudentAccessStatus
+    detach_account: bool = False
 
 
 class MiniAppAccessStatusRead(BaseModel):

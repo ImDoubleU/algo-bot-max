@@ -1341,8 +1341,11 @@ function renderAdminPanel() {
               <span>Способ выдачи</span>
               <select id="productFulfillmentType">
                 <option value="warehouse" ${(editing?.fulfillmentType || "warehouse") === "warehouse" ? "selected" : ""}>Со склада</option>
-                <option value="digital_code" ${editing?.fulfillmentType === "digital_code" ? "selected" : ""}>Цифровой товар</option>
+                <option value="digital_manual" ${["digital_manual", "digital_code"].includes(editing?.fulfillmentType) ? "selected" : ""}>Электронный товар</option>
               </select>
+            </label>
+            <label class="product-field-wide" data-digital-instant-option ${["digital_manual", "digital_code"].includes(editing?.fulfillmentType) ? "" : "hidden"}>
+              <span><input id="productInstantDelivery" type="checkbox" ${editing?.fulfillmentType === "digital_code" ? "checked" : ""} /> Мгновенная выдача</span>
             </label>
             <label class="product-field-wide">
               <span>Название</span>
@@ -1472,6 +1475,8 @@ function renderAdminPanel() {
                   <span>${
                     product.fulfillmentType === "digital_code"
                       ? `${product.stock} кодов доступно`
+                      : product.fulfillmentType === "digital_manual"
+                      ? "Электронный товар · код отправляет сотрудник"
                       : `${productWarehouses(product).reduce((total, warehouse) => total + warehouse.stock, 0)} шт.${
                           productWarehouses(product).some((warehouse) => warehouse.reserved > 0)
                             ? ` · ${productWarehouses(product).reduce((total, warehouse) => total + warehouse.reserved, 0)} в резерве`
@@ -1716,58 +1721,38 @@ function renderAdminPanel() {
       )
       .join("");
     const accessQuery = state.adminEntitySearch.trim().toLowerCase();
-    const visibleLinks = accessLinks.filter((link) => {
-      const matchesQuery = !accessQuery || `${link.studentName} ${link.group} ${link.maxUserId} ${link.displayName} ${link.username}`.toLowerCase().includes(accessQuery);
-      const matchesStatus = state.accessStatusFilter === "all" || link.status === state.accessStatusFilter;
-      const matchesRole = state.accessRoleFilter === "all" || link.role === state.accessRoleFilter;
-      return matchesQuery && matchesStatus && matchesRole;
+    const openChildren = new Set(qsa("[data-access-child][open]")
+      .map((element) => element.dataset.accessChild));
+    const children = new Map();
+    accessLinks.forEach((link) => {
+      if (!children.has(link.studentId)) children.set(link.studentId, []);
+      children.get(link.studentId).push(link);
     });
-    const rows = visibleLinks
-      .map(
-        (link) => `
-          <article class="admin-entity-card access-entity-card">
-            <div class="access-role-mark">${escapeHtml(
-              accessRoleLabel(link.role).slice(0, 1),
-            )}</div>
-            <div class="admin-entity-main">
-              <div class="admin-entity-title">
-                <strong>${escapeHtml(link.studentName)}</strong>
-                <span class="status-badge ${link.status === "active" ? "ok" : "danger"}">
-                  ${link.status === "active" ? "Активна" : "Отозвана"}
-                </span>
-              </div>
-              <div class="admin-entity-meta">
-                <span>${escapeHtml(accessRoleLabel(link.role))}</span>
-                <span>${escapeHtml(link.group)}</span>
-                <span>MAX ID ${escapeHtml(link.maxUserId)}</span>
-                ${
-                  (link.displayName && link.displayName !== accessRoleLabel(link.role)) ||
-                  link.username
-                    ? `<span>${escapeHtml(
-                        link.displayName && link.displayName !== accessRoleLabel(link.role)
-                          ? link.displayName
-                          : `@${link.username}`,
-                      )}</span>`
-                    : ""
-                }
-              </div>
-            </div>
-            <div class="admin-entity-actions">
-              <details class="admin-row-menu">
-                <summary class="icon-button" title="Действия" aria-label="Действия со связью"><i data-lucide="ellipsis-vertical"></i></summary>
-                <div class="admin-row-menu-popover">
-                  <button
-                    class="${link.status === "active" ? "danger-action" : ""}"
-                    type="button"
-                    data-toggle-contact="${escapeHtml(link.id)}"
-                  >${link.status === "revoked" ? "Восстановить связь" : "Отозвать связь"}</button>
-                </div>
-              </details>
-            </div>
-          </article>
-        `,
-      )
-      .join("");
+    const rows = [...children.entries()]
+      .filter(([, links]) => {
+        const matchesQuery = !accessQuery || links.some((link) =>
+          `${link.studentName} ${link.group} ${link.maxUserId} ${link.displayName} ${link.username}`
+            .toLowerCase().includes(accessQuery));
+        return matchesQuery && links.some((link) =>
+          (state.accessStatusFilter === "all" || link.status === state.accessStatusFilter)
+          && (state.accessRoleFilter === "all" || link.role === state.accessRoleFilter));
+      })
+      .sort(([, left], [, right]) => left[0].studentName.localeCompare(right[0].studentName, "ru"))
+      .map(([studentId, links]) => {
+        const child = links[0];
+        const connected = (role) => links.some((link) => link.role === role && link.status === "active");
+        const badges = [["parent", "Родитель"], ["student", "Ученик"]].map(([role, label]) =>
+          `<span class="access-child-status ${connected(role) ? "is-connected" : ""}"><i data-lucide="${connected(role) ? "circle-check" : "circle-dashed"}"></i>${label}: ${connected(role) ? "подключён" : "не подключён"}</span>`).join("");
+        return `<details class="access-child" data-access-child="${escapeHtml(studentId)}" ${openChildren.has(studentId) ? "open" : ""}>
+          <summary><span class="access-child-heading"><strong>${escapeHtml(child.studentName)}</strong><small>${escapeHtml(child.group || "Без группы")}</small></span><span class="access-child-statuses">${badges}</span><i data-lucide="chevron-down"></i></summary>
+          <div class="access-child-links">${links.slice().sort((a, b) => a.role.localeCompare(b.role)).map((link) => `
+            <div class="access-account-row">
+              <span class="access-account-icon"><i data-lucide="${link.role === "parent" ? "user-round" : "graduation-cap"}"></i></span>
+              <div class="access-account-copy"><strong>${escapeHtml(accessRoleLabel(link.role))}${link.displayName ? ` · ${escapeHtml(link.displayName)}` : ""}</strong><small>MAX ID ${escapeHtml(link.maxUserId)}${link.username ? ` · @${escapeHtml(link.username)}` : ""}</small><span class="status-badge ${link.status === "active" ? "ok" : "danger"}">${link.status === "active" ? "Подключён" : "Отключён"}</span></div>
+              <button class="secondary-action access-detach-button" type="button" data-toggle-contact="${escapeHtml(link.id)}" ${state.accessLinkSaving ? "disabled" : ""}><i data-lucide="unlink"></i><span>${link.status === "active" ? "Отвязать аккаунт" : "Сбросить привязку"}</span></button>
+            </div>`).join("")}</div>
+        </details>`;
+      }).join("");
 
     qs("#adminPanel").innerHTML = `
       <div class="admin-section-toolbar">
@@ -1796,8 +1781,6 @@ function renderAdminPanel() {
       <div class="admin-card-list">
         ${rows || '<div class="empty-state compact-empty"><strong>Связи не найдены</strong><button class="secondary-action" type="button" data-clear-admin-search>Сбросить фильтры</button></div>'}
       </div>
-      ${pendingBindingPanel()}
-      <div id="bindingHistoryPanel">${auditPanel("bindings")}</div>
     `;
     refreshIcons();
     return;

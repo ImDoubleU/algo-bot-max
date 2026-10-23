@@ -48,6 +48,8 @@ from app.schemas.access import AccessLinkCreate
 from app.schemas.miniapp import (
     MiniAppAccrualCreate,
     MiniAppBankDepositOpen,
+    MiniAppDigitalOrderIssue,
+    MiniAppDigitalOrderItemIssue,
     MiniAppInventoryAdjustmentCreate,
     MiniAppInventoryTransferCreate,
     MiniAppOrderActionCreate,
@@ -752,6 +754,161 @@ async def test_digital_product_issues_one_retained_code_and_is_idempotent(
     assert await db_session.scalar(
         select(StudentCartItem.id).where(StudentCartItem.student_id == student.id)
     ) is None
+
+
+async def manual_digital_order(db_session, *, quantity=1):
+    student = await seed_linked_student(db_session)
+    product = Product(
+        tenant_id=student.tenant_id, sku="MANUAL-ROBLOX", name="Roblox под заказ",
+        price_astrocoins=200, fulfillment_type=ProductFulfillmentType.DIGITAL_MANUAL,
+    )
+    db_session.add(product)
+    await db_session.commit()
+    created = await create_miniapp_order(db_session, payload=MiniAppOrderCreate(
+        max_user_id=53364725, tenant_slug="nizhniy-novgorod-partner-a",
+        student_id=student.id,
+        items=[MiniAppOrderItemCreate(product_id=product.id, quantity=quantity)],
+        request_key="manual-electronic-001",
+    ), default_tenant_slug="nizhniy-novgorod-partner-a")
+    return student, product, created
+
+
+async def digital_issuer(db_session, student, role=StaffRole.PARTNER_DIRECTOR):
+    account = MaxAccount(max_user_id=88001, display_name="Директор")
+    db_session.add(account)
+    await db_session.flush()
+    db_session.add(StaffRoleAssignment(
+        tenant_id=student.tenant_id, account_id=account.id,
+        role=role, status=AssignmentStatus.ACTIVE,
+    ))
+    await db_session.commit()
+    return account
+
+
+async def test_manual_digital_order_needs_no_codes_or_stock_and_issues_once(db_session):
+    student, product, created = await manual_digital_order(db_session, quantity=2)
+    assert created.order.status == OrderStatus.CREATED
+    assert created.items[0].warehouse_id is None
+    assert created.items[0].suggested_warehouse_id is None
+    assert created.items[0].issued_codes == []
+    assert created.balance_after == 600
+    assert await db_session.scalar(select(StockMovement.id)) is None
+    director = await digital_issuer(db_session, student)
+    payload = MiniAppDigitalOrderIssue(
+        max_user_id=director.max_user_id, tenant_slug="nizhniy-novgorod-partner-a",
+        items=[MiniAppDigitalOrderItemIssue(order_item_id=created.items[0].id,
+                                          codes=[" RBX-ONE ", "RBX-TWO"])],
+    )
+    result = await miniapp_service.issue_miniapp_digital_order(
+        db_session, order_id=created.order.id, payload=payload,
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    assert result.order.status == OrderStatus.ISSUED_TO_STUDENT
+    assert set(result.order.items[0].issued_codes) == {"RBX-ONE", "RBX-TWO"}
+    repeated = await miniapp_service.issue_miniapp_digital_order(
+        db_session, order_id=created.order.id, payload=payload,
+        default_tenant_slug="nizhniy-novgorod-partner-a",
+    )
+    assert repeated.order.status == OrderStatus.ISSUED_TO_STUDENT
+    assert len(list(await db_session.scalars(select(ProductCode)))) == 2
+    assert len(list(await db_session.scalars(select(AstrocoinLedgerEntry)))) == 1
+    wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
+    assert wallet.balance == 600
+    assert (await db_session.scalar(select(AuditLog).where(
+        AuditLog.action == "miniapp_order.digital_issued",
+    ))).payload["code_count"] == 2
+
+
+async def test_manual_product_can_be_created_without_codes_or_warehouses(db_session):
+    student = await seed_linked_student(db_session)
+    director = await digital_issuer(db_session, student)
+    product = await upsert_miniapp_product(db_session, payload=MiniAppProductUpsert(
+        max_user_id=director.max_user_id, tenant_slug="nizhniy-novgorod-partner-a",
+        name="Подписка под заказ", category_name="Электронные товары", price_astrocoins=200,
+        fulfillment_type=ProductFulfillmentType.DIGITAL_MANUAL, inventories=[],
+    ), default_tenant_slug="nizhniy-novgorod-partner-a")
+    assert product.fulfillment_type == ProductFulfillmentType.DIGITAL_MANUAL
+    assert product.available_quantity == 20
+    assert product.warehouses == []
+    assert product.total_code_count == 0
+
+
+@pytest.mark.parametrize("codes", [[], [""], ["A", "B"], ["A" * 501]])
+async def test_manual_digital_rejects_wrong_codes_without_issuing(db_session, codes):
+    student, product, created = await manual_digital_order(db_session)
+    director = await digital_issuer(db_session, student)
+    if not codes:
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            MiniAppDigitalOrderItemIssue(order_item_id=created.items[0].id, codes=codes)
+        return
+    with pytest.raises(MiniAppStoreError):
+        await miniapp_service.issue_miniapp_digital_order(
+            db_session, order_id=created.order.id,
+            payload=MiniAppDigitalOrderIssue(max_user_id=director.max_user_id,
+                tenant_slug="nizhniy-novgorod-partner-a",
+                items=[MiniAppDigitalOrderItemIssue(
+                    order_item_id=created.items[0].id, codes=codes)]),
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
+    assert await db_session.scalar(select(ProductCode.id)) is None
+    assert (await db_session.get(Order, created.order.id)).status == OrderStatus.CREATED
+
+
+async def test_manual_digital_cancel_refunds_and_forbids_delivery(db_session):
+    student, product, created = await manual_digital_order(db_session)
+    director = await digital_issuer(db_session, student)
+    await cancel_miniapp_order(db_session, order_id=created.order.id,
+        payload=MiniAppOrderCancelCreate(max_user_id=director.max_user_id,
+            tenant_slug="nizhniy-novgorod-partner-a", reason="Ошибка заказа"),
+        default_tenant_slug="nizhniy-novgorod-partner-a")
+    with pytest.raises(MiniAppStoreError, match="закрытому"):
+        await miniapp_service.issue_miniapp_digital_order(db_session, order_id=created.order.id,
+            payload=MiniAppDigitalOrderIssue(max_user_id=director.max_user_id,
+                tenant_slug="nizhniy-novgorod-partner-a", items=[MiniAppDigitalOrderItemIssue(
+                    order_item_id=created.items[0].id, codes=["RBX-ONE"])]),
+            default_tenant_slug="nizhniy-novgorod-partner-a")
+    wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
+    assert wallet.balance == 1000
+
+
+@pytest.mark.parametrize("failure", ["duplicate", "wrong_item", "already_stored"])
+async def test_manual_digital_rejects_reused_codes_and_foreign_items(db_session, failure):
+    student, product, created = await manual_digital_order(db_session, quantity=2)
+    director = await digital_issuer(db_session, student)
+    codes = ["LOCAL-ONE", "LOCAL-TWO"]
+    item_id = created.items[0].id
+    if failure == "duplicate":
+        codes = ["LOCAL-ONE", "LOCAL-ONE"]
+    elif failure == "wrong_item":
+        item_id = uuid4()
+    else:
+        db_session.add(ProductCode(tenant_id=student.tenant_id, product_id=product.id,
+                                   code="LOCAL-ONE"))
+        await db_session.commit()
+    with pytest.raises(MiniAppStoreError):
+        await miniapp_service.issue_miniapp_digital_order(db_session, order_id=created.order.id,
+            payload=MiniAppDigitalOrderIssue(max_user_id=director.max_user_id,
+                tenant_slug="nizhniy-novgorod-partner-a", items=[MiniAppDigitalOrderItemIssue(
+                    order_item_id=item_id, codes=codes)]),
+            default_tenant_slug="nizhniy-novgorod-partner-a")
+    assert (await db_session.get(Order, created.order.id)).status == OrderStatus.CREATED
+    assert await db_session.scalar(select(ProductCode.id).where(
+        ProductCode.status == ProductCodeStatus.ISSUED,
+    )) is None
+
+
+@pytest.mark.parametrize("role", [StaffRole.TEACHER, StaffRole.CURATOR])
+async def test_manual_digital_issue_is_limited_to_director_and_admin(db_session, role):
+    student, product, created = await manual_digital_order(db_session)
+    account = await digital_issuer(db_session, student, role)
+    with pytest.raises(MiniAppStoreError) as denied:
+        await miniapp_service.issue_miniapp_digital_order(db_session, order_id=created.order.id,
+            payload=MiniAppDigitalOrderIssue(max_user_id=account.max_user_id,
+                tenant_slug="nizhniy-novgorod-partner-a", items=[MiniAppDigitalOrderItemIssue(
+                    order_item_id=created.items[0].id, codes=["RBX-ONE"])]),
+            default_tenant_slug="nizhniy-novgorod-partner-a")
+    assert denied.value.status_code == 403
 
 
 async def test_digital_and_warehouse_products_require_separate_orders(db_session) -> None:

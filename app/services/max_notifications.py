@@ -35,6 +35,7 @@ _background_tasks: set[asyncio.Task[None]] = set()
 
 def _order_status_text(status: OrderStatus) -> str:
     return {
+        OrderStatus.CREATED: "Заказ оформлен",
         OrderStatus.RESERVED: "Зарезервирован",
         OrderStatus.AWAITING_DELIVERY: "Ожидает доставки",
         OrderStatus.DELIVERED_TO_VENUE: "Доставлен на площадку",
@@ -74,6 +75,8 @@ def _order_message(
         else f"Заказ №{order.order_number}: {_order_status_text(order.status)}"
     )
     message = None
+    if order.status == OrderStatus.CREATED:
+        message = "Заказ принят в работу. О готовности сообщим отдельным уведомлением."
     if order.status == OrderStatus.CANCELLED:
         message = "Заказ отменен, астрокоины возвращены на баланс."
     if order.status == OrderStatus.AWAITING_DELIVERY:

@@ -136,6 +136,38 @@ def test_attention_filter_sends_composite_outcome_and_resets_existing_results(bi
     page.close()
 
 
+@pytest.mark.parametrize("width", [320, 390, 768, 1101, 1440])
+def test_long_actor_roles_do_not_overlap_name_or_identifiers(binding_browser, width):
+    browser, base = binding_browser
+    page = browser.new_page(viewport={"width": width, "height": 1000})
+    page.route("https://st.max.ru/**", lambda route: route.abort())
+    page.goto(base + "/miniapp?demo=1", wait_until="networkidle")
+    page.evaluate("""() => {
+      state.role = 'admin'; state.adminTab = 'history'; state.staffRoles = ['superadmin'];
+      auditFeed('actions').rows = [normalizeAdminHistoryEntry({id: 'role-layout',
+        title: 'Заказ выдан', action: 'order.issued', actor_name: 'Олейник Д',
+        actor_max_user_id: 9010007, created_at: '2026-10-24T20:02:22Z',
+        payload: {actor_role: 'superadmin, teacher', students: [{
+          id: 'pupil', name: 'Васильева Алиса', lms_id: 'ST-001',
+          accounts: [{role: 'student', max_user_id: 9010002},
+            {role: 'parent', name: 'Родитель Алисы', max_user_id: 9010001}]}]}})];
+      setView('admin'); renderAdminPanel();
+    }""")
+    assert page.locator(".audit-person-role").first.inner_text() == (
+        "Суперадминистратор, Преподаватель"
+    )
+    assert page.evaluate("""() => [...document.querySelectorAll('.audit-person')].every(person => {
+      const role = person.querySelector('.audit-person-role');
+      const name = person.querySelector('.audit-person-name');
+      const range = document.createRange(); range.selectNodeContents(role);
+      const text = range.getBoundingClientRect();
+      const box = name.getBoundingClientRect();
+      return text.right <= box.left || text.bottom <= box.top;
+    })""")
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.close()
+
+
 def test_student_context_is_compact_and_opens_profile(binding_browser):
     browser, base = binding_browser
     page = browser.new_page(viewport={"width": 390, "height": 850})

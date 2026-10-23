@@ -81,6 +81,7 @@ class ProductStatus(StrEnum):
 
 class ProductFulfillmentType(StrEnum):
     WAREHOUSE = "warehouse"
+    DIGITAL_MANUAL = "digital_manual"
     DIGITAL_CODE = "digital_code"
 
 

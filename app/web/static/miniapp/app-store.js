@@ -503,14 +503,16 @@ function renderProducts() {
       const disabled = availableLeft <= 0;
       const favorite = state.favorites.has(product.id);
       const stockText =
-        availableLeft <= 0
+        product.fulfillmentType === "digital_manual" ? "Под заказ" : availableLeft <= 0
           ? "Нет в наличии"
           : availableLeft <= 5
             ? `Осталось ${availableLeft}`
             : "В наличии";
       const fulfillmentLabel =
         product.fulfillmentType === "digital_code"
-          ? '<span class="product-auto-issue"><i data-lucide="zap"></i> Цифровой товар</span>'
+          ? '<span class="product-auto-issue"><i data-lucide="zap"></i> Мгновенная выдача</span>'
+          : product.fulfillmentType === "digital_manual"
+          ? '<span class="product-auto-issue"><i data-lucide="key-round"></i> Электронный товар</span>'
           : "";
       const catalogPhotoUrl = product.photoThumbnailUrl || product.photoUrl;
       return `
@@ -765,6 +767,8 @@ function renderCheckoutSummary() {
   const isDigitalCheckout =
     cartProducts.length > 0 &&
     cartProducts.every((product) => product.fulfillmentType === "digital_code");
+  const isManualDigitalCheckout = cartProducts.length > 0 &&
+    cartProducts.every((product) => product.fulfillmentType === "digital_manual");
   const items = Array.from(state.cart.values())
     .map((item) => {
       const product = productById(item.productId);
@@ -802,6 +806,8 @@ function renderCheckoutSummary() {
         <span>${
           isDigitalCheckout
             ? "Откройте «Заказы» → «Получены» и нажмите на заказ. Код и кнопка копирования будут внутри."
+            : isManualDigitalCheckout
+            ? "Сотрудник купит код после оформления заказа. Когда код будет готов, он появится в карточке заказа. Астрокоины списываются сейчас."
             : "Заказ появится в разделе «Зарезервированы». Затем сотрудник выберет склад и начнет комплектацию."
         }</span>
       </div>
@@ -904,7 +910,8 @@ function syncProductDialogControls() {
   addButton.hidden = !shopper;
   if (!shopper) {
     const available = productAvailable(product);
-    stock.textContent = available > 0 ? `В наличии: ${available} шт.` : "Нет в наличии";
+    stock.textContent = product.fulfillmentType === "digital_manual" ? "Электронный товар под заказ"
+      : available > 0 ? `В наличии: ${available} шт.` : "Нет в наличии";
     stock.classList.toggle("is-empty", available <= 0);
     return;
   }
@@ -915,7 +922,7 @@ function syncProductDialogControls() {
     ? "0"
     : String(clampQuantity(quantityInput.value || "1", availableLeft));
   addButton.disabled = availableLeft <= 0;
-  stock.textContent = availableLeft > 0
+  stock.textContent = product.fulfillmentType === "digital_manual" ? "Код отправит сотрудник после оформления заказа" : availableLeft > 0
     ? availableLeft <= 5
       ? `Осталось ${availableLeft} шт.`
       : "В наличии"
@@ -990,6 +997,40 @@ function isOpenOrderStatus(status) {
   ].includes(status);
 }
 
+function canSwitchOrderViews() {
+  return hasTeacherCapabilities() && state.staffRoles.some((role) =>
+    ["superadmin", "partner_director", "admin", "curator"].includes(role),
+  );
+}
+
+function orderScreenRole() {
+  return state.view === "orders" && canSwitchOrderViews() && state.orderViewMode === "teacher"
+    ? "teacher" : primaryStaffRole();
+}
+
+function isTeacherOrderView() {
+  return orderScreenRole() === "teacher";
+}
+
+function renderOrderViewSwitcher() {
+  const container = qs("#orderViewSwitcher");
+  if (!container) return;
+  container.hidden = !canSwitchOrderViews();
+  if (container.hidden) { container.innerHTML = ""; return; }
+  const ownCount = orders.filter((order) => order.teacherVisible === true ||
+    (apiContext.demoMode && order.teacherVisible === undefined &&
+      students.find((student) => student.id === order.studentId)?.teacher === students[0]?.teacher)).length;
+  const staffStudentIds = new Set(students.filter((student) => student.staffOrderVisible).map((student) => student.id));
+  const managerCount = apiContext.demoMode ? orders.length
+    : orders.filter((order) => staffStudentIds.has(order.studentId)).length;
+  container.innerHTML = [
+    ["management", "Управление", "sliders-horizontal", managerCount],
+    ["teacher", "Мои ученики", "graduation-cap", ownCount],
+  ].map(([mode, label, icon, count]) => `<button type="button" data-order-view-mode="${mode}"
+    class="${state.orderViewMode === mode ? "is-active" : ""}"
+    aria-pressed="${state.orderViewMode === mode}"><i data-lucide="${icon}"></i><span>${label}</span><b>${count}</b></button>`).join("");
+}
+
 function orderHasAssignedWarehouses(order) {
   if (orderIsDigital(order)) return true;
   return (
@@ -1003,19 +1044,35 @@ function orderIsDigital(order) {
   return (
     Array.isArray(order.items) &&
     order.items.length > 0 &&
-    order.items.every((item) => item.fulfillmentType === "digital_code")
+    order.items.every((item) => ["digital_code", "digital_manual"].includes(item.fulfillmentType))
   );
+}
+
+function canIssueDigitalOrder(order) {
+  return !isTeacherOrderView() && ["superadmin", "partner_director", "admin"].includes(primaryStaffRole()) &&
+    ["created", "problem"].includes(order.rawStatus) &&
+    order.items?.length > 0 &&
+    order.items.every((item) => item.fulfillmentType === "digital_manual");
+}
+
+function orderDisplayStatus(order) {
+  if (orderIsDigital(order)) {
+    if (order.rawStatus === "issued_to_student") return "Код выдан";
+    if (["created", "problem"].includes(order.rawStatus)) return "Ожидает кода";
+  }
+  return orderStatusLabel(order.rawStatus);
 }
 
 function orderIsFullyPicked(order) {
   const physicalItems = (order.items || []).filter(
-    (item) => item.fulfillmentType !== "digital_code",
+    (item) => !["digital_code", "digital_manual"].includes(item.fulfillmentType),
   );
   return physicalItems.length > 0 && physicalItems.every((item) => item.isPicked);
 }
 
 function canAssignOrderWarehouses(order) {
   return (
+    !isTeacherOrderView() &&
     state.role === "admin" &&
     ["created", "reserved", "problem"].includes(order.rawStatus) &&
     !orderHasAssignedWarehouses(order)
@@ -1040,6 +1097,7 @@ function canTransferOrder(order) {
 
 function canMarkOrderDelivered(order) {
   return (
+    !isTeacherOrderView() &&
     ["superadmin", "partner_director", "admin", "curator"].includes(primaryStaffRole()) &&
     order.rawStatus === "awaiting_delivery" &&
     orderHasAssignedWarehouses(order) &&
@@ -1049,6 +1107,7 @@ function canMarkOrderDelivered(order) {
 
 function canPickOrderItem(order) {
   return (
+    !isTeacherOrderView() &&
     ["superadmin", "partner_director", "admin", "curator"].includes(primaryStaffRole()) &&
     order.rawStatus === "awaiting_delivery"
   );
@@ -1056,6 +1115,7 @@ function canPickOrderItem(order) {
 
 function canCancelOrder(order) {
   return (
+    !isTeacherOrderView() &&
     ["superadmin", "partner_director", "admin"].includes(primaryStaffRole()) &&
     [
       "created",
@@ -1083,9 +1143,10 @@ function fulfillmentStageForOrderFilter(filter = state.orderStatusFilter) {
 }
 
 function orderMatchesNamedFilter(order, filter) {
+  if (filter === "electronic") return orderIsDigital(order);
   if (filter === "all") return true;
   if (filter === "action") return ["created", "problem"].includes(order.rawStatus);
-  if (filter === "reserved") return ["created", "reserved"].includes(order.rawStatus);
+  if (filter === "reserved") return !orderIsDigital(order) && ["created", "reserved"].includes(order.rawStatus);
   if (filter === "work") return isOpenOrderStatus(order.rawStatus);
   if (filter === "issued") return order.rawStatus === "issued_to_student";
   if (filter === "cancelled") return ["cancelled", "returned"].includes(order.rawStatus);
@@ -1127,6 +1188,12 @@ function filteredOrders() {
 }
 
 function ordersForCurrentRole() {
+  if (isTeacherOrderView()) {
+    const teacherStudentIds = new Set(students.filter((student) => student.teacherVisible ||
+      (apiContext.demoMode && student.teacher === students[0]?.teacher)).map((student) => student.id));
+    return orders.filter((order) => typeof order.teacherVisible === "boolean"
+      ? order.teacherVisible : teacherStudentIds.has(order.studentId));
+  }
   if (["admin", "teacher"].includes(state.role) && !apiContext.demoMode) {
     const staffStudentIds = new Set(
       students.filter((student) => student.staffOrderVisible).map((student) => student.id),
@@ -1140,14 +1207,16 @@ function ordersForCurrentRole() {
 
 function orderActionDescriptors(order) {
   const descriptors = [];
-  if (canAssignOrderWarehouses(order)) {
+  if (canIssueDigitalOrder(order)) {
+    descriptors.push({ action: "open", label: "Отправить код", icon: "key-round" });
+  } else if (canAssignOrderWarehouses(order)) {
     descriptors.push({ action: "open", label: "Назначить склад", icon: "warehouse" });
   } else if (canMarkOrderDelivered(order)) {
     descriptors.push({ action: "deliver", label: "Доставлено на площадку", icon: "map-pin-check" });
   } else if (canTransferOrder(order)) {
-    descriptors.push({ action: "transfer", label: "Учитель получил", icon: "handshake" });
+    descriptors.push({ action: "transfer", label: "Принять заказ", icon: "package-check" });
   } else if (canIssueOrder(order)) {
-    descriptors.push({ action: "issue", label: "Передать ученику", icon: "package-check" });
+    descriptors.push({ action: "issue", label: "Выдать ученику", icon: "gift" });
   } else {
     descriptors.push({ action: "open", label: "Подробнее", icon: "eye" });
   }
@@ -1165,10 +1234,11 @@ function orderActionMarkup(order, descriptor, primary = false) {
   const attributes = descriptor.action === "open"
     ? `data-open-order="${orderId}"`
     : `data-order-action="${descriptor.action}" data-order-action-id="${orderId}"`;
-  const buttonClass = descriptor.action === "cancel"
-    ? "secondary-action order-cancel-button"
-    : primary ? "primary-action" : "order-menu-action";
-  return `<button class="${buttonClass} ${descriptor.danger ? "danger-action" : ""}" type="button" ${attributes}>
+  const buttonClass = primary
+    ? descriptor.action === "open" && !canIssueDigitalOrder(order) && !canAssignOrderWarehouses(order)
+      ? "secondary-action" : "primary-action"
+    : "icon-button order-secondary-action";
+  return `<button class="${buttonClass} ${descriptor.danger ? "danger-action" : ""}" type="button" title="${descriptor.label}" aria-label="${descriptor.label}" ${attributes}>
       <i data-lucide="${descriptor.icon}"></i><span>${descriptor.label}</span>
     </button>`;
 }
@@ -1179,16 +1249,11 @@ function orderActionButtons(order, includeOpen = true) {
   if (!descriptors.length) return "";
   const cancel = descriptors.find((item) => item.action === "cancel");
   const [primary, ...secondary] = descriptors.filter((item) => item.action !== "cancel");
-  return `<div class="order-actions">
-      ${primary ? `<div class="order-actions-main">
-      ${orderActionMarkup(order, primary, true)}
-      ${secondary.length ? `<details class="order-more-menu">
-        <summary title="Другие действия" aria-label="Другие действия"><i data-lucide="ellipsis"></i></summary>
-        <div>${secondary.map((item) => orderActionMarkup(order, item)).join("")}</div>
-      </details>` : ""}
-      </div>` : ""}
-      ${cancel ? orderActionMarkup(order, cancel) : ""}
-    </div>`;
+  const extras = [...secondary, ...(cancel ? [cancel] : [])];
+  return `<div class="order-actions"><div class="order-actions-main">
+      ${primary ? orderActionMarkup(order, primary, true) : ""}
+      ${extras.map((item) => orderActionMarkup(order, item)).join("")}
+    </div></div>`;
 }
 
 function formatOrderDate(value) {
@@ -1239,7 +1304,7 @@ function renderOrderStatusTabs() {
   if (state.orderStatusFilter === "action") state.orderStatusFilter = "all";
   const roleOrders = ordersForCurrentRole();
   const isManager = ["superadmin", "partner_director", "admin", "curator"].includes(
-    primaryStaffRole(),
+    orderScreenRole(),
   );
   if (isManager) {
     const legacyManagerFilters = {
@@ -1266,6 +1331,7 @@ function renderOrderStatusTabs() {
   const tabs = isManager
     ? [
         ["all", "Все", roleOrders.length],
+        ["electronic", "Электронные", countByStatus("electronic")],
         ["fulfillment_assign", "Назначить склад", fulfillmentSnapshotOrdersForStage("assign").length],
         ["fulfillment_collect", "Собрать", fulfillmentSnapshotOrdersForStage("collect").length],
         ["fulfillment_route", "Распределить", fulfillmentSnapshotOrdersForStage("route").length],
@@ -1276,6 +1342,7 @@ function renderOrderStatusTabs() {
       ]
     : [
         ["all", "Все"],
+        ["electronic", "Электронные"],
         ["reserved", "Зарезервированы"],
         ["awaiting_delivery", "Ожидают доставки"],
         ["delivered_to_venue", "На площадке"],
@@ -1344,7 +1411,7 @@ function summaryWarehouseLabel(item) {
 }
 
 function orderFulfillmentSummaryOrders() {
-  const staffRole = primaryStaffRole();
+  const staffRole = orderScreenRole();
   const fulfillmentStatuses = new Set(["created", "reserved", "problem", "awaiting_delivery"]);
   const physicalOrders = ordersForCurrentRole().filter(
     (order) => !orderIsDigital(order) && Array.isArray(order.items) && order.items.length > 0,
@@ -1364,6 +1431,7 @@ function fulfillmentSnapshotSignature() {
     apiContext.tenantSlug || "demo",
     apiContext.maxUserId || "demo",
     primaryStaffRole() || state.role,
+    orderScreenRole(),
   ].join(":");
 }
 
@@ -1471,11 +1539,23 @@ function fulfillmentPruneSelection(ordersToKeep) {
   });
 }
 
+function fulfillmentProductThumb(item) {
+  const product = productById(item?.productId || "");
+  const photo = product?.photoThumbnailUrl || product?.photoUrl;
+  return `<span class="fulfillment-product-thumb">${photo
+    ? `<img src="${escapeHtml(photo)}" alt="${escapeHtml(item?.productName || product.name)}" loading="lazy" />`
+    : `<i data-lucide="${product ? productFallbackIcon(product) : "package"}"></i>`}</span>`;
+}
+
+function fulfillmentOrderThumbs(order) {
+  return `<span class="fulfillment-order-thumbs">${(order.items || []).slice(0, 3)
+    .map(fulfillmentProductThumb).join("")}</span>`;
+}
+
 function fulfillmentOrderProductsLabel(order) {
-  if (order.item) return order.item;
   return (order.items || [])
     .map((item) => `${item.productName || "Товар"}${Number(item.quantity || 0) > 1 ? ` ×${item.quantity}` : ""}`)
-    .join("; ");
+    .join("; ") || order.item || "";
 }
 
 function fulfillmentOrderWarehousesLabel(order) {
@@ -1612,7 +1692,7 @@ function renderOrderFulfillmentSummary() {
       .map((venue) => venue.dataset.fulfillmentVenue)
       .filter(Boolean),
   );
-  const staffRole = primaryStaffRole();
+  const staffRole = orderScreenRole();
   const isManager = ["superadmin", "partner_director", "admin", "curator"].includes(staffRole);
   const isTeacher = staffRole === "teacher";
   const sourceOrders = orderFulfillmentSummaryOrders();
@@ -1620,7 +1700,8 @@ function renderOrderFulfillmentSummary() {
   const teacherWorkbenchFilter = ["all", "reserved", "awaiting_delivery", "problem"].includes(
     state.orderStatusFilter,
   );
-  const visible = (isManager && Boolean(managerMode)) || (isTeacher && teacherWorkbenchFilter);
+  const visible = (isManager && Boolean(managerMode)) ||
+    (isTeacher && teacherWorkbenchFilter && sourceOrders.some(fulfillmentOrderMatchesSearch));
   container.hidden = !visible;
   if (!visible) {
     container.innerHTML = "";
@@ -1650,8 +1731,8 @@ function renderOrderFulfillmentSummary() {
             ${venueOrders
               .sort((left, right) => String(left.student).localeCompare(String(right.student), "ru"))
               .map((order) => `
-                <div class="fulfillment-awaiting-row">
-                  <span class="fulfillment-awaiting-icon"><i data-lucide="package"></i></span>
+                <div class="fulfillment-awaiting-row" data-pending-order-id="${escapeHtml(fulfillmentOrderId(order))}">
+                  <span class="fulfillment-awaiting-icon" data-status="${escapeHtml(order.rawStatus)}"><i data-lucide="${order.rawStatus === "problem" ? "triangle-alert" : order.rawStatus === "awaiting_delivery" ? "truck" : "package"}"></i></span>
                   <span class="fulfillment-awaiting-copy">
                     <strong>${escapeHtml(order.student)}</strong>
                     <small>№${escapeHtml(order.id)} · ${escapeHtml(fulfillmentOrderProductsLabel(order))}</small>
@@ -1664,21 +1745,12 @@ function renderOrderFulfillmentSummary() {
         </section>`)
       .join("");
     container.innerHTML = `
-      <div class="fulfillment-workbench-head">
+      <div class="fulfillment-workbench-head teacher-workbench-head">
         <div>
-          <span>Ожидаемые заказы</span>
+          <i data-lucide="package-search"></i>
           <h3>Готовится для ваших учеников</h3>
-          <p>После доставки заказ появится в обычном списке ниже.</p>
         </div>
-        <strong>${orderCountText(sourceOrders.length)}</strong>
-      </div>
-      <div class="fulfillment-workbench-toolbar is-teacher">
-        <label class="fulfillment-search-field">
-          <i data-lucide="search"></i>
-          <input id="fulfillmentOrderSearch" type="search" value="${escapeHtml(state.orderSearch)}" placeholder="Ученик, заказ или товар" />
-          ${state.orderSearch ? '<button type="button" data-clear-fulfillment-search title="Очистить поиск" aria-label="Очистить поиск"><i data-lucide="x"></i></button>' : ""}
-        </label>
-        <button class="icon-button refresh-button fulfillment-refresh-button" type="button" data-refresh-fulfillment title="Обновить заказы" aria-label="Обновить заказы"><i data-lucide="refresh-cw"></i><span class="icon-fallback" aria-hidden="true">↻</span></button>
+        <strong>${orderCountText(searchedOrders.length)}</strong>
       </div>
       <div class="fulfillment-awaiting-content">
         ${teacherRows || (state.orderSearch
@@ -1741,8 +1813,11 @@ function renderOrderFulfillmentSummary() {
                   </label>`
                 : '<span class="fulfillment-select-warning" title="Нет подходящего склада"><i data-lucide="triangle-alert"></i></span>'}
               <span class="fulfillment-work-copy">
+                ${fulfillmentOrderThumbs(order)}
+                <span>
                 <strong>№${escapeHtml(order.id)} · ${escapeHtml(order.student)}</strong>
                 <small>${escapeHtml(fulfillmentOrderProductsLabel(order))}</small>
+                </span>
               </span>
               <span class="fulfillment-work-warehouse"><i data-lucide="warehouse"></i>${escapeHtml(assignedPendingRefresh ? fulfillmentOrderWarehousesLabel(order) : fulfillmentAutomaticWarehouseLabel(order))}</span>
               <span class="status-badge ${escapeHtml(assignedPendingRefresh ? "ok" : orderStatusTone(order.rawStatus))}">${assignedPendingRefresh ? "Склад назначен" : escapeHtml(orderStatusLabel(order.rawStatus))}</span>
@@ -1794,7 +1869,7 @@ function renderOrderFulfillmentSummary() {
                       <input type="checkbox" data-order-pick-group="${groupKey}" data-pick-partial="${product.isPartial}" aria-label="${escapeHtml(product.name)}, ${product.quantity} шт." ${product.isPicked ? "checked" : ""} ${state.fulfillmentSaving ? "disabled" : ""} />
                       <span><i data-lucide="check"></i></span>
                     </span>
-                    <span class="fulfillment-quick-copy"><strong>${escapeHtml(product.name)}</strong><small><i data-lucide="package"></i>${orderCountText(product.orderCount)}</small></span>
+                    <span class="fulfillment-quick-copy">${fulfillmentProductThumb(product.rows[0]?.item)}<span><strong>${escapeHtml(product.name)}</strong><small><i data-lucide="package"></i>${orderCountText(product.orderCount)}</small></span></span>
                     <b>${product.quantity} шт.</b>
                   </label>`;
                 }).join("")}
@@ -1850,7 +1925,7 @@ function renderOrderFulfillmentSummary() {
                           ${canDeliver
                             ? `<label class="fulfillment-select-control" title="Выбрать заказ №${escapeHtml(order.id)}"><input type="checkbox" data-fulfillment-order-select="${escapeHtml(orderId)}" ${selected ? "checked" : ""} /><span><i data-lucide="check"></i></span></label>`
                             : '<span class="fulfillment-select-complete" title="Заказ обработан. Обновите список"><i data-lucide="check"></i></span>'}
-                          <span class="fulfillment-work-copy"><strong>№${escapeHtml(order.id)} · ${escapeHtml(order.student)}</strong><small>${escapeHtml(fulfillmentOrderProductsLabel(order))}</small></span>
+                          <span class="fulfillment-work-copy">${fulfillmentOrderThumbs(order)}<span><strong>№${escapeHtml(order.id)} · ${escapeHtml(order.student)}</strong><small>${escapeHtml(fulfillmentOrderProductsLabel(order))}</small></span></span>
                           <span class="fulfillment-work-warehouse"><i data-lucide="warehouse"></i>${escapeHtml(fulfillmentOrderWarehousesLabel(order))}</span>
                           <button class="fulfillment-order-link" type="button" data-open-order="${escapeHtml(orderId)}" title="Открыть заказ" aria-label="Открыть заказ №${escapeHtml(order.id)}"><i data-lucide="arrow-up-right"></i><span class="icon-fallback" aria-hidden="true">↗</span></button>
                         </div>`;
@@ -1916,6 +1991,9 @@ function renderOrderFulfillmentSummary() {
 }
 
 function renderOrders() {
+  window.requestAnimationFrame(refreshIcons);
+  qs("#ordersView")?.classList.toggle("orders-teacher-mode", isTeacherOrderView());
+  renderOrderViewSwitcher();
   if (["action", "work", "open"].includes(state.orderStatusFilter)) {
     state.orderStatusFilter = "all";
   }
@@ -1944,24 +2022,40 @@ function renderOrders() {
     return;
   }
 
-  const visibleOrders = filteredOrders();
+  const pendingIds = new Set(isTeacherOrderView() && fulfillmentSummary && !fulfillmentSummary.hidden
+    ? orderFulfillmentSummaryOrders().filter(fulfillmentOrderMatchesSearch).map(fulfillmentOrderId) : []);
+  const visibleOrders = filteredOrders().filter((order) => !pendingIds.has(fulfillmentOrderId(order)));
   if (visibleOrders.length === 0) {
-    ordersTable.innerHTML =
+    ordersTable.innerHTML = pendingIds.size ? "" :
       '<div class="empty-state">Заказов по выбранному фильтру не найдено</div>';
     return;
   }
 
+  const teacherGroup = (order) => ["delivered_to_venue", "transferred_to_teacher"].includes(order.rawStatus)
+    ? "К выдаче" : orderIsDigital(order) ? "Электронные" : "История";
+  const groupedTeacherView = isTeacherOrderView() && state.orderStatusFilter === "all";
+  if (groupedTeacherView) {
+    const priority = { "К выдаче": 0, "Электронные": 1, "История": 2 };
+    visibleOrders.sort((left, right) => priority[teacherGroup(left)] - priority[teacherGroup(right)]);
+  }
+  const groupCounts = new Map();
+  if (groupedTeacherView) visibleOrders.forEach((order) => {
+    const group = teacherGroup(order);
+    groupCounts.set(group, (groupCounts.get(group) || 0) + 1);
+  });
   ordersTable.innerHTML = visibleOrders
-    .map((order) => {
+    .map((order, index) => {
       const date = formatOrderDate(order.createdAt);
       const age = orderAgeLabel(order.createdAt);
       const total = orderTotalValue(order);
       const product = productById(order.items?.[0]?.productId || "");
-      const displayStatus = orderIsDigital(order)
-        ? "Заказ передан ученику"
-        : orderStatusLabel(order.rawStatus);
+      const displayStatus = orderDisplayStatus(order);
+      const group = teacherGroup(order);
+      const sectionHead = groupedTeacherView && (!index || teacherGroup(visibleOrders[index - 1]) !== group)
+        ? `<div class="teacher-order-group-heading"><h3>${group}</h3><span>${orderCountText(groupCounts.get(group))}</span></div>` : "";
+      const actionable = canIssueOrder(order) || canTransferOrder(order);
       return `
-        <article class="order-card" data-tone="${escapeHtml(orderStatusTone(order.rawStatus))}">
+        ${sectionHead}<article class="order-card ${actionable ? "order-needs-action" : ""}" data-order-id="${escapeHtml(fulfillmentOrderId(order))}" data-tone="${escapeHtml(orderStatusTone(order.rawStatus))}">
           <button class="order-card-visual" type="button" data-open-order="${escapeHtml(order.backendId || order.id)}" aria-label="Открыть заказ №${escapeHtml(order.id)}">
             ${product?.photoUrl ? `<img src="${escapeHtml(product.photoUrl)}" alt="" loading="lazy" />` : `<i data-lucide="${product ? productFallbackIcon(product) : "package"}"></i>`}
           </button>
@@ -1973,12 +2067,12 @@ function renderOrders() {
             ${canManageStudentRecords()
               ? `<button class="student-name-link order-card-student" type="button" data-open-student-profile="${escapeHtml(order.studentId)}">${escapeHtml(order.student)}</button>`
               : `<strong class="order-card-student">${escapeHtml(order.student)}</strong>`}
-            <div class="order-card-items">${escapeHtml(order.item)}</div>
+            <div class="order-card-items">${escapeHtml(isTeacherOrderView() ? fulfillmentOrderProductsLabel(order) : order.item)}</div>
             <div class="order-card-meta">
               ${
-                ["teacher", "admin"].includes(state.role)
+                !isTeacherOrderView() && ["teacher", "admin"].includes(state.role)
                   ? `<span>${
-                      orderHasAssignedWarehouses(order)
+                      orderIsDigital(order) ? "Электронный товар" : orderHasAssignedWarehouses(order)
                         ? `Склад назначен`
                         : `Ожидает назначения склада`
                     }</span>`

@@ -73,6 +73,7 @@ from app.schemas.miniapp import (
     MiniAppCartWrite,
     MiniAppCatalogRead,
     MiniAppCrmImportRead,
+    MiniAppDigitalOrderIssue,
     MiniAppInventoryAdjustmentCreate,
     MiniAppInventoryAdjustmentRead,
     MiniAppInventoryTransferCreate,
@@ -158,6 +159,7 @@ from app.services.miniapp import (
     get_miniapp_student_invitation,
     import_miniapp_crm_students,
     import_miniapp_products,
+    issue_miniapp_digital_order,
     issue_miniapp_order,
     list_miniapp_admin_history,
     list_miniapp_catalog,
@@ -2185,6 +2187,22 @@ async def miniapp_assign_order_warehouses(
             order_id=order_id,
             payload=payload,
             default_tenant_slug=settings.default_tenant_slug,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/orders/{order_id}/issue-digital", response_model=MiniAppOrderActionRead)
+async def miniapp_issue_digital_order(
+    order_id: UUID, payload: MiniAppDigitalOrderIssue,
+    db: DbSession, identity: MiniAppIdentityDep,
+) -> MiniAppOrderActionRead:
+    _authorized_tenant_slug(identity, max_user_id=payload.max_user_id,
+                            tenant_slug=payload.tenant_slug)
+    try:
+        return await issue_miniapp_digital_order(
+            db, order_id=order_id, payload=payload,
+            default_tenant_slug=get_settings().default_tenant_slug,
         )
     except MiniAppStoreError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

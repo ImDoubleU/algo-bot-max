@@ -96,6 +96,7 @@ const state = {
   dashboardMode: "overview",
   studentGroupFilter: "all",
   orderStatusFilter: "all",
+  orderViewMode: "management",
   orderSearch: "",
   fulfillmentStageSnapshot: null,
   selectedFulfillmentOrders: new Set(),
@@ -1081,7 +1082,7 @@ function productWarehouses(product) {
     }));
   }
 
-  if (product.fulfillmentType === "digital_code") return [];
+  if (["digital_code", "digital_manual"].includes(product.fulfillmentType)) return [];
 
   return [
     {
@@ -1393,6 +1394,7 @@ function savePreferences() {
         inStockOnly: state.inStockOnly,
         favoritesOnly: state.favoritesOnly,
         orderStatusFilter: state.orderStatusFilter,
+        orderViewMode: state.orderViewMode,
         recentProductSearches: state.recentProductSearches.slice(0, 5),
         railCollapsed: state.railCollapsed,
       }),
@@ -1420,6 +1422,9 @@ function restorePreferences() {
       ? preferences.recentProductSearches.map(String).filter(Boolean).slice(0, 5)
       : [];
     state.railCollapsed = Boolean(preferences.railCollapsed);
+    if (["management", "teacher"].includes(preferences.orderViewMode)) {
+      state.orderViewMode = preferences.orderViewMode;
+    }
     const legacyOrderFilters = {
       open: "all",
       action: "all",
@@ -1434,6 +1439,7 @@ function restorePreferences() {
         "issued",
         "cancelled",
         "all",
+        "electronic",
         "created",
         "reserved",
         "awaiting_delivery",
@@ -1494,6 +1500,7 @@ function productStatusLabel(status) {
 }
 
 function productAvailable(product) {
+  if (product.fulfillmentType === "digital_manual") return MAX_CART_PRODUCT_QUANTITY;
   if (product.fulfillmentType === "digital_code") {
     return Math.max(Number(product.stock || 0), 0);
   }
@@ -2257,6 +2264,7 @@ function applySession(session) {
     total: Number(order.total_astrocoins || 0),
     createdAt: order.created_at || "",
     teacherName: order.teacher_name || "",
+    teacherVisible: Boolean(order.teacher_visible),
     venueName: order.venue_name || "",
   }));
 
@@ -2586,6 +2594,8 @@ function applyCatalog(catalog) {
       warehouse:
         product.fulfillment_type === "digital_code"
           ? "Автовыдача кода"
+          : product.fulfillment_type === "digital_manual"
+          ? "Электронный товар под заказ"
           : primaryWarehouse?.warehouse_name || "Склад будет выбран",
       mark: name.trim().slice(0, 1).toUpperCase() || "A",
       warehouses: product.warehouses || [],

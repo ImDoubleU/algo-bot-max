@@ -567,6 +567,7 @@ async def test_staff_session_keeps_departed_student_with_order_visible(db_sessio
     assert session.students[0].staff_visible is False
     assert session.students[0].staff_order_visible is True
     assert [item.order_number for item in session.orders] == [7]
+    assert session.orders[0].teacher_visible is True
 
     new_teacher = MaxAccount(max_user_id=53364728, display_name="Новый Педагог")
     db_session.add(new_teacher)
@@ -588,6 +589,47 @@ async def test_staff_session_keeps_departed_student_with_order_visible(db_sessio
     assert new_teacher_session.students[0].staff_visible is True
     assert new_teacher_session.students[0].staff_order_visible is False
     assert new_teacher_session.orders == []
+
+
+@pytest.mark.parametrize("manager_role", [
+    StaffRole.SUPERADMIN, StaffRole.ADMIN, StaffRole.PARTNER_DIRECTOR, StaffRole.CURATOR,
+])
+async def test_combined_roles_mark_only_teachers_own_and_historical_orders(
+    db_session, manager_role,
+):
+    rows = [crm_row(), replace(crm_row(), row_number=3, deal_id="other-deal",
+        uuid="other-uuid", lms_student_id="ST-002", first_name="Борис",
+        teacher_name="Петрова Анна", contact_ids="682")]
+    await upsert_crm_student_rows(db_session, rows,
+        defaults=CrmSyncDefaults(partner_slug="partner-a", partner_name="Партнер A"))
+    students = list(await db_session.scalars(select(Student).order_by(Student.lms_student_id)))
+    account = MaxAccount(max_user_id=8819, display_name="Олейник Д")
+    db_session.add(account)
+    await db_session.flush()
+    db_session.add_all([StaffRoleAssignment(tenant_id=students[0].tenant_id,
+        account_id=account.id, role=role, status=AssignmentStatus.ACTIVE)
+        for role in (manager_role, StaffRole.TEACHER)])
+    for number, student, teacher in [(1, students[0], "Олейник Д"),
+                                    (2, students[1], "Петрова Анна"),
+                                    (3, students[1], "Олейник Д")]:
+        db_session.add(Order(tenant_id=student.tenant_id, student_id=student.id,
+            order_number=number, status=OrderStatus.RESERVED, total_astrocoins=50,
+            teacher_name=teacher, venue_name=student.venue_name))
+    await db_session.commit()
+    session = await get_miniapp_session(db_session, max_user_id=8819,
+                                       tenant_slug="nizhniy-novgorod-partner-a")
+    assert len(session.orders) == 3
+    assert {order.order_number for order in session.orders if order.teacher_visible} == {1, 3}
+    assert manager_role in session.staff_roles
+    teacher_assignment = await db_session.scalar(select(StaffRoleAssignment).where(
+        StaffRoleAssignment.account_id == account.id,
+        StaffRoleAssignment.role == StaffRole.TEACHER))
+    teacher_assignment.status = AssignmentStatus.REVOKED
+    await db_session.commit()
+    session = await get_miniapp_session(db_session, max_user_id=8819,
+                                       tenant_slug="nizhniy-novgorod-partner-a")
+    assert len(session.orders) == 3
+    assert not any(order.teacher_visible for order in session.orders)
 
 
 async def test_digital_code_is_visible_to_family_but_hidden_from_teacher(db_session) -> None:

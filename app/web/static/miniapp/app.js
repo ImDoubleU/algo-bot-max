@@ -306,8 +306,10 @@ async function saveProductFromForm() {
   const category = normalizeProductCategoryName(qs("#productCategory")?.value);
   const price = Number.parseInt(qs("#productPrice")?.value || "0", 10);
   const status = qs("#productStatus")?.value || "active";
-  const fulfillmentType = qs("#productFulfillmentType")?.value || "warehouse";
-  const newCodes = qs("#productNewCodes")?.value.trim() || "";
+  const selectedFulfillment = qs("#productFulfillmentType")?.value || "warehouse";
+  const fulfillmentType = selectedFulfillment === "digital_manual" && qs("#productInstantDelivery")?.checked
+    ? "digital_code" : selectedFulfillment;
+  const newCodes = fulfillmentType === "digital_code" ? qs("#productNewCodes")?.value.trim() || "" : "";
   const description = qs("#productDescription")?.value.trim() || "";
   const photoFile = state.productPhotoFile;
   const editing = products.find((product) => product.id === state.editingProductId);
@@ -808,7 +810,7 @@ function addCartItem(product, quantityValue) {
     .map((item) => productById(item.productId)?.fulfillmentType || "warehouse")
     .find(Boolean);
   if (existingType && existingType !== (product.fulfillmentType || "warehouse")) {
-    showNotice("Коды и товары со склада оформляются отдельными заказами", "danger");
+    showNotice("Товары со склада, электронные под заказ и с автовыдачей оформляются отдельно", "danger");
     return false;
   }
   const current = cartQuantityFor(product.id);
@@ -875,25 +877,27 @@ function createDemoOrder() {
   const orderSummary = orderItems
     .map((item) => `${item.productName} × ${item.quantity}`)
     .join("; ");
+  const isManualDigital = orderItems.every((item) => item.fulfillmentType === "digital_manual");
+  const initialStatus = isManualDigital ? "created" : "reserved";
   student.balance -= total;
   orders.unshift({
     id: orderNumber,
     backendId: `demo-order-${orderNumber}`,
     studentId: student.id,
-    rawStatus: "reserved",
+    rawStatus: initialStatus,
     student: student.name,
     item: orderSummary || `Заказ на ${total} AC`,
     warehouse: "Назначается администратором",
-    status: orderStatusLabel("reserved"),
-    tone: orderStatusTone("reserved"),
+    status: orderStatusLabel(initialStatus),
+    tone: orderStatusTone(initialStatus),
     total,
     createdAt,
     items: orderItems,
     statusHistory: [
       {
         fromStatus: "created",
-        toStatus: "reserved",
-        comment: "Заказ оформлен, ожидается назначение склада",
+        toStatus: initialStatus,
+        comment: isManualDigital ? "Ожидается отправка кода сотрудником" : "Заказ оформлен, ожидается назначение склада",
         createdAt,
       },
     ],
@@ -930,7 +934,7 @@ function renderOrderDialog(order) {
         .map(
           (item) => {
             const product = productById(item.productId || "");
-            const isDigitalItem = item.fulfillmentType === "digital_code";
+            const isDigitalItem = ["digital_code", "digital_manual"].includes(item.fulfillmentType);
             const warehouseOptions = needsWarehouseAssignment
               ? orderWarehouseOptions(item)
               : [];
@@ -968,7 +972,7 @@ function renderOrderDialog(order) {
                   <div class="digital-delivery-head">
                     <span><i data-lucide="key-round"></i></span>
                     <div>
-                      <strong>Цифровой товар готов</strong>
+                      <strong>Электронный товар готов</strong>
                       <small>Скопируйте код и используйте его на сайте или в приложении сервиса.</small>
                     </div>
                   </div>
@@ -988,7 +992,7 @@ function renderOrderDialog(order) {
             return `
               <div class="order-detail-item ${needsWarehouseAssignment ? "needs-warehouse" : ""} ${isDigitalItem ? "is-digital" : ""}">
                 <span class="order-detail-thumb">
-                  ${product?.photoUrl ? `<img src="${escapeHtml(product.photoUrl)}" alt="" />` : `<i data-lucide="${product ? productFallbackIcon(product) : "package"}"></i>`}
+                  ${product?.photoThumbnailUrl || product?.photoUrl ? `<img src="${escapeHtml(product.photoThumbnailUrl || product.photoUrl)}" alt="${escapeHtml(item.productName || "Товар")}" />` : `<i data-lucide="${product ? productFallbackIcon(product) : "package"}"></i>`}
                 </span>
                 <div class="order-detail-copy">
                   <div class="order-detail-product-head">
@@ -1028,6 +1032,8 @@ function renderOrderDialog(order) {
                 <strong>${escapeHtml(
                   isDigitalOrder && event.toStatus === "issued_to_student"
                     ? "Заказ выполнен"
+                    : isDigitalOrder && event.toStatus === "created"
+                    ? "Электронный заказ оформлен"
                     : orderStatusLabel(event.toStatus),
                 )}</strong>
                 <span>${escapeHtml(formatOrderDate(event.createdAt))}</span>
@@ -1048,14 +1054,14 @@ function renderOrderDialog(order) {
   qs("#orderDialogContent").innerHTML = `
     <div class="order-dialog-summary ${isDigitalOrder ? "is-digital" : ""}">
       <div>
-        <span class="status-badge ${escapeHtml(orderStatusTone(order.rawStatus))}">${escapeHtml(orderStatusLabel(order.rawStatus))}</span>
+        <span class="status-badge ${escapeHtml(orderStatusTone(order.rawStatus))}">${escapeHtml(orderDisplayStatus(order))}</span>
         ${canManageStudentRecords()
           ? `<button class="student-name-link student-name-link-large" type="button" data-open-student-profile="${escapeHtml(order.studentId)}">${escapeHtml(order.student)}</button>`
           : `<h3>${escapeHtml(order.student)}</h3>`}
         <div class="student-meta">
           ${
             isDigitalOrder
-              ? "Код хранится в этом заказе"
+              ? order.rawStatus === "issued_to_student" ? (order.items?.some((item) => item.issuedCodes?.length) ? "Код доступен ниже" : "Код выдан ученику") : ["created", "problem"].includes(order.rawStatus) ? "Ожидается отправка кода сотрудником" : "Электронный товар"
               : ["teacher", "admin"].includes(state.role)
               ? orderHasAssignedWarehouses(order)
                 ? "Склад назначен"
@@ -1071,6 +1077,12 @@ function renderOrderDialog(order) {
       <h3>Состав заказа</h3>
       ${items}
     </section>
+    ${canIssueDigitalOrder(order) ? `<section class="order-detail-section digital-order-issue">
+      <h3>Отправка кодов ученику</h3>
+      ${order.items.map((item) => `<label><span>${escapeHtml(item.productName)} · кодов: ${item.quantity}</span>
+        <textarea data-digital-issue-item="${escapeHtml(item.id)}" rows="3" placeholder="Каждый код с новой строки" autocomplete="off" spellcheck="false"></textarea></label>`).join("")}
+      <button class="primary-action" type="button" data-issue-digital-order="${escapeHtml(order.backendId || order.id)}"><i data-lucide="send"></i>Отправить коды ученику</button>
+    </section>` : ""}
     <section class="order-detail-section">
       <h3>История статусов</h3>
       <div class="order-history">${history}</div>
@@ -1549,6 +1561,60 @@ async function updateOrderAction(orderId, action, cancelData = null) {
   }
 }
 
+async function issueDigitalOrder(orderId) {
+  if (state.digitalOrderSaving) return;
+  const order = orders.find((item) => item.backendId === orderId || item.id === orderId);
+  if (!order || !canIssueDigitalOrder(order)) return;
+  const items = order.items.map((item) => ({
+    order_item_id: item.id,
+    codes: (qs(`[data-digital-issue-item="${CSS.escape(item.id)}"]`)?.value || "")
+      .split(/\r?\n/).map((code) => code.trim()).filter(Boolean),
+  }));
+  const values = items.flatMap((item) => item.codes);
+  if (items.some((item, index) => item.codes.length !== order.items[index].quantity) ||
+      values.some((code) => code.length > 500) || new Set(values).size !== values.length) {
+    showNotice("Укажите по одному уникальному коду на каждый товар, не длиннее 500 символов", "danger");
+    return;
+  }
+  const confirmed = await requestConfirmation({
+    title: `Отправить коды по заказу №${order.id}?`,
+    message: "Коды станут доступны ученику и родителю. После отправки заменить их нельзя.",
+    confirmLabel: "Отправить коды", cancelLabel: "Проверить коды",
+  });
+  if (!confirmed) return;
+  state.digitalOrderSaving = true;
+  const button = qs("[data-issue-digital-order]");
+  if (button) button.disabled = true;
+  try {
+    if (apiContext.demoMode || orderId.startsWith("demo-")) {
+      order.items.forEach((item, index) => { item.issuedCodes = items[index].codes; });
+      order.statusHistory = order.statusHistory || [];
+      order.statusHistory.push({ fromStatus: order.rawStatus, toStatus: "issued_to_student",
+        comment: "Код отправлен ученику", createdAt: new Date().toISOString() });
+      order.rawStatus = "issued_to_student";
+      order.status = orderStatusLabel(order.rawStatus);
+      order.tone = orderStatusTone(order.rawStatus);
+    } else {
+      const response = await apiFetch(`/api/v1/miniapp/orders/${encodeURIComponent(orderId)}/issue-digital`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ max_user_id: Number(apiContext.maxUserId),
+          tenant_slug: apiContext.tenantSlug || undefined, items }),
+      });
+      if (!response.ok) throw new Error(await parseApiError(response));
+      await refreshOrderAndInventoryState();
+    }
+    renderAll();
+    const refreshed = orders.find((item) => item.backendId === orderId || item.id === orderId);
+    if (refreshed) renderOrderDialog(refreshed);
+    showNotice("Коды отправлены и доступны в карточке заказа");
+  } catch (error) {
+    showNotice(error.message || "Не удалось отправить коды", "danger");
+  } finally {
+    state.digitalOrderSaving = false;
+    if (button?.isConnected) button.disabled = false;
+  }
+}
+
 async function confirmFulfillmentPickDraft() {
   if (state.fulfillmentSaving) return;
   const updates = [...state.fulfillmentPickDraft.values()];
@@ -1812,20 +1878,34 @@ async function saveWarehousePreference() {
 
 async function toggleContactLink(linkId) {
   const link = accessLinks.find((item) => item.id === linkId);
-  if (!link) return;
-  const nextStatus = link.status === "revoked" ? "active" : "revoked";
+  if (!link || state.accessLinkSaving) return;
+  const affected = accessLinks.filter((item) => item.maxUserId === link.maxUserId);
+  const names = [...new Set(affected.map((item) => item.studentName))].join(", ");
+  const confirmed = await requestConfirmation({
+    title: "Отвязать аккаунт MAX?",
+    message: `Будут сброшены все привязки аккаунта MAX ${link.maxUserId}. Ученики: ${names}. ${affected.some((item) => item.role === "parent") ? "Без другого подключённого родителя доступ ученика также закроется. " : ""}Баланс, заказы и история сохранятся. Для нового подключения нужно будет снова открыть ссылку или QR-код.`,
+    confirmLabel: "Отвязать аккаунт",
+    destructive: true,
+  });
+  if (!confirmed) return;
 
   if (apiContext.demoMode || !apiContext.maxUserId || link.id.startsWith("demo-")) {
-    link.status = nextStatus;
-    showNotice(
-      nextStatus === "revoked"
-        ? `Связь с учеником ${link.studentName} помечена к отзыву`
-        : `Связь с учеником ${link.studentName} восстановлена`,
-    );
+    affected.forEach((item) => { item.status = "revoked"; });
+    if (affected.some((item) => item.role === "parent")) {
+      affected.forEach((item) => {
+        if (accessLinks.some((other) => other.studentId === item.studentId
+            && other.role === "parent" && other.status === "active")) return;
+        accessLinks.filter((other) => other.studentId === item.studentId && other.role === "student")
+          .forEach((other) => { other.status = "revoked"; });
+      });
+    }
+    showNotice("Аккаунт отвязан. Можно создать новое подключение");
     renderAdminPanel();
     return;
   }
 
+  state.accessLinkSaving = true;
+  renderAdminPanel();
   try {
     const response = await apiFetch(`/api/v1/miniapp/access-links/${encodeURIComponent(link.id)}`, {
       method: "PATCH",
@@ -1833,21 +1913,20 @@ async function toggleContactLink(linkId) {
       body: JSON.stringify({
         max_user_id: Number(apiContext.maxUserId),
         tenant_slug: apiContext.tenantSlug || undefined,
-        status: nextStatus,
+        status: "revoked",
+        detach_account: true,
       }),
     });
     if (!response.ok) throw new Error(await parseApiError(response));
 
-    link.status = nextStatus;
-    showNotice(
-      nextStatus === "revoked"
-        ? `Связь с учеником ${link.studentName} отозвана`
-        : `Связь с учеником ${link.studentName} восстановлена`,
-    );
+    showNotice("Аккаунт отвязан. Можно создать новое подключение");
     await loadSession();
     renderAll();
   } catch (error) {
     showNotice(error.message || "Не удалось обновить связь доступа", "danger");
+  } finally {
+    state.accessLinkSaving = false;
+    renderAdminPanel();
   }
 }
 
@@ -2444,6 +2523,8 @@ async function placeOrder() {
     showNotice(
       isDigitalOrder
         ? `Покупка готова. Откройте заказ №${result.order.order_number}, чтобы посмотреть и скопировать код.`
+        : result.items.every((item) => item.fulfillment_type === "digital_manual")
+        ? `Заказ №${result.order.order_number} оформлен. Ожидается отправка кода сотрудником.`
         : `Заказ №${result.order.order_number} оформлен и зарезервирован`,
     );
     renderAll();
@@ -2931,8 +3012,6 @@ document.addEventListener("click", (event) => {
     state.adminEntitySearch = "";
     renderAdminPanel();
     if (["history", "audit"].includes(adminTab)) void loadAdminHistory();
-    if (adminTab === "contacts" && !auditFeed("bindings").loaded) void loadAuditFeed("bindings");
-    if (adminTab === "contacts") void loadPendingBindings(true);
   }
 
   if ("retryAdminHistory" in target.dataset) {
@@ -3011,6 +3090,19 @@ document.addEventListener("click", (event) => {
     renderStudentRegistry();
   }
 
+  const orderViewMode = target.dataset.orderViewMode;
+  if (orderViewMode && canSwitchOrderViews() && ["management", "teacher"].includes(orderViewMode)) {
+    state.orderViewMode = orderViewMode;
+    state.orderStatusFilter = "all";
+    state.orderSearch = "";
+    refreshFulfillmentStageSnapshot();
+    savePreferences();
+    renderOrders();
+    refreshIcons();
+    qs(`[data-order-view-mode="${orderViewMode}"]`)?.focus({ preventScroll: true });
+    return;
+  }
+
   const orderStatus = target.dataset.orderStatus;
   if (orderStatus) {
     state.orderStatusFilter = orderStatus;
@@ -3068,6 +3160,10 @@ document.addEventListener("click", (event) => {
   if (orderId) openOrderDetails(orderId);
 
   const orderActionId = target.dataset.orderActionId;
+  if (target.dataset.issueDigitalOrder) {
+    issueDigitalOrder(target.dataset.issueDigitalOrder);
+    return;
+  }
   const orderAction = target.dataset.orderAction;
   if (orderActionId && orderAction) {
     if (orderAction === "cancel") {
@@ -3580,11 +3676,14 @@ document.addEventListener("change", (event) => {
     }
   }
 
-  if (target.id === "productFulfillmentType") {
+  if (["productFulfillmentType", "productInstantDelivery"].includes(target.id)) {
     const codeEditor = qs(".product-code-editor");
     const inventoryEditor = qs(".product-inventory-editor");
-    if (codeEditor) codeEditor.hidden = target.value !== "digital_code";
-    if (inventoryEditor) inventoryEditor.hidden = target.value !== "warehouse";
+    const isDigital = qs("#productFulfillmentType")?.value === "digital_manual";
+    const instantOption = qs("[data-digital-instant-option]");
+    if (instantOption) instantOption.hidden = !isDigital;
+    if (codeEditor) codeEditor.hidden = !isDigital || !qs("#productInstantDelivery")?.checked;
+    if (inventoryEditor) inventoryEditor.hidden = isDigital;
   }
 
   const productWarehouseId = target.dataset.productWarehouseSelect;

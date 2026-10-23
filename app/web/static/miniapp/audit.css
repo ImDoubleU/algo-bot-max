@@ -1,5 +1,5 @@
 .audit-panel { min-width: 0; padding: 20px; }
-#bindingHistoryPanel .audit-panel, #studentActionTimeline .audit-panel { padding: 0; }
+#studentActionTimeline .audit-panel { padding: 0; }
 .audit-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .audit-toolbar h3 { margin: 0; font-size: 20px; }
 .audit-toolbar button { display: flex; gap: 8px; align-items: center; }
@@ -67,9 +67,9 @@
 .audit-title strong { font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
 .audit-heading time { color: var(--muted); font-size: 12px; line-height: 22px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .audit-badge { font-size: 10px; font-weight: 600; border-radius: 5px; padding: 3px 6px; background: #fff5da; }
-.audit-people { display: grid; grid-template-columns: 98px fit-content(360px) minmax(0, 1fr); gap: 8px 16px; align-items: baseline; margin-top: 12px; font-size: 14px; }
+.audit-people { display: grid; grid-template-columns: minmax(0, 160px) fit-content(360px) minmax(0, 1fr); gap: 8px 16px; align-items: baseline; margin-top: 12px; font-size: 14px; }
 .audit-person { display: contents; }
-.audit-person-role { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.audit-person-role { min-width: 0; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .audit-person-name { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; min-width: 0; overflow-wrap: anywhere; }
 .audit-person-name strong { font-weight: 500; }
 .audit-current { color: var(--muted); font-size: 10px; font-weight: 400; }
@@ -97,7 +97,6 @@
 .audit-error { padding: 16px; background: #fff0ef; border-radius: 10px; margin: 12px 0; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .audit-more { display: block; min-height: 44px; width: 100%; margin-top: 18px; }
 .audit-loading { text-align: center; padding: 18px; color: var(--muted); }
-#bindingHistoryPanel { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--line); }
 .audit-accrual-author { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin: 10px 0; font-size: 13px; }
 .audit-accrual-author > span, .audit-accrual-author code { color: var(--muted); font-size: 12px; }
 .audit-accrual-author strong { font-weight: 600; overflow-wrap: anywhere; }
@@ -114,7 +113,7 @@
 @media (max-width: 1100px) {
   .audit-panel[data-audit-panel="audit"] .audit-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .audit-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .audit-people { grid-template-columns: 96px minmax(0, 1fr); gap: 3px 10px; }
+  .audit-people { grid-template-columns: 144px minmax(0, 1fr); gap: 3px 10px; }
   .audit-person-ids { grid-column: 2; justify-content: flex-start; }
 }
 @media (max-width: 700px) {
@@ -141,7 +140,9 @@
   .audit-heading { flex-wrap: wrap; gap: 2px 8px; }
   .audit-heading time { font-size: 11px; }
   .audit-title strong { font-size: 14px; }
-  .audit-people { grid-template-columns: 70px minmax(0, 1fr); }
+  .audit-people { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .audit-person { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .audit-person-ids { grid-column: auto; }
   .audit-person-role { font-size: 11px; }
   .audit-person-name { font-size: 13px; }
   .audit-context > div { flex-direction: column; gap: 3px; }
