@@ -9,7 +9,7 @@ const pizzaEscape = (value) => escapeHtml(String(value ?? ""));
 const pizzaContextKey = () => [window.pizzaPreview?.tenant || apiContext.tenantSlug,
   state.role, ["student", "parent"].includes(state.role) ? selectedStudent()?.id : "staff"].join(":");
 
-function pizzaIllustration(progress = 0) {
+function pizzaIllustration() {
   return `<svg class="pizza-art" viewBox="0 0 320 280" role="img" aria-label="Пицца для всей группы">
     <defs><filter id="pizzaShadow"><feDropShadow dx="0" dy="14" stdDeviation="12" flood-color="#903e15" flood-opacity=".18"/></filter>
     <radialGradient id="pizzaCheese"><stop stop-color="#ffe594"/><stop offset="1" stop-color="#f9bd52"/></radialGradient></defs>
@@ -24,9 +24,6 @@ function pizzaIllustration(progress = 0) {
     <circle r="107" fill="none" stroke="#fff" stroke-width="2" opacity=".3"/>
     </g><path d="M44 38l5 -9m222 23l9 -5M29 178l-11 2m255 43l8 8" stroke="#dc784b" stroke-width="4" stroke-linecap="round"/>
     <circle cx="271" cy="118" r="6" fill="#93ac78"/><circle cx="52" cy="232" r="4" fill="#e6a94d"/>
-    <g transform="translate(198 208)"><rect width="107" height="38" rx="19" fill="#fffdf7" stroke="#edddc4"/>
-    <circle cx="20" cy="19" r="10" fill="#dff0dc"/><path d="m15 19 4 4 7 -8" fill="none" stroke="#3d7747" stroke-width="2"/>
-    <text x="37" y="24" fill="#573921" font-size="13" font-family="Arial" font-weight="700">${Math.round(progress)}% собрано</text></g>
   </svg>`;
 }
 
@@ -116,14 +113,12 @@ function pizzaCard(c) {
       ${open ? `<div class="pizza-clock" title="До ${pizzaEscape(date)} МСК"><i data-lucide="timer"></i><span data-pizza-timer="${pizzaEscape(c.deadline)}">${pizzaCountdown(c.deadline)}</span></div>` : `<span class="pizza-small">${c.joined} из ${c.members} участников</span>`}</div>
     <div class="pizza-card-body"><div class="pizza-copy"><p class="pizza-group">${pizzaEscape(c.group_name)}</p>
       <h2>${c.status === "cancelled" ? "Сбор отменён" : ended ? "В этот раз не собрались" : customer && !open ? "На пиццу собрали!" : c.status === "delivered" ? "Пицца приехала!" : "На пиццу всей группой"}</h2>
-      <p class="pizza-description">${pizzaEscape(c.title)}${c.description ? ` · ${pizzaEscape(c.description)}` : ""}</p>
       <div class="pizza-progress-caption"><strong>${pizzaNumber(c.collected)} <span>из ${pizzaNumber(c.target)} AC</span></strong><span>${c.joined} из ${c.members} внесли</span></div>
       <div class="pizza-progress" role="progressbar" aria-label="Собрано астрокоинов" aria-valuenow="${c.collected}" aria-valuemin="0" aria-valuemax="${c.target}"><span style="width:${percent}%"></span></div>
       <div class="pizza-segments" aria-hidden="true">${Array.from({length: Math.min(c.members,30)},(_,i)=>`<span class="${i < c.joined ? "is-filled" : ""}"></span>`).join("")}</div>
-      <div class="pizza-share"><span>Одинаковый взнос для каждого</span><strong>${pizzaNumber(c.share)} <small>AC</small></strong></div>
       ${pizzaActions(c)}
       <div class="pizza-card-foot"><span><i data-lucide="${ended ? "wallet" : "shield-check"}"></i>${ended ? "Внесённые астрокоины возвращены" : open ? "Не соберём к сроку — вернём взносы" : customer ? "Сумма собрана. Спасибо за участие!" : c.status === "funded" ? "Преподаватель и директор уведомлены" : PIZZA_STATES[c.status]}</span><button class="pizza-text-button" data-pizza-details="${c.id}">Подробнее<i data-lucide="chevron-right"></i></button></div>
-    </div><div class="pizza-visual">${pizzaIllustration(percent)}</div></div>
+    </div><div class="pizza-visual"><div class="pizza-illustration">${pizzaIllustration()}<span class="pizza-percent"><i data-lucide="check"></i><span>${Math.round(percent)}% собрано</span></span></div></div></div>
     ${c.can_manage && !["cancelled","expired","delivered"].includes(c.status) ? `<div class="pizza-workflow">${["funded","paid","ordered","delivered"].map((status,i)=>`<span class="${["open","funded","paid","ordered","delivered"].indexOf(c.status) >= i+1 ? "is-complete" : ""}"><i data-lucide="${["circle-check","banknote","pizza","party-popper"][i]}"></i>${["Собрали","Деньги переданы","Заказали","Получили"][i]}</span>`).join("")}${["open","funded"].includes(c.status) ? `<button class="pizza-text-button" data-pizza-action="cancel" data-pizza-id="${c.id}">Отменить сбор</button>` : ""}</div>` : ""}
   </article>`;
 }
@@ -189,7 +184,7 @@ function pizzaLaunchDialog() {
     <label>Группа<select name="group_name" required>${groups.map(g=>`<option value="${pizzaEscape(g.name)}">${pizzaEscape(g.name)} · ${g.count} учеников</option>`).join("")}</select></label>
     <fieldset class="pizza-offer-options"><legend>Вариант пиццы</legend>${board.offers.map((o,i)=>`<label><input type="radio" name="offer_id" value="${o.id}" ${!i ? "checked" : ""} required><span><strong>${pizzaEscape(o.title)}</strong><small>${pizzaEscape(o.description)}</small></span><b>${pizzaNumber(o.share)} AC<small>с ученика</small></b></label>`).join("")}</fieldset>
     <label>Собрать до · МСК<input type="datetime-local" name="deadline" value="${date}" required></label>
-    <div id="pizzaLaunchSummary" class="pizza-calculation"></div><p class="pizza-form-note">Взносы добровольные. Если к сроку не соберётся вся сумма, астрокоины вернутся участникам.</p>
+    <div id="pizzaLaunchSummary" class="pizza-calculation"></div><p class="pizza-form-note">Если к сроку не соберётся вся сумма, астрокоины вернутся участникам.</p>
     <p class="pizza-form-error" role="alert" hidden></p><button class="pizza-primary" type="submit">Открыть сбор<i data-lucide="arrow-right"></i></button></form>`);
   pizzaUpdateLaunchSummary();
 }
@@ -214,7 +209,7 @@ function pizzaConfirmContribution(c) {
 
 function pizzaShowDetails(c) {
   const date = new Intl.DateTimeFormat("ru-RU", {timeZone:"Europe/Moscow",dateStyle:"long",timeStyle:"short"}).format(new Date(c.deadline));
-  pizzaOpenDialog(c.title, `<p class="pizza-detail-status">${PIZZA_STATES[c.status]}</p><dl class="pizza-facts"><div><dt>Группа</dt><dd>${pizzaEscape(c.group_name)}</dd></div><div><dt>Взнос каждого</dt><dd>${pizzaNumber(c.share)} AC</dd></div><div><dt>Цель</dt><dd>${pizzaNumber(c.target)} AC · ${c.members} учеников</dd></div><div><dt>Срок</dt><dd>${pizzaEscape(date)} МСК</dd></div></dl><div class="pizza-rules"><p><i data-lucide="equal"></i>Один одинаковый взнос с ученика. Доплат нет.</p><p><i data-lucide="undo-2"></i>Если не соберём всю сумму, взносы вернутся автоматически.</p><p><i data-lucide="users"></i>Пицца для всей группы. Участие во взносе добровольное.</p></div>`);
+  pizzaOpenDialog(c.title, `<p class="pizza-detail-status">${PIZZA_STATES[c.status]}</p><dl class="pizza-facts"><div><dt>Группа</dt><dd>${pizzaEscape(c.group_name)}</dd></div><div><dt>Взнос каждого</dt><dd>${pizzaNumber(c.share)} AC</dd></div><div><dt>Цель</dt><dd>${pizzaNumber(c.target)} AC · ${c.members} учеников</dd></div><div><dt>Срок</dt><dd>${pizzaEscape(date)} МСК</dd></div></dl><div class="pizza-rules"><p><i data-lucide="equal"></i>Один одинаковый взнос с ученика.</p><p><i data-lucide="undo-2"></i>Если не соберём всю сумму, взносы вернутся автоматически.</p><p><i data-lucide="users"></i>Пицца для всей группы.</p></div>`);
 }
 
 async function pizzaMutate(path, payload, success) {
