@@ -2323,6 +2323,8 @@ function applySession(session) {
     ledgerAmount(entry),
     String(entry.student_id),
     entry.category || "accrual",
+    String(entry.id),
+    entry.created_at,
   ]);
 
   const staffRole = staffRoleToUiRole(session.staff_roles || []);

@@ -661,7 +661,8 @@ function setView(view) {
   const allowedViews = roleViews(state.role);
   const nextView = allowedViews.includes(view) ? view : "dashboard";
   const previousView = state.view;
-  if (nextView === "store" && typeof pizzaLoad === "function") void pizzaLoad();
+  if ((nextView === "store" || (["orders", "wallet"].includes(nextView) &&
+      ["student", "parent"].includes(state.role))) && typeof pizzaLoad === "function") void pizzaLoad();
   if (previousView === "feedback" && typeof feedbackCaptureUi === "function" && feedbackState.restored) { feedbackCaptureUi(); feedbackPersist(); }
   if (previousView !== nextView) hideNotice();
   if (nextView !== "store") state.storeFiltersOpen = false;

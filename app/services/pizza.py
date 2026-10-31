@@ -462,6 +462,7 @@ async def board(db, actor, *, student_id=None):
         )
     )
     output = []
+    history = []
     for c in campaigns:
         member = own is not None and str(own.id) in {r["id"] for r in c.roster}
         staff = (c.teacher_id == actor.account.id and StaffRole.TEACHER in actor.roles) or (
@@ -474,42 +475,51 @@ async def board(db, actor, *, student_id=None):
             await db.scalars(select(PizzaContribution).where(PizzaContribution.campaign_id == c.id))
         )
         mine = next((r for r in contributions if own and r.student_id == own.id), None)
-        output.append(
-            dict(
-                id=str(c.id),
-                title=c.title,
-                description=c.description,
-                group_name=c.group_name,
-                share=c.share,
-                target=c.target,
-                collected=c.collected,
-                status="funded"
-                if customer_view and c.status in ("funded", "paid", "ordered", "delivered")
-                else c.status,
-                finished=c.status in ("delivered", "cancelled", "expired"),
-                deadline=utc(c.deadline).isoformat(),
-                members=len(c.roster),
-                joined=len(contributions),
-                contributed=mine is not None,
-                refunded=mine is not None and mine.refunded_at is not None,
-                can_manage=staff,
-                is_teacher=staff and c.teacher_id == actor.account.id,
-                # No public names, unpaid list or balances of other children.
-                can_pay=actor.director and staff,
-                can_contribute=bool(
-                    member
-                    and mine is None
-                    and c.status == "open"
-                    and await get_effective_customer_access_link(
-                        db,
-                        tenant_id=actor.tenant.id,
-                        account_id=actor.account.id,
-                        student_id=own.id,
-                        required_role=StudentAccessRole.STUDENT,
-                    )
-                ),
-            )
+        record = dict(
+            id=str(c.id),
+            title=c.title,
+            description=c.description,
+            group_name=c.group_name,
+            share=c.share,
+            target=c.target,
+            collected=c.collected,
+            status="funded"
+            if customer_view and c.status in ("funded", "paid", "ordered", "delivered")
+            else c.status,
+            finished=c.status in ("delivered", "cancelled", "expired"),
+            deadline=utc(c.deadline).isoformat(),
+            members=len(c.roster),
+            joined=len(contributions),
+            contributed=mine is not None,
+            refunded=mine is not None and mine.refunded_at is not None,
+            can_manage=staff,
+            is_teacher=staff and c.teacher_id == actor.account.id,
+            # No public names, unpaid list or balances of other children.
+            can_pay=actor.director and staff,
+            can_contribute=bool(
+                member
+                and mine is None
+                and c.status == "open"
+                and await get_effective_customer_access_link(
+                    db,
+                    tenant_id=actor.tenant.id,
+                    account_id=actor.account.id,
+                    student_id=own.id,
+                    required_role=StudentAccessRole.STUDENT,
+                )
+            ),
         )
+        if mine is not None:
+            history.append(
+                {
+                    **record,
+                    "contributed_at": utc(mine.created_at).isoformat(),
+                    "refunded_at": utc(mine.refunded_at).isoformat() if mine.refunded_at else None,
+                }
+            )
+        # Customers see the collection in the shop only while contributions are open.
+        if not customer_view or c.status == "open":
+            output.append(record)
     offers = (
         list(
             await db.scalars(
@@ -536,8 +546,36 @@ async def board(db, actor, *, student_id=None):
     balance = (
         await db.scalar(select(Wallet.balance).where(Wallet.student_id == own.id)) if own else None
     )
+    entries = (
+        list(
+            await db.scalars(
+                select(AstrocoinLedgerEntry)
+                .where(
+                    AstrocoinLedgerEntry.tenant_id == actor.tenant.id,
+                    AstrocoinLedgerEntry.student_id == own.id,
+                    AstrocoinLedgerEntry.idempotency_key.like("pizza:%"),
+                )
+                .order_by(AstrocoinLedgerEntry.created_at.desc())
+            )
+        )
+        if own
+        else []
+    )
     return dict(
         campaigns=output,
+        history=history,
+        ledger=[
+            dict(
+                id=str(e.id),
+                student_id=str(e.student_id),
+                reason=e.reason,
+                comment=e.comment,
+                amount=e.amount,
+                direction=e.direction.value,
+                created_at=utc(e.created_at).isoformat(),
+            )
+            for e in entries
+        ],
         director=actor.director and not customer_view,
         teacher=StaffRole.TEACHER in actor.roles and not customer_view,
         balance=balance,

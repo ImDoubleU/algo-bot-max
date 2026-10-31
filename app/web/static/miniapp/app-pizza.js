@@ -11,10 +11,9 @@ const pizzaContextKey = () => [window.pizzaPreview?.tenant || apiContext.tenantS
 
 function pizzaIllustration() {
   return `<svg class="pizza-art" viewBox="0 0 320 280" role="img" aria-label="Пицца для всей группы">
-    <defs><filter id="pizzaShadow"><feDropShadow dx="0" dy="14" stdDeviation="12" flood-color="#903e15" flood-opacity=".18"/></filter>
+    <defs><filter id="pizzaShadow" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="9" stdDeviation="9" flood-color="#903e15" flood-opacity=".14"/></filter>
     <radialGradient id="pizzaCheese"><stop stop-color="#ffe594"/><stop offset="1" stop-color="#f9bd52"/></radialGradient></defs>
-    <ellipse cx="164" cy="249" rx="112" ry="10" fill="#e6ad7b" opacity=".2"/>
-    <g transform="translate(160 134) rotate(-12)" filter="url(#pizzaShadow)">
+    <g filter="url(#pizzaShadow)"><g transform="translate(160 134) rotate(-12)">
     <circle r="117" fill="#fff9ef" stroke="#f2debf" stroke-width="2"/>
     <circle r="101" fill="#df8a37"/><circle r="94" fill="#f6b95b"/>
     <circle r="86" fill="#d75c36"/><circle r="81" fill="url(#pizzaCheese)"/>
@@ -22,7 +21,7 @@ function pizzaIllustration() {
     ${[[-23,-52],[50,28],[-52,25],[19,-24],[-9,61],[62,-44]].map(([x,y])=>`<path d="M${x} ${y}q-14 -17 -18 2q15 14 18 -2" fill="#518355"/>`).join("")}
     ${[0,45,90,135].map(a=>`<path d="M0 -97V97" stroke="#ba742d" stroke-width="2" opacity=".45" transform="rotate(${a})"/>`).join("")}
     <circle r="107" fill="none" stroke="#fff" stroke-width="2" opacity=".3"/>
-    </g><path d="M44 38l5 -9m222 23l9 -5M29 178l-11 2m255 43l8 8" stroke="#dc784b" stroke-width="4" stroke-linecap="round"/>
+    </g></g><path d="M44 38l5 -9m222 23l9 -5M29 178l-11 2m255 43l8 8" stroke="#dc784b" stroke-width="4" stroke-linecap="round"/>
     <circle cx="271" cy="118" r="6" fill="#93ac78"/><circle cx="52" cy="232" r="4" fill="#e6a94d"/>
   </svg>`;
 }
@@ -68,6 +67,10 @@ async function pizzaLoad() {
       renderStatus();
     }
     renderPizza();
+    if (["student", "parent"].includes(state.role)) {
+      renderOrders();
+      renderLedger();
+    }
   } catch (error) {
     if (error.status === 404) pizzaState.disabled = true;
     if (error.status !== 404) {
@@ -138,16 +141,53 @@ function renderPizza() {
     root.innerHTML = `<div class="pizza-load-error" role="status">${pizzaEscape(pizzaState.error)} <button class="secondary-action" data-pizza-retry>Повторить</button></div>`;
     return;
   }
-  const live = board.campaigns.filter(c=>!c.finished);
-  const past = board.campaigns.filter(c=>c.finished);
   const staff = board.teacher || board.director;
-  root.hidden = !staff && !board.campaigns.length;
+  const live = board.campaigns.filter(c=>staff ? !c.finished : c.status === "open");
+  const past = staff ? board.campaigns.filter(c=>c.finished) : [];
+  root.hidden = !staff && !live.length;
   root.innerHTML = `${staff ? `<div class="pizza-section-head"><h2>Сборы на пиццу</h2><div class="pizza-staff-actions">${board.notices.length ? `<button class="secondary-action" data-pizza-notices><i data-lucide="bell"></i><span>${board.notices.length}</span></button>` : ""}${board.director ? '<button class="secondary-action" data-pizza-offers><i data-lucide="sliders-horizontal"></i>Варианты пиццы</button>' : ""}${board.teacher ? '<button class="pizza-primary" data-pizza-launch><i data-lucide="plus"></i>Открыть сбор</button>' : ""}</div></div>` : ""}
     ${pizzaState.error ? `<p class="pizza-inline-error" role="alert">${pizzaEscape(pizzaState.error)}</p>` : ""}
     ${live.map(pizzaCard).join("")}
     ${!live.length && staff ? `<div class="pizza-empty"><i data-lucide="pizza"></i><div><strong>Хороший повод собраться вместе</strong><p>${board.teacher ? "Выберите вариант пиццы и откройте сбор для своей группы." : "Создайте варианты пиццы — преподаватели смогут открыть сбор."}</p></div></div>` : ""}
     ${past.length ? `<details class="pizza-past" ${!live.length ? "open" : ""}><summary>Завершённые сборы <span>${past.length}</span></summary>${past.map(pizzaCard).join("")}</details>` : ""}`;
   refreshIcons();
+}
+
+function pizzaPersonalBoard() {
+  return ["student", "parent"].includes(state.role) &&
+    pizzaState.context === pizzaContextKey() ? pizzaState.board : null;
+}
+
+function pizzaMergedLedger(rows) {
+  const board = pizzaPersonalBoard();
+  if (!board) return rows;
+  const items = (board.ledger || []).map(entry => [
+    formatDate(entry.created_at),
+    `${entry.reason}${entry.comment ? ` · ${entry.comment}` : ""}`,
+    `${entry.direction === "debit" ? "-" : "+"}${pizzaNumber(entry.amount)} AC`,
+    entry.student_id, "purchase", entry.id, entry.created_at,
+  ]);
+  const ids = new Set(items.map(row=>row[5]));
+  return [...rows.filter(row=>!ids.has(row[5])), ...items]
+    .sort((a,b)=>(Date.parse(b[6] || b[0]) || 0)-(Date.parse(a[6] || a[0]) || 0));
+}
+
+function renderPizzaOrderHistory() {
+  const root = qs("#pizzaOrdersHistory");
+  if (!root) return 0;
+  const board = pizzaPersonalBoard();
+  const query = String(state.orderSearch || "").toLocaleLowerCase("ru-RU").replaceAll("ё","е").trim();
+  const history = (board?.history || []).filter(c=>
+    `${c.title} ${c.group_name}`.toLocaleLowerCase("ru-RU").replaceAll("ё","е").includes(query));
+  root.hidden = !history.length;
+  root.innerHTML = history.length ? `<h3>Сборы на пиццу</h3>${history.map(c=>{
+    const refunded = c.refunded;
+    const status = refunded ? "Взнос возвращён" : c.status === "open" ? "Взнос внесён" : "Сумма собрана";
+    const date = new Intl.DateTimeFormat("ru-RU", {timeZone:"Europe/Moscow", dateStyle:"medium", timeStyle:"short"}).format(new Date(c.refunded_at || c.contributed_at));
+    return `<article class="pizza-history-card" data-pizza-history="${c.id}"><span class="pizza-history-icon"><i data-lucide="${refunded ? "undo-2" : "pizza"}"></i></span><div><strong>${pizzaEscape(c.title)}</strong><span>${pizzaEscape(c.group_name)}</span><small>${pizzaEscape(date)} МСК</small></div><div class="pizza-history-outcome"><span class="${refunded ? "is-refunded" : ""}">${status}</span><strong>${pizzaNumber(c.share)} AC</strong></div><button class="pizza-text-button" data-pizza-details="${c.id}">Подробнее<i data-lucide="chevron-right"></i></button></article>`;
+  }).join("")}` : "";
+  refreshIcons();
+  return history.length;
 }
 
 function pizzaOpenDialog(title, body, footer = "") {
@@ -204,7 +244,7 @@ function pizzaOffersDialog() {
 }
 
 function pizzaConfirmContribution(c) {
-  pizzaOpenDialog("Участвуем в сборе?", `<div class="pizza-confirm-hero"><i data-lucide="pizza"></i><strong>${pizzaEscape(c.title)}</strong><span>${pizzaEscape(selectedStudent()?.name || "")}</span></div><div class="pizza-confirm-amount"><span>Ваш взнос</span><strong>${pizzaNumber(c.share)} AC</strong></div><div class="pizza-calculation"><span>Баланс после взноса</span><strong>${pizzaNumber(pizzaState.board.balance-c.share)} AC</strong></div><p class="pizza-form-note">Это один взнос. Если сбор отменят или не соберётся вся сумма, ${pizzaNumber(c.share)} AC вернутся на баланс.</p><p class="pizza-form-error" role="alert" hidden></p>`, `<button class="secondary-action" data-pizza-close>Пока нет</button><button class="pizza-primary" data-pizza-confirm="${c.id}">Внести ${pizzaNumber(c.share)} AC</button>`);
+  pizzaOpenDialog("Участвуем в сборе?", `<div class="pizza-confirm-hero"><i data-lucide="pizza"></i><strong>${pizzaEscape(c.title)}</strong><span>${pizzaEscape(selectedStudent()?.name || "")}</span></div><div class="pizza-confirm-amount"><span>Ваш взнос</span><strong>${pizzaNumber(c.share)} AC</strong></div><div class="pizza-calculation"><span>Баланс после взноса</span><strong>${pizzaNumber(pizzaState.board.balance-c.share)} AC</strong></div><p class="pizza-form-note">Если сбор отменят или не соберётся вся сумма, ${pizzaNumber(c.share)} AC вернутся на баланс.</p><p class="pizza-form-error" role="alert" hidden></p>`, `<button class="secondary-action" data-pizza-close>Пока нет</button><button class="pizza-primary" data-pizza-confirm="${c.id}">Внести ${pizzaNumber(c.share)} AC</button>`);
 }
 
 function pizzaShowDetails(c) {
@@ -240,7 +280,7 @@ document.addEventListener("click", event=>{
   if (target.hasAttribute("data-pizza-launch")) pizzaLaunchDialog();
   if (target.hasAttribute("data-pizza-offers")) pizzaOffersDialog();
   if (target.hasAttribute("data-pizza-notices")) pizzaOpenDialog("Уведомления по сборам", `<div class="pizza-notices">${pizzaState.board.notices.map(n=>`<article><i data-lucide="${n.event==="refund" ? "undo-2" : "bell"}"></i><p>${pizzaEscape(n.message)}</p></article>`).join("")}</div><p class="pizza-form-note">В локальной демке сообщения в MAX не отправляются.</p>`);
-  const c=pizzaState.board?.campaigns.find(c=>c.id===(target.dataset.pizzaContribute || target.dataset.pizzaDetails || target.dataset.pizzaId));
+  const c=[...(pizzaState.board?.campaigns || []),...(pizzaState.board?.history || [])].find(c=>c.id===(target.dataset.pizzaContribute || target.dataset.pizzaDetails || target.dataset.pizzaId));
   if (target.dataset.pizzaContribute && c) pizzaConfirmContribution(c);
   if (target.dataset.pizzaDetails && c) pizzaShowDetails(c);
   if (target.dataset.pizzaConfirm) void pizzaMutate(`/campaigns/${target.dataset.pizzaConfirm}/contribute`, {student_id: selectedStudent().id}, "Взнос внесён. Вы участвуете!");
@@ -274,4 +314,4 @@ setInterval(()=>{
   if (pizzaState.board?.campaigns.some(c=>c.status==="open" && Date.parse(c.deadline)<=Date.now()+pizzaState.offset) &&
       !pizzaState.busy && !qs("#pizzaDialog")) void pizzaLoad();
 },1000);
-setInterval(()=>{if(state.view==="store" && !qs("#pizzaDialog") && !pizzaState.busy) void pizzaLoad();},15000);
+setInterval(()=>{if(["store","orders","wallet"].includes(state.view) && !qs("#pizzaDialog") && !pizzaState.busy) void pizzaLoad();},15000);

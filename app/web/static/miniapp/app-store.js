@@ -1992,6 +1992,7 @@ function renderOrderFulfillmentSummary() {
 }
 
 function renderOrders() {
+  const pizzaHistoryCount = typeof renderPizzaOrderHistory === "function" ? renderPizzaOrderHistory() : 0;
   window.requestAnimationFrame(refreshIcons);
   qs("#ordersView")?.classList.toggle("orders-teacher-mode", isTeacherOrderView());
   renderOrderViewSwitcher();
@@ -2019,9 +2020,11 @@ function renderOrders() {
   }
 
   if (ordersForCurrentRole().length === 0) {
-    ordersTable.innerHTML = '<div class="empty-state">Заказов пока нет</div>';
+    qs("#orderStatusTabs").hidden = pizzaHistoryCount > 0;
+    ordersTable.innerHTML = pizzaHistoryCount ? "" : '<div class="empty-state">Заказов пока нет</div>';
     return;
   }
+  qs("#orderStatusTabs").hidden = false;
 
   const pendingIds = new Set(isTeacherOrderView() && fulfillmentSummary && !fulfillmentSummary.hidden
     ? orderFulfillmentSummaryOrders().filter(fulfillmentOrderMatchesSearch).map(fulfillmentOrderId) : []);
@@ -2102,7 +2105,8 @@ function renderLedger() {
   }
 
   const student = selectedStudent();
-  const visibleLedger = ledger.filter(
+  const sourceLedger = typeof pizzaMergedLedger === "function" ? pizzaMergedLedger(ledger) : ledger;
+  const visibleLedger = sourceLedger.filter(
     ([, , , studentId]) => !studentId || !student || studentId === student.id,
   );
   const amounts = visibleLedger.map(([, , amount]) => ledgerAmountValue(amount));

@@ -276,6 +276,7 @@ students.splice(0,students.length,...{json.dumps(records, ensure_ascii=False)});
 state.activeStudentId=students[0].id;
 state.account={{display_name:{json.dumps(account.display_name, ensure_ascii=False)}}};
 orders.splice(0,orders.length);
+ledger.splice(0,ledger.length);
 """
     return Response(source, media_type="application/javascript")
 

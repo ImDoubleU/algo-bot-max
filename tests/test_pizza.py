@@ -257,8 +257,9 @@ async def test_stage_permissions_no_skipping_and_cancel_after_transfer_rejected(
     assert c["campaign"].status == "delivered"
     child = await pizza.actor_for(c["db"], c["accounts"][0].max_user_id, "test")
     public = await pizza.board(c["db"], child, student_id=c["pupils"][0].id)
-    assert public["campaigns"][0]["status"] == "funded"
-    assert public["campaigns"][0]["finished"] is True
+    assert public["campaigns"] == []
+    assert public["history"][0]["status"] == "funded"
+    assert public["history"][0]["finished"] is True
     assert public["notices"] == []
 
 
@@ -272,11 +273,32 @@ async def test_child_view_never_exposes_internal_stages_even_for_staff_account(c
         c["campaign"].status = stage
         await c["db"].flush()
         public = await pizza.board(c["db"], child, student_id=c["pupils"][0].id)
-        assert public["campaigns"][0]["status"] == "funded"
-        assert not public["campaigns"][0]["can_manage"]
-        assert not public["campaigns"][0]["can_pay"]
+        assert public["campaigns"] == []
+        assert public["history"][0]["status"] == "funded"
+        assert not public["history"][0]["can_manage"]
+        assert not public["history"][0]["can_pay"]
         assert not public["director"] and not public["teacher"]
         assert public["offers"] == [] and public["groups"] == []
+
+
+async def test_cancelled_collection_leaves_shop_but_keeps_exact_personal_history(context):
+    c = context
+    await pay(c)
+    await pizza.campaign_action(c["db"], c["teacher"], c["campaign"].id, "cancel")
+    await c["db"].commit()
+    child = await pizza.actor_for(c["db"], c["accounts"][0].max_user_id, "test")
+    data = await pizza.board(c["db"], child, student_id=c["pupils"][0].id)
+    assert data["campaigns"] == [] and len(data["history"]) == 1
+    assert data["history"][0]["refunded"]
+    assert data["history"][0]["refunded_at"]
+    assert data["balance"] == 1240
+    assert len(data["ledger"]) == 2
+    assert (
+        sum(-e["amount"] if e["direction"] == "debit" else e["amount"] for e in data["ledger"]) == 0
+    )
+    unpaid = await pizza.actor_for(c["db"], c["accounts"][1].max_user_id, "test")
+    other = await pizza.board(c["db"], unpaid, student_id=c["pupils"][1].id)
+    assert other["campaigns"] == [] and other["history"] == [] and other["ledger"] == []
 
 
 async def test_offers_director_only_campaigns_own_teacher_only_and_one_live_collection(context):
