@@ -11,6 +11,7 @@ from app.models.bank import BankDailyAccrual, BankDeposit, BankOperation, BankRa
 from app.models.communication import SchoolBroadcast
 from app.models.feedback_schedule import FeedbackSchedule
 from app.models.pending_binding import PendingBinding
+from app.models.pizza import PizzaCampaign, PizzaContribution, PizzaNotice, PizzaOffer
 from app.models.store import (
     Order,
     OrderItem,
@@ -46,6 +47,10 @@ from app.models.teaching import (
 from app.models.tenant import AstrocoinAccrualRule, City, Partner, Tenant, Venue
 
 __all__ = [
+    "PizzaCampaign",
+    "PizzaContribution",
+    "PizzaNotice",
+    "PizzaOffer",
     "SupportDraft",
     "SupportPhoto",
     "SupportReply",

@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     app_secret_key: str = Field(default="replace_me", alias="APP_SECRET_KEY")
     app_timezone: str = Field(default="Europe/Moscow", alias="APP_TIMEZONE")
     api_v1_prefix: str = "/api/v1"
+    group_collections_enabled: bool = Field(default=False, alias="GROUP_COLLECTIONS_ENABLED")
 
     max_bot_token: str | None = Field(default=None, alias="MAX_BOT_TOKEN")
     max_bot_username: str | None = Field(default=None, alias="MAX_BOT_USERNAME")

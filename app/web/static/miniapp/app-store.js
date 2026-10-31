@@ -432,6 +432,7 @@ function renderCategories() {
 }
 
 function renderProducts() {
+  if (typeof renderPizza === "function") renderPizza();
   const search = qs("#productSearch").value.trim().toLowerCase();
   const selectedCategory = qs("#categoryFilter").value || state.productCategory || "all";
   const category = selectedCategory === "all" ? "all" : productCategoryKey(selectedCategory);
