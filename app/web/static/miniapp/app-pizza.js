@@ -8,6 +8,9 @@ const pizzaNumber = (value) => Number(value || 0).toLocaleString("ru-RU");
 const pizzaEscape = (value) => escapeHtml(String(value ?? ""));
 const pizzaContextKey = () => [window.pizzaPreview?.tenant || apiContext.tenantSlug,
   state.role, ["student", "parent"].includes(state.role) ? selectedStudent()?.id : "staff"].join(":");
+const pizzaOfferIcon = (c) => c.kind === "other" ? "piggy-bank" : "pizza";
+const pizzaStatus = (c) => c.kind === "other" && c.status === "ordered" ? "Заказ оформлен" :
+  c.kind === "other" && c.status === "delivered" ? "Заказ получен" : PIZZA_STATES[c.status];
 
 function pizzaIllustration() {
   return `<svg class="pizza-art" viewBox="0 0 320 280" role="img" aria-label="Пицца для всей группы">
@@ -26,6 +29,30 @@ function pizzaIllustration() {
   </svg>`;
 }
 
+function collectionPigIllustration() {
+  return `<svg class="pizza-art piggy-art" viewBox="0 0 320 280" role="img" aria-label="Копилка в виде свиньи">
+    <defs><filter id="pigShadow" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="9" stdDeviation="9" flood-color="#9b5c45" flood-opacity=".14"/></filter>
+    <linearGradient id="pigBody" x2=".8" y2="1"><stop stop-color="#ffd7c2"/><stop offset="1" stop-color="#eea58f"/></linearGradient></defs>
+    <g filter="url(#pigShadow)">
+      <path d="M72 145c-25 -4 -37 -23 -25 -31 14 -10 26 11 11 19" fill="none" stroke="#d18b79" stroke-width="8" stroke-linecap="round"/>
+      <rect x="101" y="204" width="29" height="37" rx="10" fill="#d78f7d"/>
+      <rect x="197" y="203" width="29" height="38" rx="10" fill="#d78f7d"/>
+      <ellipse cx="161" cy="152" rx="98" ry="73" fill="url(#pigBody)" stroke="#e0a18d" stroke-width="2"/>
+      <path d="M202 100q-13 -48 9 -51 24 2 21 48" fill="#f5baa4" stroke="#dfa18e" stroke-width="2"/>
+      <path d="M208 84q-4 -27 5 -27 10 6 11 30" fill="#e99e90"/>
+      <ellipse cx="247" cy="154" rx="28" ry="23" fill="#f3b49e" stroke="#d5917e" stroke-width="2"/>
+      <ellipse cx="239" cy="155" rx="3.5" ry="6" fill="#a86a60"/><ellipse cx="253" cy="155" rx="3.5" ry="6" fill="#a86a60"/>
+      <circle cx="211" cy="130" r="5" fill="#6e4439"/><circle cx="212" cy="128" r="1.5" fill="white"/>
+      <ellipse cx="209" cy="158" rx="11" ry="7" fill="#ed9789" opacity=".5"/>
+      <path d="M132 91q21 -9 42 -4" fill="none" stroke="#a76c57" stroke-width="5" stroke-linecap="round"/>
+      <path d="M98 125q10 -17 26 -20" fill="none" stroke="#fff0df" stroke-width="8" stroke-linecap="round" opacity=".6"/>
+    </g>
+    <g transform="translate(152 45) rotate(-10)"><circle r="26" fill="#e9ac3f"/><circle r="21" fill="#ffdf83" stroke="#f2c65a" stroke-width="2"/><text text-anchor="middle" y="6" fill="#9f6928" font-size="17" font-family="Arial" font-weight="700">AC</text></g>
+    <path d="M61 61l5 -8m197 12l9 -4m-20 156 7 6" stroke="#db9d72" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="64" cy="216" r="5" fill="#a1b88b"/><circle cx="268" cy="106" r="4" fill="#e7b66b"/>
+  </svg>`;
+}
+
 function pizzaEndpoint(path = "", student = true) {
   const url = new URL(`/api/v1/miniapp/pizza${path}`, location.origin);
   url.searchParams.set("tenant_slug", window.pizzaPreview?.tenant || apiContext.tenantSlug || state.currentTenant?.slug || "");
@@ -35,11 +62,11 @@ function pizzaEndpoint(path = "", student = true) {
   return url.pathname + url.search;
 }
 
-async function pizzaRequest(path = "", body = null) {
+async function pizzaRequest(path = "", body = null, method = "POST") {
   const options = {headers: {}};
   if (window.pizzaPreview?.token) options.headers["X-Miniapp-Token"] = window.pizzaPreview.token;
   if (body !== null) {
-    options.method = "POST";
+    options.method = method;
     options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(body);
   }
@@ -95,14 +122,14 @@ function pizzaActions(c) {
     if (c.contributed) return `<div class="pizza-personal is-done"><i data-lucide="circle-check"></i><span>Ваш взнос — ${pizzaNumber(c.share)} AC<strong>Вы участвуете</strong></span></div>`;
     if (c.can_contribute) {
       const enough = pizzaState.board.balance >= c.share;
-      return `<button class="pizza-primary" data-pizza-contribute="${c.id}" ${!enough ? "disabled" : ""}><i data-lucide="pizza"></i>${enough ? `Внести ${pizzaNumber(c.share)} AC` : `Не хватает ${pizzaNumber(c.share - pizzaState.board.balance)} AC`}<i data-lucide="arrow-up-right"></i></button>`;
+      return `<button class="pizza-primary" data-pizza-contribute="${c.id}" ${!enough ? "disabled" : ""}><i data-lucide="${pizzaOfferIcon(c)}"></i>${enough ? `Внести ${pizzaNumber(c.share)} AC` : `Не хватает ${pizzaNumber(c.share - pizzaState.board.balance)} AC`}<i data-lucide="arrow-up-right"></i></button>`;
     }
     if (state.role === "parent") return '<p class="pizza-personal">Внести астрокоины можно из кабинета ребёнка.</p>';
   }
   if (c.refunded) return `<div class="pizza-personal is-done"><i data-lucide="undo-2"></i><span>${pizzaNumber(c.share)} AC вернулись на баланс</span></div>`;
   const action = c.status === "funded" && c.can_pay ? ["paid", "Деньги переданы преподавателю"] :
-    c.status === "paid" && c.is_teacher ? ["ordered", "Пицца заказана"] :
-    c.status === "ordered" && c.is_teacher ? ["delivered", "Пицца приехала"] : null;
+    c.status === "paid" && c.is_teacher ? ["ordered", c.kind === "other" ? "Заказ оформлен" : "Пицца заказана"] :
+    c.status === "ordered" && c.is_teacher ? ["delivered", c.kind === "other" ? "Заказ получен" : "Пицца приехала"] : null;
   return action ? `<button class="pizza-primary" data-pizza-action="${action[0]}" data-pizza-id="${c.id}"><i data-lucide="check"></i>${action[1]}</button>` : "";
 }
 
@@ -112,17 +139,17 @@ function pizzaCard(c) {
   const customer = ["student", "parent"].includes(state.role);
   const date = new Intl.DateTimeFormat("ru-RU", {timeZone:"Europe/Moscow", day:"numeric", month:"long", hour:"2-digit", minute:"2-digit"}).format(new Date(c.deadline));
   return `<article class="pizza-campaign is-${c.status}" data-pizza-card="${c.id}">
-    <div class="pizza-card-top"><span class="pizza-badge"><i data-lucide="${ended ? "undo-2" : open ? "sparkles" : "circle-check"}"></i>${open ? "Групповой сбор" : PIZZA_STATES[c.status]}</span>
+    <div class="pizza-card-top"><span class="pizza-badge"><i data-lucide="${ended ? "undo-2" : open ? "sparkles" : "circle-check"}"></i>${open ? "Групповой сбор" : pizzaStatus(c)}</span>
       ${open ? `<div class="pizza-clock" title="До ${pizzaEscape(date)} МСК"><i data-lucide="timer"></i><span data-pizza-timer="${pizzaEscape(c.deadline)}">${pizzaCountdown(c.deadline)}</span></div>` : `<span class="pizza-small">${c.joined} из ${c.members} участников</span>`}</div>
     <div class="pizza-card-body"><div class="pizza-copy"><p class="pizza-group">${pizzaEscape(c.group_name)}</p>
-      <h2>${c.status === "cancelled" ? "Сбор отменён" : ended ? "В этот раз не собрались" : customer && !open ? "На пиццу собрали!" : c.status === "delivered" ? "Пицца приехала!" : "На пиццу всей группой"}</h2>
+      <h2>${c.status === "cancelled" ? "Сбор отменён" : ended ? "В этот раз не собрались" : c.kind === "other" ? pizzaEscape(c.title) : customer && !open ? "На пиццу собрали!" : c.status === "delivered" ? "Пицца приехала!" : "На пиццу всей группой"}</h2>
       <div class="pizza-progress-caption"><strong>${pizzaNumber(c.collected)} <span>из ${pizzaNumber(c.target)} AC</span></strong><span>${c.joined} из ${c.members} внесли</span></div>
       <div class="pizza-progress" role="progressbar" aria-label="Собрано астрокоинов" aria-valuenow="${c.collected}" aria-valuemin="0" aria-valuemax="${c.target}"><span style="width:${percent}%"></span></div>
       <div class="pizza-segments" aria-hidden="true">${Array.from({length: Math.min(c.members,30)},(_,i)=>`<span class="${i < c.joined ? "is-filled" : ""}"></span>`).join("")}</div>
       ${pizzaActions(c)}
-      <div class="pizza-card-foot"><span><i data-lucide="${ended ? "wallet" : "shield-check"}"></i>${ended ? "Внесённые астрокоины возвращены" : open ? "Не соберём к сроку — вернём взносы" : customer ? "Сумма собрана. Спасибо за участие!" : c.status === "funded" ? "Преподаватель и директор уведомлены" : PIZZA_STATES[c.status]}</span><button class="pizza-text-button" data-pizza-details="${c.id}">Подробнее<i data-lucide="chevron-right"></i></button></div>
-    </div><div class="pizza-visual"><div class="pizza-illustration">${pizzaIllustration()}<span class="pizza-percent"><i data-lucide="check"></i><span>${Math.round(percent)}% собрано</span></span></div></div></div>
-    ${c.can_manage && !["cancelled","expired","delivered"].includes(c.status) ? `<div class="pizza-workflow">${["funded","paid","ordered","delivered"].map((status,i)=>`<span class="${["open","funded","paid","ordered","delivered"].indexOf(c.status) >= i+1 ? "is-complete" : ""}"><i data-lucide="${["circle-check","banknote","pizza","party-popper"][i]}"></i>${["Собрали","Деньги переданы","Заказали","Получили"][i]}</span>`).join("")}${["open","funded"].includes(c.status) ? `<button class="pizza-text-button" data-pizza-action="cancel" data-pizza-id="${c.id}">Отменить сбор</button>` : ""}</div>` : ""}
+      <div class="pizza-card-foot"><span><i data-lucide="${ended ? "wallet" : "shield-check"}"></i>${ended ? "Внесённые астрокоины возвращены" : open ? "Не соберём к сроку — вернём взносы" : customer ? "Сумма собрана. Спасибо за участие!" : c.status === "funded" ? "Преподаватель и директор уведомлены" : pizzaStatus(c)}</span><button class="pizza-text-button" data-pizza-details="${c.id}">Подробнее<i data-lucide="chevron-right"></i></button></div>
+    </div><div class="pizza-visual"><div class="pizza-illustration">${c.kind === "other" ? collectionPigIllustration() : pizzaIllustration()}<span class="pizza-percent"><i data-lucide="check"></i><span>${Math.round(percent)}% собрано</span></span></div></div></div>
+    ${c.can_manage && !["cancelled","expired","delivered"].includes(c.status) ? `<div class="pizza-workflow">${["funded","paid","ordered","delivered"].map((status,i)=>`<span class="${["open","funded","paid","ordered","delivered"].indexOf(c.status) >= i+1 ? "is-complete" : ""}"><i data-lucide="${["circle-check","banknote",c.kind === "other" ? "shopping-bag" : "pizza","party-popper"][i]}"></i>${["Собрали","Деньги переданы","Заказали","Получили"][i]}</span>`).join("")}${["open","funded"].includes(c.status) ? `<button class="pizza-text-button" data-pizza-action="cancel" data-pizza-id="${c.id}">Отменить сбор</button>` : ""}</div>` : ""}
   </article>`;
 }
 
@@ -145,10 +172,10 @@ function renderPizza() {
   const live = board.campaigns.filter(c=>staff ? !c.finished : c.status === "open");
   const past = staff ? board.campaigns.filter(c=>c.finished) : [];
   root.hidden = !staff && !live.length;
-  root.innerHTML = `${staff ? `<div class="pizza-section-head"><h2>Сборы на пиццу</h2><div class="pizza-staff-actions">${board.notices.length ? `<button class="secondary-action" data-pizza-notices><i data-lucide="bell"></i><span>${board.notices.length}</span></button>` : ""}${board.director ? '<button class="secondary-action" data-pizza-offers><i data-lucide="sliders-horizontal"></i>Варианты пиццы</button>' : ""}${board.teacher ? '<button class="pizza-primary" data-pizza-launch><i data-lucide="plus"></i>Открыть сбор</button>' : ""}</div></div>` : ""}
+  root.innerHTML = `${staff ? `<div class="pizza-section-head"><h2>Групповые сборы</h2><div class="pizza-staff-actions">${board.notices.length ? `<button class="secondary-action" data-pizza-notices><i data-lucide="bell"></i><span>${board.notices.length}</span></button>` : ""}${board.director ? '<button class="secondary-action" data-pizza-offers><i data-lucide="sliders-horizontal"></i>Варианты сбора</button>' : ""}${board.teacher ? '<button class="pizza-primary" data-pizza-launch><i data-lucide="plus"></i>Открыть сбор</button>' : ""}</div></div>` : ""}
     ${pizzaState.error ? `<p class="pizza-inline-error" role="alert">${pizzaEscape(pizzaState.error)}</p>` : ""}
     ${live.map(pizzaCard).join("")}
-    ${!live.length && staff ? `<div class="pizza-empty"><i data-lucide="pizza"></i><div><strong>Хороший повод собраться вместе</strong><p>${board.teacher ? "Выберите вариант пиццы и откройте сбор для своей группы." : "Создайте варианты пиццы — преподаватели смогут открыть сбор."}</p></div></div>` : ""}
+    ${!live.length && staff ? `<div class="pizza-empty"><i data-lucide="pizza"></i><div><strong>Открытых сборов пока нет</strong><p>${board.teacher ? "Выберите вариант сбора и откройте сбор для своей группы." : "Добавьте вариант сбора для преподавателей."}</p></div></div>` : ""}
     ${past.length ? `<details class="pizza-past" ${!live.length ? "open" : ""}><summary>Завершённые сборы <span>${past.length}</span></summary>${past.map(pizzaCard).join("")}</details>` : ""}`;
   refreshIcons();
 }
@@ -180,11 +207,11 @@ function renderPizzaOrderHistory() {
   const history = (board?.history || []).filter(c=>
     `${c.title} ${c.group_name}`.toLocaleLowerCase("ru-RU").replaceAll("ё","е").includes(query));
   root.hidden = !history.length;
-  root.innerHTML = history.length ? `<h3>Сборы на пиццу</h3>${history.map(c=>{
+  root.innerHTML = history.length ? `<h3>Групповые сборы</h3>${history.map(c=>{
     const refunded = c.refunded;
     const status = refunded ? "Взнос возвращён" : c.status === "open" ? "Взнос внесён" : "Сумма собрана";
     const date = new Intl.DateTimeFormat("ru-RU", {timeZone:"Europe/Moscow", dateStyle:"medium", timeStyle:"short"}).format(new Date(c.refunded_at || c.contributed_at));
-    return `<article class="pizza-history-card" data-pizza-history="${c.id}"><span class="pizza-history-icon"><i data-lucide="${refunded ? "undo-2" : "pizza"}"></i></span><div><strong>${pizzaEscape(c.title)}</strong><span>${pizzaEscape(c.group_name)}</span><small>${pizzaEscape(date)} МСК</small></div><div class="pizza-history-outcome"><span class="${refunded ? "is-refunded" : ""}">${status}</span><strong>${pizzaNumber(c.share)} AC</strong></div><button class="pizza-text-button" data-pizza-details="${c.id}">Подробнее<i data-lucide="chevron-right"></i></button></article>`;
+    return `<article class="pizza-history-card" data-pizza-history="${c.id}"><span class="pizza-history-icon"><i data-lucide="${refunded ? "undo-2" : pizzaOfferIcon(c)}"></i></span><div><strong>${pizzaEscape(c.title)}</strong><span>${pizzaEscape(c.group_name)}</span><small>${pizzaEscape(date)} МСК</small></div><div class="pizza-history-outcome"><span class="${refunded ? "is-refunded" : ""}">${status}</span><strong>${pizzaNumber(c.share)} AC</strong></div><button class="pizza-text-button" data-pizza-details="${c.id}">Подробнее<i data-lucide="chevron-right"></i></button></article>`;
   }).join("")}` : "";
   refreshIcons();
   return history.length;
@@ -217,12 +244,12 @@ function pizzaLaunchDialog() {
   const date = new Intl.DateTimeFormat("sv-SE", {timeZone:"Europe/Moscow", year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}).format(new Date(Date.now()+7*86400000)).replace(" ","T");
   const groups = board.groups.filter(g=>g.count >= 2 && !board.campaigns.some(c=>c.group_name===g.name && ["open","funded","paid","ordered"].includes(c.status)));
   if (!board.offers.length || !groups.length) {
-    pizzaOpenDialog("Открыть сбор", `<p>${!board.offers.length ? "Директор ещё не добавил варианты пиццы." : "Нет свободной группы с двумя или более учениками. Для группы может быть открыт только один сбор."}</p>`);
+    pizzaOpenDialog("Открыть сбор", `<p>${!board.offers.length ? "Директор ещё не добавил варианты сбора." : "Нет свободной группы с двумя или более учениками. Для группы может быть открыт только один сбор."}</p>`);
     return;
   }
-  pizzaOpenDialog("Открыть сбор на пиццу", `<form id="pizzaLaunchForm">
+  pizzaOpenDialog("Открыть сбор", `<form id="pizzaLaunchForm">
     <label>Группа<select name="group_name" required>${groups.map(g=>`<option value="${pizzaEscape(g.name)}">${pizzaEscape(g.name)} · ${g.count} учеников</option>`).join("")}</select></label>
-    <fieldset class="pizza-offer-options"><legend>Вариант пиццы</legend>${board.offers.map((o,i)=>`<label><input type="radio" name="offer_id" value="${o.id}" ${!i ? "checked" : ""} required><span><strong>${pizzaEscape(o.title)}</strong><small>${pizzaEscape(o.description)}</small></span><b>${pizzaNumber(o.share)} AC<small>с ученика</small></b></label>`).join("")}</fieldset>
+    <fieldset class="pizza-offer-options"><legend>Вариант сбора</legend>${board.offers.map((o,i)=>`<label><input type="radio" name="offer_id" value="${o.id}" ${!i ? "checked" : ""} required><span><strong>${pizzaEscape(o.title)}</strong><small>${pizzaEscape(o.description)}</small></span><b>${pizzaNumber(o.share)} AC<small>с ученика</small></b></label>`).join("")}</fieldset>
     <label>Собрать до · МСК<input type="datetime-local" name="deadline" value="${date}" required></label>
     <div id="pizzaLaunchSummary" class="pizza-calculation"></div><p class="pizza-form-note">Если к сроку не соберётся вся сумма, астрокоины вернутся участникам.</p>
     <p class="pizza-form-error" role="alert" hidden></p><button class="pizza-primary" type="submit">Открыть сбор<i data-lucide="arrow-right"></i></button></form>`);
@@ -237,33 +264,47 @@ function pizzaUpdateLaunchSummary() {
   if (group && offer) qs("#pizzaLaunchSummary").innerHTML = `<span>${group.count} учеников × ${pizzaNumber(offer.share)} AC</span><strong>Цель ${pizzaNumber(group.count*offer.share)} AC</strong>`;
 }
 
+function pizzaOfferForm(offer = null) {
+  const kind = offer?.kind || "pizza";
+  return `<form id="pizzaOfferForm" data-offer-id="${offer?.id || ""}">
+    ${offer ? `<input type="hidden" name="revision" value="${offer.revision}">` : "<h3>Новый вариант</h3>"}
+    <fieldset class="collection-kind-options"><legend>Тип сбора</legend>
+      <label><input type="radio" name="kind" value="pizza" ${kind === "pizza" ? "checked" : ""}><i data-lucide="pizza"></i><span>Пицца</span></label>
+      <label><input type="radio" name="kind" value="other" ${kind === "other" ? "checked" : ""}><i data-lucide="piggy-bank"></i><span>Другое</span></label>
+    </fieldset>
+    <label>Название<input name="title" maxlength="120" minlength="2" value="${pizzaEscape(offer?.title || "")}" placeholder="Например, общий подарок" required></label>
+    <label>Описание<input name="description" maxlength="500" value="${pizzaEscape(offer?.description || "")}" placeholder="Что планируем для группы"></label>
+    <label>Взнос с ученика · AC<input name="share" type="number" min="1" max="100000" step="1" value="${offer?.share || 200}" required></label>
+    <p class="pizza-form-error" role="alert" hidden></p><div class="collection-form-actions">${offer ? '<button class="secondary-action" type="button" data-pizza-offers>К списку</button>' : ""}<button class="pizza-primary" type="submit">${offer ? "Сохранить изменения" : "Добавить вариант"}</button></div></form>`;
+}
+
 function pizzaOffersDialog() {
   const offers = pizzaState.board.offers;
-  pizzaOpenDialog("Варианты пиццы", `<div class="pizza-offer-list">${offers.map(o=>`<article><i data-lucide="pizza"></i><div><strong>${pizzaEscape(o.title)}</strong><span>${pizzaEscape(o.description)}</span></div><b>${pizzaNumber(o.share)} AC<small>с ученика</small></b></article>`).join("") || "Пока нет вариантов"}</div>
-    <form id="pizzaOfferForm"><h3>Новый вариант</h3><label>Название<input name="title" maxlength="120" minlength="2" placeholder="Например, Пицца-вечеринка" required></label><label>Что заказываем<input name="description" maxlength="500" placeholder="Например, ассорти пицц и напитки"></label><label>Одинаковый взнос с ученика · AC<input name="share" type="number" min="1" max="100000" step="1" value="200" required></label><p class="pizza-form-error" role="alert" hidden></p><button class="pizza-primary" type="submit">Добавить вариант</button></form>`);
+  pizzaOpenDialog("Варианты сбора", `<div class="pizza-offer-list">${offers.map(o=>`<article class="collection-offer-row" data-offer-row="${o.id}"><i data-lucide="${pizzaOfferIcon(o)}"></i><div><strong>${pizzaEscape(o.title)}</strong><span>${pizzaEscape(o.description)}</span></div><b>${pizzaNumber(o.share)} AC<small>с ученика</small></b><div class="collection-offer-actions"><button class="secondary-action" type="button" data-pizza-edit-offer="${o.id}"><i data-lucide="pencil"></i>Редактировать</button><button class="secondary-action collection-delete" type="button" data-pizza-delete-offer="${o.id}"><i data-lucide="trash-2"></i>Удалить</button></div></article>`).join("") || '<p class="pizza-form-note">Пока нет вариантов</p>'}</div>${pizzaOfferForm()}`);
 }
 
 function pizzaConfirmContribution(c) {
-  pizzaOpenDialog("Участвуем в сборе?", `<div class="pizza-confirm-hero"><i data-lucide="pizza"></i><strong>${pizzaEscape(c.title)}</strong><span>${pizzaEscape(selectedStudent()?.name || "")}</span></div><div class="pizza-confirm-amount"><span>Ваш взнос</span><strong>${pizzaNumber(c.share)} AC</strong></div><div class="pizza-calculation"><span>Баланс после взноса</span><strong>${pizzaNumber(pizzaState.board.balance-c.share)} AC</strong></div><p class="pizza-form-note">Если сбор отменят или не соберётся вся сумма, ${pizzaNumber(c.share)} AC вернутся на баланс.</p><p class="pizza-form-error" role="alert" hidden></p>`, `<button class="secondary-action" data-pizza-close>Пока нет</button><button class="pizza-primary" data-pizza-confirm="${c.id}">Внести ${pizzaNumber(c.share)} AC</button>`);
+  pizzaOpenDialog("Участвуем в сборе?", `<div class="pizza-confirm-hero"><i data-lucide="${pizzaOfferIcon(c)}"></i><strong>${pizzaEscape(c.title)}</strong><span>${pizzaEscape(selectedStudent()?.name || "")}</span></div><div class="pizza-confirm-amount"><span>Ваш взнос</span><strong>${pizzaNumber(c.share)} AC</strong></div><div class="pizza-calculation"><span>Баланс после взноса</span><strong>${pizzaNumber(pizzaState.board.balance-c.share)} AC</strong></div><p class="pizza-form-note">Если сбор отменят или не соберётся вся сумма, ${pizzaNumber(c.share)} AC вернутся на баланс.</p><p class="pizza-form-error" role="alert" hidden></p>`, `<button class="secondary-action" data-pizza-close>Пока нет</button><button class="pizza-primary" data-pizza-confirm="${c.id}">Внести ${pizzaNumber(c.share)} AC</button>`);
 }
 
 function pizzaShowDetails(c) {
   const date = new Intl.DateTimeFormat("ru-RU", {timeZone:"Europe/Moscow",dateStyle:"long",timeStyle:"short"}).format(new Date(c.deadline));
-  pizzaOpenDialog(c.title, `<p class="pizza-detail-status">${PIZZA_STATES[c.status]}</p><dl class="pizza-facts"><div><dt>Группа</dt><dd>${pizzaEscape(c.group_name)}</dd></div><div><dt>Взнос каждого</dt><dd>${pizzaNumber(c.share)} AC</dd></div><div><dt>Цель</dt><dd>${pizzaNumber(c.target)} AC · ${c.members} учеников</dd></div><div><dt>Срок</dt><dd>${pizzaEscape(date)} МСК</dd></div></dl><div class="pizza-rules"><p><i data-lucide="equal"></i>Один одинаковый взнос с ученика.</p><p><i data-lucide="undo-2"></i>Если не соберём всю сумму, взносы вернутся автоматически.</p><p><i data-lucide="users"></i>Пицца для всей группы.</p></div>`);
+  pizzaOpenDialog(c.title, `<p class="pizza-detail-status">${pizzaStatus(c)}</p><dl class="pizza-facts"><div><dt>Группа</dt><dd>${pizzaEscape(c.group_name)}</dd></div><div><dt>Взнос каждого</dt><dd>${pizzaNumber(c.share)} AC</dd></div><div><dt>Цель</dt><dd>${pizzaNumber(c.target)} AC · ${c.members} учеников</dd></div><div><dt>Срок</dt><dd>${pizzaEscape(date)} МСК</dd></div></dl><div class="pizza-rules"><p><i data-lucide="equal"></i>Один одинаковый взнос с ученика.</p><p><i data-lucide="undo-2"></i>Если не соберём всю сумму, взносы вернутся автоматически.</p><p><i data-lucide="users"></i>Для всей группы.</p></div>`);
 }
 
-async function pizzaMutate(path, payload, success) {
+async function pizzaMutate(path, payload, success, method = "POST") {
   if (pizzaState.busy) return;
   pizzaState.busy = true;
   const dialog=qs("#pizzaDialog");
   const controls = [...(dialog?.querySelectorAll("button,input,select") || [])];
   controls.forEach(e=>e.disabled=true);
   try {
-    await pizzaRequest(path, payload);
+    await pizzaRequest(path, payload, method);
     pizzaCloseDialog();
     await pizzaLoad();
     showNotice(success, "success");
   } catch (error) {
+    if (error.status === 409 || error.status === 404) await pizzaLoad();
     const output = dialog?.querySelector(".pizza-form-error");
     if (output) {output.textContent=error.message; output.hidden=false;}
     else showNotice(error.message,"danger");
@@ -279,6 +320,10 @@ document.addEventListener("click", event=>{
   if (target.hasAttribute("data-pizza-retry")) void pizzaLoad();
   if (target.hasAttribute("data-pizza-launch")) pizzaLaunchDialog();
   if (target.hasAttribute("data-pizza-offers")) pizzaOffersDialog();
+  const offer = pizzaState.board?.offers.find(o=>o.id === (target.dataset.pizzaEditOffer || target.dataset.pizzaDeleteOffer || target.dataset.pizzaConfirmDeleteOffer));
+  if (target.dataset.pizzaEditOffer && offer) pizzaOpenDialog("Редактировать вариант", pizzaOfferForm(offer));
+  if (target.dataset.pizzaDeleteOffer && offer) pizzaOpenDialog("Удалить вариант?", `<p>«${pizzaEscape(offer.title)}» исчезнет из списка для новых сборов. Уже открытые сборы и их история сохранятся.</p><p class="pizza-form-error" role="alert" hidden></p>`, `<button class="secondary-action" type="button" data-pizza-offers>Назад</button><button class="pizza-primary is-danger" type="button" data-pizza-confirm-delete-offer="${offer.id}">Удалить вариант</button>`);
+  if (target.dataset.pizzaConfirmDeleteOffer && offer) void pizzaMutate(`/offers/${offer.id}`, {revision:offer.revision}, "Вариант удалён", "DELETE");
   if (target.hasAttribute("data-pizza-notices")) pizzaOpenDialog("Уведомления по сборам", `<div class="pizza-notices">${pizzaState.board.notices.map(n=>`<article><i data-lucide="${n.event==="refund" ? "undo-2" : "bell"}"></i><p>${pizzaEscape(n.message)}</p></article>`).join("")}</div><p class="pizza-form-note">В локальной демке сообщения в MAX не отправляются.</p>`);
   const c=[...(pizzaState.board?.campaigns || []),...(pizzaState.board?.history || [])].find(c=>c.id===(target.dataset.pizzaContribute || target.dataset.pizzaDetails || target.dataset.pizzaId));
   if (target.dataset.pizzaContribute && c) pizzaConfirmContribution(c);
@@ -288,9 +333,9 @@ document.addEventListener("click", event=>{
     const cancel=target.dataset.pizzaAction==="cancel";
     const text = cancel ? `Каждый участник получит обратно свои ${pizzaNumber(c.share)} AC. Отмену нельзя откатить.` :
       target.dataset.pizzaAction==="paid" ? "Подтвердите, что вы уже передали деньги преподавателю. После этого автоматическая отмена сбора будет недоступна." :
-      target.dataset.pizzaAction==="ordered" ? `Подтвердите, что вы заказали пиццу для группы «${pizzaEscape(c.group_name)}».` :
-      `Подтвердите, что группа «${pizzaEscape(c.group_name)}» получила пиццу.`;
-    pizzaOpenDialog(cancel ? "Отменить сбор?" : PIZZA_STATES[target.dataset.pizzaAction], `<p>${text}</p><p class="pizza-form-error" role="alert" hidden></p>`, `<button class="secondary-action" data-pizza-close>Назад</button><button class="pizza-primary ${cancel ? "is-danger" : ""}" data-pizza-confirm-action="${target.dataset.pizzaAction}" data-pizza-campaign="${c.id}">${cancel ? "Отменить и вернуть взносы" : "Подтвердить"}</button>`);
+      target.dataset.pizzaAction==="ordered" ? `Подтвердите, что вы оформили заказ для группы «${pizzaEscape(c.group_name)}».` :
+      `Подтвердите, что группа «${pizzaEscape(c.group_name)}» получила заказ.`;
+    pizzaOpenDialog(cancel ? "Отменить сбор?" : pizzaStatus({...c,status:target.dataset.pizzaAction}), `<p>${text}</p><p class="pizza-form-error" role="alert" hidden></p>`, `<button class="secondary-action" data-pizza-close>Назад</button><button class="pizza-primary ${cancel ? "is-danger" : ""}" data-pizza-confirm-action="${target.dataset.pizzaAction}" data-pizza-campaign="${c.id}">${cancel ? "Отменить и вернуть взносы" : "Подтвердить"}</button>`);
   }
   if (target.dataset.pizzaConfirmAction) void pizzaMutate(`/campaigns/${target.dataset.pizzaCampaign}/action`, {action:target.dataset.pizzaConfirmAction}, "Состояние сбора обновлено");
 });
@@ -302,7 +347,10 @@ document.addEventListener("submit", event=>{
   const data=Object.fromEntries(new FormData(form));
   if (form.id==="pizzaOfferForm") {
     data.share=Number(data.share);
-    void pizzaMutate("/offers", data, "Вариант добавлен");
+    if (form.dataset.offerId) {
+      data.revision=Number(data.revision);
+      void pizzaMutate(`/offers/${form.dataset.offerId}`, data, "Вариант обновлён", "PATCH");
+    } else void pizzaMutate("/offers", data, "Вариант добавлен");
   } else {
     data.deadline=new Date(data.deadline+":00+03:00").toISOString();
     void pizzaMutate("/campaigns", data, "Сбор открыт для группы");

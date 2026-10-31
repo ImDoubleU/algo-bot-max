@@ -13,6 +13,7 @@ class PizzaOfferCreate(PizzaPayload):
     title: str = Field(min_length=2, max_length=120)
     description: str = Field(default="", max_length=500)
     share: StrictInt = Field(ge=1, le=100_000)
+    kind: Literal["pizza", "other"] = "pizza"
 
     @field_validator("title", "description")
     @classmethod
@@ -25,6 +26,14 @@ class PizzaOfferCreate(PizzaPayload):
         if len(value) < 2:
             raise ValueError("Введите название")
         return value
+
+
+class PizzaOfferEdit(PizzaOfferCreate):
+    revision: StrictInt = Field(ge=1)
+
+
+class PizzaOfferDelete(PizzaPayload):
+    revision: StrictInt = Field(ge=1)
 
 
 class PizzaCampaignCreate(PizzaPayload):

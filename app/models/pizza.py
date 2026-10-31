@@ -28,6 +28,8 @@ class PizzaOffer(TimestampMixin, Base):
     created_by: Mapped[UUID] = mapped_column(ForeignKey("max_accounts.id"))
     title: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(String(500), default="")
+    kind: Mapped[str] = mapped_column(String(20), default="pizza", server_default="pizza")
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     share: Mapped[int] = mapped_column(Integer)
     active: Mapped[bool] = mapped_column(default=True)
 
@@ -56,6 +58,7 @@ class PizzaCampaign(TimestampMixin, Base):
     group_name: Mapped[str] = mapped_column(String(160))
     title: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(String(500), default="")
+    kind: Mapped[str] = mapped_column(String(20), default="pizza", server_default="pizza")
     roster: Mapped[list] = mapped_column(JSON)
     share: Mapped[int] = mapped_column(Integer)
     target: Mapped[int] = mapped_column(Integer)

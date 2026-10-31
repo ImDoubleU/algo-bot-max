@@ -9,7 +9,14 @@ from app.api.dependencies import get_miniapp_identity, require_matching_miniapp_
 from app.core.config import get_settings
 from app.core.miniapp_auth import MiniAppIdentity
 from app.db.session import get_db_session
-from app.schemas.pizza import PizzaAction, PizzaCampaignCreate, PizzaContribute, PizzaOfferCreate
+from app.schemas.pizza import (
+    PizzaAction,
+    PizzaCampaignCreate,
+    PizzaContribute,
+    PizzaOfferCreate,
+    PizzaOfferDelete,
+    PizzaOfferEdit,
+)
 from app.services import pizza
 
 router = APIRouter()
@@ -64,6 +71,22 @@ async def campaign_create(payload: PizzaCampaignCreate, ctx: Context):
     campaign = await pizza.create_campaign(db, actor, payload)
     await db.commit()
     return {"id": str(campaign.id)}
+
+
+@router.patch("/offers/{offer_id}")
+async def offer_edit(offer_id: UUID, payload: PizzaOfferEdit, ctx: Context):
+    db, actor = ctx
+    offer = await pizza.edit_offer(db, actor, offer_id, payload)
+    await db.commit()
+    return {"id": str(offer.id)}
+
+
+@router.delete("/offers/{offer_id}")
+async def offer_delete(offer_id: UUID, payload: PizzaOfferDelete, ctx: Context):
+    db, actor = ctx
+    await pizza.delete_offer(db, actor, offer_id, payload.revision)
+    await db.commit()
+    return {"deleted": True}
 
 
 @router.post("/campaigns/{campaign_id}/contribute")

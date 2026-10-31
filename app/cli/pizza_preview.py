@@ -5,6 +5,7 @@
 No production database, bindings, MAX delivery or payment integrations are used.
 """
 
+import argparse
 import asyncio
 import json
 import os
@@ -13,7 +14,15 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PREVIEW_DB = ROOT / ".deploy_tmp/pizza-preview.sqlite3"
+parser = argparse.ArgumentParser(description="Local group collection preview")
+parser.add_argument("--port", type=int, default=8770)
+parser.add_argument("--database-name", default="pizza-preview.sqlite3")
+options = parser.parse_args() if __name__ == "__main__" else parser.parse_args([])
+if Path(options.database_name).name != options.database_name or not options.database_name.endswith(
+    ".sqlite3"
+):
+    raise ValueError("Use a SQLite filename inside .deploy_tmp")
+PREVIEW_DB = ROOT / ".deploy_tmp" / options.database_name
 PREVIEW_DB.parent.mkdir(exist_ok=True)
 os.environ.update(
     {
@@ -86,6 +95,13 @@ async def seed_collection(db):
             title="Большая компания", description="Больше пиццы, больше вкусов", share=300
         ),
     )
+    await pizza.create_offer(
+        db,
+        director,
+        PizzaOfferCreate(
+            title="Общий подарок", description="Подарок для нашей группы", share=150, kind="other"
+        ),
+    )
     await db.flush()
     campaign = await pizza.create_campaign(
         db,
@@ -104,6 +120,27 @@ async def seed_collection(db):
 
 async def initialize():
     async with engine.begin() as connection:
+        # Only the isolated preview database is upgraded here, preserving its data.
+        def upgrade_preview(conn):
+            from sqlalchemy import inspect
+
+            inspector = inspect(conn)
+            definitions = {
+                "pizza_offers": {
+                    "kind": "VARCHAR(20) NOT NULL DEFAULT 'pizza'",
+                    "revision": "INTEGER NOT NULL DEFAULT 1",
+                },
+                "pizza_campaigns": {"kind": "VARCHAR(20) NOT NULL DEFAULT 'pizza'"},
+            }
+            for table, fields in definitions.items():
+                if table not in inspector.get_table_names():
+                    continue
+                existing = {c["name"] for c in inspector.get_columns(table)}
+                for name, definition in fields.items():
+                    if name not in existing:
+                        conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+        await connection.run_sync(upgrade_preview)
         await connection.run_sync(Base.metadata.create_all)
     async with AsyncSessionLocal() as db:
         if await db.scalar(select(Tenant.id).where(Tenant.slug == SLUG)):
@@ -338,4 +375,4 @@ async def scenario(scenario: str, request: Request):
 
 
 if __name__ == "__main__":
-    uvicorn.run(preview, host="127.0.0.1", port=8770, log_level="warning")
+    uvicorn.run(preview, host="127.0.0.1", port=options.port, log_level="warning")

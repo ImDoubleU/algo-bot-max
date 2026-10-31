@@ -22,10 +22,10 @@ from app.models.enums import (
     StudentAccessSource,
     StudentAccessStatus,
 )
-from app.models.pizza import PizzaContribution, PizzaNotice
+from app.models.pizza import PizzaCampaign, PizzaContribution, PizzaNotice
 from app.models.student import AstrocoinLedgerEntry, Student, StudentAccessLink, Wallet
 from app.models.tenant import City, Partner, Tenant
-from app.schemas.pizza import PizzaCampaignCreate, PizzaOfferCreate
+from app.schemas.pizza import PizzaCampaignCreate, PizzaOfferCreate, PizzaOfferEdit
 from app.services import pizza
 
 
@@ -436,3 +436,129 @@ def test_new_migration_only_creates_collection_tables_and_indexes():
     assert sql.count("CREATE TABLE") == 4
     assert "UQ_PIZZA_LIVE_GROUP" in sql and "WHERE STATUS IN" in sql
     assert all(word not in sql for word in ("ALTER TABLE", "UPDATE ", "DELETE FROM", "DROP "))
+
+
+async def test_edit_variant_freezes_existing_collection_price_title_and_artwork(context):
+    c = context
+    offer = await pizza.edit_offer(
+        c["db"],
+        c["director"],
+        c["offer"].id,
+        PizzaOfferEdit(
+            title="Общий подарок", description="Новый вариант", share=350, kind="other", revision=1
+        ),
+    )
+    await c["db"].commit()
+    assert offer.revision == 2 and offer.kind == "other"
+    await c["db"].refresh(c["campaign"])
+    assert c["campaign"].title == "Пицца" and c["campaign"].kind == "pizza"
+    assert c["campaign"].share == 200 and c["campaign"].target == 600
+    await pay(c)
+    assert await balance(c) == 1040
+
+
+async def test_delete_used_variant_preserves_open_collection_and_refundable_history(context):
+    c = context
+    await pay(c)
+    await pizza.delete_offer(c["db"], c["director"], c["offer"].id, 1)
+    await c["db"].commit()
+    board = await pizza.board(c["db"], c["teacher"])
+    assert board["offers"] == [] and len(board["campaigns"]) == 1
+    await pay(c, 1)
+    await pizza.campaign_action(c["db"], c["teacher"], c["campaign"].id, "cancel")
+    await c["db"].commit()
+    assert await balance(c) == 1240 and await balance(c, 1) == 1240
+    assert await c["db"].get(PizzaCampaign, c["campaign"].id) is not None
+    with pytest.raises(pizza.PizzaError, match="недоступен"):
+        await pizza.create_campaign(
+            c["db"],
+            c["teacher"],
+            PizzaCampaignCreate(
+                offer_id=c["offer"].id,
+                group_name="Группа",
+                deadline=datetime.now(UTC) + timedelta(days=2),
+            ),
+        )
+
+
+async def test_variant_mutations_director_only_and_stale_revision_does_not_overwrite(context):
+    c = context
+    payload = PizzaOfferEdit(title="Подарок", share=300, kind="other", revision=1)
+    for actor in (c["teacher"], c["parent"], c["other"]):
+        with pytest.raises(pizza.PizzaError, match="директор"):
+            await pizza.edit_offer(c["db"], actor, c["offer"].id, payload)
+        with pytest.raises(pizza.PizzaError, match="директор"):
+            await pizza.delete_offer(c["db"], actor, c["offer"].id, 1)
+    await pizza.edit_offer(c["db"], c["director"], c["offer"].id, payload)
+    with pytest.raises(pizza.PizzaError, match="другом окне"):
+        await pizza.edit_offer(c["db"], c["director"], c["offer"].id, payload)
+    with pytest.raises(pizza.PizzaError, match="другом окне"):
+        await pizza.delete_offer(c["db"], c["director"], c["offer"].id, 1)
+    assert c["offer"].share == 300 and c["offer"].active
+
+
+async def test_generic_collection_type_survives_variant_edit_and_deletion(context):
+    c = context
+    offer = await pizza.create_offer(
+        c["db"], c["director"], PizzaOfferCreate(title="Общий подарок", share=150, kind="other")
+    )
+    await pizza.campaign_action(c["db"], c["teacher"], c["campaign"].id, "cancel")
+    campaign = await pizza.create_campaign(
+        c["db"],
+        c["teacher"],
+        PizzaCampaignCreate(
+            offer_id=offer.id, group_name="Группа", deadline=datetime.now(UTC) + timedelta(days=2)
+        ),
+    )
+    assert campaign.kind == "other" and campaign.target == 450
+    await pizza.edit_offer(
+        c["db"],
+        c["director"],
+        offer.id,
+        PizzaOfferEdit(title="Пицца", share=300, kind="pizza", revision=1),
+    )
+    await pizza.delete_offer(c["db"], c["director"], offer.id, 2)
+    c["campaign"] = campaign
+    for i in range(3):
+        await pay(c, i)
+    await c["db"].commit()
+    assert campaign.kind == "other" and campaign.share == 150
+    assert all("пицц" not in n.message.lower() for n in await c["db"].scalars(select(PizzaNotice)))
+
+
+async def test_variant_api_edit_delete_and_teacher_denial(context, monkeypatch):
+    c = context
+    director_max_id = c["director"].account.max_user_id
+    teacher_max_id = c["teacher"].account.max_user_id
+    monkeypatch.setattr(get_settings(), "group_collections_enabled", True)
+    app = FastAPI()
+    app.include_router(router, prefix="/pizza")
+
+    async def db():
+        yield c["db"]
+
+    async def director():
+        return MiniAppIdentity(director_max_id, "test", 9999999999)
+
+    app.dependency_overrides[get_db_session] = db
+    app.dependency_overrides[get_miniapp_identity] = director
+    url = f"/pizza/offers/{c['offer'].id}?tenant_slug=test"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.patch(
+            url, json=dict(title="Подарок", share=220, kind="other", revision=1)
+        )
+        assert response.status_code == 200
+        assert (
+            await client.patch(url, json=dict(title="Старая правка", share=1, revision=1))
+        ).status_code == 409
+
+        async def teacher():
+            return MiniAppIdentity(teacher_max_id, "test", 9999999999)
+
+        app.dependency_overrides[get_miniapp_identity] = teacher
+        assert (await client.request("DELETE", url, json={"revision": 2})).status_code == 403
+        app.dependency_overrides[get_miniapp_identity] = director
+        assert (await client.request("DELETE", url, json={"revision": 2})).status_code == 200
+        assert (await client.get("/pizza?tenant_slug=test")).json()["offers"] == []

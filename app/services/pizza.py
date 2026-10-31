@@ -17,7 +17,7 @@ from app.models.enums import (
 from app.models.pizza import PizzaCampaign, PizzaContribution, PizzaNotice, PizzaOffer
 from app.models.student import AstrocoinLedgerEntry, Student, Wallet
 from app.models.tenant import Tenant
-from app.schemas.pizza import PizzaCampaignCreate, PizzaOfferCreate
+from app.schemas.pizza import PizzaCampaignCreate, PizzaOfferCreate, PizzaOfferEdit
 from app.services.access import get_effective_customer_access_link
 from app.services.staff import (
     active_staff_roles_for_tenant,
@@ -188,19 +188,55 @@ async def notify_funded(db, campaign):
             account_id,
             "funded",
             f"Сбор «{campaign.title}» закрыт: {campaign.collected} AC. "
-            f"Группа: {campaign.group_name}. Можно заказывать пиццу.",
+            f"Группа: {campaign.group_name}. Можно организовать заказ.",
         )
 
 
 async def create_offer(db, actor, payload: PizzaOfferCreate):
     if not actor.director:
-        raise PizzaError("Варианты пиццы создаёт директор", 403)
+        raise PizzaError("Варианты сбора создаёт директор", 403)
     offer = PizzaOffer(
         tenant_id=actor.tenant.id, created_by=actor.account.id, **payload.model_dump()
     )
     db.add(offer)
     await db.flush()
     return offer
+
+
+async def editable_offer(db, actor, offer_id, revision):
+    if not actor.director:
+        raise PizzaError("Варианты сбора изменяет директор", 403)
+    offer = await db.scalar(
+        select(PizzaOffer)
+        .where(
+            PizzaOffer.id == offer_id,
+            PizzaOffer.tenant_id == actor.tenant.id,
+            PizzaOffer.active.is_(True),
+        )
+        .with_for_update()
+    )
+    if offer is None:
+        raise PizzaError("Вариант уже удалён или недоступен", 404)
+    if offer.revision != revision:
+        raise PizzaError("Вариант изменён в другом окне. Обновите список и повторите", 409)
+    return offer
+
+
+async def edit_offer(db, actor, offer_id, payload: PizzaOfferEdit):
+    offer = await editable_offer(db, actor, offer_id, payload.revision)
+    for key, value in payload.model_dump(exclude={"revision"}).items():
+        setattr(offer, key, value)
+    offer.revision += 1
+    await db.flush()
+    return offer
+
+
+async def delete_offer(db, actor, offer_id, revision):
+    offer = await editable_offer(db, actor, offer_id, revision)
+    # The reference remains for financial history; it is not listed or reusable.
+    offer.active = False
+    offer.revision += 1
+    await db.flush()
 
 
 async def create_campaign(db, actor, payload: PizzaCampaignCreate, *, now=None):
@@ -245,6 +281,7 @@ async def create_campaign(db, actor, payload: PizzaCampaignCreate, *, now=None):
         group_name=payload.group_name,
         title=offer.title,
         description=offer.description,
+        kind=offer.kind,
         share=offer.share,
         target=offer.share * len(pupils),
         roster=[
@@ -313,7 +350,7 @@ async def refund_campaign(db, campaign, *, reason, actor=None):
                 direction=LedgerDirection.CREDIT,
                 category="purchase",
                 amount=contribution.amount,
-                reason="Возврат за сбор на пиццу",
+                reason="Возврат за групповой сбор",
                 comment=campaign.title,
             )
         )
@@ -394,7 +431,7 @@ async def contribute(db: AsyncSession, actor, campaign_id, student_id, *, now=No
             direction=LedgerDirection.DEBIT,
             category="purchase",
             amount=campaign.share,
-            reason="Взнос на пиццу группы",
+            reason="Взнос на групповой сбор",
             comment=campaign.title,
         )
     )
@@ -442,7 +479,7 @@ async def campaign_action(db, actor, campaign_id, action):
                 campaign.teacher_id,
                 "paid",
                 "Директор подтвердил передачу денег. "
-                f"Можно заказать «{campaign.title}» для {campaign.group_name}.",
+                f"Можно организовать «{campaign.title}» для {campaign.group_name}.",
             )
     await db.flush()
     return campaign
@@ -479,6 +516,7 @@ async def board(db, actor, *, student_id=None):
             id=str(c.id),
             title=c.title,
             description=c.description,
+            kind=c.kind,
             group_name=c.group_name,
             share=c.share,
             target=c.target,
@@ -584,7 +622,14 @@ async def board(db, actor, *, student_id=None):
             for g in sorted({s.group_name for s in visible_students if s.group_name})
         ],
         offers=[
-            dict(id=str(o.id), title=o.title, description=o.description, share=o.share)
+            dict(
+                id=str(o.id),
+                title=o.title,
+                description=o.description,
+                share=o.share,
+                kind=o.kind,
+                revision=o.revision,
+            )
             for o in offers
         ],
         notices=[
