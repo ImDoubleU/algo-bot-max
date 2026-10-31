@@ -293,6 +293,11 @@ async def bootstrap(role: str = "student"):
     max_id, label = ROLES[role]
     async with AsyncSessionLocal() as db:
         pupils = list(await db.scalars(select(Student).order_by(Student.lms_student_id)))
+        game_players = (
+            [{"id": str(s.id), "name": s.display_name, "group": s.group_name} for s in pupils]
+            if options.games
+            else []
+        )
         first = pupils[0]
         if role in ("student", "parent"):
             pupils = [first]
@@ -325,6 +330,7 @@ async def bootstrap(role: str = "student"):
     )
     source = f"""window.pizzaPreview={json.dumps(context, ensure_ascii=False)};
 window.ALGO_GAMES_PROTOTYPE={json.dumps(options.games)};
+window.ALGO_GAME_PLAYERS={json.dumps(game_players, ensure_ascii=False)};
 if (window.ALGO_GAMES_PROTOTYPE && queryParam("view") === "games") state.view="games";
 students.splice(0,students.length,...{json.dumps(records, ensure_ascii=False)});
 state.activeStudentId=students[0].id;

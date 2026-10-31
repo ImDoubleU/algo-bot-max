@@ -20,7 +20,7 @@
     color: "mint",
     goal: 128,
     unit: "очков",
-    hint: "Выбери двух одинаковых зверей — они станут одним новым. Собери 128 очков."
+    hint: "Выбери двух одинаковых зверей — они станут одним новым. На поиск пары даётся время. Собери 128 очков."
   }, {
     id: "bugs",
     name: "Поймай баг",
@@ -30,7 +30,7 @@
     color: "peach",
     goal: 20,
     unit: "багов",
-    hint: "Лови фиолетовых багов. Зелёных роботов не трогай: у тебя три жизни и 45 секунд."
+    hint: "Лови фиолетовых багов, береги роботов. Три жизни, всё более быстрые волны и сколько угодно очков."
   }, {
     id: "tower",
     name: "Башня из хлама",
@@ -90,7 +90,7 @@
     color: "mint",
     goal: 8,
     unit: "пар",
-    hint: "Открой все 8 пар. Меньше ходов — выше рекорд. Время: 90 секунд."
+    hint: "Открывай пары и переходи дальше: от 4 до 12 пар на поле. Для награды найди 8 пар за игру."
   }, {
     id: "react",
     name: "Не жми на красное",
@@ -100,7 +100,7 @@
     color: "yellow",
     goal: 5,
     unit: "попаданий",
-    hint: "Жди зелёный сигнал и нажимай. Пять точных попаданий; за ранний клик попытка не засчитывается."
+    hint: "Жди зелёный и нажимай. Три раунда: времени на ответ всё меньше. Пять попаданий — награда недели."
   }, ];
   const achievements = [{
     id: "first",
@@ -180,6 +180,136 @@
     const d = new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth(), m.getUTCDate()));
     d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7);
     return d.toISOString().slice(0, 10);
+  }
+
+  const ranked = ["orbit", "evolve", "bugs", "tower", "2048", "drop"];
+  const rankUnit = id => id === "orbit" ? "прыжков" : id === "tower" ? "этажей" :
+    id === "bugs" ? "багов" : "очков";
+
+  // The same curve is used for the HUD, game rules and regression checks.
+  function difficulty(id, progress = 0) {
+    const p = Math.max(0, Number(progress) || 0);
+    let level = 1;
+    if (id === "orbit") level += Math.floor(p / 5);
+    if (id === "evolve") level += Math.floor(p / 8);
+    if (id === "bugs") level += Math.floor(p / 10);
+    if (id === "tower") level += Math.floor(p / 5);
+    if (id === "typing") level += Math.floor(p / 80);
+    if (id === "debug") level += Math.floor(p / 2);
+    if (id === "2048") level = Math.max(1, Math.floor(Math.log2(Math.max(2, p))) - 2);
+    if (id === "drop") level += Math.floor(p / 100);
+    if (id === "memory") level = 1 + [4, 10, 18, 28].filter(n => p >= n).length;
+    if (id === "react") level += Math.floor(p / 5);
+    level = Math.min(id === "debug" || id === "typing" ? 4 : id === "memory" ? 5 :
+      id === "react" ? 3 : 10, level);
+    const step = level - 1;
+    return {
+      level,
+      orbitSpeed: 1.4 + step * .24,
+      orbitWindow: Math.max(.16, .38 - step * .025),
+      orbitDrift: level >= 3 ? Math.min(.2, step * .025) : 0,
+      pairSeconds: Math.max(7, 20 - step * 1.6),
+      bugEvery: Math.max(.24, .8 - step * .055),
+      bugLife: Math.max(.78, 2 - step * .13),
+      robotChance: Math.min(.42, .15 + step * .03),
+      bugSpeed: 12 + step * 7,
+      towerSpeed: 100 + step * 29,
+      perfectWindow: Math.max(2, 7 - step * .6),
+      fourChance: Math.min(.3, .1 + step * .025),
+      gravity: 520 + step * 36,
+      dropKinds: Math.min(5, 3 + Math.floor(step / 3)),
+      dangerLine: 78 + Math.min(32, step * 4),
+      pairs: [4, 6, 8, 10, 12][Math.min(4, step)],
+      memorySeconds: 50 + step * 5,
+      reactionWindow: Math.max(.45, .95 - step * .22),
+    };
+  }
+
+  function blankBoard() {
+    return {
+      version: 1,
+      all: {},
+      weeks: {}
+    };
+  }
+
+  function normalizeBoard(raw) {
+    const board = blankBoard();
+    if (!raw || raw.version !== 1) return board;
+
+    function entries(rows) {
+      if (!Array.isArray(rows)) return [];
+      const valid = rows.filter(r => r && typeof r.player === "string" && r.player.length <= 100 &&
+        typeof r.name === "string" && Number.isSafeInteger(r.score) && r.score > 0 &&
+        Number.isFinite(Date.parse(r.at)));
+      const unique = new Map();
+      for (const r of valid) {
+        const item = {
+          player: r.player,
+          name: r.name.slice(0, 80),
+          group: String(r.group || "").slice(0, 140),
+          score: r.score,
+          level: Math.max(1, Math.min(10, Math.floor(Number(r.level) || 1))),
+          at: r.at
+        };
+        if (!unique.has(r.player) || unique.get(r.player).score < r.score) unique.set(r.player, item);
+      }
+      return [...unique.values()].slice(0, 2000);
+    }
+    for (const id of ranked) board.all[id] = entries(raw.all?.[id]);
+    for (const [key, scores] of Object.entries(raw.weeks || {})) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
+      board.weeks[key] = {};
+      for (const id of ranked) board.weeks[key][id] = entries(scores?.[id]);
+    }
+    return board;
+  }
+
+  function recordBoard(board, id, player, score, level = 1, now = new Date()) {
+    if (!ranked.includes(id) || !player?.id || !player.name ||
+      !Number.isSafeInteger(score) || score <= 0) return false;
+    const row = {
+      player: String(player.id),
+      name: String(player.name).slice(0, 80),
+      group: String(player.group || "").slice(0, 140),
+      score,
+      level,
+      at: now.toISOString()
+    };
+    const w = board.weeks[weekKey(now)] ||= {};
+    let changed = false;
+    for (const container of [board.all, w]) {
+      const rows = container[id] ||= [],
+        index = rows.findIndex(r => r.player === row.player);
+      if (index < 0) {
+        rows.push({
+          ...row
+        });
+        changed = true;
+      } else if (rows[index].score < score) {
+        rows[index] = {
+          ...row
+        };
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  function leaders(board, id, period = "week", now = new Date()) {
+    if (!ranked.includes(id)) return [];
+    const rows = (period === "all" ? board.all[id] : board.weeks[weekKey(now)]?.[id]) || [];
+    let rank = 0,
+      previous = -1;
+    return rows.slice().sort((a, b) => b.score - a.score || a.at.localeCompare(b.at) ||
+      a.player.localeCompare(b.player)).map((r, i) => {
+      if (r.score !== previous) rank = i + 1;
+      previous = r.score;
+      return {
+        ...r,
+        rank
+      };
+    });
   }
 
   function blank() {
@@ -269,26 +399,48 @@
 
   function slide(board, direction) {
     const out = board.slice();
+    const moves = [];
     let score = 0;
     for (let n = 0; n < 4; n++) {
       const indexes = Array.from({
           length: 4
         }, (_, i) => direction === "left" ? n * 4 + i : direction === "right" ? n * 4 + 3 - i :
         direction === "up" ? i * 4 + n : (3 - i) * 4 + n);
-      const line = indexes.map(i => board[i]).filter(Boolean),
+      const line = indexes.filter(i => board[i]).map(i => ({
+          value: board[i],
+          from: i
+        })),
         merged = [];
       for (let i = 0; i < line.length; i++) {
-        if (line[i] === line[i + 1]) {
-          merged.push(line[i] * 2);
-          score += line[i] * 2;
+        const to = indexes[merged.length];
+        if (line[i].value === line[i + 1]?.value) {
+          merged.push(line[i].value * 2);
+          score += line[i].value * 2;
+          moves.push({
+            ...line[i],
+            to,
+            merged: true
+          }, {
+            ...line[i + 1],
+            to,
+            merged: true
+          });
           i++;
-        } else merged.push(line[i]);
+        } else {
+          merged.push(line[i].value);
+          moves.push({
+            ...line[i],
+            to,
+            merged: false
+          });
+        }
       }
       indexes.forEach((idx, i) => out[idx] = merged[i] || 0);
     }
     return {
       board: out,
       score,
+      moves,
       changed: out.some((v, i) => v !== board[i])
     };
   }
@@ -354,6 +506,13 @@
     why: "Чтобы функция вернула результат, нужен return."
   }, ];
   window.AlgoGameEngine = {
+    ranked,
+    rankUnit,
+    difficulty,
+    blankBoard,
+    normalizeBoard,
+    recordBoard,
+    leaders,
     games,
     achievements,
     weekKey,

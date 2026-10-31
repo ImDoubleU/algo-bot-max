@@ -3,6 +3,7 @@
   "use strict";
   if (!window.ALGO_GAMES_PROTOTYPE || !localDemoHost || !apiContext.demoMode) return;
   const E = window.AlgoGameEngine,
+    M = window.AlgoGameMotion,
     $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s).replace(/[&<>"']/g, c => ({
     '&': '&amp;',
@@ -17,6 +18,89 @@
     tab = "games",
     session = null,
     storageError = false;
+  let selectedPlayer = "",
+    leaderGame = "orbit",
+    leaderPeriod = "week";
+  const boardKey = "algo-games-leaderboards:v1";
+  try {
+    selectedPlayer = localStorage.getItem("algo-games-demo-player") || "";
+  } catch {}
+
+  function players() {
+    return (window.ALGO_GAME_PLAYERS?.length ? window.ALGO_GAME_PLAYERS : students)
+      .filter(p => p.id && p.name);
+  }
+
+  function player() {
+    return players().find(p => p.id === selectedPlayer) ||
+      players().find(p => p.id === state.activeStudentId) || players()[0] || {
+        id: "preview",
+        name: "Игрок",
+        group: "Демка"
+      };
+  }
+
+  function readBoard() {
+    try {
+      return E.normalizeBoard(JSON.parse(localStorage.getItem(boardKey) || "null"));
+    } catch {
+      return E.blankBoard();
+    }
+  }
+
+  function writeRank(g, score, level, who) {
+    if (!E.ranked.includes(g.id)) return;
+    try {
+      const board = readBoard();
+      E.recordBoard(board, g.id, who, score, level);
+      localStorage.setItem(boardKey, JSON.stringify(board));
+    } catch {
+      storageError = true;
+    }
+  }
+
+  function leaderMarkup() {
+    const g = E.games.find(g => g.id === leaderGame),
+      rows = E.leaders(readBoard(), leaderGame, leaderPeriod);
+    const mine = rows.find(r => r.player === player().id),
+      shown = rows.slice(0, 20);
+    if (mine && !shown.some(r => r.player === mine.player)) shown.push(mine);
+    return `<section class="games-leaders"><div class="games-leaders-top"><div><small>ТАБЛИЦА ЛИДЕРОВ</small><h3>${g.name}</h3></div><span>Локальная демка</span></div>
+      <div class="games-leader-controls"><label>Игра<select data-leader-game>${E.games.filter(g=>E.ranked.includes(g.id)).map(g=>`<option value="${g.id}" ${g.id===leaderGame?"selected":""}>${g.name}</option>`).join("")}</select></label><div class="games-leader-period">${[["week","Неделя"],["all","Всё время"]].map(([v,t])=>`<button data-leader-period="${v}" aria-pressed="${leaderPeriod===v}">${t}</button>`).join("")}</div></div>
+      ${mine?`<div class="games-my-rank"><span>Твоё место <b>#${mine.rank}</b></span><span>${mine.score.toLocaleString("ru-RU")} ${E.rankUnit(g.id)}<small>Уровень ${mine.level}</small></span></div>`:""}
+      ${shown.length?`<div class="games-leader-scroll"><table><thead><tr><th>Место</th><th>Игрок</th><th>Рекорд</th></tr></thead><tbody>${shown.map(r=>`<tr class="${r.player===player().id?"is-me":""}"><td><span class="rank-medal rank-${r.rank}">${r.rank<=3?["🥇","🥈","🥉"][r.rank-1]:r.rank}</span></td><td><b>${esc(r.name)}${r.player===player().id?' <em>Ты</em>':""}</b><small>${esc(r.group)}</small></td><td><strong>${r.score.toLocaleString("ru-RU")}</strong><small>Уровень ${r.level}</small></td></tr>`).join("")}</tbody></table></div>`:'<div class="games-leaders-empty"><span>🏆</span><h4>Первый рекорд может быть твоим</h4><p>Заверши партию — результат появится здесь.</p></div>'}
+      <p class="games-leader-note">Результаты игроков этой демки в этом браузере. Учитывается лучшая партия; равные очки делят место.</p></section>`;
+  }
+
+  function wireLeaders(host, draw) {
+    host.querySelectorAll("[data-leader-game]").forEach(el => el.onchange = () => {
+      leaderGame = el.value;
+      draw();
+    });
+    host.querySelectorAll("[data-leader-period]").forEach(el => el.onclick = () => {
+      leaderPeriod = el.dataset.leaderPeriod;
+      draw();
+    });
+  }
+
+  function openLeaders(id) {
+    if (id) leaderGame = id;
+    session?.pause();
+    $("#gamesLeaderDialog")?.remove();
+    const d = document.createElement("dialog");
+    d.id = "gamesLeaderDialog";
+    d.className = "games-leader-dialog";
+    const draw = () => {
+      d.innerHTML =
+        `<button class="games-leader-close" aria-label="Закрыть таблицу лидеров">×</button>${leaderMarkup()}`;
+      $(".games-leader-close", d).onclick = () => d.close();
+      wireLeaders(d, draw);
+    };
+    draw();
+    document.body.append(d);
+    d.addEventListener("close", () => d.remove());
+    d.showModal();
+  }
   const root = $("#gamesRoot"),
     symbols = ["🪨", "🌱", "🍄", "🐣", "🐱", "🦊", "🐲", "🪐", "🌞", "🌌"];
   const icon = (id) => {
@@ -37,8 +121,9 @@
   };
 
   const target = g => g.id === "2048" ? `плитка ${g.goal}` : `${g.goal} ${g.unit}`;
+
   function load() {
-    const key = "algo-games-prototype:v1:" + (state.activeStudentId || "preview");
+    const key = "algo-games-prototype:v1:" + player().id;
     if (profile === key) return;
     profile = key;
     storageError = false;
@@ -77,10 +162,11 @@
       done = E.games.filter(g => w.claimed[g.id]).length;
     const next = new Date(E.weekKey() + "T00:00:00+03:00");
     next.setTime(next.getTime() + 7 * 86400000);
-    root.innerHTML = `<div class="games-heading"><div><span class="games-eyebrow">ALGO ARCADE</span><h1>Игры</h1></div><span class="games-demo">Локальный прототип</span></div>
+    root.innerHTML = `<div class="games-heading"><div><span class="games-eyebrow">ALGO ARCADE</span><h1>Игры</h1></div><label class="games-player-picker">Игрок демки<select id="gamesPlayer">${players().map(p=>`<option value="${esc(p.id)}" ${p.id===player().id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></label></div>
       <section class="games-hero"><div class="games-hero-copy"><span class="games-season">СЕЗОН 01 · КОСМИЧЕСКИЙ ХАОС</span><h2>Маленький перерыв.<br><em>Большой рекорд.</em></h2><p>10 игр. Твои рекорды. Новые достижения.</p><button data-game="orbit" class="games-main">Полетели <span>↗</span></button></div><div class="games-hero-art">${icon("orbit")}<span class="games-sticker">ЕЩЁ ОДНУ<br>И ВСЁ!</span></div></section>
       <div class="games-weekbar"><div><span class="games-week-icon">✦</span><span><b>Награды недели</b><small>Обновятся ${next.toLocaleDateString("ru-RU",{timeZone:"Europe/Moscow",day:"numeric",month:"long"})} в 00:00 МСК</small></span></div><div class="games-week-pips" aria-label="Получено ${done} из 10 наград">${E.games.map(g=>`<i class="${w.claimed[g.id]?"claimed":(w.scores[g.id]||0)>=g.goal?"ready":""}"></i>`).join("")}</div><b>${done}<span> / 10</span></b><button data-games-tab="rewards">${available?`Забрать ${available*10} AC`:'Мои награды'} →</button></div>
-      <nav class="games-tabs" aria-label="Игры и достижения">${[["games","Все игры"],["achievements","Достижения"],["rewards","Награды"]].map(([id,label])=>`<button data-games-tab="${id}" aria-pressed="${tab===id}" class="${tab===id?"active":""}">${label}${id==="achievements"?`<span>${Object.keys(data.unlocked).length}/${E.achievements.length}</span>`:""}</button>`).join("")}</nav>
+      <nav class="games-tabs" aria-label="Игры и достижения">${[["games","Все игры"],["leaders","Лидеры"],["achievements","Достижения"],["rewards","Награды"]].map(([id,label])=>`<button data-games-tab="${id}" aria-pressed="${tab===id}" class="${tab===id?"active":""}">${label}${id==="achievements"?`<span>${Object.keys(data.unlocked).length}/${E.achievements.length}</span>`:""}</button>`).join("")}</nav>
+      ${tab==="leaders"?leaderMarkup():""}
       ${storageError?'<p class="games-warning" role="alert">Браузер не сохраняет прогресс. Не закрывай вкладку, пока проверяешь демку.</p>':""}
       ${tab==="games"?`<div class="games-filters" aria-label="Тип игры">${[["all","Все"],["fun","Залипательные"],["skill","С пользой"],["puzzle","Подумать"]].map(([id,label])=>`<button data-games-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${label}</button>`).join("")}</div><div class="games-grid">${E.games.filter(g=>filter==="all"||g.kind===filter).map(g=>{
         const ready=(w.scores[g.id]||0)>=g.goal;return `<button data-game="${g.id}" class="game-card ${g.color}"><div class="game-card-art">${icon(g.icon)}<span class="game-reward ${w.claimed[g.id]?"claimed":""}">${w.claimed[g.id]?"✓ Получено":ready?"✦ Награда ждёт":"✦ 10 AC"}</span></div><div class="game-card-body"><small>${g.tag}</small><h3>${g.name}</h3><div class="game-card-bottom"><span>${data.best[g.id]!==undefined?`Рекорд <b>${data.best[g.id]}</b>`:`Цель: ${target(g)}`}</span><span class="game-play" aria-hidden="true">↗</span></div></div></button>`;
@@ -112,6 +198,15 @@
         toast(amount ? `+${amount} тестовых AC` : "Награда уже получена");
       }
     };
+    $("#gamesPlayer", root).onchange = e => {
+      selectedPlayer = e.target.value;
+      try {
+        localStorage.setItem("algo-games-demo-player", selectedPlayer);
+      } catch {}
+      profile = "";
+      render();
+    };
+    if (tab === "leaders") wireLeaders(root, render);
   }
 
   function toast(text) {
@@ -129,6 +224,7 @@
       session = null;
     }
     $("#gameDialog")?.remove();
+    $("#gamesLeaderDialog")?.remove();
   }
 
   function open(id) {
@@ -142,6 +238,14 @@
     d.innerHTML =
       `<header><div><small>ALGO ARCADE</small><h2>${g.name}</h2></div><button class="game-close" aria-label="Закрыть игру">×</button></header><div class="game-hud"><span>Счёт <b id="gameScore">0</b></span><span id="gameClock"></span><span>Рекорд <b>${data.best[id]||0}</b></span></div><div class="game-stage"><div class="game-intro ${g.color}">${icon(g.icon)}<h3>${g.tag}</h3><p>${g.hint}</p><button class="games-main" id="gameStart">Начать игру →</button><small>Цель недели: ${target(g)} · 10 AC</small></div></div><footer><span id="gameHint">${["typing","debug"].includes(id)?"Короткая тренировка — большой навык":"Телефон или компьютер — играй как удобно"}</span><button id="gameFinish" hidden>Завершить</button></footer>`;
     document.body.append(d);
+    if (E.ranked.includes(id)) {
+      const b = document.createElement("button");
+      b.className = "game-leaders-button";
+      b.textContent = "🏆";
+      b.setAttribute("aria-label", "Таблица лидеров");
+      b.onclick = () => openLeaders(id);
+      $("header", d).insertBefore(b, $(".game-close", d));
+    }
     d.showModal();
     $(".game-close", d).onclick = () => {
       close();
@@ -165,6 +269,10 @@
   }
 
   function start(g, dialog) {
+    const who = {
+        ...player()
+      },
+      sparks = new M.Sparks();
     const stage = $(".game-stage", dialog);
     stage.innerHTML = "";
     const abort = new AbortController();
@@ -177,6 +285,11 @@
       paused = false,
       loop = () => {},
       paint = () => {};
+    let rankScore = 0,
+      rankSet = false,
+      highLevel = 1,
+      progressHigh = 0,
+      effectContext = null;
     const on = (el, type, handler, opts = {}) => el.addEventListener(type, handler, {
       ...opts,
       signal: abort.signal
@@ -185,11 +298,46 @@
       clock = $("#gameClock", dialog),
       finishButton = $("#gameFinish", dialog);
     finishButton.hidden = false;
+    $("#gameLevel", dialog)?.remove();
+    const levelEl = document.createElement("span");
+    levelEl.id = "gameLevel";
+    levelEl.className = "game-level";
+    levelEl.textContent = "Ур. 1";
+    levelEl.setAttribute("aria-live", "polite");
+    clock.after(levelEl);
     const s = {
       g,
       stage,
       dialog,
       on,
+      progress(value) {
+        progressHigh = Math.max(progressHigh, value);
+        const config = E.difficulty(g.id, progressHigh);
+        if (config.level > highLevel) {
+          highLevel = config.level;
+          levelEl.textContent = `Ур. ${highLevel}`;
+          M.pop(levelEl);
+          const banner = document.createElement("div");
+          banner.className = "game-level-up";
+          banner.textContent = `Уровень ${highLevel}`;
+          stage.append(banner);
+          setTimeout(() => banner.remove(), 1600);
+        }
+        return config;
+      },
+      rank(value) {
+        rankScore = Math.max(0, Math.floor(value));
+        rankSet = true;
+      },
+      fx(x, y, color, count) {
+        sparks.burst(x, y, color, count);
+      },
+      effects(ctx) {
+        effectContext = ctx;
+      },
+      impact(strength = 3) {
+        M.shake(stage, strength);
+      },
       get time() {
         return time;
       },
@@ -245,6 +393,7 @@
       finishButton.hidden = true;
       refreshStored();
       const unlocked = E.finish(data, g.id, score);
+      writeRank(g, rankSet ? rankScore : score, highLevel, who);
       recorded = true;
       save();
       const w = E.week(data),
@@ -254,6 +403,13 @@
       result.innerHTML =
         `<span class="result-star">${score>=g.goal?"✦":"↗"}</span><small>${esc(reason)}</small><h3>${score} <span>${g.unit}</span></h3><p>${score>=g.goal?"Цель недели выполнена":`Цель недели: ${target(g)}`}</p>${unlocked.length?`<div class="game-new-achievement">◇ ${unlocked.map(id=>E.achievements.find(a=>a.id===id).title).join(" · ")}</div>`:""}<button class="games-main" id="gameAgain">Ещё раз ↻</button>${eligible?'<button class="game-claim-result">Забрать 10 AC</button>':""}<button class="game-back">К играм</button>`;
       stage.append(result);
+      if (E.ranked.includes(g.id)) {
+        const b = document.createElement("button");
+        b.className = "game-result-leaders";
+        b.textContent = `🏆 Таблица лидеров · ${rankSet?rankScore:score} ${E.rankUnit(g.id)}`;
+        b.onclick = () => openLeaders(g.id);
+        $("#gameAgain", result).before(b);
+      }
       $("#gameAgain", result).onclick = () => {
         session?.destroy();
         start(g, dialog);
@@ -272,10 +428,12 @@
       $("#gameAgain", result).focus();
     }
     session = {
+      pause,
       destroy() {
         if (!recorded && score > 0) {
           refreshStored();
           E.finish(data, g.id, score);
+          writeRank(g, rankSet ? rankScore : score, highLevel, who);
           recorded = true;
           save();
         }
@@ -309,8 +467,10 @@
       if (!paused) {
         time += dt;
         loop(dt);
+        sparks.tick(dt);
       }
       if (!done) paint();
+      if (!done && effectContext) sparks.paint(effectContext);
       if (!done) raf = requestAnimationFrame(frame);
     }
     raf = requestAnimationFrame(frame);
@@ -327,6 +487,7 @@
     s.stage.append(c);
     const x = c.getContext("2d");
     x.scale(2, 2);
+    s.effects(x);
     c.focus();
     const point = e => {
       const r = c.getBoundingClientRect(),
@@ -388,17 +549,20 @@
     } = canvas(s);
     let angle = -Math.PI / 2,
       flight = 0,
+      baseTarget = random(-2.3, -.8),
+      flightAngle = 0,
       from = {
         x: 0,
         y: 0
       },
-      targetAngle = random(-2.3, -.8),
-      hops = 0;
-    s.hint("Тап / пробел — прыгнуть к планете");
+      landed = 5,
+      config = s.progress(0);
+    const aim = () => baseTarget + Math.sin(s.time * .8) * config.orbitDrift;
     action(s, c, () => {
       if (flight) return;
-      const delta = Math.atan2(Math.sin(angle - targetAngle), Math.cos(angle - targetAngle));
-      if (Math.abs(delta) > .37) {
+      const delta = Math.atan2(Math.sin(angle - aim()), Math.cos(angle - aim()));
+      if (Math.abs(delta) > config.orbitWindow) {
+        s.impact(5);
         s.end("Кот улетел исследовать космос");
         return;
       }
@@ -406,32 +570,46 @@
         x: 180 + Math.cos(angle) * 69,
         y: 281 + Math.sin(angle) * 69
       };
+      flightAngle = aim();
       flight = .001;
     });
     s.tick(dt => {
+      config = s.progress(s.score);
+      landed += dt;
       if (flight) {
-        flight += dt * 2.8;
+        flight += dt * 2.3;
         if (flight >= 1) {
           flight = 0;
-          hops++;
-          s.setScore(hops);
+          s.add(1);
           angle = Math.PI / 2;
-          targetAngle = random(-2.5, -.65);
+          baseTarget = random(-2.5, -.65);
+          landed = 0;
+          s.fx(180, 350, "#d3f58b", 20);
         }
-      } else angle += dt * (1.4 + Math.min(hops, 25) * .075);
+      } else angle += dt * config.orbitSpeed * (config.level >= 5 && Math.floor(s.score / 5) % 2 ? -1 :
+        1);
       s.clock(`${Math.floor(s.time)} с`);
     });
     s.paint(() => {
       bg(x);
-      const target = {
-        x: 180 + Math.cos(targetAngle) * 105,
-        y: 281 + Math.sin(targetAngle) * 160
-      };
+      const a = flight ? flightAngle : aim(),
+        target = {
+          x: 180 + Math.cos(a) * 105,
+          y: 281 + Math.sin(a) * 160
+        };
+      const t = flight ? Math.min(1, flight) : 0,
+        ease = t * t * (3 - 2 * t),
+        cam = {
+          x: (180 - target.x) * ease,
+          y: (281 - target.y) * ease
+        };
+      x.save();
+      x.translate(cam.x, cam.y);
       x.strokeStyle = "#c5ef78";
       x.lineWidth = 14;
-      x.globalAlpha = .15;
+      x.globalAlpha = .25 * (1 - ease);
       x.beginPath();
-      x.arc(180, 281, 69, targetAngle - .37, targetAngle + .37);
+      x.arc(180, 281, 69, a - config.orbitWindow, a + config.orbitWindow);
       x.stroke();
       x.globalAlpha = 1;
       x.strokeStyle = "#45465e";
@@ -445,15 +623,29 @@
       x.lineTo(target.x, target.y);
       x.stroke();
       x.setLineDash([]);
-      circle(x, 180, 281, 43, "#9b87f5");
-      circle(x, 168, 270, 13, "#b7a6ff");
-      circle(x, target.x, target.y, 28, "#bfec7f");
+      const squash = 1 + Math.sin(landed * 24) * Math.exp(-landed * 9) * .13;
+      x.save();
+      x.translate(180, 281);
+      x.scale(1 / squash, squash);
+      circle(x, 0, 0, 43, "#9b87f5");
+      circle(x, -12, -11, 13, "#b7a6ff");
+      x.restore();
+      circle(x, target.x, target.y, 28 + 15 * ease, "#bfec7f");
       circle(x, target.x - 7, target.y - 7, 8, "#d9f7ad");
-      const a = flight ? from.x + (target.x - from.x) * flight : 180 + Math.cos(angle) * 69,
-        b = flight ? from.y + (target.y - from.y) * flight : 281 + Math.sin(angle) * 69;
-      text(x, "🐱", a, b + 10, 29);
-      text(x, flight ? "Есть контакт!" : "Поймай зелёную дугу", 180, 47, 16, "#c5ef78");
+      const cx = flight ? from.x + (target.x - from.x) * ease : 180 + Math.cos(angle) * 69;
+      const cy = flight ? from.y + (target.y + 69 - from.y) * ease - Math.sin(t * Math.PI) * 65 : 281 +
+        Math.sin(angle) * 69;
+      x.save();
+      x.translate(cx, cy);
+      x.rotate(flight ? Math.sin(t * Math.PI) * .65 : Math.sin(s.time * 3) * .08);
+      const spring = 1 + Math.sin(landed * 22) * Math.exp(-landed * 8) * .2;
+      x.scale(1 / spring, spring);
+      text(x, "🐱", 0, 10, 29);
+      x.restore();
+      x.restore();
+      text(x, flight ? "Есть контакт!" : "Поймай зелёную дугу", 180, 38, 16, "#c5ef78");
     });
+    s.hint("Тап / пробел · дуга сужается, орбита ускоряется");
   }
 
   function evolve(s) {
@@ -461,15 +653,19 @@
         length: 16
       }, () => Math.random() < .3 ? 1 : 0),
       selected = -1,
-      turn = 0;
+      turn = 0,
+      config = s.progress(0),
+      left = config.pairSeconds;
     s.stage.innerHTML =
-      '<div class="evolve-game"><div class="evolve-chain">🪨 → 🌱 → 🍄 → 🐣 → 🐱 → 🦊 → 🐲</div><div class="evolve-grid"></div><p>Два одинаковых → новый зверь</p></div>';
-    const grid = $(".evolve-grid", s.stage);
+      '<div class="evolve-game"><div class="evolve-chain">🪨 → 🌱 → 🍄 → 🐣 → 🐱 → 🦊 → 🐲</div><div class="evolve-time"><progress max="20" value="20"></progress><span></span></div><div class="evolve-grid"></div><p>Два одинаковых → новый зверь</p></div>';
+    const grid = $(".evolve-grid", s.stage),
+      meter = $("progress", s.stage),
+      timeLabel = $(".evolve-time span", s.stage);
 
     function draw() {
       grid.innerHTML = cells.map((v, i) =>
         `<button data-cell="${i}" aria-label="${2**(v+1)}" aria-pressed="${i===selected}" class="${selected===i?"selected":""}"><span>${symbols[v]}</span><small>${2**(v+1)}</small></button>`
-        ).join("");
+      ).join("");
     }
     s.on(grid, "click", e => {
       if (s.paused) return;
@@ -484,19 +680,31 @@
       if (selected < 0 || cells[selected] !== cells[i]) {
         selected = i;
         draw();
+        M.pop(grid.children[i]);
         return;
       }
-      cells[i]++;
+      const old = selected;
+      cells[i] = Math.min(9, cells[i] + 1);
       s.add(2 ** (cells[i] + 1));
-      cells[selected] = Math.random() < .2 ? 1 : 0;
+      cells[old] = Math.random() < .2 ? 1 : 0;
       selected = -1;
       turn++;
+      config = s.progress(turn);
+      left = config.pairSeconds;
       draw();
-      if (cells[i] >= 9) s.end("Открыта целая вселенная!");
-      else if (!cells.some((v, i) => cells.indexOf(v) !== i)) s.end("Все звери стали разными");
+      M.pop(grid.children[i]);
+      M.pop(grid.children[old]);
+    });
+    s.tick(dt => {
+      left -= dt;
+      meter.max = config.pairSeconds;
+      meter.value = Math.max(0, left);
+      timeLabel.textContent = `${Math.max(0,Math.ceil(left))} с на пару`;
+      s.clock(`${turn} слияний`);
+      if (left <= 0) s.end("Время на поиск пары вышло");
     });
     draw();
-    s.tick(() => s.clock(`${turn} слияний`));
+    s.hint("Каждые 8 слияний времени на пару становится меньше");
   }
 
   function bugs(s) {
@@ -507,53 +715,75 @@
     } = canvas(s);
     let targets = [],
       spawn = 0,
-      life = 3;
-    s.hint("Лови багов 🐛 · береги роботов 🤖");
+      life = 3,
+      config = s.progress(0);
     s.on(c, "pointerdown", e => {
       e.preventDefault();
       if (s.paused) return;
       const p = point(e),
-        t = targets.findLast(t => Math.hypot(t.x - p.x, t.y - p.y) < 30);
+        t = targets.slice().reverse().find(t => Math.hypot(t.x - p.x, t.y - p.y) < 30);
       if (!t) return;
       targets = targets.filter(a => a !== t);
+      s.fx(t.x, t.y, t.good ? "#ff879b" : "#c3a2ff", 18);
       if (t.good) {
         life--;
+        s.impact(4);
         if (!life) s.end("Роботы попросили перерыв");
       } else s.add(1);
     });
     s.tick(dt => {
+      config = s.progress(s.score);
       spawn -= dt;
       if (spawn <= 0) {
-        spawn = random(.35, .7);
+        spawn = config.bugEvery * random(.85, 1.15);
         targets.push({
-          x: random(34, 326),
-          y: random(70, 370),
-          left: 1.6,
-          good: Math.random() < .23
+          x: random(35, 325),
+          y: random(75, 365),
+          vx: random(-1, 1) * config.bugSpeed,
+          vy: random(-.6, .6) * config.bugSpeed,
+          left: config.bugLife,
+          total: config.bugLife,
+          good: Math.random() < config.robotChance,
+          phase: random(0, 6)
         });
       }
-      targets.forEach(t => t.left -= dt);
-      for (const t of targets.filter(t => t.left <= 0)) {
-        if (!t.good) life--;
+      for (const t of targets) {
+        t.left -= dt;
+        t.x += t.vx * dt;
+        t.y += t.vy * dt;
+        if (t.x < 32 || t.x > 328) t.vx *= -1;
+        if (t.y < 68 || t.y > 375) t.vy *= -1;
       }
+      for (const t of targets.filter(t => t.left <= 0))
+        if (!t.good) {
+          life--;
+          s.impact(2);
+        }
       targets = targets.filter(t => t.left > 0);
-      s.clock(`${Math.ceil(45-s.time)} с · ${"♥".repeat(Math.max(0,life))}`);
+      s.clock(`${"♥".repeat(Math.max(0,life))} · ${Math.floor(s.time)} с`);
       if (life <= 0) s.end("Баги разбежались");
-      else if (s.time >= 45) s.end("Охота окончена");
     });
     s.paint(() => {
       bg(x);
       for (const t of targets) {
-        circle(x, t.x, t.y, 27, t.good ? "#3e6c5d" : "#65538a");
+        const age = t.total - t.left,
+          scale = Math.min(1, age * 10) * (1 + Math.sin(age * 13) * Math.exp(-age * 6) * .18);
+        x.save();
+        x.translate(t.x, t.y);
+        x.rotate(Math.sin(s.time * 5 + t.phase) * .15);
+        x.scale(scale, scale);
+        circle(x, 0, 0, 27, t.good ? "#3e6c5d" : "#65538a");
         x.strokeStyle = t.good ? "#bce98b" : "#c5afff";
         x.lineWidth = 3;
         x.beginPath();
-        x.arc(t.x, t.y, 29, -Math.PI / 2, -Math.PI / 2 + t.left / 1.6 * 2 * Math.PI);
+        x.arc(0, 0, 29, -Math.PI / 2, -Math.PI / 2 + t.left / t.total * 2 * Math.PI);
         x.stroke();
-        text(x, t.good ? "🤖" : "🐛", t.x, t.y + 10, 29);
+        text(x, t.good ? "🤖" : "🐛", 0, 10, 29);
+        x.restore();
       }
       text(x, "Баги — да. Роботы — нет.", 180, 35, 15, "#b5b1ca");
     });
+    s.hint("Больше багов, выше скорость · три ошибки заканчивают партию");
   }
 
   function tower(s) {
@@ -568,32 +798,58 @@
       left = 0,
       width = 230,
       dir = 1,
-      moving = true,
-      flashes = 0;
+      flashes = 0,
+      debris = [],
+      settle = 1,
+      config = s.progress(0);
     action(s, c, () => {
-      if (!moving) return;
       const prev = blocks.at(-1),
         a = Math.max(left, prev.left),
         b = Math.min(left + width, prev.left + prev.width);
       if (b - a < 5) {
+        s.impact(5);
         s.end("Башня ушла в свободный полёт");
         return;
       }
-      const perfect = Math.abs(left - prev.left) < 7;
+      const perfect = Math.abs(left - prev.left) < config.perfectWindow,
+        y = 390 - Math.min(11, blocks.length) * 25;
+      if (!perfect) {
+        const cuts = [
+          [left, a],
+          [b, left + width]
+        ];
+        for (const [from, to] of cuts)
+          if (to - from > 1) debris.push({
+            x: (from + to) / 2,
+            y: y + 10,
+            width: to - from,
+            vx: from < prev.left ? -55 : 55,
+            vy: -55,
+            spin: from < prev.left ? -3 : 3,
+            angle: 0,
+            age: 0,
+            color: "#b396ea"
+          });
+      }
       width = perfect ? prev.width : b - a;
       left = perfect ? prev.left : a;
       blocks.push({
         left,
         width
       });
-      s.setScore(blocks.length - 1);
+      if (blocks.length > 12) blocks.shift();
+      s.add(1);
+      config = s.progress(s.score);
       flashes = perfect ? .5 : 0;
+      settle = 0;
+      if (perfect) s.fx(left + width / 2, y, "#d3f58b", 20);
+      else s.impact(1.5);
       left = dir > 0 ? 360 - width : 0;
       dir *= -1;
     });
-    s.hint("Тап / пробел — поставить этаж");
     s.tick(dt => {
-      left += dir * (100 + Math.min(s.score, 25) * 9) * dt;
+      const wind = config.level >= 4 ? 1 + Math.sin(s.time * 1.9) * .2 : 1;
+      left += dir * config.towerSpeed * wind * dt;
       if (left < 0) {
         left = 0;
         dir = 1;
@@ -603,6 +859,9 @@
         dir = -1;
       }
       flashes = Math.max(0, flashes - dt);
+      settle += dt;
+      for (const p of debris) M.body(p, dt, 780);
+      debris = debris.filter(p => p.age < 1.8 && p.y < 490);
       s.clock(`${s.score} этажей`);
     });
     s.paint(() => {
@@ -611,21 +870,46 @@
         base = 390;
       visible.forEach((b, i) => {
         x.fillStyle = `hsl(${250+i*9+s.score*8} 65% 73%)`;
-        x.fillRect(b.left, base - i * 25, b.width, 21);
+        const bounce = i === visible.length - 1 ? Math.sin(settle * 29) * Math.exp(-settle * 14) *
+          5 : 0;
+        x.fillRect(b.left, base - i * 25 + bounce, b.width, 21);
       });
       x.fillStyle = "#c9ed81";
       x.fillRect(left, base - visible.length * 25, width, 21);
+      for (const p of debris) {
+        x.save();
+        x.globalAlpha = Math.min(1, (1.8 - p.age) * 2);
+        x.translate(p.x, p.y);
+        x.rotate(p.angle);
+        x.fillStyle = p.color;
+        x.fillRect(-p.width / 2, -10, p.width, 21);
+        x.restore();
+      }
       if (flashes) text(x, "ИДЕАЛЬНО", 180, 57, 19, "#c5ef78");
     });
+    s.hint("Тап / пробел · блоки быстрее, точное попадание сложнее");
   }
+
+
   const typingTexts = [
     "Космический кот нашёл на орбите пиццу. Теперь его миссия стала гораздо интереснее. ",
     "Робот умеет считать звёзды, но всё ещё путает сахар и соль. Ошибки помогают ему учиться. ",
     "Самая высокая башня начинается с одного блока. Самая крутая программа начинается с идеи. "
   ];
+  const typingLevels = [typingTexts,
+    ["В команде 12 роботов: 7 считают звёзды, а 5 готовят пиццу. Вместе они справляются быстрее! ",
+      "Новый рекорд: 128 очков за 60 секунд. Попробуешь улучшить результат ещё на 25 процентов? "
+    ],
+    ["Задание 3: (12 + 8) * 2 = 40. Проверь порядок действий, затем нажми Enter. ",
+      'Робот сказал: "Старт!" Таймер: 00:45, точность: 98%, скорость: 240 знаков. '
+    ],
+    ['Пароль от шлюза: "Орбита-2048". Координаты: (17, 42), энергия: 75%, запас: 3/8. ',
+      'Проверь: (144 / 12) + 7 = 19; 50% от 80 = 40. Ответ: "Всё верно!" '
+    ]
+  ];
 
   function typing(s) {
-    const source = pick(typingTexts) + pick(typingTexts) + pick(typingTexts);
+    let source = pick(typingTexts);
     let mistakes = 0,
       typed = 0,
       previous = "";
@@ -636,9 +920,12 @@
     let committed = 0;
 
     function draw() {
+      while (source.length - committed < 160) {
+        source += pick(typingLevels[E.difficulty("typing", source.length).level - 1]);
+      }
       passage.innerHTML = [...source.slice(committed, committed + 105)].map((ch, i) =>
         `<span class="${i<input.value.length?(ch===input.value[i]?"correct":"wrong"):i===input.value.length?"cursor":""}">${esc(ch)}</span>`
-        ).join("");
+      ).join("");
     }
     s.on(input, "paste", e => e.preventDefault());
     s.on(input, "drop", e => e.preventDefault());
@@ -659,10 +946,7 @@
       }
       previous = value;
       s.setScore(committed + correct);
-      if (value.length >= source.slice(committed).length) {
-        s.end("Весь текст напечатан");
-        return;
-      }
+      s.progress(s.score);
       if (value.length > 50 && value.endsWith(" ") && correct === value.length) {
         committed += value.length;
         input.value = "";
@@ -686,9 +970,16 @@
     let index = 0,
       line = -1,
       answered = false;
-    const tasks = E.tasks.slice().sort(() => Math.random() - .5);
+    const tasks = [
+        [0, 1],
+        [6, 2],
+        [3, 5],
+        [4, 7]
+      ].flatMap(pair => Math.random() < .5 ? pair : pair.reverse())
+      .map(i => E.tasks[i]);
 
     function draw() {
+      s.progress(index);
       const t = tasks[index];
       s.stage.innerHTML =
         `<div class="debug-game"><div class="debug-progress">Задача ${index+1} / ${tasks.length}<span>PYTHON</span></div><h3>${esc(t.intro)}</h3><div class="debug-code" aria-label="Выбери ошибочную строку">${t.lines.map((text,i)=>`<button data-line="${i}" class="${line===i?"selected":""}"><span>${i+1}</span><code>${esc(text)}</code></button>`).join("")}</div><p class="debug-instruction">${line<0?"Нажми на строку с ошибкой":"Чем заменим эту строку?"}</p>${line>=0?`<div class="debug-options">${t.options.map((text,i)=>`<button data-option="${i}"><code>${esc(text.trim())}</code></button>`).join("")}</div>`:""}<div class="debug-feedback" role="status"></div></div>`;
@@ -729,14 +1020,16 @@
 
   function numberGame(s) {
     let board = Array(16).fill(0),
-      points = 0;
+      points = 0,
+      config = s.progress(0),
+      movingUntil = 0;
     s.stage.innerHTML =
       '<div class="number-game"><div class="number-points">Очки <b>0</b></div><div class="number-grid" role="grid" aria-label="Поле 2048"></div><div class="number-controls"><button data-dir="up" aria-label="Вверх">↑</button><div><button data-dir="left" aria-label="Влево">←</button><button data-dir="down" aria-label="Вниз">↓</button><button data-dir="right" aria-label="Вправо">→</button></div></div></div>';
     const grid = $(".number-grid", s.stage);
 
     function add() {
       const empty = board.map((v, i) => v ? null : i).filter(v => v !== null);
-      if (empty.length) board[pick(empty)] = Math.random() < .9 ? 2 : 4;
+      if (empty.length) board[pick(empty)] = Math.random() < 1 - config.fourChance ? 2 : 4;
     }
 
     function draw() {
@@ -746,17 +1039,66 @@
     }
 
     function move(dir) {
-      if (s.paused) return;
+      if (s.paused || s.time < movingUntil) return;
       const r = E.slide(board, dir);
       if (!r.changed) return;
+      const oldRects = [...grid.children].map(el => el.getBoundingClientRect());
+      const oldStyles = [...grid.children].map(el => ({
+        background: getComputedStyle(el).backgroundColor,
+        color: getComputedStyle(el).color
+      }));
       board = r.board;
       points += r.score;
+      config = s.progress(Math.max(...board));
       add();
       s.setScore(Math.max(...board));
+      s.rank(points);
       draw();
+      if (!M.reduced()) {
+        movingUntil = s.time + .17;
+        const box = grid.getBoundingClientRect(),
+          cells = [...grid.children],
+          animations = [],
+          hidden = new Set();
+        for (const move of r.moves) {
+          if (move.from === move.to && !move.merged) continue;
+          const from = oldRects[move.from],
+            to = cells[move.to].getBoundingClientRect(),
+            ghost = document.createElement("div");
+          ghost.className = `number-moving n${Math.min(move.value,2048)}`;
+          ghost.textContent = move.value;
+          ghost.setAttribute("aria-hidden", "true");
+          Object.assign(ghost.style, {
+            ...oldStyles[move.from],
+            left: (to.left - box.left) + "px",
+            top: (to.top - box.top) + "px",
+            width: to.width + "px",
+            height: to.height + "px"
+          });
+          grid.append(ghost);
+          cells[move.to].style.opacity = "0";
+          hidden.add(move.to);
+          const animation = ghost.animate([{
+            transform: `translate(${from.left-to.left}px,${from.top-to.top}px)`
+          }, {
+            transform: "translate(0,0)"
+          }], {
+            duration: 150,
+            easing: "cubic-bezier(.2,.7,.3,1)"
+          });
+          animations.push(animation.finished.catch(() => {}).then(() => ghost.remove()));
+        }
+        Promise.allSettled(animations).then(() => {
+          for (const i of hidden) {
+            cells[i].style.opacity = "";
+            if (r.moves.some(m => m.to === i && m.merged)) M.pop(cells[i]);
+          }
+        });
+      }
       if (!E.canMove(board)) s.end("Ходов больше нет");
     }
     s.on(document, "keydown", e => {
+      if (s.paused) return;
       const dir = {
         ArrowLeft: "left",
         ArrowRight: "right",
@@ -792,6 +1134,7 @@
     add();
     draw();
     s.setScore(Math.max(...board));
+    s.rank(0);
     s.hint("Свайп / стрелки — сдвинуть плитки");
   }
 
@@ -805,7 +1148,8 @@
       aim = 180,
       next = 0,
       cool = 0,
-      danger = 0;
+      danger = 0,
+      config = s.progress(0);
     const radii = [13, 18, 24, 31, 39, 48, 59, 72],
       colors = ["#b3b0ff", "#bbea7a", "#ffc27a", "#ff8a95", "#9ccfff", "#f2e48a", "#b9a0fc", "#fac27d"];
 
@@ -814,14 +1158,17 @@
       const r = radii[next];
       balls.push({
         x: Math.max(r + 12, Math.min(348 - r, aim)),
-        y: 50,
+        y: 45,
         r,
         level: next,
         vx: 0,
         vy: 0,
-        age: 0
+        age: 0,
+        angle: random(-.2, .2),
+        spin: random(-.7, .7),
+        squash: 0
       });
-      next = Math.floor(random(0, 3));
+      next = Math.floor(random(0, config.dropKinds));
       cool = .55;
     }
     s.on(c, "pointermove", e => {
@@ -851,27 +1198,29 @@
     function physics(dt) {
       cool = Math.max(0, cool - dt);
       for (const b of balls) {
-        b.age += dt;
-        b.vy += 520 * dt;
-        b.vx *= .996;
-        b.x += b.vx * dt;
-        b.y += b.vy * dt;
+        M.body(b, dt, config.gravity);
+        b.spin *= Math.exp(-.8 * dt);
+        b.squash *= Math.exp(-10 * dt);
         if (b.x - b.r < 12) {
           b.x = 12 + b.r;
-          b.vx = Math.abs(b.vx) * .3;
+          b.vx = Math.abs(b.vx) * .28;
+          b.spin += .15;
         }
         if (b.x + b.r > 348) {
           b.x = 348 - b.r;
-          b.vx = -Math.abs(b.vx) * .3;
+          b.vx = -Math.abs(b.vx) * .28;
+          b.spin -= .15;
         }
         if (b.y + b.r > 416) {
+          const speed = Math.abs(b.vy);
           b.y = 416 - b.r;
-          b.vy = -Math.abs(b.vy) * .15;
-          if (Math.abs(b.vy) < 8) b.vy = 0;
+          b.vy = -speed * .12;
+          b.vx *= .98;
+          if (speed > 50) b.squash = Math.min(.2, speed / 1300);
+          if (Math.abs(b.vy) < 9) b.vy = 0;
         }
       }
-      let merges = 0;
-      for (let pass = 0; pass < 4; pass++)
+      for (let pass = 0; pass < 5; pass++)
         for (let i = 0; i < balls.length; i++)
           for (let j = i + 1; j < balls.length; j++) {
             const a = balls[i],
@@ -881,43 +1230,63 @@
               d = Math.hypot(dx, dy),
               sum = a.r + b.r;
             if (d >= sum) continue;
-            if (a.level === b.level && a.level < 7) {
-              const level = a.level + 1;
+            const ma = a.r * a.r,
+              mb = b.r * b.r;
+            if (a.level === b.level) {
+              const level = Math.min(7, a.level + 1);
               balls[i] = {
                 x: (a.x + b.x) / 2,
                 y: (a.y + b.y) / 2,
                 r: radii[level],
                 level,
-                vx: (a.vx + b.vx) / 2,
-                vy: -40,
-                age: 0
+                vx: (a.vx * ma + b.vx * mb) / (ma + mb),
+                vy: -45,
+                age: 0,
+                angle: 0,
+                spin: (a.spin + b.spin) / 2 + .3,
+                squash: .2
               };
               balls.splice(j, 1);
               s.add(2 ** (level + 1));
-              merges++;
+              s.fx(balls[i].x, balls[i].y, colors[level], 14);
+              if (level >= 4) s.impact(2);
               break;
             }
             const nx = d > .001 ? dx / d : 1,
               ny = d > .001 ? dy / d : 0,
-              overlap = sum - Math.max(d, .001);
-            a.x -= nx * overlap * .5;
-            a.y -= ny * overlap * .5;
-            b.x += nx * overlap * .5;
-            b.y += ny * overlap * .5;
+              overlap = sum - Math.max(d, .001),
+              ia = 1 / ma,
+              ib = 1 / mb;
+            a.x -= nx * overlap * ia / (ia + ib);
+            a.y -= ny * overlap * ia / (ia + ib);
+            b.x += nx * overlap * ib / (ia + ib);
+            b.y += ny * overlap * ib / (ia + ib);
             const rel = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
             if (rel < 0) {
-              const impulse = -rel * .55;
-              a.vx -= impulse * nx;
-              a.vy -= impulse * ny;
-              b.vx += impulse * nx;
-              b.vy += impulse * ny;
+              const impulse = -rel * 1.12 / (ia + ib);
+              a.vx -= impulse * nx * ia;
+              a.vy -= impulse * ny * ia;
+              b.vx += impulse * nx * ib;
+              b.vy += impulse * ny * ib;
+              const tangent = (b.vx - a.vx) * -ny + (b.vy - a.vy) * nx;
+              a.spin += tangent / a.r * .01;
+              b.spin -= tangent / b.r * .01;
+              if (rel < -70) {
+                a.squash = Math.min(.18, -rel / 1500);
+                b.squash = a.squash;
+              }
             }
           }
-      const tooHigh = balls.some(b => b.age > 2 && b.y - b.r < 78 && Math.abs(b.vy) < 45);
-      danger = tooHigh ? danger + dt : Math.max(0, danger - dt * 2);
-      if (danger > 2) s.end("Космос закончился");
+      for (const b of balls) {
+        b.x = Math.max(12 + b.r, Math.min(348 - b.r, b.x));
+        b.y = Math.min(416 - b.r, b.y);
+      }
+      const high = balls.some(b => b.age > 2 && b.y - b.r < config.dangerLine && Math.abs(b.vy) < 45);
+      danger = high ? danger + dt : Math.max(0, danger - dt * 2);
+      if (danger > 2.5) s.end("Космос закончился");
     }
     s.tick(dt => {
+      config = s.progress(s.score);
       const steps = Math.max(1, Math.ceil(dt / .008));
       for (let i = 0; i < steps; i++) physics(dt / steps);
       s.clock(`Следующий ${symbols[next]}`);
@@ -928,8 +1297,8 @@
       x.lineWidth = 1;
       x.setLineDash([4, 5]);
       x.beginPath();
-      x.moveTo(12, 78);
-      x.lineTo(348, 78);
+      x.moveTo(12, config.dangerLine);
+      x.lineTo(348, config.dangerLine);
       x.stroke();
       x.setLineDash([]);
       x.strokeStyle = "#4b4962";
@@ -938,69 +1307,116 @@
       if (cool <= 0) {
         const a = Math.max(radii[next] + 12, Math.min(348 - radii[next], aim));
         x.globalAlpha = .7;
-        circle(x, a, 41, radii[next], colors[next]);
+        circle(x, a, 38, radii[next], colors[next]);
         x.globalAlpha = 1;
         x.strokeStyle = "#6c658c";
         x.setLineDash([2, 5]);
         x.beginPath();
-        x.moveTo(a, 62);
+        x.moveTo(a, 60);
         x.lineTo(a, 390);
         x.stroke();
         x.setLineDash([]);
       }
       for (const b of balls) {
-        circle(x, b.x, b.y, b.r, colors[b.level]);
-        text(x, symbols[b.level], b.x, b.y + b.r * .35, Math.max(16, b.r * 1.1));
+        const grow = 1 - Math.exp(-b.age * 12) * Math.cos(b.age * 20) * .2;
+        x.save();
+        x.translate(b.x, b.y);
+        x.rotate(b.angle);
+        x.scale(grow * (1 + b.squash), grow * (1 - b.squash));
+        circle(x, 0, 0, b.r, colors[b.level]);
+        const shine = x.createRadialGradient(-b.r * .35, -b.r * .4, 0, 0, 0, b.r);
+        shine.addColorStop(0, "#ffffff50");
+        shine.addColorStop(1, "#ffffff00");
+        circle(x, 0, 0, b.r, shine);
+        text(x, symbols[b.level], 0, b.r * .35, Math.max(16, b.r * 1.1));
+        x.restore();
       }
-      if (danger) text(x, "ОСТОРОЖНО", 180, 104, 14, "#ff8696");
+      if (danger) text(x, "ОСТОРОЖНО", 180, config.dangerLine + 23, 14, "#ff8696");
     });
-    s.hint("Выбери место и нажми · стрелки и пробел на ПК");
+    s.hint("Выбирай место · выше уровень — сильнее гравитация и больше разных предметов");
   }
 
   function memory(s) {
-    const values = ["🐱", "🪐", "🍕", "🐲", "🚀", "🍄", "⚡", "💎"],
-      cards = [...values, ...values];
-    for (let i = cards.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [cards[i], cards[j]] = [cards[j], cards[i]];
-    }
-    let opened = [],
+    const values = ["🐱", "🪐", "🍕", "🐲", "🚀", "🍄", "⚡", "💎", "🦊", "🌵", "🍉", "🐙"];
+    let cards = [],
+      opened = [],
       matched = new Set(),
       moves = 0,
-      wait = 0;
+      wait = 0,
+      total = 0,
+      cleared = 0,
+      left = 0,
+      between = false,
+      config = s.progress(0);
     s.stage.innerHTML =
-      '<div class="memory-game"><div class="memory-top">Найди пары <b id="memoryMoves">0 ходов</b></div><div class="memory-grid"></div></div>';
-    const grid = $(".memory-grid", s.stage);
+      '<div class="memory-game"><div class="memory-top"><span id="memoryRound"></span><b id="memoryMoves">0 ходов</b></div><div class="memory-grid"></div><div class="memory-next"></div></div>';
+    const grid = $(".memory-grid", s.stage),
+      next = $(".memory-next", s.stage);
 
     function draw() {
+      grid.style.gridTemplateColumns = `repeat(${config.pairs>=10?6:4},minmax(0,1fr))`;
       grid.innerHTML = cards.map((v, i) =>
-        `<button data-card="${i}" class="${matched.has(i)?"matched":opened.includes(i)?"flipped":""}" ${matched.has(i)?"disabled":""} aria-label="${matched.has(i)||opened.includes(i)?v:`Карточка ${i+1}`}">${matched.has(i)||opened.includes(i)?v:"✦"}</button>`
-        ).join("");
+        `<button data-card="${i}" class="${matched.has(i)?"matched":opened.includes(i)?"flipped":""}" ${matched.has(i)?"disabled":""} aria-label="${matched.has(i)||opened.includes(i)?v:`Карточка ${i+1}`}"><span>${matched.has(i)||opened.includes(i)?v:"✦"}</span></button>`
+      ).join("");
       $("#memoryMoves", s.stage).textContent = `${moves} ходов`;
+      $("#memoryRound", s.stage).textContent = `${config.pairs} пар · уровень ${config.level}`;
+    }
+
+    function round() {
+      config = s.progress(cleared);
+      cards = [...values.slice(0, config.pairs), ...values.slice(0, config.pairs)];
+      for (let i = cards.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [cards[i], cards[j]] = [cards[j], cards[i]];
+      }
+      matched = new Set();
+      opened = [];
+      wait = 0;
+      between = false;
+      left = config.memorySeconds;
+      next.innerHTML = "";
+      draw();
     }
     s.on(grid, "click", e => {
-      if (s.paused || wait > 0) return;
+      if (s.paused || wait > 0 || between) return;
       const b = e.target.closest("[data-card]");
       if (!b) return;
       const i = +b.dataset.card;
       if (matched.has(i) || opened.includes(i)) return;
       opened.push(i);
+      let hit = [];
       if (opened.length === 2) {
         moves++;
         if (cards[opened[0]] === cards[opened[1]]) {
+          hit = opened.slice();
           opened.forEach(i => matched.add(i));
           opened = [];
-          s.setScore(matched.size / 2);
-          if (matched.size === 16) {
-            draw();
-            s.end(`Все пары найдены за ${moves} ходов`);
-            return;
+          total++;
+          s.setScore(total);
+          if (matched.size === cards.length) {
+            cleared = total;
+            between = true;
+            if (config.level === 5) {
+              draw();
+              s.end(`Все пять уровней! ${moves} ходов`);
+              return;
+            }
+            next.innerHTML = '<button class="games-main" data-memory-next>Следующий уровень →</button>';
           }
-        } else wait = .75;
+        } else wait = Math.max(.4, .8 - config.level * .06);
       }
       draw();
+      for (const j of hit) M.pop(grid.children[j]);
+    });
+    s.on(next, "click", e => {
+      if (e.target.closest("[data-memory-next]") && !s.paused) round();
     });
     s.tick(dt => {
+      if (between) {
+        s.clock("Уровень пройден");
+        return;
+      }
+      left -= dt;
       if (wait > 0) {
         wait -= dt;
         if (wait <= 0) {
@@ -1008,10 +1424,11 @@
           draw();
         }
       }
-      s.clock(`${Math.ceil(90-s.time)} с`);
-      if (s.time >= 90) s.end("Время вышло");
+      s.clock(`${Math.max(0,Math.ceil(left))} с`);
+      if (left <= 0) s.end("Время вышло");
     });
-    draw();
+    round();
+    s.hint("Пять уровней · больше карточек, меньше времени на каждую пару");
   }
 
   function react(s) {
@@ -1019,8 +1436,9 @@
       at = random(1.2, 3.5),
       since = 0,
       hits = [],
-      early = 0,
-      feedback = "";
+      misses = 0,
+      feedback = "",
+      config = s.progress(0);
     s.stage.innerHTML =
       '<button class="reaction-pad waiting"><span class="reaction-symbol">•••</span><b>Подожди зелёный</b><small>Не нажимай заранее</small></button><div class="reaction-attempts"></div>';
     const pad = $(".reaction-pad", s.stage),
@@ -1028,44 +1446,67 @@
 
     function draw() {
       pad.className = `reaction-pad ${state}`;
-      $(".reaction-symbol", pad).textContent = state === "go" ? "⚡" : state === "feedback" ? "✓" : "•••";
+      $(".reaction-symbol", pad).textContent = state === "go" ? "⚡" : state === "feedback" ? (feedback ===
+        "Рановато!" || feedback === "Не успел" ? "↻" : "✓") : "•••";
       $("b", pad).textContent = state === "go" ? "ЖМИ!" : state === "feedback" ? feedback :
         "Подожди зелёный";
-      $("small", pad).textContent = state === "go" ? "Сейчас!" : state === "feedback" ?
-        "Готовься к следующей попытке" : "Не нажимай заранее";
+      $("small", pad).textContent = state === "go" ?
+        `${Math.round(config.reactionWindow*1000)} мс на ответ` : state === "feedback" ?
+        "Готовься к следующей попытке" : `Ещё ${3-misses} ошибки до конца партии`;
+      const start = Math.floor(Math.min(14, hits.length) / 5) * 5;
       list.innerHTML = Array.from({
-        length: 5
-      }, (_, i) => `<span class="${hits[i]?"done":""}">${hits[i]?hits[i]+" мс":i+1}</span>`).join("");
+          length: 5
+        }, (_, i) =>
+        `<span class="${hits[start+i]!==undefined?"done":""}">${hits[start+i]!==undefined?hits[start+i]+" мс":i+1}</span>`
+      ).join("");
+    }
+
+    function miss(label) {
+      misses++;
+      feedback = label;
+      M.shake(pad);
+      if (misses >= 3) {
+        s.end("Три ошибки — попробуем ещё?");
+        return;
+      }
+      state = "feedback";
+      at = s.time + .95;
+      draw();
     }
 
     function hit() {
       if (s.paused || state === "feedback") return;
       if (state === "wait") {
-        early++;
-        feedback = "Рановато!";
-      } else {
-        const ms = Math.round((s.time - since) * 1000);
-        hits.push(ms);
-        s.setScore(hits.length);
-        feedback = `${ms} мс`;
-        if (hits.length === 5) {
-          s.end(`Средняя реакция ${Math.round(hits.reduce((a,b)=>a+b,0)/5)} мс`);
-          return;
-        }
+        miss("Рановато!");
+        return;
+      }
+      const ms = Math.round((s.time - since) * 1000);
+      hits.push(ms);
+      s.setScore(hits.length);
+      M.pop(pad);
+      feedback = `${ms} мс`;
+      config = s.progress(hits.length);
+      if (hits.length >= 15) {
+        s.end(`Средняя реакция ${Math.round(hits.reduce((a,b)=>a+b,0)/hits.length)} мс`);
+        return;
       }
       state = "feedback";
-      at = s.time + 1.1;
+      at = s.time + .95;
       draw();
     }
-    s.on(pad, "click", () => hit());
+    s.on(pad, "click", hit);
     s.on(document, "keydown", e => {
-      if (e.code === "Space" && !e.repeat) {
+      if (e.code === "Space" && !e.repeat && !s.paused) {
         e.preventDefault();
         hit();
       }
     });
     s.tick(() => {
-      s.clock(`${hits.length} / 5`);
+      s.clock(`${hits.length} / 15 · ${"♥".repeat(Math.max(0,3-misses))}`);
+      if (state === "go" && s.time - since > config.reactionWindow) {
+        miss("Не успел");
+        return;
+      }
       if (s.time >= at) {
         if (state === "wait") {
           state = "go";
@@ -1073,21 +1514,22 @@
           at = Infinity;
         } else if (state === "feedback") {
           state = "wait";
-          at = s.time + random(1.2, 3.5);
+          at = s.time + random(.8, 3.2);
         }
         draw();
       }
     });
     draw();
-    s.hint("Тап / пробел · только на зелёный");
+    s.hint("Три раунда · окно ответа сужается с 950 до 510 мс");
   }
+
   window.algoGames = {
     render,
     close
   };
   window.addEventListener("pagehide", () => session?.destroy());
   window.addEventListener("storage", event => {
-    if (event.key === profile && !session) {
+    if ((event.key === profile || event.key === boardKey) && !session) {
       refreshStored();
       render();
     }

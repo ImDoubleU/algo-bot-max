@@ -283,3 +283,157 @@ def test_arcade_requires_explicit_local_preview_flag(arcade):
     assert arcade.evaluate("roleViews(state.role).includes('games')")
     arcade.evaluate("window.ALGO_GAMES_PROTOTYPE=false;setView('games')")
     assert arcade.evaluate("state.view") == "dashboard"
+
+
+@pytest.mark.parametrize(
+    ("game", "progress"),
+    [
+        ("orbit", 15),
+        ("evolve", 24),
+        ("bugs", 30),
+        ("tower", 15),
+        ("typing", 240),
+        ("debug", 6),
+        ("2048", 256),
+        ("drop", 300),
+        ("memory", 18),
+        ("react", 10),
+    ],
+)
+def test_every_game_has_progressive_playable_difficulty(engine, game, progress):
+    first, later = engine.evaluate(
+        "([g,p])=>[AlgoGameEngine.difficulty(g,0),AlgoGameEngine.difficulty(g,p)]",
+        [game, progress],
+    )
+    assert later["level"] > first["level"]
+    assert later["orbitWindow"] >= 0.16
+    assert later["pairSeconds"] >= 7
+    assert later["reactionWindow"] >= 0.45
+    assert later["towerSpeed"] > first["towerSpeed"]
+
+
+def test_rankings_best_per_player_ties_and_week_reset(engine):
+    assert engine.evaluate("""() => {
+      const e=AlgoGameEngine,b=e.blankBoard(),d=new Date('2026-10-31T12:00:00Z');
+      const p=n=>({id:n,name:n,group:'Тестовая группа'});
+      e.recordBoard(b,'tower',p('one'),20,4,d);
+      e.recordBoard(b,'tower',p('one'),10,2,d);
+      e.recordBoard(b,'tower',p('two'),20,4,d);
+      e.recordBoard(b,'tower',p('three'),15,3,d);
+      const rows=e.leaders(b,'tower','week',d);
+      if(rows.length!==3||rows[0].score!==20||rows.map(r=>r.rank).join()!=='1,1,3')return false;
+      const next=new Date('2026-11-02T12:00:00Z');
+      if(e.leaders(b,'tower','week',next).length!==0)return false;
+      e.recordBoard(b,'tower',p('one'),5,1,next);
+      const restored=e.normalizeBoard(JSON.parse(JSON.stringify(b)));
+      return e.leaders(restored,'tower','week',next)[0].score===5 &&
+        e.leaders(restored,'tower','all',next)[0].score===20 &&
+        e.recordBoard(restored,'debug',p('one'),999,1,next)===false;
+    }""")
+
+
+def test_2048_animation_paths_conserve_every_source_tile(engine):
+    assert engine.evaluate("""() => {
+      const e=AlgoGameEngine,input=[2,2,4,4,0,4,4,0,...Array(8).fill(0)];
+      return ['left','right','up','down'].every(dir=>{
+        const r=e.slide(input,dir),sources=r.moves.map(m=>m.from);
+        return new Set(sources).size===input.filter(Boolean).length &&
+          r.board.every((v,i)=>r.moves.filter(m=>m.to===i).reduce((n,m)=>n+m.value,0)===v);
+      });
+    }""")
+
+
+def test_leaderboard_changes_player_and_keeps_rewards_separate(arcade):
+    page = arcade
+    page.evaluate("Math.random=()=>0.1")
+    who = page.locator("#gamesPlayer").input_value()
+    page.locator('.game-card[data-game="evolve"]').click()
+    page.locator("#gameStart").click()
+    page.locator('[data-cell="0"]').click()
+    page.locator('[data-cell="1"]').click()
+    page.locator("#gameFinish").click()
+    page.locator(".game-result-leaders").click()
+    assert page.locator("#gamesLeaderDialog .games-my-rank").inner_text().find("#1") >= 0
+    assert page.locator("#gamesLeaderDialog tr.is-me strong").inner_text() == "8"
+    page.locator(".games-leader-close").click()
+    page.locator(".game-back").click()
+    options = page.locator("#gamesPlayer option").evaluate_all("els=>els.map(e=>e.value)")
+    other = next(v for v in options if v != who)
+    page.locator("#gamesPlayer").select_option(other)
+    assert "Рекорд" not in page.locator('.game-card[data-game="evolve"]').inner_text()
+    page.locator('[data-games-tab="leaders"]').click()
+    page.locator("[data-leader-game]").select_option("evolve")
+    assert page.locator(".games-my-rank").count() == 0
+    assert page.locator(".games-leaders tbody tr").count() == 1
+    page.locator('[data-games-tab="rewards"]').first.click()
+    assert page.locator(".games-reward-summary strong").inner_text() == "0 AC"
+    page.locator("#gamesPlayer").select_option(who)
+    page.locator('[data-games-tab="games"]').click()
+    assert "Рекорд" in page.locator('.game-card[data-game="evolve"]').inner_text()
+
+
+def test_memory_next_level_actually_adds_pairs(arcade):
+    page = arcade
+    page.evaluate("Math.random=()=>.999")  # Fisher-Yates keeps a deterministic paired deck.
+    page.locator('.game-card[data-game="memory"]').click()
+    page.locator("#gameStart").click()
+    assert page.locator(".memory-grid button").count() == 8
+    for i in range(4):
+        page.locator(f'[data-card="{i}"]').click()
+        page.locator(f'[data-card="{i + 4}"]').click()
+    assert page.locator("#gameScore").inner_text() == "4"
+    page.locator("[data-memory-next]").click()
+    assert page.locator(".memory-grid button").count() == 12
+    assert page.locator("#gameLevel").inner_text() == "Ур. 2"
+    page.locator(".game-close").click()
+
+
+def test_orbit_jump_and_leaderboard_pause_do_not_lose_run(arcade):
+    page = arcade
+    page.evaluate("Math.random=()=>.5")
+    page.locator('.game-card[data-game="orbit"]').click()
+    page.locator("#gameStart").click()
+    page.keyboard.press("Space")
+    page.wait_for_function("document.querySelector('#gameScore').textContent==='1'")
+    page.locator(".game-leaders-button").click()
+    assert page.locator(".game-pause").count() == 1
+    page.locator(".games-leader-close").click()
+    before = page.locator("#gameClock").inner_text()
+    page.wait_for_timeout(1100)
+    assert page.locator("#gameClock").inner_text() == before
+    page.locator(".game-pause button").click()
+    page.locator("#gameFinish").click()
+    page.locator(".game-result-leaders").click()
+    assert page.locator("#gamesLeaderDialog tr.is-me strong").inner_text() == "1"
+    page.locator(".games-leader-close").click()
+    page.locator(".game-back").click()
+
+
+def test_reduced_motion_keeps_gameplay_and_disables_decorative_particles(arcade):
+    page = arcade
+    page.emulate_media(reduced_motion="reduce")
+    assert page.evaluate("""() => {
+      const sparks=new AlgoGameMotion.Sparks();sparks.burst(100,100);
+      return sparks.items.length===0;
+    }""")
+    page.locator('.game-card[data-game="2048"]').click()
+    page.locator("#gameStart").click()
+    page.keyboard.press("ArrowLeft")
+    assert page.locator(".number-moving").count() == 0
+    assert page.locator(".number-cell").count() == 16
+    page.locator(".game-close").click()
+
+
+@pytest.mark.parametrize("width", [320, 390, 768, 1440])
+def test_leaderboard_layout_and_short_screen_results(arcade, width):
+    page = arcade
+    page.set_viewport_size({"width": width, "height": 568})
+    page.locator('[data-games-tab="leaders"]').click()
+    assert page.locator(".games-leaders").is_visible()
+    assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
+    page.locator('[data-games-tab="games"]').click()
+    page.locator('.game-card[data-game="orbit"]').click()
+    page.locator("#gameStart").click()
+    page.locator("#gameFinish").click()
+    page.locator(".game-back").click()
+    assert page.locator("#gameDialog").count() == 0
