@@ -66,7 +66,7 @@ function collectionPigIllustration() {
 
 function pizzaEndpoint(path = "", student = true) {
   const url = new URL(`/api/v1/miniapp/pizza${path}`, location.origin);
-  url.searchParams.set("tenant_slug", window.pizzaPreview?.tenant || apiContext.tenantSlug || state.currentTenant?.slug || "");
+  url.searchParams.set("tenant_slug", window.pizzaPreview?.tenant || apiContext.tenantSlug || state.currentTenant?.tenant_slug || "");
   if (student && ["student", "parent"].includes(state.role) && selectedStudent()?.id) {
     url.searchParams.set("student_id", selectedStudent().id);
   }
@@ -155,8 +155,7 @@ function pizzaCard(c) {
     <div class="pizza-card-body"><div class="pizza-copy"><p class="pizza-group">${pizzaEscape(c.group_name)}</p>
       <h2>${c.status === "cancelled" ? "Сбор отменён" : ended ? "В этот раз не собрались" : c.kind === "other" ? pizzaEscape(c.title) : customer && !open ? "На пиццу собрали!" : c.status === "delivered" ? "Пицца приехала!" : "На пиццу всей группой"}</h2>
       <div class="pizza-progress-caption"><strong>${pizzaNumber(c.collected)} <span>из ${pizzaNumber(c.target)} AC</span></strong><span>${c.joined} из ${c.members} внесли</span></div>
-      <div class="pizza-progress" role="progressbar" aria-label="Собрано астрокоинов" aria-valuenow="${c.collected}" aria-valuemin="0" aria-valuemax="${c.target}"><span style="width:${percent}%"></span></div>
-      <div class="pizza-segments" aria-hidden="true">${Array.from({length: Math.min(c.members,30)},(_,i)=>`<span class="${i < c.joined ? "is-filled" : ""}"></span>`).join("")}</div>
+      <div class="pizza-segments" role="progressbar" aria-label="Собрано астрокоинов" aria-valuenow="${c.collected}" aria-valuemin="0" aria-valuemax="${c.target}">${Array.from({length: Math.min(c.members,30)},(_,i)=>`<span aria-hidden="true" class="${i < c.joined ? "is-filled" : ""}"></span>`).join("")}</div>
       ${pizzaActions(c)}
       <div class="pizza-card-foot"><span><i data-lucide="${ended ? "wallet" : "shield-check"}"></i>${ended ? "Внесённые астрокоины возвращены" : open ? "Не соберём к сроку — вернём взносы" : customer ? "Сумма собрана. Спасибо за участие!" : c.status === "funded" ? "Преподаватель и директор уведомлены" : pizzaStatus(c)}</span><button class="pizza-text-button" data-pizza-details="${c.id}">Подробнее<i data-lucide="chevron-right"></i></button></div>
     </div><div class="pizza-visual"><div class="pizza-illustration">${c.kind === "other" ? collectionPigIllustration() : pizzaIllustration()}<span class="pizza-percent"><i data-lucide="check"></i><span>${Math.round(percent)}% собрано</span></span></div></div></div>

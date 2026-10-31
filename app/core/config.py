@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     app_timezone: str = Field(default="Europe/Moscow", alias="APP_TIMEZONE")
     api_v1_prefix: str = "/api/v1"
     group_collections_enabled: bool = Field(default=False, alias="GROUP_COLLECTIONS_ENABLED")
+    group_collection_notifications_enabled: bool = Field(
+        default=True, alias="GROUP_COLLECTION_NOTIFICATIONS_ENABLED")
 
     max_bot_token: str | None = Field(default=None, alias="MAX_BOT_TOKEN")
     max_bot_username: str | None = Field(default=None, alias="MAX_BOT_USERNAME")

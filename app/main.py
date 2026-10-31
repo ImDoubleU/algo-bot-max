@@ -37,6 +37,10 @@ async def lifespan(_: FastAPI):
 
     audit_worker = (asyncio.create_task(bot_audit_loop())
                     if not is_local_environment(settings.app_env) else None)
+    from app.services.collection_notifications import collection_loop
+    collection_worker = (
+        asyncio.create_task(collection_loop()) if settings.group_collections_enabled else None
+    )
     try:
         # Surface startup errors before the service reports ready.
         if pending_worker:
@@ -45,6 +49,10 @@ async def lifespan(_: FastAPI):
                 pending_worker.result()
         yield
     finally:
+        if collection_worker:
+            collection_worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await collection_worker
         if pending_worker:
             pending_worker.cancel()
             with suppress(asyncio.CancelledError):

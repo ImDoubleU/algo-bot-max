@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -131,6 +132,13 @@ async def initialize():
                     "revision": "INTEGER NOT NULL DEFAULT 1",
                 },
                 "pizza_campaigns": {"kind": "VARCHAR(20) NOT NULL DEFAULT 'pizza'"},
+                "pizza_notices": {
+                    "attempted_at": "DATETIME",
+                    "next_attempt_at": "DATETIME",
+                    "attempts": "INTEGER NOT NULL DEFAULT 0",
+                    "cancelled_at": "DATETIME",
+                    "last_error": "VARCHAR(120)",
+                },
             }
             for table, fields in definitions.items():
                 if table not in inspector.get_table_names():
@@ -262,10 +270,10 @@ async def index(request: Request):
     if role not in ROLES:
         raise HTTPException(400, "Unknown preview role")
     source = (static / "index.html").read_text(encoding="utf-8")
-    source = source.replace(
-        '<script src="/miniapp/static/app-core.js?v=0.91.64"></script>',
-        '<script src="/miniapp/static/app-core.js?v=0.91.64"></script>'
-        f'<script src="/preview/bootstrap.js?role={role}"></script>',
+    source = re.sub(
+        r'(<script src="/miniapp/static/app-core\.js[^\"]*"></script>)',
+        lambda match: match.group(1) + f'<script src="/preview/bootstrap.js?role={role}"></script>',
+        source,
     )
     source = source.replace("</body>", '<script src="/preview/controls.js"></script></body>')
     return source

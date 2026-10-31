@@ -147,7 +147,7 @@ async def test_one_fixed_share_even_on_network_retry_and_after_funding(context):
     assert await balance(c) == 1040
     assert await c["db"].scalar(select(func.count()).select_from(PizzaContribution)) == 3
     assert await c["db"].scalar(select(func.count()).select_from(AstrocoinLedgerEntry)) == 3
-    notices = list(await c["db"].scalars(select(PizzaNotice)))
+    notices = list(await c["db"].scalars(select(PizzaNotice).where(PizzaNotice.event == "funded")))
     assert len(notices) == 2
     assert {n.account_id for n in notices} == {c["teacher"].account.id, c["director"].account.id}
 
@@ -523,7 +523,12 @@ async def test_generic_collection_type_survives_variant_edit_and_deletion(contex
         await pay(c, i)
     await c["db"].commit()
     assert campaign.kind == "other" and campaign.share == 150
-    assert all("пицц" not in n.message.lower() for n in await c["db"].scalars(select(PizzaNotice)))
+    assert all(
+        "пицц" not in n.message.lower()
+        for n in await c["db"].scalars(
+            select(PizzaNotice).where(PizzaNotice.campaign_id == campaign.id)
+        )
+    )
 
 
 async def test_variant_api_edit_delete_and_teacher_denial(context, monkeypatch):

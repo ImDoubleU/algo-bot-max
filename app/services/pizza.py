@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,10 +13,11 @@ from app.models.enums import (
     LedgerDirection,
     StaffRole,
     StudentAccessRole,
+    StudentAccessStatus,
     StudentStatus,
 )
 from app.models.pizza import PizzaCampaign, PizzaContribution, PizzaNotice, PizzaOffer
-from app.models.student import AstrocoinLedgerEntry, Student, Wallet
+from app.models.student import AstrocoinLedgerEntry, Student, StudentAccessLink, Wallet
 from app.models.tenant import Tenant
 from app.schemas.pizza import PizzaCampaignCreate, PizzaOfferCreate, PizzaOfferEdit
 from app.services.access import get_effective_customer_access_link
@@ -192,6 +194,55 @@ async def notify_funded(db, campaign):
         )
 
 
+async def connected_recipients(db, campaign):
+    links = list(
+        await db.scalars(
+            select(StudentAccessLink)
+            .join(Student, Student.id == StudentAccessLink.student_id)
+            .where(
+                StudentAccessLink.tenant_id == campaign.tenant_id,
+                StudentAccessLink.student_id.in_([UUID(row["id"]) for row in campaign.roster]),
+                StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+                Student.status == StudentStatus.ACTIVE,
+                Student.group_name == campaign.group_name,
+            )
+        )
+    )
+    recipients = {}
+    names = {row["id"]: row["name"] for row in campaign.roster}
+    for link in links:
+        if link.role == StudentAccessRole.STUDENT and not await get_effective_customer_access_link(
+            db,
+            tenant_id=campaign.tenant_id,
+            account_id=link.account_id,
+            student_id=link.student_id,
+            required_role=StudentAccessRole.STUDENT,
+        ):
+            continue
+        recipients.setdefault(link.account_id, set()).add(names[str(link.student_id)])
+    return recipients
+
+
+def opened_notice_text(campaign, names):
+    deadline = (
+        utc(campaign.deadline).astimezone(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
+    )
+    students = ", ".join(sorted(names))
+    if len(students) > 180:
+        students = students[:177] + "…"
+    return (
+        f"В группе начался сбор: {campaign.title}\n\n"
+        f"Группа: {campaign.group_name}\nУченики: {students}\n"
+        f"Взнос с ученика: {campaign.share} AC\nСобрать до: {deadline} МСК\n\n"
+        "Сбор находится в миниприложении, в разделе «Магазин»."
+    )[:700]
+
+
+async def notify_opened(db, campaign):
+    for account_id, names in (await connected_recipients(db, campaign)).items():
+        await notice(db, campaign, account_id, "opened", opened_notice_text(campaign, names))
+
+
 async def create_offer(db, actor, payload: PizzaOfferCreate):
     if not actor.director:
         raise PizzaError("Варианты сбора создаёт директор", 403)
@@ -297,6 +348,7 @@ async def create_campaign(db, actor, payload: PizzaCampaignCreate, *, now=None):
     db.add(campaign)
     await db.flush()
     audit(db, actor, campaign, "opened", share=offer.share, target=campaign.target)
+    await notify_opened(db, campaign)
     return campaign
 
 
