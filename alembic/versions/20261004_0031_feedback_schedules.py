@@ -1,7 +1,6 @@
 """Teacher-owned feedback schedules."""
 
 import sqlalchemy as sa
-
 from alembic import op
 
 revision = "20261004_0031"

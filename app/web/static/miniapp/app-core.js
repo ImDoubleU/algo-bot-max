@@ -1895,6 +1895,10 @@ function canManageStudentRecords() {
   return ["superadmin", "partner_director", "admin"].includes(primaryStaffRole());
 }
 
+function canViewStudentProfiles() {
+  return canManageStudentRecords() || hasTeacherCapabilities() || hasStaffRole("curator");
+}
+
 function canUseAdminCatalog() {
   return Boolean(apiContext.maxUserId && state.role === "admin");
 }

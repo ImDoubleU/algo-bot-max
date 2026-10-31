@@ -595,12 +595,6 @@ async function refreshAllData() {
     return;
   }
   const refreshTasks = [loadCatalog(), loadOpsSummary()];
-  if (state.studentProfileId && canManageStudentRecords()) {
-    refreshTasks.push(loadStudentLedger(state.studentProfileId, true));
-    if (typeof loadStudentBank === "function") {
-      refreshTasks.push(loadStudentBank(state.studentProfileId, true));
-    }
-  }
   if (roleViews(state.role).includes("bank") && typeof loadBankData === "function") {
     refreshTasks.push(loadBankData(true));
   }
@@ -614,6 +608,17 @@ async function refreshAllData() {
   results.forEach((result) => {
     if (result.status === "rejected") errors.push(result.reason);
   });
+  // Registry refresh invalidates ledger caches, so reload the open card afterwards.
+  if (state.studentProfileId && canViewStudentProfiles()) {
+    const profileResults = await Promise.allSettled([
+      loadStudentLedger(state.studentProfileId, true),
+      typeof loadStudentBank === "function"
+        ? loadStudentBank(state.studentProfileId, true) : Promise.resolve(),
+    ]);
+    profileResults.forEach((result) => {
+      if (result.status === "rejected") errors.push(result.reason);
+    });
+  }
   state.studentInvitations = new Map();
   state.studentInvitationsLoaded = false;
   closeParentInvitationPreview();

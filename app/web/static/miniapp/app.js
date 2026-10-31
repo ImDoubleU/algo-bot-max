@@ -1055,7 +1055,7 @@ function renderOrderDialog(order) {
     <div class="order-dialog-summary ${isDigitalOrder ? "is-digital" : ""}">
       <div>
         <span class="status-badge ${escapeHtml(orderStatusTone(order.rawStatus))}">${escapeHtml(orderDisplayStatus(order))}</span>
-        ${canManageStudentRecords()
+        ${canViewStudentProfiles()
           ? `<button class="student-name-link student-name-link-large" type="button" data-open-student-profile="${escapeHtml(order.studentId)}">${escapeHtml(order.student)}</button>`
           : `<h3>${escapeHtml(order.student)}</h3>`}
         <div class="student-meta">
@@ -3038,7 +3038,9 @@ document.addEventListener("click", (event) => {
   if (target.dataset.profileTab) {
     const tab = target.dataset.profileTab;
     const page = target.closest(".student-profile-page");
-    if (page && ["overview", "data", "access", "finance", "history"].includes(tab)) {
+    const allowedTabs = canManageStudentRecords()
+      ? ["overview", "data", "access", "finance", "history"] : ["overview", "finance"];
+    if (page && canViewStudentProfiles() && allowedTabs.includes(tab)) {
       state.studentProfileTab = tab;
       if (tab === "history" && !auditFeed(`student:${state.studentProfileId}`).loaded) void loadAuditFeed(`student:${state.studentProfileId}`);
       page.querySelectorAll("[data-profile-panel]").forEach((section) => {

@@ -456,14 +456,17 @@ function studentProfileChoice(name, label, value, choices, description) {
 }
 
 function studentProfileMarkup(student) {
+  const canManage = canManageStudentRecords();
   const groups = state.adminStudents.map((item) => item.group);
   const teachers = [
     ...state.adminStudents.map((item) => item.teacher),
     ...staffAssignments.filter((item) => item.role === "teacher" && item.status === "active")
       .map((item) => [item.lastName, item.firstName].filter(Boolean).join(" ") || item.displayName),
   ];
-  const tabs = [["overview", "Обзор", "user-round"], ["data", "Данные", "pencil"], ["access", "Связи", "link"], ["finance", "Астрокоины", "wallet"], ["history", "История", "history"]];
-  const activeTab = state.studentProfileTab || "overview";
+  const tabs = [["overview", "Обзор", "user-round"], ["data", "Данные", "pencil"], ["access", "Связи", "link"], ["finance", "Астрокоины", "wallet"], ["history", "История", "history"]]
+    .filter(([key]) => canManage || ["overview", "finance"].includes(key));
+  const activeTab = tabs.some(([key]) => key === state.studentProfileTab)
+    ? state.studentProfileTab : "overview";
   const panel = (name) => `data-profile-panel="${name}" ${activeTab === name ? "" : "hidden"}`;
   const status = studentRegistryStatus(student.status);
   const history = [...student.history].sort(
@@ -499,7 +502,7 @@ function studentProfileMarkup(student) {
         ${tabs.map(([key, label, icon]) => `<button type="button" data-profile-tab="${key}" aria-pressed="${activeTab === key}"><i data-lucide="${icon}"></i><span>${label}</span></button>`).join("")}
       </nav>
       <section class="student-profile-overview" ${panel("overview")}>
-        <div class="student-profile-section-heading"><h4>Обучение</h4><button class="secondary-action" type="button" data-profile-tab="data"><i data-lucide="pencil"></i><span>Редактировать</span></button></div>
+        <div class="student-profile-section-heading"><h4>Обучение</h4>${canManage ? '<button class="secondary-action" type="button" data-profile-tab="data"><i data-lucide="pencil"></i><span>Редактировать</span></button>' : ""}</div>
         <div class="student-profile-summary">
           ${studentProfileFact("Группа", student.group)}
           ${studentProfileFact("Курс", student.course)}
@@ -508,11 +511,12 @@ function studentProfileMarkup(student) {
           ${studentProfileFact("Дата рождения", student.birthDate ? new Date(`${student.birthDate.slice(0, 10)}T12:00:00`).toLocaleDateString("ru-RU") : "Не указана")}
           ${studentProfileFact("Родитель", student.parentNames.join(", ") || "Не указан")}
         </div>
-        <div class="student-profile-connections">
+        ${canManage ? `<div class="student-profile-connections">
           <button type="button" data-profile-tab="access" class="${student.parentMaxUserIds.length ? "is-connected" : "is-pending"}"><i data-lucide="users"></i><span><small>Родитель</small><strong>${student.parentMaxUserIds.length ? "Подключён" : "Ожидается вход"}</strong></span><i data-lucide="chevron-right"></i></button>
           <button type="button" data-profile-tab="access" class="${student.studentMaxUserIds.length ? "is-connected" : "is-pending"}"><i data-lucide="user-round"></i><span><small>Ученик</small><strong>${student.studentMaxUserIds.length ? "Подключён" : "Ожидается вход"}</strong></span><i data-lucide="chevron-right"></i></button>
-        </div>
+        </div>` : ""}
       </section>
+      ${canManage ? `
       <form class="student-profile-form" ${panel("data")} data-student-profile-form="${escapeHtml(student.id)}">
         <section class="student-profile-section">
           <div class="student-profile-section-heading">
@@ -578,6 +582,7 @@ function studentProfileMarkup(student) {
           <button class="primary-action" type="submit">Обновить баланс</button>
         </form>
       </section>
+      ` : ""}
 
       <section class="student-profile-section student-bank-history" ${panel("finance")}>
         <div class="student-history-head"><div><h4>Банк</h4><span>Личный счёт, вклад, ставка и начисленные проценты.</span></div></div>
@@ -589,7 +594,7 @@ function studentProfileMarkup(student) {
         <div data-student-ledger-panel="${escapeHtml(student.id)}">${studentLedgerMarkup(student.id)}</div>
       </section>
 
-      <section class="student-profile-section" ${panel("history")}>
+      ${canManage ? `<section class="student-profile-section" ${panel("history")}>
         <div class="student-profile-section-heading"><div><h4>Служебная информация</h4><p>Помогает понять, когда карточка появилась, обновлялась и меняла состояние.</p></div></div>
         <div class="student-profile-facts">
           ${studentProfileFact("Добавлен", formatRegistryDate(student.importedAt))}
@@ -609,7 +614,7 @@ function studentProfileMarkup(student) {
             return `<article class="student-history-item is-${escapeHtml(event.eventType)}"><span class="student-history-dot" aria-hidden="true"></span><span class="student-history-copy"><strong>${escapeHtml(copy.title)}</strong><span>${escapeHtml(copy.detail)}</span>${event.actorName ? `<small>Ответственный: ${escapeHtml(event.actorName)}</small>` : ""}</span><time datetime="${escapeHtml(event.occurredAt)}">${formatRegistryDate(event.occurredAt)}</time></article>`;
           }).join("") : '<div class="empty-state compact-empty">История пока пуста</div>'}
         </div>
-      </section>
+      </section>` : ""}
     </div>
   `;
 }
@@ -646,7 +651,7 @@ function renderStudentRegistry() {
   const allStudents = state.adminStudents;
   if (state.studentProfileId) {
     const selectedStudent = allStudents.find((student) => student.id === state.studentProfileId);
-    if (!selectedStudent || !canManageStudentRecords()) {
+    if (!selectedStudent || !canViewStudentProfiles()) {
       state.studentProfileId = "";
     } else {
       panel.innerHTML = studentProfileMarkup(selectedStudent);
@@ -762,7 +767,7 @@ function renderStudentRegistry() {
         const meta = [student.group, student.teacher, student.venue]
           .filter(Boolean);
         return `
-          <button class="student-registry-card" type="button" ${canManage ? `data-open-student-profile="${escapeHtml(student.id)}"` : "disabled"}>
+          <button class="student-registry-card" type="button" ${canViewStudentProfiles() ? `data-open-student-profile="${escapeHtml(student.id)}"` : "disabled"}>
               <span class="student-registry-mark">${escapeHtml(student.name.trim().slice(0, 1).toUpperCase() || "У")}</span>
               <span class="student-registry-main">
                 <span class="student-registry-name-row">
@@ -798,7 +803,7 @@ function renderStudentRegistry() {
 }
 
 async function openAdminStudentProfile(studentId) {
-  if (!canManageStudentRecords()) return;
+  if (!canViewStudentProfiles()) return;
   const normalizedId = String(studentId || "");
   if (!normalizedId) return;
   if (!state.adminStudentsLoaded) await loadAdminStudents();
@@ -806,7 +811,7 @@ async function openAdminStudentProfile(studentId) {
     showNotice("Ученик не найден в выбранном городе", "danger");
     return;
   }
-  state.studentProfileTab = "overview";
+  state.studentProfileTab = canManageStudentRecords() ? "overview" : "finance";
   state.studentProfileId = normalizedId;
   if (typeof closeOrderDialog === "function") closeOrderDialog();
   if (state.view !== "wallet") setView("wallet");

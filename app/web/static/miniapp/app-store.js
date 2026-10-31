@@ -25,7 +25,7 @@ function renderStudents() {
               return `
                 <div class="student-row">
                   <div>
-                    ${canManageStudentRecords()
+                    ${canViewStudentProfiles()
                       ? `<button class="student-name-link" type="button" data-open-student-profile="${escapeHtml(student.id)}">${escapeHtml(student.name)}</button>`
                       : `<strong>${escapeHtml(student.name)}</strong>`}
                     ${
@@ -2064,7 +2064,7 @@ function renderOrders() {
               <strong class="order-number">Заказ №${escapeHtml(order.id)}</strong>
               <span class="status-badge ${orderStatusTone(order.rawStatus)}">${escapeHtml(displayStatus)}</span>
             </div>
-            ${canManageStudentRecords()
+            ${canViewStudentProfiles()
               ? `<button class="student-name-link order-card-student" type="button" data-open-student-profile="${escapeHtml(order.studentId)}">${escapeHtml(order.student)}</button>`
               : `<strong class="order-card-student">${escapeHtml(order.student)}</strong>`}
             <div class="order-card-items">${escapeHtml(isTeacherOrderView() ? fulfillmentOrderProductsLabel(order) : order.item)}</div>
@@ -2287,7 +2287,7 @@ function renderAccrualReport() {
                 <span>${escapeHtml(new Date(entry.created_at).toLocaleString("ru-RU"))}</span>
               </div>
               <div>
-                ${canManageStudentRecords()
+                ${canViewStudentProfiles()
                   ? `<button class="student-name-link" type="button" data-open-student-profile="${escapeHtml(entry.student_id)}">${escapeHtml(entry.student_name)}</button>`
                   : `<strong>${escapeHtml(entry.student_name)}</strong>`}
                 <span>${escapeHtml(entry.group_name || "Без группы")}</span>
