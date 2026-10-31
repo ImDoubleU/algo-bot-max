@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description="Local group collection preview")
 parser.add_argument("--port", type=int, default=8770)
 parser.add_argument("--database-name", default="pizza-preview.sqlite3")
+parser.add_argument("--games", action="store_true", help="Enable local games prototype")
 options = parser.parse_args() if __name__ == "__main__" else parser.parse_args([])
 if Path(options.database_name).name != options.database_name or not options.database_name.endswith(
     ".sqlite3"
@@ -261,7 +262,9 @@ async def local_requests(request: Request, call_next):
 
 @preview.get("/")
 async def home():
-    return RedirectResponse("/miniapp?demo=1&demo_role=student&view=store")
+    return RedirectResponse(
+        "/miniapp?demo=1&demo_role=student&view=" + ("games" if options.games else "store")
+    )
 
 
 @preview.get("/miniapp", response_class=HTMLResponse)
@@ -270,6 +273,10 @@ async def index(request: Request):
     if role not in ROLES:
         raise HTTPException(400, "Unknown preview role")
     source = (static / "index.html").read_text(encoding="utf-8")
+    if options.games:
+        from app.cli.games_preview import inject_games
+
+        source = inject_games(source)
     source = re.sub(
         r'(<script src="/miniapp/static/app-core\.js[^\"]*"></script>)',
         lambda match: match.group(1) + f'<script src="/preview/bootstrap.js?role={role}"></script>',
@@ -317,6 +324,8 @@ async def bootstrap(role: str = "student"):
         label=label,
     )
     source = f"""window.pizzaPreview={json.dumps(context, ensure_ascii=False)};
+window.ALGO_GAMES_PROTOTYPE={json.dumps(options.games)};
+if (window.ALGO_GAMES_PROTOTYPE && queryParam("view") === "games") state.view="games";
 students.splice(0,students.length,...{json.dumps(records, ensure_ascii=False)});
 state.activeStudentId=students[0].id;
 state.account={{display_name:{json.dumps(account.display_name, ensure_ascii=False)}}};

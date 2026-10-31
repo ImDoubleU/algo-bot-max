@@ -661,6 +661,8 @@ function setView(view) {
   const allowedViews = roleViews(state.role);
   const nextView = allowedViews.includes(view) ? view : "dashboard";
   const previousView = state.view;
+  if (previousView === "games" && nextView !== "games") window.algoGames?.close();
+  if (nextView === "games") window.algoGames?.render();
   if ((nextView === "store" || (["orders", "wallet"].includes(nextView) &&
       ["student", "parent"].includes(state.role))) && typeof pizzaLoad === "function") void pizzaLoad();
   if (previousView === "feedback" && typeof feedbackCaptureUi === "function" && feedbackState.restored) { feedbackCaptureUi(); feedbackPersist(); }
@@ -722,6 +724,7 @@ function roleViews(role) {
   const views = (ROLE_VIEWS[role] || ROLE_VIEWS.student).filter(
     (view) => view !== "feedback" || canAccessFeedback(),
   );
+  if (localDemoHost && apiContext.demoMode && window.ALGO_GAMES_PROTOTYPE) views.push("games");
   if (role === "teacher" && primaryStaffRole() === "teacher") {
     return views.filter((view) => !["report", "broadcasts"].includes(view));
   }
@@ -773,6 +776,10 @@ function renderChildSwitcher() {
 
 function mobilePrimaryViews() {
   const allowed = roleViews(state.role);
+  if (localDemoHost && window.ALGO_GAMES_PROTOTYPE && apiContext.demoMode &&
+      ["student", "parent"].includes(state.role)) {
+    return ["dashboard", "games", "store", "orders"].filter(view => allowed.includes(view));
+  }
   return (ROLE_MOBILE_PRIMARY[state.role] || ROLE_MOBILE_PRIMARY.student).filter((view) =>
     allowed.includes(view),
   );

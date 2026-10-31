@@ -35,6 +35,7 @@ const ROLE_VIEWS = Object.freeze({
 });
 
 const VIEW_META = Object.freeze({
+  games: { label: "Игры", icon: "gamepad-2" },
   dashboard: { label: "Главная", icon: "layout-dashboard" },
   store: { label: "Магазин", icon: "store" },
   cart: { label: "Корзина", icon: "shopping-bag" },
