@@ -31,25 +31,36 @@ function pizzaIllustration() {
 
 function collectionPigIllustration() {
   return `<svg class="pizza-art piggy-art" viewBox="0 0 320 280" role="img" aria-label="Копилка в виде свиньи">
-    <defs><filter id="pigShadow" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="9" stdDeviation="9" flood-color="#9b5c45" flood-opacity=".14"/></filter>
-    <linearGradient id="pigBody" x2=".8" y2="1"><stop stop-color="#ffd7c2"/><stop offset="1" stop-color="#eea58f"/></linearGradient></defs>
+    <defs>
+      <filter id="pigShadow" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#9b5c45" flood-opacity=".13"/></filter>
+      <radialGradient id="pigBody" cx="35%" cy="25%" r="80%"><stop stop-color="#ffe1d5"/><stop offset=".55" stop-color="#f7b8aa"/><stop offset="1" stop-color="#e89a90"/></radialGradient>
+      <linearGradient id="pigFace" x1="15%" y1="10%" x2="80%" y2="100%"><stop stop-color="#ffd2c1"/><stop offset="1" stop-color="#efa498"/></linearGradient>
+      <linearGradient id="pigSnout" x2="0" y2="1"><stop stop-color="#ffd6c7"/><stop offset="1" stop-color="#f1a79a"/></linearGradient>
+    </defs>
     <g filter="url(#pigShadow)">
-      <path d="M72 145c-25 -4 -37 -23 -25 -31 14 -10 26 11 11 19" fill="none" stroke="#d18b79" stroke-width="8" stroke-linecap="round"/>
-      <rect x="101" y="204" width="29" height="37" rx="10" fill="#d78f7d"/>
-      <rect x="197" y="203" width="29" height="38" rx="10" fill="#d78f7d"/>
-      <ellipse cx="161" cy="152" rx="98" ry="73" fill="url(#pigBody)" stroke="#e0a18d" stroke-width="2"/>
-      <path d="M202 100q-13 -48 9 -51 24 2 21 48" fill="#f5baa4" stroke="#dfa18e" stroke-width="2"/>
-      <path d="M208 84q-4 -27 5 -27 10 6 11 30" fill="#e99e90"/>
-      <ellipse cx="247" cy="154" rx="28" ry="23" fill="#f3b49e" stroke="#d5917e" stroke-width="2"/>
-      <ellipse cx="239" cy="155" rx="3.5" ry="6" fill="#a86a60"/><ellipse cx="253" cy="155" rx="3.5" ry="6" fill="#a86a60"/>
-      <circle cx="211" cy="130" r="5" fill="#6e4439"/><circle cx="212" cy="128" r="1.5" fill="white"/>
-      <ellipse cx="209" cy="158" rx="11" ry="7" fill="#ed9789" opacity=".5"/>
-      <path d="M132 91q21 -9 42 -4" fill="none" stroke="#a76c57" stroke-width="5" stroke-linecap="round"/>
-      <path d="M98 125q10 -17 26 -20" fill="none" stroke="#fff0df" stroke-width="8" stroke-linecap="round" opacity=".6"/>
+      <path d="M77 155c-21 3 -34 -7 -28 -17 7 -11 22 -2 16 7" fill="none" stroke="#d28f85" stroke-width="6" stroke-linecap="round"/>
+      <path d="M123 196h20l-2 31q-1 6 -8 6h-7q-7 0 -7 -7zM210 189h18l-1 35q0 7 -7 7h-5q-7 0 -7 -7z" fill="#d88c83"/>
+      <g transform="translate(151 67) rotate(-9)"><circle r="25" fill="#dda33b"/><circle r="21" fill="#ffdf84" stroke="#f4c65b" stroke-width="2"/><text text-anchor="middle" y="5" fill="#a77128" font-size="15" font-family="Arial" font-weight="700">AC</text></g>
+      <ellipse cx="151" cy="153" rx="88" ry="64" fill="url(#pigBody)"/>
+      <path d="M231 112q1 -21 16 -25 6 15 -1 34" fill="#dc978d"/>
+      <circle cx="211" cy="145" r="44" fill="url(#pigFace)"/>
+      <path d="M185 117q-10 -16 -7 -30 19 0 32 18" fill="#f5b7a8" stroke="#e6a297" stroke-width="1.5"/>
+      <path d="M187 106q-5 -8 -5 -14 11 1 20 11" fill="#de9289"/>
+      <path d="M100 192q12 5 25 5l-3 32q-1 8 -9 8h-9q-8 0 -8 -8zM189 193q12 3 26 -2l-1 37q0 8 -8 8h-10q-8 0 -8 -8z" fill="url(#pigFace)"/>
+      <path d="M97 226q12 4 25 0v5q-1 7 -9 7h-9q-8 0 -8 -8zM189 225q12 4 25 0v5q0 7 -8 7h-10q-8 0 -8 -8z" fill="#cc827b"/>
+      <path d="M109 231v6m93 -6v5" stroke="#ae6c67" stroke-width="2" stroke-linecap="round"/>
+      <path d="M132 99q17 -6 35 -2" fill="none" stroke="#a8685e" stroke-width="5" stroke-linecap="round"/>
+      <path d="M133 96q16 -5 33 -2" fill="none" stroke="#fff0df" stroke-width="2" stroke-linecap="round" opacity=".8"/>
+      <ellipse cx="241" cy="155" rx="25" ry="20" fill="url(#pigSnout)" stroke="#df978b" stroke-width="1.5"/>
+      <ellipse cx="233" cy="155" rx="3.5" ry="5" fill="#b8766f"/><ellipse cx="249" cy="155" rx="3.5" ry="5" fill="#b8766f"/>
+      <circle cx="210" cy="132" r="4.5" fill="#62403a"/><circle cx="211" cy="130" r="1.5" fill="white"/>
+      <ellipse cx="205" cy="157" rx="9" ry="6" fill="#e68d87" opacity=".5"/>
+      <path d="M216 177q10 5 16 -2" fill="none" stroke="#bf8177" stroke-width="2" stroke-linecap="round"/>
+      <path d="M83 139q9 -21 30 -25" fill="none" stroke="#fff0e6" stroke-width="7" stroke-linecap="round" opacity=".7"/>
+      <ellipse cx="91" cy="155" rx="3" ry="5" fill="#fff3e9" opacity=".65"/>
     </g>
-    <g transform="translate(152 45) rotate(-10)"><circle r="26" fill="#e9ac3f"/><circle r="21" fill="#ffdf83" stroke="#f2c65a" stroke-width="2"/><text text-anchor="middle" y="6" fill="#9f6928" font-size="17" font-family="Arial" font-weight="700">AC</text></g>
-    <path d="M61 61l5 -8m197 12l9 -4m-20 156 7 6" stroke="#db9d72" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="64" cy="216" r="5" fill="#a1b88b"/><circle cx="268" cy="106" r="4" fill="#e7b66b"/>
+    <path d="M72 83l4 -7m181 -1l8 -3" stroke="#d8a17f" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="64" cy="213" r="4" fill="#a1b88b"/>
   </svg>`;
 }
 
