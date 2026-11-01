@@ -7,6 +7,22 @@
   min-width: 0
 }
 
+.games-wordmark{display:flex;align-items:center;gap:7px;height:24px}
+.games-wordmark svg{width:37px;height:27px;overflow:visible;flex-shrink:0}
+.games-wordmark .games-eyebrow{font-size:9px;letter-spacing:1.8px}
+.game-card-art svg{width:222px;height:151px;transition:transform .25s cubic-bezier(.2,.7,.3,1)}
+.game-card-shell:hover .game-card-art svg{transform:translateY(-2px) rotate(-2deg) scale(1.035)}
+.game-card:active .game-card-art svg{transform:scale(.98)}
+.games-hero-art svg{filter:none!important}
+.game-achievement .achievement-medal{position:relative;background:var(--art-bg);width:62px;height:59px;overflow:visible}
+.game-achievement .achievement-medal svg{width:71px;height:53px;max-width:none;opacity:.5;filter:saturate(.35)}
+.game-achievement.unlocked .achievement-medal{background:var(--art-bg)}
+.game-achievement.unlocked .achievement-medal svg{opacity:1;filter:none}
+.achievement-medal i{position:absolute;bottom:-3px;right:-4px;display:grid;place-items:center;width:19px;height:19px;border-radius:7px;background:#f5effb;border:2px solid #fff;color:#a58cb8;font:700 11px system-ui}
+.game-achievement.unlocked .achievement-medal i{background:#d9eec7;color:#5a7b4d}
+@media(max-width:640px){.games-wordmark{height:21px;gap:4px}.games-wordmark svg{width:30px;height:24px}.games-wordmark .games-eyebrow{font-size:8px;letter-spacing:1.3px}.game-achievement .achievement-medal{width:45px;height:46px;border-radius:11px}.game-achievement .achievement-medal svg{width:55px;height:42px}.achievement-medal i{width:16px;height:16px;font-size:9px;right:-2px;bottom:-2px}}
+@media(prefers-reduced-motion:reduce){.game-card-art svg{transition:none}.game-card-shell:hover .game-card-art svg,.game-card:active .game-card-art svg{transform:none}}
+
 .game-card-shell {
   min-width: 0;
   transition: transform .18s, box-shadow .18s;

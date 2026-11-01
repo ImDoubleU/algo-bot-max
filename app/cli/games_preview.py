@@ -38,6 +38,7 @@ def inject_games(source: str) -> str:
         r'(?=<script src="/miniapp/static/app\.js)',
         '<script src="/miniapp/static/games-engine.js?v=1"></script>'
         '<script src="/miniapp/static/games-motion.js?v=1"></script>'
+        '<script src="/miniapp/static/games-art.js?v=1"></script>'
         '<script src="/miniapp/static/app-games.js?v=1"></script>',
         source,
         count=1,
