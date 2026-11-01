@@ -50,6 +50,7 @@ credentials.json
 logs/
 tmp/
 output/
+outputs/
 .cache/
 .agents/
 skills-lock.json

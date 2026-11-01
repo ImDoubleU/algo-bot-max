@@ -1,0 +1,139 @@
+.access-child > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px 18px;
+}
+.access-child-statuses {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  min-width: 0;
+}
+.access-child-status { min-width: 0; overflow-wrap: anywhere; }
+.access-child-links > .empty-state { min-height: 0; padding: 16px; }
+.connection-export-button,
+.shop-invitation-template-link .secondary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.connection-export-button svg { width: 18px; height: 18px; flex: 0 0 18px; }
+.connection-export-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1120px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+  border-radius: 8px;
+}
+.connection-export-dialog .dialog-head { flex: 0 0 auto; align-items: flex-start; }
+.connection-export-dialog .dialog-head h2 { font-size: 22px; }
+.connection-export-city { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+.connection-export-content { min-height: 0; overflow: auto; padding: 18px; }
+.connection-export-inactive { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.connection-export-dialog input[type="checkbox"] {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.connection-export-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
+.connection-export-filter { min-width: 0; border-right: 1px solid var(--line); padding-right: 16px; }
+.connection-export-filter:last-child { border-right: 0; padding-right: 0; }
+.connection-export-filter-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.connection-export-filter-heading h3 { margin: 0; font-size: 14px; }
+.connection-export-filter-heading small { font-size: 11px; color: var(--muted); }
+.connection-export-filter > input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 40px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  font: inherit;
+  background: white;
+}
+.connection-export-filter-actions { display: flex; gap: 14px; margin: 10px 0 6px; }
+.connection-export-filter-actions button { border: 0; padding: 4px 0; font: inherit; font-size: 12px; color: var(--accent); background: none; cursor: pointer; }
+.connection-export-filter-actions button:disabled { opacity: .5; cursor: default; }
+.connection-export-options { max-height: 196px; overflow: auto; scrollbar-gutter: stable; }
+.connection-export-option { display: grid; grid-template-columns: 18px minmax(0, 1fr) 24px; gap: 8px; align-items: center; min-height: 36px; padding: 6px 2px; font-size: 13px; cursor: pointer; }
+.connection-export-option > span { overflow-wrap: anywhere; }
+.connection-export-option > small { color: var(--muted); text-align: right; font-size: 11px; }
+.connection-export-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 20px; padding: 14px 0; border-block: 1px solid var(--line); }
+.connection-export-totals > div { display: grid; gap: 6px; min-width: 0; }
+.connection-export-totals span { font-size: 12px; color: var(--muted); }
+.connection-export-totals strong { font-size: 20px; }
+.connection-export-totals strong small { font-size: 13px; font-weight: 400; color: var(--muted); }
+.connection-export-table-wrap { max-height: 220px; overflow: auto; margin-top: 12px; }
+.connection-export-table-wrap table { width: 100%; min-width: 600px; border-collapse: collapse; font-size: 12px; }
+.connection-export-table-wrap th, .connection-export-table-wrap td { padding: 10px; border-bottom: 1px solid var(--line); text-align: right; vertical-align: top; }
+.connection-export-table-wrap th:first-child { text-align: left; }
+.connection-export-table-wrap thead th { position: sticky; top: 0; background: #f7f6fa; color: var(--muted); font-weight: 500; }
+.connection-export-table-wrap tbody th { max-width: 360px; font-weight: 500; overflow-wrap: anywhere; }
+.connection-export-table-wrap th small { display: block; margin-top: 5px; font-size: 11px; color: var(--muted); font-weight: 400; }
+.connection-export-footer { display: flex; flex: 0 0 auto; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 18px; border-top: 1px solid var(--line); }
+.connection-export-footer > span { font-size: 13px; color: var(--muted); }
+.connection-export-footer button, .connection-export-error button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.connection-export-footer button { min-height: 44px; }
+.connection-export-footer svg { width: 18px; height: 18px; }
+.connection-export-error { display: grid; gap: 16px; color: var(--danger); padding: 16px 0; }
+.connection-export-error button { justify-self: start; }
+.connection-export-empty { padding: 16px 0; color: var(--muted); font-size: 13px; }
+
+@media (max-width: 700px) {
+  .access-child > summary { grid-template-columns: minmax(0, 1fr) 18px; gap: 12px; }
+  .access-child-statuses { grid-column: 1; grid-row: 2; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .access-child > summary > svg { grid-column: 2; grid-row: 1 / 3; }
+  .connection-export-dialog { width: 100%; max-height: calc(100dvh - 12px); }
+  .connection-export-dialog .dialog-head { padding: 16px; }
+  .connection-export-dialog .dialog-head h2 { font-size: 20px; }
+  .connection-export-content { padding: 14px; }
+  .connection-export-filters { grid-template-columns: minmax(0, 1fr); }
+  .connection-export-filter { border-right: 0; border-bottom: 1px solid var(--line); padding: 0 0 14px; }
+  .connection-export-filter:last-child { border-bottom: 0; padding-bottom: 0; }
+  .connection-export-options { max-height: 160px; }
+  .connection-export-totals { gap: 8px; }
+  .connection-export-footer { padding: 14px; }
+  .connection-export-footer > span { max-width: 112px; font-size: 12px; }
+  .connection-export-footer button { font-size: 13px; padding: 10px 12px; }
+}
+.admin-filter-toolbar.access-connection-toolbar {
+  grid-template-columns: minmax(0, 1fr);
+}
+.access-connection-filters {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.access-connection-filters button {
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.access-connection-filters button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: #f1ecfa;
+  color: var(--accent);
+  font-weight: 700;
+}
+.access-connection-filters button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (max-width: 700px) {
+  .access-connection-filters { flex-direction: column; }
+  .access-connection-filters button { text-align: left; }
+}

@@ -127,6 +127,33 @@ class MiniAppStudentRegistryRead(BaseModel):
     students: list[MiniAppAdminStudentRead] = Field(default_factory=list)
 
 
+class MiniAppConnectionExportStudentRead(BaseModel):
+    student_id: UUID
+    lms_student_id: str | None = None
+    display_name: str
+    group_name: str
+    teacher_name: str
+    venue_name: str
+    status: StudentStatus
+    student_connected: bool
+    parent_connected: bool
+
+
+class MiniAppConnectionsExportRead(BaseModel):
+    tenant_slug: str
+    tenant_name: str
+    students: list[MiniAppConnectionExportStudentRead]
+
+
+class MiniAppConnectionsExportRequest(BaseModel):
+    max_user_id: int = Field(gt=0)
+    tenant_slug: str | None = None
+    teachers: list[str] | None = Field(default=None, max_length=5000)
+    venues: list[str] | None = Field(default=None, max_length=5000)
+    groups: list[str] | None = Field(default=None, max_length=5000)
+    include_inactive: bool = False
+
+
 class MiniAppStudentCreate(BaseModel):
     max_user_id: int = Field(gt=0)
     tenant_slug: str | None = None

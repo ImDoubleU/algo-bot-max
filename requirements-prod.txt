@@ -35,7 +35,7 @@ pandas>=2.3,<3
 python-dateutil>=2.9,<3
 phonenumbers>=8.13,<9
 rapidfuzz>=3.10,<4
-xlsxwriter>=3.2,<4
+xlsxwriter>=3.2.2,<4
 
 # Google Sheets
 gspread>=6.2,<7

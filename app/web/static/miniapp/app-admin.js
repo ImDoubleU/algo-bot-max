@@ -456,14 +456,17 @@ function studentProfileChoice(name, label, value, choices, description) {
 }
 
 function studentProfileMarkup(student) {
+  const canManage = canManageStudentRecords();
   const groups = state.adminStudents.map((item) => item.group);
   const teachers = [
     ...state.adminStudents.map((item) => item.teacher),
     ...staffAssignments.filter((item) => item.role === "teacher" && item.status === "active")
       .map((item) => [item.lastName, item.firstName].filter(Boolean).join(" ") || item.displayName),
   ];
-  const tabs = [["overview", "Обзор", "user-round"], ["data", "Данные", "pencil"], ["access", "Связи", "link"], ["finance", "Астрокоины", "wallet"], ["history", "История", "history"]];
-  const activeTab = state.studentProfileTab || "overview";
+  const tabs = [["overview", "Обзор", "user-round"], ["data", "Данные", "pencil"], ["access", "Связи", "link"], ["finance", "Астрокоины", "wallet"], ["history", "История", "history"]]
+    .filter(([key]) => canManage || ["overview", "finance"].includes(key));
+  const activeTab = tabs.some(([key]) => key === state.studentProfileTab)
+    ? state.studentProfileTab : "overview";
   const panel = (name) => `data-profile-panel="${name}" ${activeTab === name ? "" : "hidden"}`;
   const status = studentRegistryStatus(student.status);
   const history = [...student.history].sort(
@@ -499,7 +502,7 @@ function studentProfileMarkup(student) {
         ${tabs.map(([key, label, icon]) => `<button type="button" data-profile-tab="${key}" aria-pressed="${activeTab === key}"><i data-lucide="${icon}"></i><span>${label}</span></button>`).join("")}
       </nav>
       <section class="student-profile-overview" ${panel("overview")}>
-        <div class="student-profile-section-heading"><h4>Обучение</h4><button class="secondary-action" type="button" data-profile-tab="data"><i data-lucide="pencil"></i><span>Редактировать</span></button></div>
+        <div class="student-profile-section-heading"><h4>Обучение</h4>${canManage ? '<button class="secondary-action" type="button" data-profile-tab="data"><i data-lucide="pencil"></i><span>Редактировать</span></button>' : ""}</div>
         <div class="student-profile-summary">
           ${studentProfileFact("Группа", student.group)}
           ${studentProfileFact("Курс", student.course)}
@@ -508,11 +511,12 @@ function studentProfileMarkup(student) {
           ${studentProfileFact("Дата рождения", student.birthDate ? new Date(`${student.birthDate.slice(0, 10)}T12:00:00`).toLocaleDateString("ru-RU") : "Не указана")}
           ${studentProfileFact("Родитель", student.parentNames.join(", ") || "Не указан")}
         </div>
-        <div class="student-profile-connections">
+        ${canManage ? `<div class="student-profile-connections">
           <button type="button" data-profile-tab="access" class="${student.parentMaxUserIds.length ? "is-connected" : "is-pending"}"><i data-lucide="users"></i><span><small>Родитель</small><strong>${student.parentMaxUserIds.length ? "Подключён" : "Ожидается вход"}</strong></span><i data-lucide="chevron-right"></i></button>
           <button type="button" data-profile-tab="access" class="${student.studentMaxUserIds.length ? "is-connected" : "is-pending"}"><i data-lucide="user-round"></i><span><small>Ученик</small><strong>${student.studentMaxUserIds.length ? "Подключён" : "Ожидается вход"}</strong></span><i data-lucide="chevron-right"></i></button>
-        </div>
+        </div>` : ""}
       </section>
+      ${canManage ? `
       <form class="student-profile-form" ${panel("data")} data-student-profile-form="${escapeHtml(student.id)}">
         <section class="student-profile-section">
           <div class="student-profile-section-heading">
@@ -578,6 +582,7 @@ function studentProfileMarkup(student) {
           <button class="primary-action" type="submit">Обновить баланс</button>
         </form>
       </section>
+      ` : ""}
 
       <section class="student-profile-section student-bank-history" ${panel("finance")}>
         <div class="student-history-head"><div><h4>Банк</h4><span>Личный счёт, вклад, ставка и начисленные проценты.</span></div></div>
@@ -589,7 +594,7 @@ function studentProfileMarkup(student) {
         <div data-student-ledger-panel="${escapeHtml(student.id)}">${studentLedgerMarkup(student.id)}</div>
       </section>
 
-      <section class="student-profile-section" ${panel("history")}>
+      ${canManage ? `<section class="student-profile-section" ${panel("history")}>
         <div class="student-profile-section-heading"><div><h4>Служебная информация</h4><p>Помогает понять, когда карточка появилась, обновлялась и меняла состояние.</p></div></div>
         <div class="student-profile-facts">
           ${studentProfileFact("Добавлен", formatRegistryDate(student.importedAt))}
@@ -609,7 +614,7 @@ function studentProfileMarkup(student) {
             return `<article class="student-history-item is-${escapeHtml(event.eventType)}"><span class="student-history-dot" aria-hidden="true"></span><span class="student-history-copy"><strong>${escapeHtml(copy.title)}</strong><span>${escapeHtml(copy.detail)}</span>${event.actorName ? `<small>Ответственный: ${escapeHtml(event.actorName)}</small>` : ""}</span><time datetime="${escapeHtml(event.occurredAt)}">${formatRegistryDate(event.occurredAt)}</time></article>`;
           }).join("") : '<div class="empty-state compact-empty">История пока пуста</div>'}
         </div>
-      </section>
+      </section>` : ""}
     </div>
   `;
 }
@@ -646,7 +651,7 @@ function renderStudentRegistry() {
   const allStudents = state.adminStudents;
   if (state.studentProfileId) {
     const selectedStudent = allStudents.find((student) => student.id === state.studentProfileId);
-    if (!selectedStudent || !canManageStudentRecords()) {
+    if (!selectedStudent || !canViewStudentProfiles()) {
       state.studentProfileId = "";
     } else {
       panel.innerHTML = studentProfileMarkup(selectedStudent);
@@ -762,7 +767,7 @@ function renderStudentRegistry() {
         const meta = [student.group, student.teacher, student.venue]
           .filter(Boolean);
         return `
-          <button class="student-registry-card" type="button" ${canManage ? `data-open-student-profile="${escapeHtml(student.id)}"` : "disabled"}>
+          <button class="student-registry-card" type="button" ${canViewStudentProfiles() ? `data-open-student-profile="${escapeHtml(student.id)}"` : "disabled"}>
               <span class="student-registry-mark">${escapeHtml(student.name.trim().slice(0, 1).toUpperCase() || "У")}</span>
               <span class="student-registry-main">
                 <span class="student-registry-name-row">
@@ -798,7 +803,7 @@ function renderStudentRegistry() {
 }
 
 async function openAdminStudentProfile(studentId) {
-  if (!canManageStudentRecords()) return;
+  if (!canViewStudentProfiles()) return;
   const normalizedId = String(studentId || "");
   if (!normalizedId) return;
   if (!state.adminStudentsLoaded) await loadAdminStudents();
@@ -806,7 +811,7 @@ async function openAdminStudentProfile(studentId) {
     showNotice("Ученик не найден в выбранном городе", "danger");
     return;
   }
-  state.studentProfileTab = "overview";
+  state.studentProfileTab = canManageStudentRecords() ? "overview" : "finance";
   state.studentProfileId = normalizedId;
   if (typeof closeOrderDialog === "function") closeOrderDialog();
   if (state.view !== "wallet") setView("wallet");
@@ -1723,26 +1728,38 @@ function renderAdminPanel() {
     const accessQuery = state.adminEntitySearch.trim().toLowerCase();
     const openChildren = new Set(qsa("[data-access-child][open]")
       .map((element) => element.dataset.accessChild));
-    const children = new Map();
+    const children = new Map(students
+      .filter((student) => apiContext.demoMode || student.staffVisible)
+      .map((student) => [student.id, {
+        studentName: student.name, group: student.group, lmsId: student.lmsId, links: [],
+      }]));
     accessLinks.forEach((link) => {
-      if (!children.has(link.studentId)) children.set(link.studentId, []);
-      children.get(link.studentId).push(link);
+      if (!children.has(link.studentId)) children.set(link.studentId, {
+        studentName: link.studentName, group: link.group, links: [],
+      });
+      children.get(link.studentId).links.push(link);
     });
+    const connected = (child, role) => child.links.some(
+      (link) => link.role === role && link.status === "active",
+    );
+    const connectionFilters = [
+      ["all", "Все"], ["parent", "Родитель не подключён"], ["student", "Ученик не подключён"],
+    ];
     const rows = [...children.entries()]
-      .filter(([, links]) => {
-        const matchesQuery = !accessQuery || links.some((link) =>
-          `${link.studentName} ${link.group} ${link.maxUserId} ${link.displayName} ${link.username}`
-            .toLowerCase().includes(accessQuery));
-        return matchesQuery && links.some((link) =>
-          (state.accessStatusFilter === "all" || link.status === state.accessStatusFilter)
-          && (state.accessRoleFilter === "all" || link.role === state.accessRoleFilter));
+      .filter(([, child]) => {
+        const searchText = [child.studentName, child.group, child.lmsId,
+          ...child.links.map((link) => `${link.maxUserId} ${link.displayName} ${link.username}`),
+        ].join(" ").toLowerCase();
+        const matchesQuery = !accessQuery || searchText.includes(accessQuery);
+        const matchesConnection = state.accessConnectionFilter === "all"
+          || !connected(child, state.accessConnectionFilter);
+        return matchesQuery && matchesConnection;
       })
-      .sort(([, left], [, right]) => left[0].studentName.localeCompare(right[0].studentName, "ru"))
-      .map(([studentId, links]) => {
-        const child = links[0];
-        const connected = (role) => links.some((link) => link.role === role && link.status === "active");
+      .sort(([, left], [, right]) => left.studentName.localeCompare(right.studentName, "ru"))
+      .map(([studentId, child]) => {
+        const links = child.links;
         const badges = [["parent", "Родитель"], ["student", "Ученик"]].map(([role, label]) =>
-          `<span class="access-child-status ${connected(role) ? "is-connected" : ""}"><i data-lucide="${connected(role) ? "circle-check" : "circle-dashed"}"></i>${label}: ${connected(role) ? "подключён" : "не подключён"}</span>`).join("");
+          `<span class="access-child-status ${connected(child, role) ? "is-connected" : ""}"><i data-lucide="${connected(child, role) ? "circle-check" : "circle-dashed"}"></i>${label}: ${connected(child, role) ? "подключён" : "не подключён"}</span>`).join("");
         return `<details class="access-child" data-access-child="${escapeHtml(studentId)}" ${openChildren.has(studentId) ? "open" : ""}>
           <summary><span class="access-child-heading"><strong>${escapeHtml(child.studentName)}</strong><small>${escapeHtml(child.group || "Без группы")}</small></span><span class="access-child-statuses">${badges}</span><i data-lucide="chevron-down"></i></summary>
           <div class="access-child-links">${links.slice().sort((a, b) => a.role.localeCompare(b.role)).map((link) => `
@@ -1750,7 +1767,7 @@ function renderAdminPanel() {
               <span class="access-account-icon"><i data-lucide="${link.role === "parent" ? "user-round" : "graduation-cap"}"></i></span>
               <div class="access-account-copy"><strong>${escapeHtml(accessRoleLabel(link.role))}${link.displayName ? ` · ${escapeHtml(link.displayName)}` : ""}</strong><small>MAX ID ${escapeHtml(link.maxUserId)}${link.username ? ` · @${escapeHtml(link.username)}` : ""}</small><span class="status-badge ${link.status === "active" ? "ok" : "danger"}">${link.status === "active" ? "Подключён" : "Отключён"}</span></div>
               <button class="secondary-action access-detach-button" type="button" data-toggle-contact="${escapeHtml(link.id)}" ${state.accessLinkSaving ? "disabled" : ""}><i data-lucide="unlink"></i><span>${link.status === "active" ? "Отвязать аккаунт" : "Сбросить привязку"}</span></button>
-            </div>`).join("")}</div>
+            </div>`).join("") || '<div class="empty-state compact-empty">Подключений пока нет</div>'}</div>
         </details>`;
       }).join("");
 
@@ -1760,6 +1777,7 @@ function renderAdminPanel() {
           <h3>Связи доступа</h3>
           <span>${activeLinks} активных из ${accessLinks.length}</span>
         </div>
+        <button class="secondary-action connection-export-button" type="button" data-open-connection-export><i data-lucide="download"></i><span>Экспорт в Excel</span></button>
       </div>
       ${shopInvitationTemplateRows ? `
         <section class="shop-invitation-templates" aria-labelledby="shopInvitationTemplatesTitle">
@@ -1773,10 +1791,11 @@ function renderAdminPanel() {
           <div class="shop-invitation-template-list">${shopInvitationTemplateRows}</div>
         </section>
       ` : ""}
-      <div class="admin-filter-toolbar">
+      <div class="admin-filter-toolbar access-connection-toolbar">
         <label class="search-field"><i data-lucide="search"></i><input id="adminEntitySearch" type="search" value="${escapeHtml(state.adminEntitySearch)}" placeholder="Ученик, группа или MAX ID" /><button class="search-clear" type="button" data-clear-admin-search ${state.adminEntitySearch ? "" : "hidden"}><i data-lucide="x"></i></button></label>
-        <select id="accessStatusFilter" aria-label="Статус связи"><option value="all">Все статусы</option><option value="active" ${state.accessStatusFilter === "active" ? "selected" : ""}>Активные</option><option value="revoked" ${state.accessStatusFilter === "revoked" ? "selected" : ""}>Отозванные</option></select>
-        <select id="accessRoleFilter" aria-label="Роль связи"><option value="all">Все роли</option><option value="parent" ${state.accessRoleFilter === "parent" ? "selected" : ""}>Родители</option><option value="student" ${state.accessRoleFilter === "student" ? "selected" : ""}>Ученики</option></select>
+        <div class="access-connection-filters" role="group" aria-label="Подключение к приложению">
+          ${connectionFilters.map(([value, label]) => `<button type="button" data-access-connection-filter="${value}" aria-pressed="${state.accessConnectionFilter === value}">${label}</button>`).join("")}
+        </div>
       </div>
       <div class="admin-card-list">
         ${rows || '<div class="empty-state compact-empty"><strong>Связи не найдены</strong><button class="secondary-action" type="button" data-clear-admin-search>Сбросить фильтры</button></div>'}

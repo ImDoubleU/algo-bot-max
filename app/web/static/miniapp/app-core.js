@@ -191,8 +191,7 @@ const state = {
   staffNotificationTargetAccountId: "",
   staffNotificationsLoading: false,
   staffNotificationsSaving: false,
-  accessStatusFilter: "all",
-  accessRoleFilter: "all",
+  accessConnectionFilter: "all",
   warehouseSaving: false,
   deletingWarehouseId: "",
   warehousePreferenceSaving: false,
@@ -1893,6 +1892,10 @@ function isStaffStudentHistoryView() {
 
 function canManageStudentRecords() {
   return ["superadmin", "partner_director", "admin"].includes(primaryStaffRole());
+}
+
+function canViewStudentProfiles() {
+  return canManageStudentRecords() || hasTeacherCapabilities() || hasStaffRole("curator");
 }
 
 function canUseAdminCatalog() {

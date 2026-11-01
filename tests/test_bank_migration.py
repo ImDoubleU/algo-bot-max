@@ -84,6 +84,7 @@ def test_bank_migration_upgrade_backfill_and_downgrade(tmp_path, monkeypatch) ->
     monkeypatch.setenv("DATABASE_URL", async_url)
     get_settings.cache_clear()
     config = Config("alembic.ini")
+    config.attributes["configure_logger"] = False
 
     try:
         command.upgrade(config, PREVIOUS_REVISION)
