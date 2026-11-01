@@ -72,6 +72,8 @@ from app.schemas.miniapp import (
     MiniAppCartRead,
     MiniAppCartWrite,
     MiniAppCatalogRead,
+    MiniAppConnectionsExportRead,
+    MiniAppConnectionsExportRequest,
     MiniAppCrmImportRead,
     MiniAppDigitalOrderIssue,
     MiniAppInventoryAdjustmentCreate,
@@ -163,6 +165,7 @@ from app.services.miniapp import (
     issue_miniapp_order,
     list_miniapp_admin_history,
     list_miniapp_catalog,
+    list_miniapp_connection_export_students,
     list_miniapp_staff_onboarding_options,
     list_miniapp_student_ledger,
     list_miniapp_student_registry,
@@ -758,6 +761,54 @@ async def miniapp_student_registry(
         )
     except MiniAppStoreError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/access-links/export-options", response_model=MiniAppConnectionsExportRead)
+async def miniapp_connection_export_options(
+    db: DbSession, identity: MiniAppIdentityDep, response: Response,
+    max_user_id: Annotated[int, Query(gt=0)], tenant_slug: str | None = None,
+) -> MiniAppConnectionsExportRead:
+    tenant = _authorized_tenant_slug(
+        identity, max_user_id=max_user_id, tenant_slug=tenant_slug,
+    )
+    if not tenant:
+        raise HTTPException(status_code=400, detail="Не выбран город или партнер")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await list_miniapp_connection_export_students(
+            db, max_user_id=max_user_id, tenant_slug=tenant,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/access-links/export")
+async def miniapp_connection_export(
+    payload: MiniAppConnectionsExportRequest, db: DbSession, identity: MiniAppIdentityDep,
+) -> Response:
+    from app.services.connection_export import build_connection_workbook, filter_connection_students
+
+    tenant = _authorized_tenant_slug(
+        identity, max_user_id=payload.max_user_id, tenant_slug=payload.tenant_slug,
+    )
+    if not tenant:
+        raise HTTPException(status_code=400, detail="Не выбран город или партнер")
+    try:
+        report = await list_miniapp_connection_export_students(
+            db, max_user_id=payload.max_user_id, tenant_slug=tenant,
+        )
+        selected = filter_connection_students(report.students, payload)
+        content = await run_in_threadpool(
+            build_connection_workbook, selected, tenant_name=report.tenant_name,
+            include_inactive=payload.include_inactive,
+        )
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return Response(
+        content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="algo-max-connections.xlsx"',
+                 "Cache-Control": "no-store"},
+    )
 
 
 @router.get(

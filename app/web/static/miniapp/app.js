@@ -3426,8 +3426,7 @@ document.addEventListener("click", (event) => {
     state.productStatusFilter = "all";
     state.productCategoryFilter = "all";
     state.productWarehouseFilter = "all";
-    state.accessStatusFilter = "all";
-    state.accessRoleFilter = "all";
+    state.accessConnectionFilter = "all";
     state.staffRoleFilter = "all";
     renderAdminPanel();
   }
@@ -3435,6 +3434,11 @@ document.addEventListener("click", (event) => {
     state.studentRegistrySearch = "";
     state.studentRegistryVisibleCount = STUDENT_REGISTRY_PAGE_SIZE;
     renderStudentRegistry();
+  }
+  if (target.dataset.accessConnectionFilter) {
+    state.accessConnectionFilter = target.dataset.accessConnectionFilter;
+    renderAdminPanel();
+    qs(`[data-access-connection-filter="${state.accessConnectionFilter}"]`)?.focus();
   }
   const productStatusId = target.dataset.toggleProductStatus;
   if (productStatusId) toggleProductStatus(productStatusId);
@@ -3755,14 +3759,6 @@ document.addEventListener("change", (event) => {
   }
   if (target.id === "productWarehouseFilter") {
     state.productWarehouseFilter = target.value;
-    renderAdminPanel();
-  }
-  if (target.id === "accessStatusFilter") {
-    state.accessStatusFilter = target.value;
-    renderAdminPanel();
-  }
-  if (target.id === "accessRoleFilter") {
-    state.accessRoleFilter = target.value;
     renderAdminPanel();
   }
   if (target.id === "staffRoleFilter") {

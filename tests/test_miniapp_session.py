@@ -41,6 +41,7 @@ from app.schemas.miniapp import (
     MiniAppStudentBalanceUpdate,
     MiniAppStudentCreate,
     MiniAppStudentStatusUpdate,
+    MiniAppStudentUpdate,
     MiniAppTeacherProfileUpdate,
 )
 from app.services.access import create_contact_access_links, create_invited_student_access_link
@@ -62,6 +63,7 @@ from app.services.miniapp import (
     update_miniapp_accrual_rules,
     update_miniapp_managed_staff_profile,
     update_miniapp_staff_assignment,
+    update_miniapp_student,
     update_miniapp_student_status,
     update_miniapp_teacher_profile,
 )
@@ -389,6 +391,45 @@ async def test_staff_session_returns_tenant_students_sorted_by_group(db_session)
         )
         == []
     )
+
+    wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
+    assert wallet is not None
+    db_session.add(AstrocoinLedgerEntry(
+        tenant_id=student.tenant_id,
+        student_id=student.id,
+        wallet_id=wallet.id,
+        idempotency_key="teacher-read-own-student-ledger",
+        direction=LedgerDirection.CREDIT,
+        amount=30,
+        reason="Работа на уроке",
+    ))
+    await db_session.commit()
+    own_ledger = await list_miniapp_student_ledger(
+        db_session,
+        max_user_id=53364725,
+        tenant_slug="nizhniy-novgorod-partner-a",
+        student_id=student.id,
+    )
+    assert [(entry.reason, entry.amount) for entry in own_ledger] == [("Работа на уроке", 30)]
+    with pytest.raises(MiniAppStoreError) as balance_denied:
+        await set_miniapp_student_balance(
+            db_session,
+            student_id=student.id,
+            payload=MiniAppStudentBalanceUpdate(max_user_id=53364725, balance=999),
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
+    assert balance_denied.value.status_code == 403
+    with pytest.raises(MiniAppStoreError) as edit_denied:
+        await update_miniapp_student(
+            db_session,
+            student_id=student.id,
+            payload=MiniAppStudentUpdate(
+                max_user_id=53364725, first_name="Другое", last_name="Имя",
+                status=StudentStatus.ACTIVE,
+            ),
+            default_tenant_slug="nizhniy-novgorod-partner-a",
+        )
+    assert edit_denied.value.status_code == 403
 
     foreign_student = await db_session.scalar(
         select(Student).where(Student.teacher_name == "Другой Педагог")

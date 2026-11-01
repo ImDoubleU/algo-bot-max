@@ -7,11 +7,13 @@
     <meta name="theme-color" content="#171326" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%235a2078'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial' font-size='42' font-weight='700' fill='white'%3EA%3C/text%3E%3C/svg%3E" />
     <title>Алгоритмика MAX</title>
-    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.92.0" />
-    <link rel="stylesheet" href="/miniapp/static/feedback-preview.css?v=0.92.0" />
-    <link rel="stylesheet" href="/miniapp/static/support.css?v=0.92.0" />
-    <link rel="stylesheet" href="/miniapp/static/pizza.css?v=0.92.0" />
-  <link rel="stylesheet" href="/miniapp/static/audit.css?v=0.92.0" />
+    <link rel="stylesheet" href="/miniapp/static/styles.css?v=0.92.1" />
+    <link rel="stylesheet" href="/miniapp/static/feedback-preview.css?v=0.92.1" />
+    <link rel="stylesheet" href="/miniapp/static/support.css?v=0.92.1" />
+    <link rel="stylesheet" href="/miniapp/static/pizza.css?v=0.92.1" />
+    <link rel="stylesheet" href="/miniapp/static/audit.css?v=0.92.1" />
+    <link rel="stylesheet" href="/miniapp/static/connections.css?v=0.92.1" />
+    <link rel="stylesheet" href="/miniapp/static/help.css?v=0.92.1" />
   </head>
   <body class="is-booting">
     <main id="accessGate" class="access-gate" hidden>
@@ -809,9 +811,7 @@
           <section id="helpView" class="view" data-view-panel="help">
             <header class="help-heading">
               <div>
-                <span class="eyebrow">База знаний</span>
                 <h1>Помощь</h1>
-                <p>Найдите вопрос или выберите нужную тему.</p>
               </div>
             </header>
 
@@ -835,6 +835,7 @@
               </div>
             </section>
             <div id="helpFaqPanel">
+            <section id="helpGuides" class="help-guides" aria-label="Пошаговые видеоинструкции"></section>
             <div class="help-toolbar">
               <label class="help-search" for="helpSearchInput">
                 <i data-lucide="search" aria-hidden="true"></i>
@@ -845,20 +846,21 @@
                   autocomplete="off"
                   aria-label="Поиск по вопросам и ответам"
                   aria-controls="helpFaqContent"
-                  placeholder="Например: QR-код, заказ, вклад или тикет"
+                  placeholder="Вопрос, название кнопки или текст ошибки"
                 />
                 <button id="clearHelpSearchButton" class="icon-button" type="button" title="Очистить поиск" aria-label="Очистить поиск" hidden>
                   <i data-lucide="x"></i>
                 </button>
               </label>
               <div id="helpCategoryFilters" class="help-category-filters" role="group" aria-label="Темы помощи"></div>
+              <p id="helpSearchStatus" class="help-search-status" role="status" aria-live="polite"></p>
             </div>
 
             <div id="helpFaqContent" class="help-faq-content"></div>
             <div id="helpEmptyState" class="help-empty" hidden>
               <i data-lucide="search-x" aria-hidden="true"></i>
               <strong>Ответ не найден</strong>
-              <span>Попробуйте сократить запрос или выберите «Все темы».</span>
+              <span>Попробуйте одно-два слова: «Начать», «QR-код», «код товара» или «вклад».</span>
               <button class="secondary-action" type="button" data-reset-help-search>Сбросить поиск</button>
             </div>
             </div>
@@ -1277,18 +1279,21 @@
     </div>
     <script src="https://st.max.ru/js/max-web-app.js"></script>
     <script src="/miniapp/static/assets/lucide.min.js?v=0.45.0"></script>
-    <script src="/miniapp/static/app-core.js?v=0.92.0"></script>
-    <script src="/miniapp/static/app-shell.js?v=0.92.0"></script>
-    <script src="/miniapp/static/app-store.js?v=0.92.0"></script>
-    <script src="/miniapp/static/app-admin.js?v=0.92.0"></script>
-    <script src="/miniapp/static/app-audit.js?v=0.92.0"></script>
-    <script src="/miniapp/static/app-communications.js?v=0.92.0"></script>
-    <script src="/miniapp/static/app-bank.js?v=0.92.0"></script>
-    <script src="/miniapp/static/app-help.js?v=0.92.0"></script>
-    <script src="/miniapp/static/app-feedback-model.js?v=0.92.0"></script>
-    <script src="/miniapp/static/app-feedback.js?v=0.92.0"></script>
-    <script src="/miniapp/static/app-support.js?v=0.92.0"></script>
-    <script src="/miniapp/static/app-pizza.js?v=0.92.0"></script>
-    <script src="/miniapp/static/app.js?v=0.92.0"></script>
+    <script src="/miniapp/static/app-core.js?v=0.92.1"></script>
+    <script src="/miniapp/static/app-shell.js?v=0.92.1"></script>
+    <script src="/miniapp/static/app-store.js?v=0.92.1"></script>
+    <script src="/miniapp/static/app-admin.js?v=0.92.1"></script>
+    <script src="/miniapp/static/app-connections-export.js?v=0.92.1"></script>
+    <script src="/miniapp/static/app-audit.js?v=0.92.1"></script>
+    <script src="/miniapp/static/app-communications.js?v=0.92.1"></script>
+    <script src="/miniapp/static/app-bank.js?v=0.92.1"></script>
+    <script src="/miniapp/static/app-help-media-catalog.js?v=0.92.1"></script>
+    <script src="/miniapp/static/app-help-guides.js?v=0.92.1"></script>
+    <script src="/miniapp/static/app-help.js?v=0.92.1"></script>
+    <script src="/miniapp/static/app-feedback-model.js?v=0.92.1"></script>
+    <script src="/miniapp/static/app-feedback.js?v=0.92.1"></script>
+    <script src="/miniapp/static/app-support.js?v=0.92.1"></script>
+    <script src="/miniapp/static/app-pizza.js?v=0.92.1"></script>
+    <script src="/miniapp/static/app.js?v=0.92.1"></script>
   </body>
 </html>

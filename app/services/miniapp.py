@@ -61,7 +61,7 @@ from app.models.student import (
     StudentHistoryEvent,
     Wallet,
 )
-from app.models.tenant import AstrocoinAccrualRule, Tenant
+from app.models.tenant import AstrocoinAccrualRule, Tenant, Venue
 from app.schemas.miniapp import (
     MiniAppAccessLinkRead,
     MiniAppAccessStatusRead,
@@ -1622,6 +1622,51 @@ async def import_miniapp_crm_students(
         created_contacts=result.created_contacts,
         created_contact_student_links=result.created_contact_student_links,
         skipped_rows=result.skipped_rows,
+    )
+
+
+async def list_miniapp_connection_export_students(
+    db: AsyncSession, *, max_user_id: int, tenant_slug: str,
+):
+    from app.schemas.miniapp import (
+        MiniAppConnectionExportStudentRead,
+        MiniAppConnectionsExportRead,
+    )
+
+    tenant, account, role = await _store_admin_context(
+        db, max_user_id=max_user_id, tenant_slug=tenant_slug,
+        denied_message="Экспорт подключений доступен администратору и директору",
+    )
+    venue_ids = await staff_venue_scope_ids(
+        db, tenant_id=tenant.id, account_id=account.id, role=role,
+    )
+
+    def connected(access_role):
+        return select(StudentAccessLink.id).where(
+            StudentAccessLink.tenant_id == Student.tenant_id,
+            StudentAccessLink.student_id == Student.id,
+            StudentAccessLink.role == access_role,
+            StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+        ).exists()
+
+    query = select(
+        Student, Venue.name, connected(StudentAccessRole.STUDENT),
+        connected(StudentAccessRole.PARENT),
+    ).outerjoin(Venue, Venue.id == Student.venue_id).where(Student.tenant_id == tenant.id)
+    if venue_ids is not None:
+        query = query.where(Student.venue_id.in_(venue_ids))
+    rows = (await db.execute(query.order_by(
+        Student.group_name, Student.last_name, Student.first_name, Student.id,
+    ))).all()
+    return MiniAppConnectionsExportRead(
+        tenant_slug=tenant.slug, tenant_name=tenant.name,
+        students=[MiniAppConnectionExportStudentRead(
+            student_id=student.id, lms_student_id=student.lms_student_id,
+            display_name=student.display_name, group_name=student.group_name or "Без группы",
+            teacher_name=student.teacher_name or "Преподаватель не указан",
+            venue_name=venue_name or "Площадка не указана", status=student.status,
+            student_connected=bool(child), parent_connected=bool(parent),
+        ) for student, venue_name, child, parent in rows],
     )
 
 

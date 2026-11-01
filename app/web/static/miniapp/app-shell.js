@@ -700,6 +700,7 @@ function setView(view) {
     });
   }
   renderStatus();
+  if (nextView !== "help" && typeof pauseHelpVideos === "function") pauseHelpVideos();
   if (nextView === "wallet") {
     renderLedger();
     if (isStaffStudentHistoryView()) void loadAdminStudents();
