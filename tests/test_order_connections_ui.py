@@ -26,7 +26,10 @@ def test_grouped_connections_confirm_full_detach_and_preserve_expansion(feedback
     assert page.locator("#bindingHistoryPanel, [data-audit-panel='bindings']").count() == 0
     assert "История подключений" not in page.locator("#adminPanel").inner_text()
     assert page.evaluate("loadedAuditKinds") == []
-    assert page.locator("[data-access-child]").count() == 2
+    assert page.locator("[data-access-child]").count() == 3
+    unconnected = page.locator('[data-access-child="demo-mark"] > summary').inner_text()
+    assert "Родитель: не подключён" in unconnected
+    assert "Ученик: не подключён" in unconnected
     child = page.locator('[data-access-child="demo-alisa"]')
     child.locator("summary").click()
     assert child.locator(".access-account-row").count() == 2

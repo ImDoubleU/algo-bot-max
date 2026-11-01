@@ -17,7 +17,8 @@ def test_connections_do_not_render_or_load_pending_inbox(feedback_browser, width
     page.evaluate("state.staffRoles = ['superadmin']; renderAll();")
     page.locator('[data-admin-tab="contacts"]').click()
     page.evaluate("setView('home'); setView('admin'); renderAdminPanel();")
-    assert page.locator("[data-access-child]").count() == 2
+    assert page.locator("[data-access-child]").count() == 3
+    assert page.locator('[data-access-child="demo-mark"]').is_visible()
     assert page.locator(".pending-bindings-panel, #pendingBindingsTitle").count() == 0
     assert "Ожидают подключения" not in page.locator("#adminPanel").inner_text()
     assert not any("/api/v1/access/pending" in url for url in requests)
