@@ -7,6 +7,315 @@
   min-width: 0
 }
 
+.game-card-shell {
+  min-width: 0;
+  transition: transform .18s, box-shadow .18s;
+  border-radius: 19px
+}
+
+.game-card-shell .game-card {
+  width: 100%;
+  border-radius: 19px 19px 0 0
+}
+
+.game-card-shell .game-card:hover {
+  transform: none;
+  box-shadow: none
+}
+
+.game-card-shell:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px #3e27500c
+}
+
+.game-card-leader {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #e6e0ed;
+  border-top: 1px solid #f0ebf5;
+  border-radius: 0 0 19px 19px;
+  background: #fcfaff;
+  color: #85689d;
+  font: 600 11px system-ui;
+  padding: 11px 14px;
+  cursor: pointer;
+  text-align: left
+}
+
+.game-card-leader:hover {
+  background: #f0e8fa;
+  color: #654185
+}
+
+.game-card-leader:focus-visible {
+  outline: 3px solid #8a6abc;
+  outline-offset: 2px
+}
+
+.league-prizes {
+  margin: 0 24px 20px;
+  padding: 18px;
+  border-radius: 15px;
+  border: 1px solid #eedfb5;
+  background: linear-gradient(135deg, #fff9ea, #fffdf8)
+}
+
+.league-prize-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px
+}
+
+.league-prize-heading>b {
+  font-size: 12px;
+  color: #89703f
+}
+
+.league-prize-heading>small {
+  font-size: 9px;
+  color: #b59c68;
+  text-align: right
+}
+
+.league-prize-podium {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px
+}
+
+.league-prize-podium>div {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  background: #fffefa;
+  border: 1px solid #eee5d0;
+  border-radius: 12px;
+  padding: 14px 8px
+}
+
+.league-prize-podium>div:first-child {
+  background: #fff2c7;
+  border-color: #ead28e
+}
+
+.league-prize-podium span {
+  font-size: 30px
+}
+
+.league-prize-podium small {
+  font-size: 9px;
+  color: #b39a71
+}
+
+.league-prize-podium b {
+  font-size: 24px;
+  color: #8c662a
+}
+
+.league-prize-podium em {
+  font-size: 11px;
+  font-style: normal;
+  color: #b09460
+}
+
+.league-prizes>p {
+  font-size: 10px;
+  color: #b09a77;
+  margin: 15px 0 0
+}
+
+.league-last-week {
+  margin: 0 24px 20px;
+  border: 1px solid #e8def1;
+  border-radius: 12px;
+  padding: 13px 15px;
+  color: #8d759f;
+  font-size: 11px
+}
+
+.league-last-week summary {
+  cursor: pointer;
+  font-weight: 700
+}
+
+.league-last-week>div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 14px
+}
+
+.league-last-week b {
+  color: #7a9a5f;
+  white-space: nowrap
+}
+
+.games-leader-controls>small {
+  font-size: 10px;
+  color: #a89ab4;
+  line-height: 1.5
+}
+
+.league-contributions {
+  font-size: 9px;
+  color: #8f78a5;
+  margin-top: 7px
+}
+
+.league-contributions summary {
+  cursor: pointer
+}
+
+.league-contributions ul {
+  padding: 8px 0 0;
+  margin: 0;
+  list-style: none
+}
+
+.league-contributions li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 7px;
+  max-width: 320px;
+  line-height: 1.5
+}
+
+.league-contributions li strong {
+  font-size: 10px !important;
+  color: #9575b0 !important
+}
+
+.league-rules {
+  margin: 17px 24px 0;
+  background: #f7f3fc;
+  border-radius: 12px;
+  padding: 13px 15px;
+  color: #8e769f;
+  font-size: 11px
+}
+
+.league-rules summary {
+  font-weight: 700;
+  cursor: pointer
+}
+
+.league-rules p {
+  font-size: 10px;
+  line-height: 1.7;
+  margin: 10px 0 0
+}
+
+.games-overall .games-my-rank>span:last-child {
+  font-size: 14px
+}
+
+@media(max-width:640px) {
+
+  .game-card-shell,
+  .game-card-shell .game-card {
+    border-radius: 15px 15px 0 0
+  }
+
+  .game-card-leader {
+    border-radius: 0 0 15px 15px;
+    font-size: 9px;
+    padding: 10px 12px
+  }
+
+  .league-prizes {
+    margin: 0 16px 17px;
+    padding: 13px
+  }
+
+  .league-prize-heading {
+    gap: 10px
+  }
+
+  .league-prize-heading>b {
+    font-size: 10px
+  }
+
+  .league-prize-heading>small {
+    font-size: 8px;
+    max-width: 130px
+  }
+
+  .league-prize-podium {
+    gap: 7px
+  }
+
+  .league-prize-podium>div {
+    padding: 12px 5px
+  }
+
+  .league-prize-podium span {
+    font-size: 26px
+  }
+
+  .league-prize-podium b {
+    font-size: 20px
+  }
+
+  .league-prize-podium em {
+    font-size: 9px
+  }
+
+  .league-prize-podium small {
+    font-size: 8px
+  }
+
+  .league-prizes>p {
+    font-size: 9px;
+    line-height: 1.6
+  }
+
+  .league-last-week {
+    margin: 0 16px 17px
+  }
+
+  .league-rules {
+    margin: 15px 16px 0;
+    padding: 12px
+  }
+
+  .league-contributions {
+    font-size: 8px
+  }
+
+  .league-contributions li {
+    font-size: 8px;
+    gap: 5px
+  }
+
+  .games-overall .games-my-rank {
+    gap: 10px
+  }
+
+  .games-overall .games-my-rank>span:last-child {
+    font-size: 12px
+  }
+
+  .games-overall .games-my-rank b {
+    font-size: 21px
+  }
+}
+
+@media(prefers-reduced-motion:reduce) {
+  .game-card-shell {
+    transition: none
+  }
+
+  .game-card-shell:hover {
+    transform: none
+  }
+}
+
 .games-heading {
   display: flex;
   align-items: center;

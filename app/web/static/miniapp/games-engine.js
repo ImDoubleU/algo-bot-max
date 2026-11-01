@@ -102,78 +102,27 @@
     unit: "попаданий",
     hint: "Жди зелёный и нажимай. Три раунда: времени на ответ всё меньше. Пять попаданий — награда недели."
   }, ];
-  const achievements = [{
-    id: "first",
-    title: "Поехали!",
-    detail: "Заверши первую игру",
-    reward: 15,
-    target: 1,
-    metric: s => s.runs
-  }, {
-    id: "explorer",
-    title: "Везде свой",
-    detail: "Сыграй в 5 разных игр",
-    reward: 20,
-    target: 5,
-    metric: s => Object.keys(s.best).length
-  }, {
-    id: "all",
-    title: "Вся коллекция",
-    detail: "Сыграй во все 10 игр",
-    reward: 40,
-    target: 10,
-    metric: s => Object.keys(s.best).length
-  }, {
-    id: "orbit",
-    title: "Космокот",
-    detail: "Сделай 15 прыжков за партию",
-    reward: 20,
-    target: 15,
-    metric: s => s.best.orbit || 0
-  }, {
-    id: "tower",
-    title: "Выше крыши",
-    detail: "Построй башню из 15 этажей",
-    reward: 20,
-    target: 15,
-    metric: s => s.best.tower || 0
-  }, {
-    id: "typing",
-    title: "Быстрые пальцы",
-    detail: "Напечатай 200 верных символов",
-    reward: 25,
-    target: 200,
-    metric: s => s.best.typing || 0
-  }, {
-    id: "debug",
-    title: "Шерлок Python",
-    detail: "Реши все 8 задач за партию",
-    reward: 25,
-    target: 8,
-    metric: s => s.best.debug || 0
-  }, {
-    id: "2048",
-    title: "Число силы",
-    detail: "Собери плитку 512",
-    reward: 25,
-    target: 512,
-    metric: s => s.best["2048"] || 0
-  }, {
-    id: "drop",
-    title: "Гравитация работает",
-    detail: "Набери 300 очков в Космо-дропе",
-    reward: 25,
-    target: 300,
-    metric: s => s.best.drop || 0
-  }, {
-    id: "week",
-    title: "Неделя приключений",
-    detail: "Выполни цели 5 игр за одну неделю",
-    reward: 30,
-    target: 5,
-    metric: s => Math.max(0, ...Object.values(s.weeks).map(w => games.filter(g => (w.scores[g.id] ||
-      0) >= g.goal).length))
-  }, ];
+  const achievementRules = [
+    ["orbit", "Космический ас", "25 прыжков за одну партию", 25, 35],
+    ["evolve", "Создатель вселенных", "2048 очков за одну партию", 2048, 35],
+    ["bugs", "Баги под контролем", "Поймай 50 багов за одну партию", 50, 35],
+    ["tower", "Небоскрёб", "Построй 25 этажей за одну партию", 25, 35],
+    ["typing", "Точно и быстро", "240 символов за минуту с точностью от 95%", 240, 40],
+    ["debug", "Шерлок Python", "Реши все 8 задач без ошибок", 8, 35],
+    ["2048", "Число силы", "Собери плитку 1024", 1024, 40],
+    ["drop", "Космическая гравитация", "1000 очков за одну партию", 1000, 35],
+    ["memory", "Фотографическая память", "Пройди все 5 уровней: 40 найденных пар", 40, 40],
+    ["react", "Молниеносный", "15 попаданий без ошибок, средняя реакция до 350 мс", 15, 40],
+  ];
+  const achievements = achievementRules.map(([game, title, detail, target, reward]) => ({
+    id: "master2_" + game,
+    game,
+    title,
+    detail,
+    target,
+    reward,
+    metric: state => state.mastery?.[game] || 0,
+  }));
 
   function weekKey(now = new Date()) {
     const m = new Date(now.getTime() + 3 * 3600000);
@@ -182,9 +131,13 @@
     return d.toISOString().slice(0, 10);
   }
 
-  const ranked = ["orbit", "evolve", "bugs", "tower", "2048", "drop"];
+  const ranked = games.map(g => g.id);
+  const prizes = [100, 75, 50];
+  const placePoints = [100, 80, 65, 55, 45, 35, 25, 20, 15, 10];
   const rankUnit = id => id === "orbit" ? "прыжков" : id === "tower" ? "этажей" :
-    id === "bugs" ? "багов" : "очков";
+    id === "bugs" ? "багов" : id === "typing" ? "символов" :
+    id === "debug" ? "задач" : id === "memory" ? "пар" :
+    id === "react" ? "попаданий" : "очков";
 
   // The same curve is used for the HUD, game rules and regression checks.
   function difficulty(id, progress = 0) {
@@ -227,67 +180,134 @@
 
   function blankBoard() {
     return {
-      version: 1,
+      version: 2,
       all: {},
-      weeks: {}
+      weeks: {},
+      settled: {}
     };
+  }
+
+  function validWeek(key) {
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(key)) return false;
+    const d = new Date(key + "T00:00:00Z");
+    return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === key && d.getUTCDay() === 1;
+  }
+
+  function safeInt(v, max = Number.MAX_SAFE_INTEGER) {
+    return Number.isFinite(v) ? Math.max(0, Math.min(max, Math.floor(v))) : 0;
+  }
+
+  function detailsFor(id, score, input = {}) {
+    const result = Number.isFinite(input.result) ? safeInt(input.result) : id === "2048" ? 0 : score;
+    return {
+      result,
+      accuracy: safeInt(input.accuracy, 100),
+      timeMs: safeInt(input.timeMs, 86400000),
+      moves: safeInt(input.moves, 1000000),
+      reactionMs: safeInt(input.reactionMs, 10000),
+      mistakes: safeInt(input.mistakes, 1000000),
+      qualified: result >= games.find(g => g.id === id).goal && (id !== "typing" || input.accuracy >= 90)
+    };
+  }
+
+  function compareResult(id, a, b) {
+    let n = b.score - a.score;
+    if (n) return n;
+    if (id === "typing") n = b.accuracy - a.accuracy;
+    if (id === "react") n = (a.reactionMs || 10000) - (b.reactionMs || 10000) || a.mistakes - b.mistakes;
+    if (id === "memory") n = (a.moves || 1000000) - (b.moves || 1000000);
+    if (!n && ["debug", "memory"].includes(id)) n = (a.timeMs || 86400000) - (b.timeMs || 86400000);
+    return n;
   }
 
   function normalizeBoard(raw) {
     const board = blankBoard();
-    if (!raw || raw.version !== 1) return board;
+    if (!raw || raw.version !== 2) return board;
 
-    function entries(rows) {
+    function entries(rows, id) {
       if (!Array.isArray(rows)) return [];
-      const valid = rows.filter(r => r && typeof r.player === "string" && r.player.length <= 100 &&
-        typeof r.name === "string" && Number.isSafeInteger(r.score) && r.score > 0 &&
-        Number.isFinite(Date.parse(r.at)));
       const unique = new Map();
-      for (const r of valid) {
+      for (const r of rows) {
+        if (!r || typeof r.player !== "string" || !r.player || r.player.length > 100 || typeof r.name !==
+          "string" ||
+          !Number.isSafeInteger(r.score) || r.score <= 0 || !Number.isFinite(Date.parse(r.at))) continue;
         const item = {
           player: r.player,
           name: r.name.slice(0, 80),
           group: String(r.group || "").slice(0, 140),
           score: r.score,
-          level: Math.max(1, Math.min(10, Math.floor(Number(r.level) || 1))),
-          at: r.at
+          level: Math.max(1, Math.min(10, safeInt(r.level))),
+          at: r.at,
+          ...detailsFor(id, r.score, r)
         };
-        if (!unique.has(r.player) || unique.get(r.player).score < r.score) unique.set(r.player, item);
+        if (!unique.has(r.player) || compareResult(id, item, unique.get(r.player)) < 0) unique.set(r.player,
+          item);
       }
       return [...unique.values()].slice(0, 2000);
     }
-    for (const id of ranked) board.all[id] = entries(raw.all?.[id]);
+    for (const id of ranked) board.all[id] = entries(raw.all?.[id], id);
     for (const [key, scores] of Object.entries(raw.weeks || {})) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
+      if (!validWeek(key)) continue;
       board.weeks[key] = {};
-      for (const id of ranked) board.weeks[key][id] = entries(scores?.[id]);
+      for (const id of ranked) board.weeks[key][id] = entries(scores?.[id], id);
+    }
+    for (const [key, closed] of Object.entries(raw.settled || {})) {
+      if (!validWeek(key) || closed?.rule !== 1 || !Array.isArray(closed.winners) || !Number.isFinite(Date
+          .parse(closed.at))) continue;
+      const winners = closed.winners.filter(r => r && typeof r.player === "string" && typeof r.name ===
+        "string" &&
+        Number.isInteger(r.rank) && r.rank >= 1 && r.rank <= 3 && r.amount === prizes[r.rank - 1]);
+      const seenPlayers = new Set(),
+        seenRanks = new Set();
+      board.settled[key] = {
+        rule: 1,
+        at: closed.at,
+        winners: winners.filter(r => {
+          if (seenPlayers.has(r.player) || seenRanks.has(r.rank)) return false;
+          seenPlayers.add(r.player);
+          seenRanks.add(r.rank);
+          return true;
+        }).slice(0, 3).map(r => ({
+          ...r,
+          id: `league:${key}:${r.player}`
+        }))
+      };
     }
     return board;
   }
 
-  function recordBoard(board, id, player, score, level = 1, now = new Date()) {
-    if (!ranked.includes(id) || !player?.id || !player.name ||
-      !Number.isSafeInteger(score) || score <= 0) return false;
+  function recordBoard(board, id, player, score, level = 1, now = new Date(), details = {}) {
+    if (!ranked.includes(id) || !player?.id || !player.name || !Number.isSafeInteger(score) || score <= 0 ||
+      board.settled[weekKey(now)] || ({
+        debug: 8,
+        memory: 40,
+        react: 15
+      } [id] && score > {
+        debug: 8,
+        memory: 40,
+        react: 15
+      } [id])) return false;
     const row = {
-      player: String(player.id),
+      player: String(player.id).slice(0, 100),
       name: String(player.name).slice(0, 80),
       group: String(player.group || "").slice(0, 140),
       score,
       level,
-      at: now.toISOString()
+      at: now.toISOString(),
+      ...detailsFor(id, score, details)
     };
-    const w = board.weeks[weekKey(now)] ||= {};
+    const w = board.weeks[weekKey(now)] ||= ({});
     let changed = false;
     for (const container of [board.all, w]) {
       const rows = container[id] ||= [],
-        index = rows.findIndex(r => r.player === row.player);
-      if (index < 0) {
+        i = rows.findIndex(r => r.player === row.player);
+      if (i < 0) {
         rows.push({
           ...row
         });
         changed = true;
-      } else if (rows[index].score < score) {
-        rows[index] = {
+      } else if (compareResult(id, row, rows[i]) < 0) {
+        rows[i] = {
           ...row
         };
         changed = true;
@@ -296,15 +316,12 @@
     return changed;
   }
 
-  function leaders(board, id, period = "week", now = new Date()) {
-    if (!ranked.includes(id)) return [];
-    const rows = (period === "all" ? board.all[id] : board.weeks[weekKey(now)]?.[id]) || [];
+  function rankRows(rows, comparator, equal) {
     let rank = 0,
-      previous = -1;
-    return rows.slice().sort((a, b) => b.score - a.score || a.at.localeCompare(b.at) ||
-      a.player.localeCompare(b.player)).map((r, i) => {
-      if (r.score !== previous) rank = i + 1;
-      previous = r.score;
+      previous;
+    return rows.slice().sort(comparator).map((r, i) => {
+      if (!previous || !equal(r, previous)) rank = i + 1;
+      previous = r;
       return {
         ...r,
         rank
@@ -312,89 +329,214 @@
     });
   }
 
+  function leaders(board, id, period = "week", now = new Date(), key = weekKey(now)) {
+    if (!ranked.includes(id)) return [];
+    const rows = (period === "all" ? board.all[id] : board.weeks[key]?.[id]) || [];
+    return rankRows(rows, (a, b) => compareResult(id, a, b) || a.at.localeCompare(b.at) || a.player
+      .localeCompare(b.player),
+      (a, b) => compareResult(id, a, b) === 0);
+  }
+
+  function overall(board, period = "week", now = new Date(), key = weekKey(now)) {
+    const people = new Map();
+    for (const id of ranked) {
+      // Only results meeting the weekly goal take part in the combined league.
+      const qualified = leaders(board, id, period, now, key).filter(r => r.qualified);
+      const table = rankRows(qualified, (a, b) => compareResult(id, a, b) || a.at.localeCompare(b.at),
+        (a, b) => compareResult(id, a, b) === 0);
+      for (const row of table) {
+        const points = placePoints[row.rank - 1] || 5;
+        if (!people.has(row.player)) people.set(row.player, {
+          player: row.player,
+          name: row.name,
+          group: row.group,
+          score: 0,
+          games: 0,
+          wins: 0,
+          at: row.at,
+          contributions: []
+        });
+        const person = people.get(row.player);
+        person.score += points;
+        person.games++;
+        if (row.rank === 1) person.wins++;
+        if (row.at > person.at) person.at = row.at;
+        person.contributions.push({
+          game: id,
+          rank: row.rank,
+          points,
+          result: row.score,
+          ...detailsFor(id, row.score, row)
+        });
+      }
+    }
+    return [...people.values()].sort((a, b) => b.score - a.score || b.games - a.games || b.wins - a.wins ||
+      a.at.localeCompare(b.at) || a.player.localeCompare(b.player)).map((r, i) => ({
+      ...r,
+      rank: i + 1
+    }));
+  }
+
+  function settleBoard(board, now = new Date()) {
+    const current = weekKey(now),
+      closed = [];
+    for (const key of Object.keys(board.weeks).sort()) {
+      if (!validWeek(key) || key >= current || board.settled[key]) continue;
+      const rows = overall(board, "week", now, key);
+      board.settled[key] = {
+        rule: 1,
+        at: now.toISOString(),
+        winners: rows.slice(0, 3).map(r => ({
+          player: r.player,
+          name: r.name,
+          rank: r.rank,
+          points: r.score,
+          amount: prizes[r.rank - 1],
+          id: `league:${key}:${r.player}`
+        }))
+      };
+      closed.push(key);
+    }
+    return closed;
+  }
+
   function blank() {
     return {
-      version: 1,
+      version: 2,
       runs: 0,
       best: {},
+      mastery: {},
       weeks: {},
       unlocked: {},
       claimed: {},
-      transactions: []
+      transactions: [],
+      prizeClaims: {}
     };
   }
 
   function normalize(raw) {
-    const s = blank();
-    if (!raw || raw.version !== 1) return s;
-    s.runs = Math.max(0, Math.floor(Number(raw.runs) || 0));
-    for (const g of games)
-      if (Number.isFinite(raw.best?.[g.id])) s.best[g.id] = Math.max(0, raw.best[g.id]);
+    const state = blank();
+    if (!raw || raw.version !== 2) return state;
+    state.runs = safeInt(raw.runs);
+    for (const game of games) {
+      if (Number.isFinite(raw.best?.[game.id])) state.best[game.id] = safeInt(raw.best[game.id]);
+      if (Number.isFinite(raw.mastery?.[game.id])) state.mastery[game.id] = safeInt(raw.mastery[game.id]);
+      if (!["typing", "react"].includes(game.id)) state.mastery[game.id] = Math.max(state.mastery[game
+        .id] || 0, state.best[game.id] || 0);
+    }
     for (const [key, w] of Object.entries(raw.weeks || {})) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !w || typeof w !== "object") continue;
-      s.weeks[key] = {
+      if (!validWeek(key) || !w || typeof w !== "object") continue;
+      state.weeks[key] = {
         scores: {},
         claimed: {}
       };
-      for (const g of games) {
-        if (Number.isFinite(w.scores?.[g.id])) s.weeks[key].scores[g.id] = Math.max(0, w.scores[g.id]);
-        if (w.claimed?.[g.id] === true) s.weeks[key].claimed[g.id] = true;
+      for (const game of games) {
+        if (Number.isFinite(w.scores?.[game.id])) state.weeks[key].scores[game.id] = safeInt(w.scores[game
+          .id]);
+        if (w.claimed?.[game.id] === true) state.weeks[key].claimed[game.id] = true;
       }
     }
     for (const a of achievements) {
-      if (raw.unlocked?.[a.id]) s.unlocked[a.id] = String(raw.unlocked[a.id]);
-      if (raw.claimed?.[a.id] === true) s.claimed[a.id] = true;
+      if (raw.unlocked?.[a.id]) state.unlocked[a.id] = String(raw.unlocked[a.id]);
+      if (raw.claimed?.[a.id] === true) state.claimed[a.id] = true;
     }
-    s.transactions = Array.isArray(raw.transactions) ? raw.transactions.filter(t => typeof t.label ===
-      "string" && Number.isFinite(t.amount) && t.amount > 0 && typeof t.at === "string").slice(0, 300) :
-    [];
-    return s;
+    for (const [key, prize] of Object.entries(raw.prizeClaims || {})) {
+      if (!/^league:\d{4}-\d{2}-\d{2}:.+$/.test(key) || !prize ||
+        !Number.isInteger(prize.rank) || prize.rank < 1 || prize.rank > 3 || prize.amount !== prizes[prize
+          .rank - 1]) continue;
+      state.prizeClaims[key] = {
+        rank: prize.rank,
+        amount: prize.amount,
+        week: String(prize.week)
+      };
+    }
+    state.transactions = Array.isArray(raw.transactions) ? raw.transactions.filter(t => t && typeof t
+      .label ===
+      "string" &&
+      Number.isFinite(t.amount) && t.amount > 0 && typeof t.at === "string").slice(0, 300) : [];
+    return state;
   }
 
-  function week(s, now) {
-    return s.weeks[weekKey(now)] ||= {
+  function week(state, now) {
+    return state.weeks[weekKey(now)] ||= {
       scores: {},
       claimed: {}
     };
   }
 
-  function finish(s, id, score, now = new Date()) {
-    if (!games.some(g => g.id === id) || !Number.isFinite(score) || score < 0) return [];
-    s.runs++;
-    s.best[id] = Math.max(s.best[id] || 0, Math.floor(score));
-    const w = week(s, now);
-    w.scores[id] = Math.max(w.scores[id] || 0, Math.floor(score));
+  function unlockAchievements(state, now = new Date()) {
     const unlocked = [];
     for (const a of achievements)
-      if (!s.unlocked[a.id] && a.metric(s) >= a.target) {
-        s.unlocked[a.id] = now.toISOString();
+      if (!state.unlocked[a.id] && a.metric(state) >= a.target) {
+        state.unlocked[a.id] = now.toISOString();
         unlocked.push(a.id);
       }
     return unlocked;
   }
 
-  function claim(s, type, id, now = new Date()) {
+  function finish(state, id, score, now = new Date(), details = {}) {
+    if (!games.some(g => g.id === id) || !Number.isSafeInteger(score) || score < 0) return [];
+    state.runs++;
+    state.best[id] = Math.max(state.best[id] || 0, score);
+    const w = week(state, now);
+    w.scores[id] = Math.max(w.scores[id] || 0, score);
+    const qualifies = id === "typing" ? details.accuracy >= 95 : id === "react" ?
+      details.mistakes === 0 && details.reactionMs > 0 && details.reactionMs <= 350 : true;
+    if (qualifies) state.mastery[id] = Math.max(state.mastery[id] || 0, score);
+    return unlockAchievements(state, now);
+  }
+
+  function claim(state, type, id, now = new Date()) {
     let amount, label;
     if (type === "week") {
-      const g = games.find(g => g.id === id),
-        w = week(s, now);
-      if (!g || w.claimed[id] || (w.scores[id] || 0) < g.goal) return 0;
+      const game = games.find(g => g.id === id),
+        w = week(state, now);
+      if (!game || w.claimed[id] || (w.scores[id] || 0) < game.goal) return 0;
       w.claimed[id] = true;
       amount = 10;
-      label = g.name + " · награда недели";
+      label = game.name + " · награда недели";
     } else if (type === "achievement") {
       const a = achievements.find(a => a.id === id);
-      if (!a || !s.unlocked[id] || s.claimed[id]) return 0;
-      s.claimed[id] = true;
+      if (!a || !state.unlocked[id] || state.claimed[id]) return 0;
+      state.claimed[id] = true;
       amount = a.reward;
       label = a.title + " · достижение";
     } else return 0;
-    s.transactions.unshift({
+    state.transactions.unshift({
       label,
       amount,
       at: now.toISOString()
     });
     return amount;
+  }
+
+  function collectPrizes(state, board, player, now = new Date()) {
+    let received = 0;
+    for (const [key, closed] of Object.entries(board.settled)) {
+      if (key >= weekKey(now)) continue;
+      for (const row of closed.winners) {
+        if (row.player !== player || state.prizeClaims[row.id] || row.rank < 1 || row.rank > 3 ||
+          row.amount !== prizes[row.rank - 1] || row.id !== `league:${key}:${row.player}`) continue;
+        state.prizeClaims[row.id] = {
+          week: key,
+          rank: row.rank,
+          amount: row.amount
+        };
+        received += row.amount;
+        state.transactions.unshift({
+          label: `Общий рейтинг · ${row.rank}-е место · неделя ${key}`,
+          amount: row.amount,
+          at: now.toISOString()
+        });
+      }
+    }
+    return received;
+  }
+
+  function balance(state) {
+    return Object.values(state.weeks).reduce((n, w) => n + Object.keys(w.claimed).length * 10, 0) +
+      achievements.reduce((n, a) => n + (state.claimed[a.id] ? a.reward : 0), 0) +
+      Object.values(state.prizeClaims).reduce((n, r) => n + r.amount, 0);
   }
 
   function slide(board, direction) {
@@ -506,6 +648,13 @@
     why: "Чтобы функция вернула результат, нужен return."
   }, ];
   window.AlgoGameEngine = {
+    prizes,
+    placePoints,
+    overall,
+    settleBoard,
+    collectPrizes,
+    balance,
+    unlockAchievements,
     ranked,
     rankUnit,
     difficulty,

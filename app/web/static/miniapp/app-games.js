@@ -21,7 +21,7 @@
   let selectedPlayer = "",
     leaderGame = "orbit",
     leaderPeriod = "week";
-  const boardKey = "algo-games-leaderboards:v1";
+  const boardKey = "algo-games-leaderboards:v2";
   try {
     selectedPlayer = localStorage.getItem("algo-games-demo-player") || "";
   } catch {}
@@ -42,41 +42,61 @@
 
   function readBoard() {
     try {
-      return E.normalizeBoard(JSON.parse(localStorage.getItem(boardKey) || "null"));
+      const board = E.normalizeBoard(JSON.parse(localStorage.getItem(boardKey) || "null"));
+      if (E.settleBoard(board).length) localStorage.setItem(boardKey, JSON.stringify(board));
+      return board;
     } catch {
       return E.blankBoard();
     }
   }
 
-  function writeRank(g, score, level, who) {
+  function writeRank(g, score, level, who, details) {
     if (!E.ranked.includes(g.id)) return;
     try {
       const board = readBoard();
-      E.recordBoard(board, g.id, who, score, level);
+      E.recordBoard(board, g.id, who, score, level, new Date(), details);
       localStorage.setItem(boardKey, JSON.stringify(board));
     } catch {
       storageError = true;
     }
   }
 
-  function leaderMarkup() {
-    const g = E.games.find(g => g.id === leaderGame),
-      rows = E.leaders(readBoard(), leaderGame, leaderPeriod);
-    const mine = rows.find(r => r.player === player().id),
+  function leaguePrizes(board) {
+    const next = new Date(E.weekKey() + "T00:00:00+03:00");
+    next.setTime(next.getTime() + 7 * 86400000);
+    const past = Object.keys(board.settled).sort().at(-1),
+      closed = past ? board.settled[past] : null;
+    return `<div class="league-prizes"><div class="league-prize-heading"><b>Награды недели</b><small>Итоги ${next.toLocaleDateString("ru-RU",{timeZone:"Europe/Moscow",day:"numeric",month:"long"})} · 00:00 МСК</small></div><div class="league-prize-podium">${E.prizes.map((amount,i)=>`<div><span>${["🥇","🥈","🥉"][i]}</span><small>${i+1}-е место</small><b>${amount} <em>AC</em></b></div>`).join("")}</div><p>За общий топ‑3. Начисление после окончания недели.</p></div>
+      ${closed?.winners.length?`<details class="league-last-week"><summary>Итоги недели ${esc(past)}</summary>${closed.winners.map(r=>`<div><span>${["🥇","🥈","🥉"][r.rank-1]} ${esc(r.name)}</span><b>+${r.amount} AC</b></div>`).join("")}</details>`:""}`;
+  }
+
+  function rankDetail(id, row) {
+    if (id === "typing") return `Точность ${row.accuracy}%`;
+    if (id === "debug") return `${(row.timeMs/1000).toFixed(1)} с`;
+    if (id === "memory") return `${row.moves} ходов · ${(row.timeMs/1000).toFixed(0)} с`;
+    if (id === "react") return `${row.reactionMs} мс · ошибок: ${row.mistakes}`;
+    if (id === "2048") return row.result ? `Плитка ${row.result}` : `Уровень ${row.level}`;
+    return `Уровень ${row.level}`;
+  }
+
+  function leaderMarkup(id = null) {
+    const combined = !id,
+      board = readBoard(),
+      g = E.games.find(g => g.id === id),
+      rows = combined ? E.overall(board, leaderPeriod) : E.leaders(board, id, leaderPeriod),
+      mine = rows.find(r => r.player === player().id),
       shown = rows.slice(0, 20);
     if (mine && !shown.some(r => r.player === mine.player)) shown.push(mine);
-    return `<section class="games-leaders"><div class="games-leaders-top"><div><small>ТАБЛИЦА ЛИДЕРОВ</small><h3>${g.name}</h3></div><span>Локальная демка</span></div>
-      <div class="games-leader-controls"><label>Игра<select data-leader-game>${E.games.filter(g=>E.ranked.includes(g.id)).map(g=>`<option value="${g.id}" ${g.id===leaderGame?"selected":""}>${g.name}</option>`).join("")}</select></label><div class="games-leader-period">${[["week","Неделя"],["all","Всё время"]].map(([v,t])=>`<button data-leader-period="${v}" aria-pressed="${leaderPeriod===v}">${t}</button>`).join("")}</div></div>
-      ${mine?`<div class="games-my-rank"><span>Твоё место <b>#${mine.rank}</b></span><span>${mine.score.toLocaleString("ru-RU")} ${E.rankUnit(g.id)}<small>Уровень ${mine.level}</small></span></div>`:""}
-      ${shown.length?`<div class="games-leader-scroll"><table><thead><tr><th>Место</th><th>Игрок</th><th>Рекорд</th></tr></thead><tbody>${shown.map(r=>`<tr class="${r.player===player().id?"is-me":""}"><td><span class="rank-medal rank-${r.rank}">${r.rank<=3?["🥇","🥈","🥉"][r.rank-1]:r.rank}</span></td><td><b>${esc(r.name)}${r.player===player().id?' <em>Ты</em>':""}</b><small>${esc(r.group)}</small></td><td><strong>${r.score.toLocaleString("ru-RU")}</strong><small>Уровень ${r.level}</small></td></tr>`).join("")}</tbody></table></div>`:'<div class="games-leaders-empty"><span>🏆</span><h4>Первый рекорд может быть твоим</h4><p>Заверши партию — результат появится здесь.</p></div>'}
-      <p class="games-leader-note">Результаты игроков этой демки в этом браузере. Учитывается лучшая партия; равные очки делят место.</p></section>`;
+    return `<section class="games-leaders ${combined?"games-overall":""}"><div class="games-leaders-top"><div><small>${combined?"ВСЕ 10 ИГР":"ТАБЛИЦА ЛИДЕРОВ"}</small><h3>${combined?"Общий рейтинг":g.name}</h3></div><span>Локальная демка</span></div>
+      ${combined?leaguePrizes(board):""}
+      <div class="games-leader-controls"><div class="games-leader-period">${[["week","Неделя"],["all","Всё время"]].map(([v,t])=>`<button data-leader-period="${v}" aria-pressed="${leaderPeriod===v}">${t}</button>`).join("")}</div><small>${combined?"Сумма очков за места в играх":`Лучший результат · ${E.rankUnit(id)}`}</small></div>
+      ${mine?`<div class="games-my-rank"><span>Твоё место <b>#${mine.rank}</b></span><span>${mine.score.toLocaleString("ru-RU")} ${combined?"очков рейтинга":E.rankUnit(id)}<small>${combined?`${mine.games} из 10 игр`:rankDetail(id,mine)}</small></span></div>`:""}
+      ${shown.length?`<div class="games-leader-scroll"><table><thead><tr><th>Место</th><th>Игрок</th><th>${combined?"Рейтинг":"Рекорд"}</th></tr></thead><tbody>${shown.map(r=>`<tr class="${r.player===player().id?"is-me":""}"><td><span class="rank-medal rank-${r.rank}">${r.rank<=3?["🥇","🥈","🥉"][r.rank-1]:r.rank}</span></td><td><b>${esc(r.name)}${r.player===player().id?' <em>Ты</em>':""}</b><small>${esc(r.group)}</small>${combined?`<details class="league-contributions"><summary>${r.games} из 10 игр</summary><ul>${r.contributions.map(c=>`<li><span>${E.games.find(g=>g.id===c.game).name} · #${c.rank}</span><strong>+${c.points}</strong></li>`).join("")}</ul></details>`:""}</td><td><strong>${r.score.toLocaleString("ru-RU")}</strong><small>${combined?`${r.wins} первых мест`:rankDetail(id,r)}</small></td></tr>`).join("")}</tbody></table></div>`:`<div class="games-leaders-empty"><span>🏆</span><h4>${combined?"Собери свой рейтинг":"Первый рекорд может быть твоим"}</h4><p>${combined?"Выполни цель недели хотя бы в одной игре.":"Заверши партию — результат появится здесь."}</p></div>`}
+      ${combined?'<details class="league-rules"><summary>Как считаются очки</summary><p>В каждой игре: 100 очков за 1-е место, 80 за 2-е, 65 за 3-е; дальше 55, 45, 35, 25, 20, 15, 10 и по 5. В зачёт идут результаты с выполненной целью недели. Для печати нужна точность от 90%.</p><p>Складываются места во всех 10 играх. При равенстве: больше игр, затем первых мест, затем раньше достигнутый результат. Призы выдаются только за недельный общий рейтинг.</p></details>':'<p class="games-leader-note">Лучшая партия игрока. При равном результате учитываются точность, время или число ходов — в зависимости от игры.</p>'}
+      <p class="games-leader-note">Результаты и награды этой демки хранятся в этом браузере.</p></section>`;
   }
 
   function wireLeaders(host, draw) {
-    host.querySelectorAll("[data-leader-game]").forEach(el => el.onchange = () => {
-      leaderGame = el.value;
-      draw();
-    });
     host.querySelectorAll("[data-leader-period]").forEach(el => el.onclick = () => {
       leaderPeriod = el.dataset.leaderPeriod;
       draw();
@@ -92,7 +112,7 @@
     d.className = "games-leader-dialog";
     const draw = () => {
       d.innerHTML =
-        `<button class="games-leader-close" aria-label="Закрыть таблицу лидеров">×</button>${leaderMarkup()}`;
+        `<button class="games-leader-close" aria-label="Закрыть таблицу лидеров">×</button>${leaderMarkup(leaderGame)}`;
       $(".games-leader-close", d).onclick = () => d.close();
       wireLeaders(d, draw);
     };
@@ -123,7 +143,7 @@
   const target = g => g.id === "2048" ? `плитка ${g.goal}` : `${g.goal} ${g.unit}`;
 
   function load() {
-    const key = "algo-games-prototype:v1:" + player().id;
+    const key = "algo-games-prototype:v2:" + player().id;
     if (profile === key) return;
     profile = key;
     storageError = false;
@@ -155,21 +175,24 @@
   function render() {
     if (!root) return;
     load();
+    refreshStored();
+    const received = E.collectPrizes(data, readBoard(), player().id);
+    E.unlockAchievements(data);
+    save();
     const w = E.week(data),
       available = E.games.filter(g => (w.scores[g.id] || 0) >= g.goal && !w.claimed[g.id]).length;
-    const balance = Object.values(data.weeks).reduce((n, w) => n + Object.keys(w.claimed).length * 10, 0) +
-      E.achievements.reduce((n, a) => n + (data.claimed[a.id] ? a.reward : 0), 0),
+    const balance = E.balance(data),
       done = E.games.filter(g => w.claimed[g.id]).length;
     const next = new Date(E.weekKey() + "T00:00:00+03:00");
     next.setTime(next.getTime() + 7 * 86400000);
     root.innerHTML = `<div class="games-heading"><div><span class="games-eyebrow">ALGO ARCADE</span><h1>Игры</h1></div><label class="games-player-picker">Игрок демки<select id="gamesPlayer">${players().map(p=>`<option value="${esc(p.id)}" ${p.id===player().id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></label></div>
       <section class="games-hero"><div class="games-hero-copy"><span class="games-season">СЕЗОН 01 · КОСМИЧЕСКИЙ ХАОС</span><h2>Маленький перерыв.<br><em>Большой рекорд.</em></h2><p>10 игр. Твои рекорды. Новые достижения.</p><button data-game="orbit" class="games-main">Полетели <span>↗</span></button></div><div class="games-hero-art">${icon("orbit")}<span class="games-sticker">ЕЩЁ ОДНУ<br>И ВСЁ!</span></div></section>
       <div class="games-weekbar"><div><span class="games-week-icon">✦</span><span><b>Награды недели</b><small>Обновятся ${next.toLocaleDateString("ru-RU",{timeZone:"Europe/Moscow",day:"numeric",month:"long"})} в 00:00 МСК</small></span></div><div class="games-week-pips" aria-label="Получено ${done} из 10 наград">${E.games.map(g=>`<i class="${w.claimed[g.id]?"claimed":(w.scores[g.id]||0)>=g.goal?"ready":""}"></i>`).join("")}</div><b>${done}<span> / 10</span></b><button data-games-tab="rewards">${available?`Забрать ${available*10} AC`:'Мои награды'} →</button></div>
-      <nav class="games-tabs" aria-label="Игры и достижения">${[["games","Все игры"],["leaders","Лидеры"],["achievements","Достижения"],["rewards","Награды"]].map(([id,label])=>`<button data-games-tab="${id}" aria-pressed="${tab===id}" class="${tab===id?"active":""}">${label}${id==="achievements"?`<span>${Object.keys(data.unlocked).length}/${E.achievements.length}</span>`:""}</button>`).join("")}</nav>
+      <nav class="games-tabs" aria-label="Игры и достижения">${[["games","Все игры"],["leaders","Общий рейтинг"],["achievements","Достижения"],["rewards","Награды"]].map(([id,label])=>`<button data-games-tab="${id}" aria-pressed="${tab===id}" class="${tab===id?"active":""}">${label}${id==="achievements"?`<span>${Object.keys(data.unlocked).length}/${E.achievements.length}</span>`:""}</button>`).join("")}</nav>
       ${tab==="leaders"?leaderMarkup():""}
       ${storageError?'<p class="games-warning" role="alert">Браузер не сохраняет прогресс. Не закрывай вкладку, пока проверяешь демку.</p>':""}
       ${tab==="games"?`<div class="games-filters" aria-label="Тип игры">${[["all","Все"],["fun","Залипательные"],["skill","С пользой"],["puzzle","Подумать"]].map(([id,label])=>`<button data-games-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${label}</button>`).join("")}</div><div class="games-grid">${E.games.filter(g=>filter==="all"||g.kind===filter).map(g=>{
-        const ready=(w.scores[g.id]||0)>=g.goal;return `<button data-game="${g.id}" class="game-card ${g.color}"><div class="game-card-art">${icon(g.icon)}<span class="game-reward ${w.claimed[g.id]?"claimed":""}">${w.claimed[g.id]?"✓ Получено":ready?"✦ Награда ждёт":"✦ 10 AC"}</span></div><div class="game-card-body"><small>${g.tag}</small><h3>${g.name}</h3><div class="game-card-bottom"><span>${data.best[g.id]!==undefined?`Рекорд <b>${data.best[g.id]}</b>`:`Цель: ${target(g)}`}</span><span class="game-play" aria-hidden="true">↗</span></div></div></button>`;
+        const ready=(w.scores[g.id]||0)>=g.goal;return `<div class="game-card-shell"><button data-game="${g.id}" class="game-card ${g.color}"><div class="game-card-art">${icon(g.icon)}<span class="game-reward ${w.claimed[g.id]?"claimed":""}">${w.claimed[g.id]?"✓ Получено":ready?"✦ Награда ждёт":"✦ 10 AC"}</span></div><div class="game-card-body"><small>${g.tag}</small><h3>${g.name}</h3><div class="game-card-bottom"><span>${data.best[g.id]!==undefined?`Рекорд <b>${data.best[g.id]}</b>`:`Цель: ${target(g)}`}</span><span class="game-play" aria-hidden="true">↗</span></div></div></button><button class="game-card-leader" data-game-board="${g.id}">🏆 Лидеры</button></div>`;
       }).join("")}</div>`:""}
       ${tab==="achievements"?`<div class="games-achievement-grid">${E.achievements.map(a=>{
         const unlocked=!!data.unlocked[a.id],count=Math.min(a.target,a.metric(data));return `<article class="game-achievement ${unlocked?"unlocked":""}"><span class="achievement-medal">${unlocked?"✦":"◇"}</span><div><h3>${a.title}</h3><p>${a.detail}</p><progress value="${count}" max="${a.target}"></progress><small>${count} / ${a.target}</small></div><button data-claim="achievement" data-id="${a.id}" ${!unlocked||data.claimed[a.id]?"disabled":""}>${data.claimed[a.id]?"✓ Получено":`+${a.reward} AC`}</button></article>`;
@@ -182,6 +205,7 @@
       const b = event.target.closest("button");
       if (!b || b.disabled) return;
       if (b.dataset.game) open(b.dataset.game);
+      if (b.dataset.gameBoard) openLeaders(b.dataset.gameBoard);
       if (b.dataset.gamesTab) {
         tab = b.dataset.gamesTab;
         render();
@@ -207,6 +231,7 @@
       render();
     };
     if (tab === "leaders") wireLeaders(root, render);
+    if (received) toast(`Награда за общий рейтинг: +${received} тестовых AC`);
   }
 
   function toast(text) {
@@ -290,6 +315,12 @@
       highLevel = 1,
       progressHigh = 0,
       effectContext = null;
+    const runDetails = {};
+    const runSnapshot = () => ({
+      timeMs: Math.round(time * 1000),
+      ...runDetails,
+      result: score
+    });
     const on = (el, type, handler, opts = {}) => el.addEventListener(type, handler, {
       ...opts,
       signal: abort.signal
@@ -310,6 +341,9 @@
       stage,
       dialog,
       on,
+      details(values) {
+        Object.assign(runDetails, values);
+      },
       progress(value) {
         progressHigh = Math.max(progressHigh, value);
         const config = E.difficulty(g.id, progressHigh);
@@ -392,8 +426,8 @@
       abort.abort();
       finishButton.hidden = true;
       refreshStored();
-      const unlocked = E.finish(data, g.id, score);
-      writeRank(g, rankSet ? rankScore : score, highLevel, who);
+      const unlocked = E.finish(data, g.id, score, new Date(), runSnapshot());
+      writeRank(g, rankSet ? rankScore : score, highLevel, who, runSnapshot());
       recorded = true;
       save();
       const w = E.week(data),
@@ -432,8 +466,8 @@
       destroy() {
         if (!recorded && score > 0) {
           refreshStored();
-          E.finish(data, g.id, score);
-          writeRank(g, rankSet ? rankScore : score, highLevel, who);
+          E.finish(data, g.id, score, new Date(), runSnapshot());
+          writeRank(g, rankSet ? rankScore : score, highLevel, who, runSnapshot());
           recorded = true;
           save();
         }
@@ -945,6 +979,9 @@
         }
       }
       previous = value;
+      s.details({
+        accuracy: typed ? Math.floor((typed - mistakes) / typed * 100) : 100
+      });
       s.setScore(committed + correct);
       s.progress(s.score);
       if (value.length > 50 && value.endsWith(" ") && correct === value.length) {
@@ -957,7 +994,7 @@
     s.tick(() => {
       s.clock(`${Math.ceil(60-s.time)} с`);
       $("#typingAccuracy", s.stage).textContent =
-        `Точность ${typed?Math.round((typed-mistakes)/typed*100):100}%`;
+        `Точность ${typed?Math.floor((typed-mistakes)/typed*100):100}%`;
       $("#typingSpeed", s.stage).textContent = `${Math.round(s.score/Math.max(1,s.time)*60)} зн/мин`;
       if (s.time >= 60) s.end("Минута пролетела");
     });
@@ -1387,6 +1424,9 @@
       let hit = [];
       if (opened.length === 2) {
         moves++;
+        s.details({
+          moves
+        });
         if (cards[opened[0]] === cards[opened[1]]) {
           hit = opened.slice();
           opened.forEach(i => matched.add(i));
@@ -1463,6 +1503,9 @@
 
     function miss(label) {
       misses++;
+      s.details({
+        mistakes: misses
+      });
       feedback = label;
       M.shake(pad);
       if (misses >= 3) {
@@ -1482,6 +1525,10 @@
       }
       const ms = Math.round((s.time - since) * 1000);
       hits.push(ms);
+      s.details({
+        mistakes: misses,
+        reactionMs: Math.round(hits.reduce((a, b) => a + b, 0) / hits.length)
+      });
       s.setScore(hits.length);
       M.pop(pad);
       feedback = `${ms} мс`;
@@ -1523,6 +1570,13 @@
     s.hint("Три раунда · окно ответа сужается с 950 до 510 мс");
   }
 
+  let visibleWeek = E.weekKey();
+  setInterval(() => {
+    if (visibleWeek !== E.weekKey() && !session) {
+      visibleWeek = E.weekKey();
+      if (state.view === "games") render();
+    }
+  }, 30000);
   window.algoGames = {
     render,
     close

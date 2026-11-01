@@ -94,10 +94,11 @@ def test_achievements_one_time_and_restore(engine):
       const e=AlgoGameEngine,s=e.blank();
       if(e.claim(s,'achievement','first')!==0)return false;
       e.finish(s,'debug',8);
-      if(e.claim(s,'achievement','debug')!==25)return false;
+      if(e.claim(s,'achievement','master2_debug')!==35)return false;
       const restored=e.normalize(JSON.parse(JSON.stringify(s)));
-      if(e.claim(restored,'achievement','debug')!==0)return false;
-      return restored.best.debug===8 && e.claim(restored,'achievement','first')===15;
+      if(e.claim(restored,'achievement','master2_debug')!==0)return false;
+      return restored.best.debug===8 && e.balance(restored)===35 &&
+        e.claim(restored,'achievement','first')===0;
     }""")
         is True
     )
@@ -204,10 +205,10 @@ def test_python_real_completion_claim_and_reload(arcade):
     assert page.locator(".game-claim-result").is_disabled()
     page.locator(".game-back").click()
     page.locator('[data-games-tab="achievements"]').first.click()
-    page.locator('[data-claim="achievement"][data-id="debug"]').click()
+    page.locator('[data-claim="achievement"][data-id="master2_debug"]').click()
     page.reload(wait_until="networkidle")
     page.locator('[data-games-tab="rewards"]').first.click()
-    assert page.locator(".games-reward-summary strong").inner_text() == "35 AC"
+    assert page.locator(".games-reward-summary strong").inner_text() == "45 AC"
     assert page.locator('[data-claim="week"][data-id="debug"]').is_disabled()
     assert page.evaluate("students.map(s=>s.balance)") == original
 
@@ -362,9 +363,9 @@ def test_leaderboard_changes_player_and_keeps_rewards_separate(arcade):
     page.locator("#gamesPlayer").select_option(other)
     assert "Рекорд" not in page.locator('.game-card[data-game="evolve"]').inner_text()
     page.locator('[data-games-tab="leaders"]').click()
-    page.locator("[data-leader-game]").select_option("evolve")
     assert page.locator(".games-my-rank").count() == 0
-    assert page.locator(".games-leaders tbody tr").count() == 1
+    assert page.locator(".games-leaders tbody tr").count() == 0
+    assert page.locator(".league-prize-podium").is_visible()
     page.locator('[data-games-tab="rewards"]').first.click()
     assert page.locator(".games-reward-summary strong").inner_text() == "0 AC"
     page.locator("#gamesPlayer").select_option(who)
@@ -437,3 +438,139 @@ def test_leaderboard_layout_and_short_screen_results(arcade, width):
     page.locator("#gameFinish").click()
     page.locator(".game-back").click()
     assert page.locator("#gameDialog").count() == 0
+
+
+def test_participation_never_unlocks_mastery(engine):
+    assert engine.evaluate("""() => {
+      const e=AlgoGameEngine,s=e.blank();
+      for(const g of e.games)e.finish(s,g.id,0);
+      return Object.keys(s.unlocked).length===0 && e.balance(s)===0;
+    }""")
+
+
+@pytest.mark.parametrize(
+    ("game", "below", "target"),
+    [
+        ("orbit", 24, 25),
+        ("evolve", 2047, 2048),
+        ("bugs", 49, 50),
+        ("tower", 24, 25),
+        ("debug", 7, 8),
+        ("2048", 512, 1024),
+        ("drop", 999, 1000),
+        ("memory", 39, 40),
+    ],
+)
+def test_achievement_requires_a_good_single_run(engine, game, below, target):
+    assert engine.evaluate(
+        """([game,below,target])=>{
+      const e=AlgoGameEngine,s=e.blank(),id='master2_'+game;
+      e.finish(s,game,below);e.finish(s,game,1);
+      if(s.unlocked[id])return false;
+      e.finish(s,game,target);
+      return Boolean(s.unlocked[id]);
+    }""",
+        [game, below, target],
+    )
+
+
+def test_typing_and_reaction_mastery_require_quality_of_the_same_run(engine):
+    assert engine.evaluate("""()=>{
+      const e=AlgoGameEngine,s=e.blank(),now=new Date();
+      e.finish(s,'typing',300,now,{accuracy:94});
+      e.finish(s,'typing',10,now,{accuracy:100});
+      if(s.unlocked.master2_typing)return false;
+      e.finish(s,'typing',240,now,{accuracy:95});
+      e.finish(s,'react',15,now,{mistakes:0,reactionMs:351});
+      e.finish(s,'react',15,now,{mistakes:1,reactionMs:250});
+      if(s.unlocked.master2_react)return false;
+      e.finish(s,'react',15,now,{mistakes:0,reactionMs:350});
+      const restored=e.normalize(JSON.parse(JSON.stringify(s)));
+      return Boolean(restored.unlocked.master2_typing&&restored.unlocked.master2_react);
+    }""")
+
+
+def test_overall_combines_places_from_all_ten_games_not_raw_points(engine):
+    result = engine.evaluate("""()=>{
+      const e=AlgoGameEngine,b=e.blankBoard(),now=new Date('2026-11-01T12:00:00Z');
+      const a={id:'all',name:'All'},one={id:'one',name:'One'},low={id:'low',name:'Low'};
+      for(const g of e.games){
+        e.recordBoard(b,g.id,a,g.goal,3,now,{result:g.goal,accuracy:98,mistakes:0,
+          reactionMs:300,moves:10,timeMs:20000});
+      }
+      e.recordBoard(b,'drop',one,10000000,10,now);
+      e.recordBoard(b,'orbit',low,1,1,now);
+      return e.overall(b,'week',now).map(r=>[r.player,r.games,r.score]);
+    }""")
+    assert result == [["all", 10, 980], ["one", 1, 100]]
+
+
+def test_closed_week_top_three_prizes_are_final_and_idempotent(engine):
+    result = engine.evaluate("""()=>{
+      const e=AlgoGameEngine,b=e.blankBoard(),sun=new Date('2026-11-01T20:59:59Z');
+      for(let i=0;i<4;i++)e.recordBoard(b,'tower',{id:'p'+i,name:'Player '+i},30-i,5,sun);
+      const early=e.settleBoard(b,sun).length;
+      const before=e.collectPrizes(e.blank(),b,'p0',sun);
+      const mon=new Date('2026-11-01T21:00:00Z');
+      const closed=e.settleBoard(b,mon).length;
+      const payouts=[];
+      for(let i=0;i<4;i++){
+        const s=e.blank();const paid=e.collectPrizes(s,b,'p'+i,mon);
+        const restored=e.normalize(JSON.parse(JSON.stringify(s)));
+        const board=e.normalizeBoard(JSON.parse(JSON.stringify(b)));
+        payouts.push([paid,e.collectPrizes(restored,board,'p'+i,mon),e.balance(restored)]);
+      }
+      const late=e.recordBoard(b,'tower',{id:'p3',name:'Player 3'},999,10,sun);
+      return {early,before,closed,payouts,late,again:e.settleBoard(b,mon).length};
+    }""")
+    assert result == {
+        "early": 0,
+        "before": 0,
+        "closed": 1,
+        "payouts": [[100, 0, 100], [75, 0, 75], [50, 0, 50], [0, 0, 0]],
+        "late": False,
+        "again": 0,
+    }
+
+
+def test_overall_ties_have_a_deterministic_top_three(engine):
+    assert engine.evaluate("""()=>{
+      const e=AlgoGameEngine,b=e.blankBoard(),now=new Date('2026-11-01T12:00:00Z');
+      for(const id of ['d','c','b','a'])e.recordBoard(b,'orbit',{id,name:id},25,5,now);
+      const rows=e.overall(b,'week',now);
+      e.settleBoard(b,new Date('2026-11-02T12:00:00Z'));
+      return rows.map(r=>r.player).join()==='a,b,c,d' &&
+        b.settled['2026-10-26'].winners.map(r=>r.amount).join()==='100,75,50';
+    }""")
+
+
+def test_every_game_has_the_same_individual_leaderboard_entry(arcade):
+    page = arcade
+    assert page.locator(".game-card-leader").count() == 10
+    for game in ["typing", "debug", "memory", "react", "orbit"]:
+        page.locator(f'[data-game-board="{game}"]').click()
+        assert page.locator("#gamesLeaderDialog .games-leader-period").is_visible()
+        assert page.locator("#gamesLeaderDialog .league-prize-podium").count() == 0
+        assert page.locator("#gamesLeaderDialog [data-leader-game]").count() == 0
+        page.locator(".games-leader-close").click()
+
+
+def test_weekly_winner_credit_survives_reload_without_duplicate(arcade):
+    page = arcade
+    original = page.evaluate("students.map(s=>s.balance)")
+    page.evaluate("""()=>{
+      const e=AlgoGameEngine,b=e.blankBoard(),id=document.querySelector('#gamesPlayer').value;
+      const prev=new Date(e.weekKey()+'T00:00:00+03:00');prev.setTime(prev.getTime()-1000);
+      e.recordBoard(b,'orbit',{id,name:'Победитель'},25,5,prev);
+      localStorage.setItem('algo-games-leaderboards:v2',JSON.stringify(b));
+      algoGames.render();
+    }""")
+    page.locator('[data-games-tab="rewards"]').first.click()
+    assert page.locator(".games-reward-summary strong").inner_text() == "100 AC"
+    assert (
+        page.locator(".games-reward-list").last.inner_text().count("Общий рейтинг · 1-е место") == 1
+    )
+    page.reload(wait_until="networkidle")
+    page.locator('[data-games-tab="rewards"]').first.click()
+    assert page.locator(".games-reward-summary strong").inner_text() == "100 AC"
+    assert page.evaluate("students.map(s=>s.balance)") == original
