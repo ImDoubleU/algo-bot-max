@@ -19,8 +19,8 @@ from pathlib import Path
 from app.services import arcade_runtime
 
 MOSCOW = timezone(timedelta(hours=3))
-SPEED = {"orbit", "bugs", "tower", "typing", "react"}
-FINITE = {"typing", "debug", "memory", "react"}
+SPEED = {"orbit", "bugs", "tower", "typing", "react", "kopatych", "runner", "words"}
+FINITE = {"typing", "debug", "memory", "react", "kopatych", "words"}
 GAMES = {
     "orbit": (8, [10, 18, 25]),
     "evolve": (128, [256, 1024, 2048]),
@@ -32,6 +32,12 @@ GAMES = {
     "drop": (100, [250, 600, 1000]),
     "memory": (8, [10, 28, 40]),
     "react": (5, [8, 12, 15]),
+    "kopatych": (300, [1500, 12000, 30000]),
+    "blocks": (300, [600, 1200, 2000]),
+    "runner": (15, [25, 40, 60]),
+    "bubbles": (200, [400, 800, 1500]),
+    "sort": (3, [4, 7, 10]),
+    "words": (10, [16, 24, 32]),
 }
 POINTS = [100, 80, 65, 55, 45, 35, 25, 20, 15, 10]
 PRIZES = [100, 75, 50]

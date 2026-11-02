@@ -82,6 +82,12 @@ def test_shared_world_replays_exactly_independent_of_frame_batches(game):
         "drop": "send({type:'tap',x:180})",
         "memory": "send({type:'cell',i:0})",
         "react": "send({type:'tap'})",
+        "kopatych": "send({type:'tap'})",
+        "blocks": "send({type:'piece',i:0});send({type:'place',piece:0,x:0,y:0})",
+        "runner": "send({type:'tap'})",
+        "bubbles": "send({type:'shoot',x:180,y:50})",
+        "sort": "send(w.sortSolution[0])",
+        "words": "send({type:'word',value:w.wordPack.answers[0]})",
     }
     result = trace(setup, "W.advance(w,10);" + actions[game] + ";W.advance(w,120)")
     assert arcade_runtime.verify(setup, result["events"], result["ticks"]) == result["report"]
@@ -337,7 +343,7 @@ def browser():
 
 
 @pytest.fixture
-def arcade(browser, tmp_path):
+def arcade(browser, tmp_path, request):
     store = ArcadeStore(tmp_path / "ui.sqlite3")
     store.register(
         [
@@ -351,7 +357,10 @@ def arcade(browser, tmp_path):
         "</head>",
         '<script>window.ALGO_ARCADE_API="/preview/arcade";window.ALGO_GAME_PLAYERS=[{id:"p1",name:"Марк",token:"p1"},{id:"p2",name:"Соня",token:"p2"}];</script></head>',
     )
-    context = browser.new_context(viewport={"width": 390, "height": 844})
+    touch = getattr(request, "param", None) == "touch"
+    context = browser.new_context(
+        viewport={"width": 390, "height": 844}, has_touch=touch, is_mobile=touch
+    )
     page = context.new_page()
     page.set_default_timeout(5000)
     errors = []
@@ -402,7 +411,7 @@ def arcade(browser, tmp_path):
 def test_all_ten_games_start_pause_finish_and_fit(arcade, width):
     page, store = arcade
     page.set_viewport_size({"width": width, "height": 900})
-    assert page.locator(".game-card").count() == 10
+    assert page.locator(".game-card").count() == len(GAMES)
     for game in GAMES:
         page.locator(f'.game-card[data-game="{game}"]').click()
         page.locator("[data-skip-guide]").click()
@@ -440,7 +449,7 @@ def test_all_ten_games_start_pause_finish_and_fit(arcade, width):
         assert "Не удалось" not in page.locator(".game-result").inner_text()
         assert page.locator("dialog[open]").evaluate("(d)=>d.scrollWidth<=d.clientWidth")
         page.locator("[data-back]").click()
-    assert len(store.profile("p1")["runs"]) == 10
+    assert len(store.profile("p1")["runs"]) == len(GAMES)
     assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
 
 
@@ -469,7 +478,7 @@ def test_tutorial_then_real_2048_has_one_handler_and_practice_undo(arcade):
 def test_sections_mastery_and_server_saved_selection_survive_reload(arcade):
     page, store = arcade
     page.locator('[data-tab="achievements"]').click()
-    assert page.locator(".game-achievement").count() == 30
+    assert page.locator(".game-achievement").count() == len(GAMES) * 3
     page.locator('[data-tab="looks"]').click()
     assert page.locator(".arcade-look").count() == 4
     page.locator('[data-tab="progress"]').click()
@@ -490,7 +499,7 @@ def test_first_time_tutorial_requires_a_successful_action(arcade, game):
     page, store = arcade
     page.locator(f'.game-card[data-game="{game}"]').click()
     page.locator("#gameStart").click()
-    if game in ("orbit", "tower", "react"):
+    if game in ("orbit", "tower", "react", "runner"):
         page.keyboard.press("Space")
     elif game == "bugs":
         canvas = page.locator(".game-stage canvas")
@@ -514,6 +523,20 @@ def test_first_time_tutorial_requires_a_successful_action(arcade, game):
     elif game == "memory":
         page.locator('[data-card="0"]').click()
         page.locator('[data-card="2"]').click()
+    elif game == "kopatych":
+        page.locator(".kopatych-tap").click()
+    elif game == "blocks":
+        page.locator('[data-block-cell="63"]').click()
+    elif game == "bubbles":
+        canvas = page.locator(".game-stage canvas")
+        box = canvas.bounding_box()
+        page.mouse.click(box["x"] + box["width"] * 145 / 360, box["y"] + box["height"] * 46 / 430)
+    elif game == "sort":
+        page.locator('[data-tube="0"]').click()
+        page.locator('[data-tube="1"]').click()
+    elif game == "words":
+        page.locator("#arcadeWordInput").fill("сом")
+        page.get_by_role("button", name="Проверить", exact=True).click()
     page.get_by_role("button", name="Играть →", exact=True).wait_for()
     assert not store.profile("p1")["awards"]
     assert not store.profile("p1")["runs"]
@@ -583,7 +606,7 @@ def test_three_mastery_tiers_require_quality_and_unlock_cosmetics_without_game_a
     assert settings["skin"] == "nebula"
     setup = store.session("p1", "2048", "ranked", "keyboard")["setup"]
     assert "skin" not in setup and "theme" not in setup
-    assert len(store.profile("p1")["achievements"]) == 30
+    assert len(store.profile("p1")["achievements"]) == len(GAMES) * 3
     with pytest.raises(ArcadeError):
         store.settings("p1", {"tutorials": [{}]})
 
@@ -617,3 +640,237 @@ def test_tower_combo_and_drop_queue_are_physical_world_state():
             falling:d.balls[0].y>before,velocity:d.balls[0].vy>0};})())""")
         )
         assert result == {"combo": 2, "queue": 3, "next": True, "falling": True, "velocity": True}
+
+
+def play_extra(store, game, script, mode="ranked"):
+    session = store.session("p1", game, mode, "keyboard")
+    run = trace(session["setup"], script)
+    store.clock_action("p1", session["id"], "start")
+    store.clock.advance(run["ticks"] / 60 + 1)
+    result = store.finish("p1", session["id"], run["events"], run["ticks"])
+    assert result["run"]["score"] == run["report"]["score"]
+    return result, run
+
+
+def test_kopatych_upgrades_and_full_harvest_are_replayed_before_reward(store):
+    result, run = play_extra(
+        store,
+        "kopatych",
+        """
+      while(!w.ended&&w.tick<5500){
+        if(w.tick%8===0)send({type:'tap'});
+        if(w.tick%60===0)for(let i=0;i<3;i++)if(w.upgrades[i]<6&&
+          w.harvest-w.spent>=ArcadeExtras.cost(w,i))send({type:'buy',i});
+        W.advance(w,1);
+      }
+    """,
+    )
+    assert result["run"]["accepted"] and result["run"]["score"] >= 1800
+    assert run["report"]["timeMs"] >= 90000
+    profile = store.profile("p1")
+    assert profile["goals"]["kopatych"]["eligible"]
+    assert (
+        len([a for a in profile["achievements"] if a["game"] == "kopatych" and a["unlocked"]]) >= 2
+    )
+    assert store.claim("p1", profile["goals"]["kopatych"]["id"])["balance"] == 10
+    with arcade_runtime.context() as vm:
+        report = vm.call(
+            "ArcadeWorld.verify",
+            {"game": "kopatych", "seed": 4, "mode": "ranked"},
+            [{"t": 0, "type": "tap"}] * 10,
+            0,
+        )
+        assert report["score"] == 1  # Holding/autoclicking cannot add ten taps at the same instant.
+
+
+def test_blocks_clear_crossing_lines_once_and_reject_overlap():
+    with arcade_runtime.context() as vm:
+        result = json.loads(
+            vm.eval("""JSON.stringify((()=>{
+          const W=ArcadeWorld,X=ArcadeExtras,w=W.create({game:'blocks',seed:3});
+          for(let i=0;i<7;i++){w.blockBoard[56+i]=1;w.blockBoard[i*8+7]=2;}
+          w.pieces=[[[0,0]],[[0,0]],[[0,0]]];
+          W.input(w,{type:'place',piece:0,x:7,y:7});const cleared=w.blockBoard.every(v=>v===0);
+          W.input(w,{type:'place',piece:1,x:0,y:0});const before=w.score;
+          const overlap=W.input(w,{type:'place',piece:2,x:0,y:0});
+          const outside=W.input(w,{type:'place',piece:2,x:8,y:0});
+          w.blockBoard.fill(1);
+          return {score:before,lines:w.lines,cleared,overlap,outside,
+            available:X.blocksAvailable(w)};
+        })())""")
+        )
+        assert result == {
+            "score": 82,
+            "lines": 2,
+            "cleared": True,
+            "overlap": False,
+            "outside": False,
+            "available": False,
+        }
+
+
+def test_runner_real_jumps_clear_progressively_faster_obstacles(store):
+    result, run = play_extra(
+        store,
+        "runner",
+        """
+      while(!w.ended&&w.score<28&&w.tick<18000){
+        const next=w.obstacles.find(o=>!o.passed);
+        if(w.runnerGround&&next&&next.x<128&&next.x+next.width>65)send({type:'tap'});
+        W.advance(w,1);
+      }
+    """,
+    )
+    assert result["run"]["accepted"] and result["run"]["score"] >= 25
+    assert run["report"]["level"] >= 4
+    assert run["report"]["details"]["jumps"] >= 25
+    assert store.profile("p1")["goals"]["runner"]["eligible"]
+
+
+def test_bubble_shooter_physics_pops_groups_and_server_accepts_goal(store):
+    result, run = play_extra(
+        store,
+        "bubbles",
+        """
+      for(let shot=0;shot<12&&!w.ended&&w.score<250;shot++){
+        let best=null;
+        for(let x=-100;x<=460;x+=16){
+          const copy=JSON.parse(JSON.stringify(w));
+          W.input(copy,{type:'shoot',x,y:40});let n=0;
+          while(copy.projectile&&!copy.ended&&n++<140)W.advance(copy,1);
+          const quality=copy.ended?-10000:copy.score-w.score;
+          if(!best||quality>best.quality)best={x,quality};
+        }
+        send({type:'shoot',x:best.x,y:40});
+        while(w.projectile&&!w.ended)W.advance(w,1);
+        W.advance(w,6);
+      }
+    """,
+    )
+    assert result["run"]["accepted"] and result["run"]["score"] >= 200
+    assert run["report"]["details"]["moves"] > 0
+    assert store.profile("p1")["goals"]["bubbles"]["eligible"]
+
+
+def test_every_sort_scramble_is_reversible_and_more_colors_are_added(store):
+    with arcade_runtime.context() as vm:
+        result = json.loads(
+            vm.eval("""JSON.stringify((()=>{
+          const W=ArcadeWorld,results=[];
+          for(let seed=0;seed<24;seed++){
+            const w=W.create({game:'sort',seed});
+            for(let level=0;level<5;level++){
+              const colors=w.tubes.length-2,counts=Array(colors).fill(0);
+              w.tubes.flat().forEach(c=>counts[c]++);
+              if(counts.some(n=>n!==4))return false;
+              for(const a of w.sortSolution.slice())W.input(w,a);
+              if(!w.sortWon||w.score!==level+1)return false;
+              results.push(colors);W.input(w,{type:'next'});
+            }
+          }
+          return results.length===120&&results.slice(0,5).join()==='3,4,5,6,7';
+        })())""")
+        )
+        assert result is True
+    result, _ = play_extra(
+        store,
+        "sort",
+        """
+      for(let level=0;level<3;level++){
+        for(const a of w.sortSolution.slice()){send(a);W.advance(w,4);}
+        if(level<2){send({type:'next'});W.advance(w,4);}
+      }
+    """,
+    )
+    assert result["run"]["score"] == 3 and result["run"]["accepted"]
+    assert store.profile("p1")["goals"]["sort"]["eligible"]
+
+
+def test_words_dictionary_rounds_duplicates_and_timed_reward(store):
+    result, run = play_extra(
+        store,
+        "words",
+        """
+      for(let i=0;i<24;i++){
+        const answer=w.wordPack.answers.find(a=>!w.roundWords.includes(a));
+        send({type:'word',value:answer});W.advance(w,15);
+      }
+      W.advance(w,10801-w.tick);
+    """,
+    )
+    assert result["run"]["accepted"] and result["run"]["score"] == 24
+    assert run["report"]["level"] >= 3
+    assert store.profile("p1")["goals"]["words"]["eligible"]
+    with arcade_runtime.context() as vm:
+        result = json.loads(
+            vm.eval("""JSON.stringify((()=>{
+          const W=ArcadeWorld,w=W.create({game:'words',seed:3});
+          const good=w.wordPack.answers[0];W.input(w,{type:'word',value:good});
+          W.input(w,{type:'word',value:good});W.input(w,{type:'word',value:'несуществующееслово'});
+          W.input(w,{type:'hint'});return {score:w.score,hint:w.wordHint,
+            packs:ArcadeExtras.packs.every(p=>p.answers.length>=8)};
+        })())""")
+        )
+        assert result == {"score": 1, "hint": "", "packs": True}
+
+
+def test_added_game_boards_are_visible_and_practice_still_has_no_rewards(store):
+    client = make_client(store)
+    headers = {"x-miniapp-token": "p1"}
+    for game in ("kopatych", "blocks", "runner", "bubbles", "sort", "words"):
+        response = client.get("/preview/arcade/boards", params={"game": game}, headers=headers)
+        assert response.status_code == 200
+    result, _ = play_extra(
+        store, "kopatych", "send({type:'tap'});W.advance(w,5500)", mode="practice"
+    )
+    assert not result["run"]["accepted"] and not store.profile("p1")["awards"]
+
+
+def test_sort_and_words_render_real_controls_and_accept_actions(arcade):
+    page, _ = arcade
+    page.locator('.game-card[data-game="sort"]').click()
+    page.locator("#gameStart").click()
+    assert page.locator(".sort-ball").count() == 8
+    assert "< i" not in page.locator(".sort-game").inner_text()
+    page.locator('[data-tube="0"]').click()
+    page.locator('[data-tube="1"]').click()
+    page.get_by_role("button", name="Играть →", exact=True).wait_for()
+    page.locator(".game-close").click()
+    page.locator('.game-card[data-game="words"]').click()
+    page.locator("#gameStart").click()
+    assert page.locator("#arcadeWordInput").bounding_box()["width"] > 200
+    page.locator("#arcadeWordInput").fill("сом")
+    page.locator(".words-form").evaluate("(f)=>f.requestSubmit()")
+    page.get_by_role("button", name="Играть →", exact=True).wait_for()
+
+
+@pytest.mark.parametrize("arcade", ["touch"], indirect=True)
+def test_expansion_accepts_real_touch_input_and_onscreen_letters(arcade):
+    page, store = arcade
+    page.locator('.game-card[data-game="kopatych"]').tap()
+    page.locator("[data-skip-guide]").tap()
+    page.wait_for_function("document.querySelector('#gameClock')?.textContent==='90 с'")
+    for _ in range(3):
+        page.locator(".kopatych-tap").tap()
+        page.wait_for_timeout(100)
+    page.locator("#gameFinish").tap()
+    page.locator("[data-back]").tap()
+    run = store.profile("p1")["runs"][0]
+    assert run["score"] == 3
+    assert run["device"] == "touch"
+    assert all(a["source"] == "touch" for a in store.replay("p1", run["id"])["actions"])
+    page.locator('.game-card[data-game="blocks"]').tap()
+    page.locator("[data-skip-guide]").tap()
+    page.wait_for_function("document.querySelector('#gameClock')?.textContent.length>0")
+    page.locator('[data-piece="0"]').tap()
+    page.locator('[data-block-cell="0"]').tap()
+    assert page.locator(".block-cell.is-filled").count() > 0
+    page.locator("#gameFinish").tap()
+    page.locator("[data-back]").tap()
+    page.locator('.game-card[data-game="words"]').tap()
+    page.locator("#gameStart").tap()
+    for i in (2, 1, 3):
+        page.locator(f'[data-letter="{i}"]').tap()
+    assert page.locator("#arcadeWordInput").input_value() == "сом"
+    page.get_by_role("button", name="Проверить", exact=True).tap()
+    page.get_by_role("button", name="Играть →", exact=True).wait_for()

@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.services.arcade import ArcadeError, ArcadeStore
+from app.services.arcade import GAMES, ArcadeError, ArcadeStore
 
 
 class StrictPayload(BaseModel):
@@ -58,20 +58,7 @@ def make_router(store: ArcadeStore, authenticate: Callable[[Request], Awaitable[
     ):
         await authenticate(request)
         if (
-            game
-            not in {
-                "overall",
-                "orbit",
-                "evolve",
-                "bugs",
-                "tower",
-                "typing",
-                "debug",
-                "2048",
-                "drop",
-                "memory",
-                "react",
-            }
+            game not in {"overall", *GAMES}
             or period not in ("week", "all")
             or device not in ("keyboard", "touch")
         ):

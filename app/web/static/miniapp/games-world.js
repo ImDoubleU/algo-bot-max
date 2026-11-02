@@ -243,6 +243,7 @@
             feedback: ""
         });
         ensureText(w);
+        if (window.ArcadeExtras?.has(w.id)) ArcadeExtras.create(w, helpers());
         return w;
     }
 
@@ -494,6 +495,7 @@
                 }
             }
         }
+        if (window.ArcadeExtras?.has(w.id)) ArcadeExtras.step(w, helpers());
         w.rankScore = w.id === "2048" ? w.points || 0 : w.score;
         if (w.tick >= MAX_TICKS) end(w, "Партия завершена");
     }
@@ -501,6 +503,7 @@
     function input(w, a) {
         if (w.ended) return false;
         const c = progress(w);
+        if (window.ArcadeExtras?.has(w.id)) return ArcadeExtras.input(w, a, helpers());
         if (a.type === "undo") {
             if (w.id !== "2048" || w.mode !== "practice" || !w.undo.length) return false;
             const old = w.undo.pop();
@@ -806,6 +809,9 @@
         }
         advance(w, Math.max(0, finalTick - w.tick));
         return report(w);
+    }
+    function helpers() {
+        return {random, range, pick, shuffled, emit, end, progress, DT};
     }
     window.ArcadeWorld = {
         create,

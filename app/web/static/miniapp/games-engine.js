@@ -101,7 +101,7 @@
     goal: 5,
     unit: "попаданий",
     hint: "Жди зелёный и нажимай. Три раунда: времени на ответ всё меньше. Пять попаданий — награда недели."
-  }, ];
+  }, ...(window.ArcadeExtras?.games || [])];
   const achievementRules = [
     ["orbit", "Космический ас", "25 прыжков за одну партию", 25, 35],
     ["evolve", "Создатель вселенных", "2048 очков за одну партию", 2048, 35],
@@ -137,11 +137,13 @@
   const rankUnit = id => id === "orbit" ? "прыжков" : id === "tower" ? "этажей" :
     id === "bugs" ? "багов" : id === "typing" ? "символов" :
     id === "debug" ? "задач" : id === "memory" ? "пар" :
-    id === "react" ? "попаданий" : "очков";
+    id === "react" ? "попаданий" : id === "2048" ? "очков" : (games.find(g=>g.id===id)?.unit || "очков");
 
   // The same curve is used for the HUD, game rules and regression checks.
   function difficulty(id, progress = 0) {
     const p = Math.max(0, Number(progress) || 0);
+    const extra = window.ArcadeExtras?.difficulty(id, p);
+    if (extra) return extra;
     let level = 1;
     if (id === "orbit") level += Math.floor(p / 5);
     if (id === "evolve") level += Math.floor(p / 8);

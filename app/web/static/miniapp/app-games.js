@@ -19,7 +19,7 @@
     } [c]));
     const title = id => E.games.find(g => g.id === id)?.name || id,
         art = id => A.render(id),
-        speed = new Set(["orbit", "bugs", "tower", "typing", "react"]);
+        speed = new Set(["orbit", "bugs", "tower", "typing", "react", "kopatych", "runner", "words"]);
     const goal = id => {
         const g = E.games.find(g => g.id === id);
         return id === "2048" ? `плитка ${g.goal}` : `${g.goal} ${g.unit}`;
@@ -175,7 +175,7 @@
         const earned = Object.values(profile.goals).filter(g => g.claimed).length;
         root.innerHTML = `<div class="games-heading"><div><div class="games-wordmark">${art("arcade")}<span class="games-eyebrow">ALGO ARCADE</span></div><h1>Игры</h1></div><div class="arcade-account"><label class="games-player-picker">Игрок демки<select id="gamesPlayer">${actors.map(p=>`<option value="${esc(p.id)}" ${p.id===actor().id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></label><button class="arcade-settings" aria-label="Настройки игр" data-settings>⚙</button></div></div>
       <section class="games-hero"><div class="games-hero-copy"><span class="games-season">ALGO ARCADE · НЕДЕЛЬНОЕ ИСПЫТАНИЕ</span><h2>Твой навык.<br><em>Твой рекорд.</em></h2><p>Тренируйся, соревнуйся и открывай новые образы.</p><button data-game="orbit" class="games-main">Полетели ↗</button></div><div class="games-hero-art">${art("orbit")}</div></section>
-      <div class="games-weekbar"><div><span class="games-week-icon">✦</span><span><b>Награды недели</b><small>До ${nextDeadline()} · ${profile.cap.used} / ${profile.cap.limit} AC</small></span></div><b>${earned}<span> / 10 целей</span></b><button data-tab="rewards">Награды →</button></div>
+      <div class="games-weekbar"><div><span class="games-week-icon">✦</span><span><b>Награды недели</b><small>До ${nextDeadline()} · ${profile.cap.used} / ${profile.cap.limit} AC</small></span></div><b>${earned}<span> / ${E.games.length} целей</span></b><button data-tab="rewards">Награды →</button></div>
       <nav class="games-tabs" aria-label="Разделы игр">${tabs()}</nav><div id="arcadeTabContent"></div>`;
         const content = $("#arcadeTabContent", root);
         if (tab === "games") content.innerHTML = cards();
@@ -213,8 +213,8 @@
     }
 
     function cards() {
-        return `<div class="games-filters">${[["all","Все"],["fun","Залипательные"],["skill","С пользой"],["puzzle","Подумать"]].map(([id,name])=>`<button data-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${name}</button>`).join("")}</div><div class="games-grid">${E.games.filter(g=>filter==="all"||g.kind===filter).map(g=>{
-    const q=profile.goals[g.id];return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><div class="game-card-art">${art(g.id)}<span class="game-reward">${q.claimed?"✓ Получено":q.eligible?"✦ Забрать награду":"✦ 10 AC"}</span></div><div class="game-card-body"><small>${g.tag}</small><h3>${g.name}</h3><div class="game-card-bottom"><span>${profile.best[g.id]?`Рекорд <b>${profile.best[g.id]}</b>`:`Цель: ${goal(g.id)}`}</span><span class="game-play">↗</span></div></div></button><button class="game-card-leader" data-leader="${g.id}">🏆 Лидеры</button></div>`;
+        return `<div class="games-filters">${[["all","Все"],["fun","Залипательные"],["skill","С пользой"],["puzzle","Подумать"]].map(([id,name])=>`<button data-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${name}</button>`).join("")}</div><div class="games-grid">${E.games.slice().sort((a,b)=>Number(!!b.fresh)-Number(!!a.fresh)).filter(g=>filter==="all"||g.kind===filter).map(g=>{
+    const q=profile.goals[g.id];return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><div class="game-card-art">${art(g.id)}${g.fresh?'<span class="arcade-new">НОВОЕ</span>':""}<span class="game-reward">${q.claimed?"✓ Получено":q.eligible?"✦ Забрать награду":"✦ 10 AC"}</span></div><div class="game-card-body"><small>${g.tag}</small><h3>${g.name}</h3><div class="game-card-bottom"><span>${profile.best[g.id]?`Рекорд <b>${profile.best[g.id]}</b>`:`Цель: ${goal(g.id)}`}</span><span class="game-play">↗</span></div></div></button><button class="game-card-leader" data-leader="${g.id}">🏆 Лидеры</button></div>`;
   }).join("")}</div>`;
     }
 
@@ -320,7 +320,7 @@
             if (index >= 0 && !shown.some(s => s.player === r.player)) shown.push(r);
         const before = index > 0 ? rows[index - 1] : null,
             gap = before && mine ? before.score - mine.score + 1 : 0;
-        return `<section class="games-leaders ${combined?"games-overall":""}"><div class="games-leaders-top"><div><small>${combined?"ВСЕ 10 ИГР":"ТАБЛИЦА ЛИДЕРОВ"}</small><h3>${combined?"Общий рейтинг":title(game)}</h3></div><span>Сервер демки</span></div>
+        return `<section class="games-leaders ${combined?"games-overall":""}"><div class="games-leaders-top"><div><small>${combined?`ВСЕ ${E.games.length} ИГР`:"ТАБЛИЦА ЛИДЕРОВ"}</small><h3>${combined?"Общий рейтинг":title(game)}</h3></div><span>Сервер демки</span></div>
       ${combined?`<div class="league-prizes"><div class="league-prize-heading"><b>Награды недели</b><small>Итоги ${nextDeadline()} · 00:00 МСК</small></div><div class="league-prize-podium">${data.prizes.map((n,i)=>`<div><span>${["🥇","🥈","🥉"][i]}</span><small>${i+1}-е место</small><b>${n} <em>AC</em></b></div>`).join("")}</div><p>Призовой зачёт — от 3 игр с выполненной целью. Лимит ${profile.cap.limit} AC в неделю.</p></div>`:""}
       <div class="games-leader-controls"><div class="games-leader-period">${[["week","Неделя"],["all","Всё время"]].map(([id,name])=>`<button data-period="${id}" aria-pressed="${id===period}">${name}</button>`).join("")}</div>${speed.has(game)?`<div class="games-leader-period">${[["keyboard","Клавиатура / мышь"],["touch","Касания"]].map(([id,name])=>`<button data-board-device="${id}" aria-pressed="${id===device}">${name}</button>`).join("")}</div>`:""}</div>
       ${mine?`<div class="games-my-rank"><span>Твоё место <b>#${mine.rank}</b></span><span>${mine.score} ${combined?"очков рейтинга":E.rankUnit(game)}<small>${combined?`${mine.games}/3 игр для призов`:"Лучшая партия"}</small></span></div>${before?`<p class="arcade-neighbor">До #${before.rank}: ${Math.max(1,gap)} ${combined?"очков рейтинга":E.rankUnit(game)}</p>`:""}`:""}
@@ -604,6 +604,7 @@
             }];
             w.queue[0] = 0;
         }
+        if (window.ArcadeExtras?.has(w.id)) ArcadeExtras.tutorial(w);
         mount(run);
         $("#gameHint", run.dialog).textContent = {
             orbit: "Нажми пробел или на поле — кот прыгнет",
@@ -616,12 +617,12 @@
             drop: "Урони фигурку по центру",
             memory: "Найди одинаковую пару",
             react: "Нажми на зелёный"
-        } [w.id];
+        } [w.id] || run.g.tutorial;
         const frame = () => {
             if (play !== run || run.phase !== "tutorial") return;
-            if (run.tutorialActed && ["orbit", "drop"].includes(w.id)) W.advance(w, 1);
+            if (run.tutorialActed && ["orbit", "drop", "bubbles"].includes(w.id)) W.advance(w, 1);
             run.view.update(w, 1 / 60);
-            if (w.score >= (w.id === "typing" ? 3 : 1)) {
+            if (window.ArcadeExtras?.tutorialDone(w) ?? (w.score >= (w.id === "typing" ? 3 : 1))) {
                 run.phase = "intro";
                 const cover = document.createElement("div");
                 cover.className = "game-result";
@@ -822,7 +823,7 @@
             g = run.g;
         $("#gameScore", d).textContent = w.score;
         $("#gameLevel", d).textContent = `Ур. ${w.level}`;
-        if (run.phase !== "ready") $("#gameClock", d).textContent = w.id === "typing" ? `${Math.max(0,Math.ceil(60-w.time))} с` : w.id === "memory" && !w.between ? `${Math.max(0,Math.ceil(w.left))} с` : w.id === "debug" ? `${Math.min(8,w.index+1)} / 8` : `${Math.floor(w.time)} с`;
+        if (run.phase !== "ready") $("#gameClock", d).textContent = (g.seconds || w.id === "typing") ? `${Math.max(0,Math.ceil((g.seconds||60)-w.time))} с` : w.id === "memory" && !w.between ? `${Math.max(0,Math.ceil(w.left))} с` : w.id === "debug" ? `${Math.min(8,w.index+1)} / 8` : `${Math.floor(w.time)} с`;
         const q = profile.goals[g.id],
             next = profile.achievements.filter(a => a.game === g.id && !a.unlocked).sort((a, b) => a.tier - b.tier)[0],
             target = q.claimed && next ? next.target : g.goal;
