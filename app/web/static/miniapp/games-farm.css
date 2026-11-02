@@ -410,3 +410,130 @@
   .farm-bear:active > svg { transform: none; }
   .farm-energy progress::-webkit-progress-value { transition: none; }
 }
+/* A working farm: clear purchase outcomes, a journey and neighbour deliveries. */
+.farm-collect-bar {display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 28px;background:#eee9d8;border-bottom:1px solid #e0dac6;flex-shrink:0}
+.farm-collect-bar>span {font-size:12px;color:#696347}
+.farm-collect-bar .farm-button {width:auto;min-height:36px;padding:9px 15px;gap:12px;font-size:12px}
+.farm-collect-bar .farm-button span {font-variant-numeric:tabular-nums;color:#ffdf9e}
+.farm-collect-bar .farm-button:disabled span {color:inherit}
+.farm-effect {display:flex!important;flex-direction:column;gap:5px;background:#eeeeda;padding:10px 12px;border-radius:8px;margin:5px 0;color:#5c6442!important}
+.farm-effect>span:first-child {font-size:10px;line-height:1.4}
+.farm-effect>span:last-child {font-size:14px;font-variant-numeric:tabular-nums;display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+.farm-effect i {font-style:normal;color:#8b8d6c}
+.farm-effect strong {font-weight:700;color:#506b39}
+.farm-upgrade-info>span.farm-upgrade-note {font-size:10px;color:#776e53;line-height:1.5}
+.farm-shop-grid .farm-upgrade {align-items:flex-start;position:relative;gap:10px 14px;padding:20px}
+.farm-shop-grid .farm-upgrade-info {min-width:0;flex:1}
+.farm-shop-grid .farm-upgrade-icon {width:64px;height:68px}
+.farm-shop-grid .farm-upgrade-price {flex-basis:100%;max-width:none;width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:8px;background:#f1ead7;box-sizing:border-box}
+.farm-shop-grid .farm-upgrade-price>small {font-size:10px;color:#746548;font-weight:500}
+.farm-shop-grid .farm-upgrade.is-locked .farm-effect {background:#eeece1;color:#88846e!important}
+.farm-production {border:1px solid #dcd8bd;border-radius:12px;padding:15px 18px;margin-bottom:23px;background:#eeeedf}
+.farm-production summary {display:flex;justify-content:space-between;gap:14px;align-items:center;cursor:pointer;font-size:13px;color:#576544;list-style:none}
+.farm-production summary>span {display:flex;align-items:center;gap:9px}
+.farm-production summary svg {width:19px;height:19px}
+.farm-production summary b {white-space:nowrap}
+.farm-production summary::after {content:'⌄';font-size:18px}
+.farm-production[open] summary::after {content:'⌃'}
+.farm-production-rows {display:grid;gap:11px;margin-top:20px;font-size:12px;color:#69684d}
+.farm-production-rows>div {display:flex;justify-content:space-between;gap:14px}
+.farm-production-rows b,.farm-production-rows strong {white-space:nowrap;font-variant-numeric:tabular-nums}
+.farm-production-bonus {border-top:1px solid #d6d4bc;padding-top:12px;color:#597240}
+.farm-home-extras {display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:24px}
+.farm-adventure-preview {display:flex;align-items:center;gap:14px;text-align:left;padding:18px;border:1px solid #ded7c0;border-radius:12px;background:#f0ead9;color:#77714f;min-width:0}
+.farm-adventure-preview>svg {width:44px;height:48px;flex-shrink:0}
+.farm-adventure-preview>span {flex:1;min-width:0;display:grid;gap:6px}
+.farm-adventure-preview small {font-size:10px;color:#7b795d}
+.farm-adventure-preview b {font:600 19px/1.2 Georgia,serif;color:#5e6141}
+.farm-adventure-preview>span>span {font-size:11px;line-height:1.5;color:#77714f}
+.farm-adventure-preview>svg:last-child {width:15px;height:18px}
+.farm-adventure-preview em {font-style:normal;font-weight:600}
+.farm-task-filters {display:flex;gap:5px;border-bottom:1px solid #e0dac8;margin:0 0 22px}
+.farm-task-filters button {flex:1;background:none;border:0;border-bottom:2px solid transparent;border-radius:0;padding:11px 7px;color:#817454;font-size:12px;white-space:nowrap}
+.farm-task-filters button[aria-pressed=true] {border-color:#788d50;color:#526637;font-weight:600}
+.farm-story-intro {padding:5px 0 22px}
+.farm-story-intro small {font-size:9px;letter-spacing:1.7px;color:#8e8b69}
+.farm-story-intro h3 {font:500 28px/1.3 Georgia,serif;margin:9px 0 0;color:#555e3c}
+.farm-chapters {display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.farm-chapter {display:flex;align-items:center;gap:15px;padding:19px;border:1px solid #e0dbc8;border-radius:12px;background:#f4efdf;min-width:0}
+.farm-chapter.is-current {background:#eef0dd;border-color:#b6c18d}
+.farm-chapter.is-done {background:#eeeedd}
+.farm-chapter-number {font:500 26px/1 Georgia,serif;color:#aa9a72;flex-shrink:0;width:30px;text-align:center}
+.farm-chapter-number svg {width:25px;height:25px;color:#788b51}
+.farm-chapter>div {flex:1;min-width:0}
+.farm-chapter h4 {font:500 18px/1.25 Georgia,serif;margin:0;color:#646246}
+.farm-chapter p {font-size:11px;line-height:1.5;margin:7px 0 11px;color:#7b7157}
+.farm-chapter progress,.farm-active-order progress {height:5px;width:100%;display:block;accent-color:#83945d}
+.farm-chapter small {display:block;margin-top:6px;font-size:10px;color:#82775c}
+.farm-chapter.is-locked {background:#f3f0e7;opacity:.7}
+.farm-orders-heading {display:flex;align-items:center;gap:15px;margin:0 0 20px;color:#726747}
+.farm-orders-heading>span {width:75px;flex-shrink:0}
+.farm-orders-heading h3 {font:500 26px/1.2 Georgia,serif;margin:0;color:#606341}
+.farm-orders-heading p {font-size:12px;line-height:1.5;margin:8px 0 0}
+.farm-orders-heading>b {margin-left:auto;font-size:11px;white-space:nowrap}
+.farm-order-options {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px}
+.farm-order-option {border:1px solid #dfd5bb;border-radius:14px;padding:20px;background:#fffbef;display:flex;flex-direction:column;align-items:stretch;min-width:0}
+.farm-order-option.is-locked {background:#f0eddf}
+.farm-order-art {height:92px;text-align:center;margin-bottom:13px}
+.farm-order-art svg {width:100px;height:92px}
+.farm-order-option h4 {font:500 21px/1.2 Georgia,serif;text-align:center;color:#606443;margin:0 0 9px}
+.farm-order-option>span {font-size:11px;text-align:center;color:#7b7055;margin-bottom:21px}
+.farm-order-economy {display:flex;justify-content:space-between;align-items:center;gap:6px;padding:13px 0;border-top:1px solid #e6dfc9;border-bottom:1px solid #e6dfc9}
+.farm-order-economy>svg {width:14px;height:14px;color:#a38e60}
+.farm-order-economy small {display:block;font-size:10px;color:#857657;margin-bottom:8px}
+.farm-order-profit {display:block;color:#647d46;font-size:12px;font-weight:500;margin:15px 0;text-align:center}
+.farm-order-option .farm-button {margin-top:auto}
+.farm-active-order {display:flex;align-items:center;gap:20px;padding:20px;background:#e9eed8;border:1px solid #b9c49a;border-radius:14px;margin-bottom:20px}
+.farm-active-order>span {width:75px;flex-shrink:0}
+.farm-active-order>div {flex:1;min-width:0}
+.farm-active-order small {font-size:9px;letter-spacing:1.5px;color:#798451}
+.farm-active-order h3 {font:500 23px/1.2 Georgia,serif;color:#5b6641;margin:7px 0 12px}
+.farm-active-order p {font-size:12px;color:#667442;font-variant-numeric:tabular-nums;margin:8px 0 0}
+.farm-active-order>.farm-button {width:auto;flex-shrink:0}
+.farm-badges {grid-template-columns:1fr 1fr;gap:0 25px}
+.farm-badge {padding:17px 0;border-bottom:1px solid #e7dfcb}
+.farm-badge small {line-height:1.5}
+.farm-roadmap {margin-top:28px}
+.farm-roadmap h3 {font:500 24px/1.2 Georgia,serif;color:#646342;margin:0 0 17px}
+.farm-roadmap>div {display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:9px}
+.farm-roadmap>div>div {padding:12px 8px;border:1px solid #e2dac6;border-radius:9px;background:#f2eddf;text-align:center;min-width:0}
+.farm-roadmap b {display:block;font:500 24px/1.2 Georgia,serif;color:#9b8c65}
+.farm-roadmap span {display:block;font-size:10px;line-height:1.4;color:#8e7f60;margin-top:5px;overflow-wrap:anywhere}
+.farm-roadmap .is-current {background:#e6eccf;border-color:#aebf83}
+.farm-roadmap .is-current b {color:#5f7640}
+.farm-roadmap .is-done {background:#efefde}
+@media(max-width:900px) {
+ .farm-order-options {gap:10px}.farm-order-option {padding:15px}
+ .farm-chapters {grid-template-columns:1fr}
+}
+@media(max-width:640px) {
+ .farm-collect-bar {padding:8px 16px;gap:8px}.farm-collect-bar>span {font-size:10px}.farm-collect-bar .farm-button {font-size:11px;padding:9px 11px;gap:6px}
+ .farm-home-extras {grid-template-columns:1fr;gap:12px;margin-top:20px}
+ .farm-shop-grid .farm-upgrade {padding:17px}.farm-shop-grid .farm-upgrade-icon {width:52px;height:58px}
+ .farm-effect>span:last-child {font-size:15px}.farm-production {padding:13px;margin-bottom:20px}.farm-production summary {font-size:11px;gap:8px}.farm-production summary>span {gap:5px}.farm-production summary svg {width:15px;height:15px}
+ .farm-task-filters {gap:0;margin-bottom:19px}.farm-task-filters button {font-size:10px;padding:12px 4px}
+ .farm-story-intro h3 {font-size:25px}.farm-chapter {gap:11px;padding:15px}.farm-chapter h4 {font-size:18px}.farm-chapter-number {width:25px;font-size:24px}
+ .farm-badges {grid-template-columns:1fr}.farm-orders-heading {gap:10px;flex-wrap:wrap}.farm-orders-heading>span {width:55px}.farm-orders-heading>div {flex:1}.farm-orders-heading>b {width:100%;font-size:11px}.farm-orders-heading h3 {font-size:23px}.farm-orders-heading p {font-size:11px}
+ .farm-order-options {grid-template-columns:1fr}.farm-order-option {padding:18px;display:grid;grid-template-columns:70px minmax(0,1fr);gap:8px 14px;align-items:center}.farm-order-art {grid-row:1/3;height:66px;margin:0}.farm-order-art svg {width:70px;height:70px}.farm-order-option h4 {text-align:left;font-size:20px;margin:0}.farm-order-option>span {text-align:left;margin:0}.farm-order-economy {grid-column:1/-1;justify-content:space-around;margin-top:7px}.farm-order-profit {text-align:left;margin:6px 0;font-size:11px}.farm-order-option .farm-button {font-size:12px}
+ .farm-active-order {padding:16px;gap:12px;flex-wrap:wrap}.farm-active-order>span {width:55px}.farm-active-order h3 {font-size:20px}.farm-active-order>.farm-button {width:100%}
+ .farm-roadmap>div {grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+.farm-orders-heading>span svg,.farm-active-order>span svg {width:100%;height:75px}
+.farm-order-art svg {margin:0 auto}
+.farm-chapter progress,.farm-active-order progress {border:0;border-radius:4px;overflow:hidden;background:#e0dfc8}
+.farm-chapter progress::-webkit-progress-bar,.farm-active-order progress::-webkit-progress-bar {background:#e0dfc8}
+.farm-chapter progress::-webkit-progress-value,.farm-active-order progress::-webkit-progress-value {background:#899963;border-radius:4px}
+.farm-built {position:absolute;inset:0;pointer-events:none}
+.farm-built>span {position:absolute;width:80px;height:85px;right:8px;bottom:58px;filter:drop-shadow(0 3px 2px #67744115)}
+.farm-built>span svg {width:100%;height:100%}
+.farm-built>span:nth-child(2) {left:5px;right:auto;bottom:76px;width:74px}
+.farm-built>span:nth-child(3) {right:10px;bottom:155px;width:64px;opacity:.8}
+@media(min-width:1000px) {.farm-dialog {height:min(860px,94dvh)}}
+@media(max-width:640px) {.farm-built>span {width:60px;right:0;bottom:57px}.farm-built>span:nth-child(2) {width:56px;left:1px;bottom:70px}.farm-built>span:nth-child(3) {width:45px;bottom:132px}.farm-orders-heading>span svg,.farm-active-order>span svg {height:55px}}
+.farm-income small {white-space:nowrap}
+@media(max-width:640px) {.farm-income>div {flex-wrap:wrap;gap:2px 5px}.farm-income small {font-size:10px}}
+@media(prefers-reduced-motion:no-preference) {
+ .farm-active-order>span svg {animation:farm-delivery-ride 1.8s ease-in-out infinite}
+ @keyframes farm-delivery-ride {0%,100% {transform:translateY(0) rotate(-2deg)}50% {transform:translateY(-3px) rotate(2deg)}}
+}
+.farm-active-order.is-ready>span svg {animation:none}

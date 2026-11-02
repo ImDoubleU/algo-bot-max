@@ -892,6 +892,10 @@ def test_persistent_farm_tabs_fit_mobile_and_desktop(arcade, width):
         page.locator(f'.farm-tabs [data-farm-tab="{tab}"]').click()
         assert page.locator("#kopatychFarm").evaluate("(d)=>d.scrollWidth<=d.clientWidth")
         assert page.locator(".farm-content").evaluate("(d)=>d.scrollWidth<=d.clientWidth")
+        if tab == "tasks":
+            for view in ("daily", "story", "orders", "badges"):
+                page.locator(f'.farm-task-filters [data-task-view="{view}"]').click()
+                assert page.locator(".farm-content").evaluate("(d)=>d.scrollWidth<=d.clientWidth")
     assert not store.profile("p1")["awards"]
 
 
@@ -1016,3 +1020,44 @@ def test_persistent_farm_accepts_touch_taps_and_closing_flushes_pending_input(ar
     page.locator('.game-card[data-game="kopatych"]').tap()
     page.locator(".farm-bear").wait_for()
     assert page.locator("[data-farm-bank]").inner_text() == "153"
+
+
+def test_farm_explains_purchase_and_collects_delivery_and_its_rewards_together(arcade):
+    from app.services.arcade_farm import FarmStore
+
+    page, store = arcade
+    store.clock = Clock()
+    farm = FarmStore(store)
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator(".farm-bear").wait_for()
+    page.locator('[data-farm-action="claim_all"]').click()
+    page.wait_for_function("document.querySelector('[data-farm-bank]').textContent==='250'")
+    page.locator('.farm-tabs [data-farm-tab="upgrades"]').click()
+    bed = page.locator('[data-farm-action="buy"][data-item="beds"]')
+    assert bed.locator(".farm-effect b").inner_text() == "0"
+    assert bed.locator(".farm-effect strong").inner_text() == "90"
+    bed.click()
+    page.wait_for_function("document.querySelector('[data-farm-income]').textContent==='+210'")
+    page.locator(".farm-production summary").click()
+    assert "Грядки" in page.locator(".farm-production-rows").inner_text()
+    page.locator('.farm-tabs [data-farm-tab="tasks"]').click()
+    page.locator('.farm-task-filters [data-task-view="orders"]').click()
+    page.locator('[data-farm-action="start_order"][data-item="basket"]').click()
+    page.locator(".farm-active-order").wait_for()
+    assert farm.get("p1")["balance"] == 90
+    assert page.locator('[data-farm-action="claim_order"]').is_disabled()
+    page.locator("[data-farm-close]").click()
+    store.clock.advance(300)
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator(".farm-active-order").wait_for()
+    before = farm.get("p1")
+    assert before["claimable"]["amount"] == 350
+    page.locator('[data-farm-action="claim_all"]').click()
+    page.wait_for_function("!document.querySelector('.farm-active-order')")
+    after = farm.get("p1")
+    assert after["balance"] == before["balance"] + 350
+    assert after["deliveries"] == 1 and not after["claimable"]["count"]
+    assert page.locator('[data-farm-action="claim_all"]').is_disabled()
+    page.locator('.farm-task-filters [data-task-view="badges"]').click()
+    assert page.locator(".farm-badge").count() == 25
+    assert not store.profile("p1")["awards"]

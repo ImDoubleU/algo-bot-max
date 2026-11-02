@@ -51,12 +51,140 @@ def seed(farm, **fields):
         farm._save(db, "p1", state)
 
 
+def test_old_farm_migrates_without_changing_money_items_or_progress(farm):
+    original = act(farm, "buy", "beds")["farm"]
+    with farm.arcade.db() as db:
+        state = farm._load(db, "p1")
+        for key in ("compost", "windmill", "pond", "tractor", "nursery", "railway"):
+            del state["items"][key]
+        for key in ("chapters", "order", "deliveries", "best_streak"):
+            del state[key]
+        del state["daily"]["deliveries"]
+        state["version"] = 1
+        farm._save(db, "p1", state)
+    upgraded = farm.get("p1")
+    assert upgraded["balance"] == original["balance"] == 30
+    assert upgraded["stats"] == original["stats"]
+    assert upgraded["version"] == 2 and upgraded["deliveries"] == 0
+    assert len(upgraded["items"]) == 18 and len(upgraded["roadmap"]) == 30
+    assert farm.board("p1")["me"]["per_hour"] == 210
+
+
+def test_upgrade_projection_matches_actual_purchase_and_income_breakdown(farm):
+    seed(farm, balance=10000000, earned=3000000)
+    for key in ("beds", "gloves", "irrigation", "well", "silo", "tractor", "compost", "windmill"):
+        before = farm.get("p1")
+        offer = next(i for i in before["items"] if i["id"] == key)
+        after = act(farm, "buy", key)["farm"]
+        assert after["stats"]["per_hour"] - before["stats"]["per_hour"] == offer["per_hour_gain"]
+        actual = next(i for i in after["items"] if i["id"] == key)
+        assert offer["effect"]["next"] == actual["effect"]["current"]
+        production = after["production"]
+        assert (
+            production["base"]
+            + sum(r["amount"] for r in production["sources"])
+            + production["bonus"]
+            == after["stats"]["per_hour"]
+        )
+    assert next(i for i in after["items"] if i["id"] == "railway")["locked"] is False
+
+
+def test_orders_use_server_time_and_one_delivery_slot_and_receipts(farm):
+    farm.get("p1")
+    with pytest.raises(ArcadeError):
+        act(farm, "start_order", "fair")
+    key = str(uuid.uuid4())
+    started = act(farm, "start_order", "basket", key=key)
+    assert started["farm"]["balance"] == 110
+    assert act(farm, "start_order", "basket", key=key)["duplicate"]
+    with pytest.raises(ArcadeError):
+        act(farm, "start_order", "basket")
+    with pytest.raises(ArcadeError):
+        act(farm, "claim_order", "basket")
+    farm.arcade.clock.advance(299)
+    with pytest.raises(ArcadeError):
+        act(farm, "claim_order", "basket")
+    farm.arcade.clock.advance(1)
+    restarted = FarmStore(ArcadeStore(farm.arcade.path, farm.arcade.clock))
+    key = str(uuid.uuid4())
+    result = act(restarted, "claim_order", "basket", key=key)
+    assert result["result"]["amount"] == 80
+    assert result["farm"]["deliveries"] == 1 and result["farm"]["order"] is None
+    assert act(restarted, "claim_order", "basket", key=key)["duplicate"]
+    with pytest.raises(ArcadeError):
+        act(restarted, "claim_order", "basket")
+    assert farm.get("p2")["deliveries"] == 0
+
+
+def test_collect_all_includes_cascading_chapters_order_and_quests_exactly_once(farm):
+    state = farm.get("p1")
+    items = {i["id"]: 0 for i in state["items"]}
+    items.update(shovel=2, beds=1)
+    seed(farm, balance=1000, earned=1200, items=items)
+    act(farm, "start_order", "basket")
+    farm.arcade.clock.advance(300)
+    before = farm.get("p1")
+    expected = before["claimable"]
+    key = str(uuid.uuid4())
+    result = act(farm, "claim_all", key=key)
+    after = result["farm"]
+    assert result["result"]["amount"] == expected["amount"]
+    assert result["result"]["count"] == expected["count"]
+    assert after["balance"] == before["balance"] + expected["amount"]
+    assert after["claimable"] == {"count": 0, "amount": 0}
+    assert after["earned"] == before["earned"]  # No experience from gifts.
+    assert after["deliveries"] == 1
+    assert [c["id"] for c in after["chapters"] if c["claimed"]] == [
+        "start",
+        "build",
+        "neighbour",
+        "harvest",
+    ]
+    assert act(farm, "claim_all", key=key)["duplicate"]
+    assert act(farm, "claim_all")["result"]["amount"] == 0
+    with pytest.raises(ArcadeError):
+        act(farm, "claim_quest", "delivery")
+
+
+def test_collect_all_concurrent_clients_cannot_duplicate_rewards(farm):
+    expected = farm.get("p1")["claimable"]["amount"]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: act(farm, "claim_all"), range(4)))
+    assert sum(r["result"]["amount"] for r in results) == expected == 100
+    assert farm.get("p1")["balance"] == 250
+    assert farm.arcade.profile("p1")["balance"] == 0
+
+
+def test_chapters_require_the_previous_chapter_and_bonus_does_not_unlock_levels(farm):
+    seed(farm, balance=100000, earned=1000)
+    with pytest.raises(ArcadeError):
+        act(farm, "claim_chapter", "harvest")
+    after = act(farm, "claim_chapter", "start")["farm"]
+    assert after["level"] == 3 and after["earned"] == 1000
+    with pytest.raises(ArcadeError):
+        act(farm, "claim_chapter", "start")
+    with pytest.raises(ArcadeError):
+        act(farm, "claim_chapter", "build")
+
+
+def test_collect_all_seventh_gift_also_claims_new_streak_achievement(farm):
+    farm.get("p1")
+    yesterday = (datetime.fromtimestamp(farm.arcade.clock(), MOSCOW).date()).isoformat()
+    seed(farm, daily_last=yesterday, streak=6, best_streak=6)
+    farm.arcade.clock.advance(86400)
+    before = farm.get("p1")
+    after = act(farm, "claim_all")
+    assert after["result"]["amount"] == before["claimable"]["amount"]
+    assert next(b for b in after["farm"]["badges"] if b["id"] == "streak_7")["claimed"]
+    assert after["farm"]["daily"]["streak"] == 7
+
+
 def test_first_farm_starts_production_without_a_purchase_and_uses_no_ac(farm):
     before = farm.arcade.profile("p1")
     state = farm.get("p1")
     assert state["balance"] == 150 and state["stats"]["per_hour"] == 120
     assert state["stats"]["offline_hours"] == 4 and state["energy"] == 500
-    assert len(state["items"]) == 12 and len(state["quests"]) == 3
+    assert len(state["items"]) == 18 and len(state["quests"]) == 7
     act(farm, "tap", count=8)
     assert farm.arcade.profile("p1")["balance"] == before["balance"] == 0
     assert not farm.arcade.profile("p1")["awards"]

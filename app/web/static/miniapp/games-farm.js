@@ -13,6 +13,9 @@
     "'": '&#39;'
   } [c]));
   const fmt = n => Math.max(0, Math.floor(n || 0)).toLocaleString('ru-RU');
+  const decimal = n => Number(n || 0).toLocaleString('ru-RU', {
+    maximumFractionDigits: 2
+  });
   const compact = n => n >= 1000000 ? (n / 1000000).toLocaleString('ru-RU', {
     maximumFractionDigits: 1
   }) + ' млн' : n >= 100000 ? (n / 1000).toLocaleString('ru-RU', {
@@ -48,7 +51,7 @@
   let current = null;
 
   function structure(s) {
-    return JSON.stringify([s.items.map(i => i.level), s.level, s.daily.day, s.daily.claimed, s.daily.combo_claimed, s.quests.map(q => [q.ready, q.claimed]), s.badges.map(b => [b.ready, b.claimed])]);
+    return JSON.stringify([s.items.map(i => i.level), s.level, s.daily.day, s.daily.claimed, s.daily.combo_claimed, s.quests.map(q => [q.ready, q.claimed]), s.badges.map(b => [b.ready, b.claimed]), s.chapters.map(c => [c.ready, c.claimed]), s.order, s.claimable]);
   }
 
   function pending(f) {
@@ -82,7 +85,7 @@
     const dialog = document.createElement('dialog');
     dialog.id = 'kopatychFarm';
     dialog.className = 'farm-dialog';
-    dialog.innerHTML = `<header class="farm-header"><div class="farm-brand">${carrot()}<div><small>КОПАТЫЧ</small><h2>Моя ферма</h2></div></div><button class="farm-tournament" data-farm-sprint>${icon('cup')}<span>Турнир · 90 с</span></button><button class="farm-close" data-farm-close aria-label="Закрыть ферму">${icon('close')}</button></header><div class="farm-loading">Готовим огород…</div><div class="farm-app" hidden><div class="farm-wallet"><div class="farm-balance"><span>Морковки в корзинке</span><div class="farm-balance-number">${carrot()}<strong data-farm-bank>0</strong></div></div><div class="farm-income"><span>Растёт само</span><div><strong data-farm-income>0</strong><small>в час</small></div></div><div class="farm-level-chip"><span>Уровень</span><strong data-farm-level>1</strong></div></div><div class="farm-offline" hidden></div><nav class="farm-tabs" aria-label="Разделы фермы">${[['home','leaf','Ферма'],['upgrades','barn','Улучшения'],['tasks','gift','Задания'],['valley','cup','Долина']].map(([tab,i,t])=>`<button data-farm-tab="${tab}">${icon(i)}<span>${t}</span><i></i></button>`).join('')}</nav><p class="farm-status" role="status" hidden></p><div class="farm-content"></div><footer class="farm-save-line"><span class="farm-save-dot"></span><span data-save-label>Прогресс сохраняется</span><span class="farm-offline-rule">Растёт даже с закрытым приложением</span></footer></div>`;
+    dialog.innerHTML = `<header class="farm-header"><div class="farm-brand">${carrot()}<div><small>КОПАТЫЧ</small><h2>Моя ферма</h2></div></div><button class="farm-tournament" data-farm-sprint>${icon('cup')}<span>Турнир · 90 с</span></button><button class="farm-close" data-farm-close aria-label="Закрыть ферму">${icon('close')}</button></header><div class="farm-loading">Готовим огород…</div><div class="farm-app" hidden><div class="farm-wallet"><div class="farm-balance"><span>Морковки в корзинке</span><div class="farm-balance-number">${carrot()}<strong data-farm-bank>0</strong></div></div><div class="farm-income"><span>Растёт само</span><div><strong data-farm-income>0</strong><small>в час</small></div></div><div class="farm-level-chip"><span>Уровень</span><strong data-farm-level>1</strong></div></div><div class="farm-offline" hidden></div><nav class="farm-tabs" aria-label="Разделы фермы">${[['home','leaf','Ферма'],['upgrades','barn','Улучшения'],['tasks','gift','Задания'],['valley','cup','Долина']].map(([tab,i,t])=>`<button data-farm-tab="${tab}">${icon(i)}<span>${t}</span><i></i></button>`).join('')}</nav><div class="farm-collect-bar"><span data-collect-count></span><button class="farm-button" data-farm-action="claim_all">Забрать всё <span data-collect-amount></span></button></div><p class="farm-status" role="status" hidden></p><div class="farm-content"></div><footer class="farm-save-line"><span class="farm-save-dot"></span><span data-save-label>Прогресс сохраняется</span><span class="farm-offline-rule">Растёт даже с закрытым приложением</span></footer></div>`;
     document.body.append(dialog);
     dialog.showModal();
     const f = {
@@ -100,18 +103,21 @@
       lastTap: 0,
       tab: 'home',
       category: 'garden',
+      taskView: 'daily',
       abort: new AbortController(),
       timer: 0,
       pollAt: 0,
       signature: '',
       returning: null,
-      board: null
+      board: null,
+      orderReadyChecked: null
     };
     current = f;
     try {
       const saved = JSON.parse(localStorage.getItem('kopatych-ui:' + f.player) || '{}');
       if (['home', 'upgrades', 'tasks', 'valley'].includes(saved.tab)) f.tab = saved.tab;
       if (['garden', 'tools', 'business'].includes(saved.category)) f.category = saved.category;
+      if (['daily', 'story', 'orders', 'badges'].includes(saved.taskView)) f.taskView = saved.taskView;
     } catch {}
     const on = (el, type, fn, extra = {}) => el.addEventListener(type, fn, {
       ...extra,
@@ -171,7 +177,8 @@
     try {
       localStorage.setItem('kopatych-ui:' + f.player, JSON.stringify({
         tab: f.tab,
-        category: f.category
+        category: f.category,
+        taskView: f.taskView
       }));
     } catch {}
   }
@@ -210,11 +217,11 @@
   function home(f) {
     const s = f.snapshot;
     const quick = s.items.filter(i => !i.locked && !i.maxed)
-      .sort((a,b)=>Number(b.affordable)-Number(a.affordable)||a.cost-b.cost).slice(0,3);
+      .sort((a, b) => Number(b.affordable) - Number(a.affordable) || a.cost - b.cost).slice(0, 3);
     return `<div class="farm-home-grid">
       <section class="farm-scene">
         <div class="farm-playground">
-          <div class="farm-landscape">${F().scene()}</div>
+          <div class="farm-landscape">${F().scene()}</div><div class="farm-built" aria-hidden="true">${s.items.filter(i=>i.level>0&&['greenhouse','windmill','pond','nursery','railway','beehives','orchard'].includes(i.id)).sort((a,b)=>b.unlock-a.unlock).slice(0,3).map(i=>`<span title="${esc(i.name)} · ${i.level}">${F().item(i.id)}</span>`).join('')}</div>
           <div class="farm-scene-top">
             <span class="farm-league-label">${icon('leaf')}${esc(s.league.name)}</span>
             <span class="farm-storage-tag">${icon('barn')}Амбар · <b>${s.stats.offline_hours} ч</b></span>
@@ -231,13 +238,13 @@
         </div>
       </section>
       <aside class="farm-side">
-        <button class="farm-daily-shortcut" data-farm-tab="tasks"><span class="farm-gift-art">${F().item('gift')}</span><span><b>${s.daily.claimed?'Задания дня':'Подарок дня'}</b><small>${s.daily.claimed?s.quests.filter(q=>q.claimed).length+' из 3 выполнено':`+${fmt(s.daily.reward)} морковок уже ждут`}</small></span>${icon('arrow')}</button>
+        <button class="farm-daily-shortcut" data-farm-tab="tasks"><span class="farm-gift-art">${F().item('gift')}</span><span><b>${s.daily.claimed?'Задания дня':'Подарок дня'}</b><small>${s.daily.claimed?s.quests.filter(q=>q.claimed).length+' из '+s.quests.length+' выполнено':`+${fmt(s.daily.reward)} морковок уже ждут`}</small></span>${icon('arrow')}</button>
         <section class="farm-level-card"><div><span>Уровень ${s.level}</span><b data-level-total>${s.level_next?fmt(s.earned)+' / '+fmt(s.level_next):'Вершина долины'}</b></div><progress data-level-progress max="${s.level_next?s.level_next-s.level_start:1}" value="${s.level_next?s.earned-s.level_start:1}"></progress><small data-level-remaining>${s.level_next?'До следующего уровня '+fmt(Math.max(0,s.level_next-s.earned))+' морковок':'Все уровни открыты'}</small></section>
         <div class="farm-section-title"><h3>Для огорода</h3><button data-farm-tab="upgrades">Все ${icon('arrow')}</button></div>
         <div class="farm-quick-upgrades">${quick.map(i=>upgrade(f,i,true)).join('')}</div>
         <div class="farm-next-unlock">${icon('leaf')}<span><b>${nextUnlock(s)}</b><small>Всего выращено: <span data-total-earned>${fmt(s.earned)}</span></small></span></div>
       </aside>
-    </div>`;
+    </div><div class="farm-home-extras">${chapterPreview(s)}${orderPreview(s)}</div>`;
   }
 
   function nextUnlock(s) {
@@ -246,15 +253,45 @@
   }
 
   function upgrade(f, i, small = false) {
-    const effect = i.per_hour_gain ? `+${fmt(i.per_hour_gain)} в час` : i.id === 'shovel' || i.id === 'gloves' ? `+${fmt(i.per_tap_gain)} за нажатие` : i.id === 'silo' ? '+2 часа без захода' : i.id === 'battery' ? '+200 энергии' : '+0,2 энергии в секунду';
-    return `<button class="farm-upgrade ${small?'is-compact':''} ${i.locked?'is-locked':''}" data-farm-action="buy" data-item="${i.id}" ${i.locked||i.maxed?'disabled':''}><span class="farm-upgrade-icon">${F().item(i.id)}</span><span class="farm-upgrade-info"><b>${esc(i.name)}${i.level?`<em>ур. ${i.level}</em>`:""}</b><small>${esc(i.locked?'Откроется на '+i.unlock+' уровне':effect)}</small>${!small?`<span>${esc(i.text)}</span>`:''}</span><strong class="farm-upgrade-price">${i.maxed?'Максимум':money(i.cost)}</strong></button>`;
+    const e = i.effect;
+    const delta = `+${decimal(e.gain)} ${e.unit}`;
+    const subtitle = i.locked ? 'С ' + i.unlock + ' уровня' : i.maxed ? 'Максимальный уровень' : delta;
+    return `<button class="farm-upgrade ${small?'is-compact':''} ${i.locked?'is-locked':''}" data-farm-action="buy" data-item="${i.id}" ${i.locked||i.maxed?'disabled':''}>
+      <span class="farm-upgrade-icon">${F().item(i.id)}</span>
+      <span class="farm-upgrade-info"><b>${esc(i.name)}<em>${i.level} / ${i.maximum}</em></b><small>${esc(subtitle)}</small>
+      ${!small?`<span class="farm-effect"><span>${esc(e.label)}</span><span><b>${decimal(e.current)}</b><i>→</i><strong>${decimal(e.next)}</strong> ${esc(e.unit)}</span></span><span class="farm-upgrade-note">${esc(i.text)}${i.payback_hours&&!i.maxed?` · Окупится за ${decimal(i.payback_hours)} ч`:''}</span>`:''}</span>
+      <strong class="farm-upgrade-price">${i.maxed?'Максимум':money(i.cost)}${!small&&!i.maxed&&!i.locked?`<small data-missing="${i.id}"></small>`:''}</strong></button>`;
+  }
+
+  function production(s) {
+    const p = s.production;
+    return `<details class="farm-production"><summary><span>${icon('leaf')}Из чего складывается доход</span><b>${fmt(p.total)} / ч</b></summary><div class="farm-production-rows"><div><span>Огород Копатыча</span><b>${fmt(p.base)} / ч</b></div>${p.sources.map(r=>`<div><span>${esc(r.name)}</span><b>${fmt(r.amount)} / ч</b></div>`).join('')}<div class="farm-production-bonus"><span>Полив, лавка и компост · +${p.percent}%</span><b>+${fmt(p.bonus)} / ч</b></div><div><strong>Итого</strong><strong>${fmt(p.total)} / ч</strong></div></div></details>`;
   }
 
   function shop(f) {
-    return `<div class="farm-shop-head"><div><h3>Улучшения фермы</h3></div><div class="farm-shop-filters">${[['garden','Огород'],['tools','Инструменты'],['business','Хозяйство']].map(([key,name])=>`<button data-farm-category="${key}" aria-pressed="${key===f.category}">${name}</button>`).join('')}</div></div><div class="farm-shop-grid">${f.snapshot.items.filter(i=>i.category===f.category).map(i=>upgrade(f,i)).join('')}</div>`;
+    return `${production(f.snapshot)}<div class="farm-shop-head"><div><h3>Улучшения фермы</h3></div><div class="farm-shop-filters">${[['garden','Огород'],['tools','Инструменты'],['business','Хозяйство']].map(([key,name])=>`<button data-farm-category="${key}" aria-pressed="${key===f.category}">${name}</button>`).join('')}</div></div><div class="farm-shop-grid">${f.snapshot.items.filter(i=>i.category===f.category).map(i=>upgrade(f,i)).join('')}</div>`;
   }
 
-  function tasks(f) {
+  function chapterPreview(s) {
+    const c = s.chapters.find(c => !c.claimed);
+    return `<button class="farm-adventure-preview" data-task-view="story">${icon('leaf')}<span><small>История фермы · ${s.chapters.filter(c=>c.claimed).length} / ${s.chapters.length}</small><b>${c?esc(c.name):'Долина расцвела'}</b><span>${c?esc(c.text):'Все главы пройдены'}</span></span>${icon('arrow')}</button>`;
+  }
+
+  function orderPreview(s) {
+    return `<button class="farm-adventure-preview" data-task-view="orders">${F().item('cart')}<span><small>Заказы соседей</small><b>${s.order?esc(s.order.name):'Доставка по долине'}</b><span>${s.order?'<em data-order-clock></em>':`${s.deliveries} выполнено · выбрать заказ`}</span></span>${icon('arrow')}</button>`;
+  }
+
+  function story(f) {
+    return `<div class="farm-story-intro"><small>12 ГЛАВ · ОДНА БОЛЬШАЯ ФЕРМА</small><h3>Долина начинается с грядки</h3></div><div class="farm-chapters">${f.snapshot.chapters.map((c,n)=>`<section data-chapter="${c.id}" class="farm-chapter ${c.claimed?'is-done':c.locked?'is-locked':'is-current'}"><span class="farm-chapter-number">${c.claimed?icon('check'):String(n+1).padStart(2,'0')}</span><div><h4>${esc(c.name)}</h4><p>${esc(c.text)}</p><progress max="${c.goal}" value="${Math.min(c.value,c.goal)}"></progress><small>${fmt(Math.min(c.value,c.goal))} / ${fmt(c.goal)}</small></div><button class="farm-small-button" data-farm-action="claim_chapter" data-item="${c.id}" ${c.ready?'':'disabled'}>${c.claimed?'✓':money(c.reward)}</button></section>`).join('')}</div>`;
+  }
+
+  function orders(f) {
+    const s = f.snapshot,
+      o = s.order;
+    return `<div class="farm-orders-heading"><span>${F().item('cart')}</span><div><h3>Заказы соседей</h3><p>Отправь морковки, дождись доставки и забери награду.</p></div><b>${s.deliveries} выполнено</b></div>${o?`<section class="farm-active-order"><span>${F().item('cart')}</span><div><small data-order-label>В ПУТИ</small><h3>${esc(o.name)}</h3><progress data-order-progress max="${o.seconds}" value="0"></progress><p data-order-clock></p></div><button class="farm-button" data-farm-action="claim_order" data-item="${o.id}">Забрать ${fmt(o.reward)}</button></section>`:''}<div class="farm-order-options">${s.orders.map(o=>`<section class="farm-order-option ${s.level<o.unlock?'is-locked':''}"><div class="farm-order-art">${F().item(o.id==='basket'?'beds':o.id==='picnic'?'tree':'market')}</div><h4>${esc(o.name)}</h4><span>${o.seconds/60} минут${s.level<o.unlock?' · с уровня '+o.unlock:''}</span><div class="farm-order-economy"><div><small>Отправишь</small>${money(o.cost)}</div>${icon('arrow')}<div><small>Получишь</small>${money(o.reward)}</div></div><b class="farm-order-profit">Прибыль +${fmt(o.reward-o.cost)}</b><button class="farm-button" data-farm-action="start_order" data-item="${o.id}" ${s.level<o.unlock||s.order||s.balance<o.cost?'disabled':''}>${s.level<o.unlock?'Откроется позже':s.order?'Доставка занята':'Отправить'}</button></section>`).join('')}</div>`;
+  }
+
+  function dailyTasks(f) {
     const s = f.snapshot,
       d = s.daily,
       cycle = (d.streak - 1) % 7;
@@ -264,13 +301,20 @@
         done = d.bought.includes(id);
       return `<div class="farm-combo-item ${done?'is-done':''}">${F().item(i.id)}<b>${esc(i.name)}</b><small>${done?'Готово':'Улучши сегодня'}</small></div>`;
     }).join('');
-    return `<div class="farm-tasks-grid"><section class="farm-panel farm-daily-panel"><div class="farm-panel-title"><h3>Подарок дня</h3><span>${d.streak} ${d.streak%10===1&&d.streak%100!==11?'день':[2,3,4].includes(d.streak%10)&&![12,13,14].includes(d.streak%100)?'дня':'дней'} подряд</span></div><div class="farm-days">${dailyCards}</div><button class="farm-button" data-farm-action="claim_daily" ${d.claimed?'disabled':''}>${d.claimed?'Сегодня получено':`Забрать ${fmt(d.reward)} морковок`}</button></section><section class="farm-panel"><div class="farm-panel-title"><h3>Задания дня</h3><span data-farm-reset></span></div><div class="farm-quests">${s.quests.map(q=>`<div class="farm-quest" data-quest="${q.id}"><div><b>${esc(q.name)}</b><small>${fmt(Math.min(q.value,q.goal))} / ${fmt(q.goal)} ${esc(q.unit)}</small><progress max="${q.goal}" value="${q.value}"></progress></div><button class="farm-small-button" data-farm-action="claim_quest" data-item="${q.id}" ${q.ready&&!q.claimed?'':'disabled'}>${q.claimed?'✓':money(q.reward)}</button></div>`).join('')}</div></section><section class="farm-panel farm-combo-panel"><div class="farm-panel-title"><h3>Комбо дня</h3><span>+${fmt(d.combo_reward)} морковок</span></div><div class="farm-combo">${combo||'<p>Все постройки уже прокачаны.</p>'}</div><button class="farm-button" data-farm-action="claim_quest" data-item="combo" ${d.combo_ready&&!d.combo_claimed?'':'disabled'}>${d.combo_claimed?'Комбо собрано':'Забрать награду'}</button></section><section class="farm-panel"><div class="farm-panel-title"><h3>Достижения фермы</h3><span>${s.badges.filter(b=>b.claimed).length}/${s.badges.length}</span></div><div class="farm-badges">${s.badges.map(b=>`<div data-badge="${b.id}" class="farm-badge ${b.ready?'is-ready':''}">${icon(b.ready?'cup':'leaf')}<div><b>${esc(b.name)}</b><small>${fmt(Math.min(b.value,b.target))} / ${fmt(b.target)}</small></div><button class="farm-small-button" data-farm-action="claim_badge" data-item="${b.id}" ${b.ready&&!b.claimed?'':'disabled'}>${b.claimed?'✓':money(b.reward)}</button></div>`).join('')}</div></section></div>`;
+    return `<div class="farm-tasks-grid"><section class="farm-panel farm-daily-panel"><div class="farm-panel-title"><h3>Подарок дня</h3><span>${d.streak} ${d.streak%10===1&&d.streak%100!==11?'день':[2,3,4].includes(d.streak%10)&&![12,13,14].includes(d.streak%100)?'дня':'дней'} подряд</span></div><div class="farm-days">${dailyCards}</div><button class="farm-button" data-farm-action="claim_daily" ${d.claimed?'disabled':''}>${d.claimed?'Сегодня получено':`Забрать ${fmt(d.reward)} морковок`}</button></section><section class="farm-panel"><div class="farm-panel-title"><h3>Задания дня</h3><span data-farm-reset></span></div><div class="farm-quests">${s.quests.map(q=>`<div class="farm-quest" data-quest="${q.id}"><div><b>${esc(q.name)}</b><small>${fmt(Math.min(q.value,q.goal))} / ${fmt(q.goal)} ${esc(q.unit)}</small><progress max="${q.goal}" value="${q.value}"></progress></div><button class="farm-small-button" data-farm-action="claim_quest" data-item="${q.id}" ${q.ready&&!q.claimed?'':'disabled'}>${q.claimed?'✓':money(q.reward)}</button></div>`).join('')}</div></section><section class="farm-panel farm-combo-panel"><div class="farm-panel-title"><h3>Комбо дня</h3><span>+${fmt(d.combo_reward)} морковок</span></div><div class="farm-combo">${combo||'<p>Все постройки уже прокачаны.</p>'}</div><button class="farm-button" data-farm-action="claim_quest" data-item="combo" ${d.combo_ready&&!d.combo_claimed?'':'disabled'}>${d.combo_claimed?'Комбо собрано':'Забрать награду'}</button></section></div>`;
+  }
+
+  function tasks(f) {
+    const s = f.snapshot;
+    const nav = `<div class="farm-task-filters">${[['daily','На сегодня'],['story','История'],['orders','Заказы'],['badges','Достижения']].map(([key,name])=>`<button data-task-view="${key}" aria-pressed="${f.taskView===key}">${name}</button>`).join('')}</div>`;
+    const badges = `<section class="farm-panel"><div class="farm-panel-title"><h3>Достижения фермы</h3><span>${s.badges.filter(b=>b.claimed).length}/${s.badges.length}</span></div><div class="farm-badges">${s.badges.map(b=>`<div data-badge="${b.id}" class="farm-badge ${b.ready?'is-ready':''}">${icon(b.ready?'cup':'leaf')}<div><b>${esc(b.name)}</b><small>${esc(b.description)} · ${fmt(Math.min(b.value,b.target))} / ${fmt(b.target)}</small></div><button class="farm-small-button" data-farm-action="claim_badge" data-item="${b.id}" ${b.ready&&!b.claimed?'':'disabled'}>${b.claimed?'✓':money(b.reward)}</button></div>`).join('')}</div></section>`;
+    return nav + (f.taskView === 'daily' ? dailyTasks(f) : f.taskView === 'story' ? story(f) : f.taskView === 'orders' ? orders(f) : badges);
   }
 
   function valley(f) {
     const s = f.snapshot,
       leagues = ['Росток', 'Огородник', 'Фермер', 'Агроном', 'Мастер урожая', 'Хозяин долины'];
-    return `<div class="farm-valley-grid"><section class="farm-panel"><div class="farm-panel-title"><h3>Твоя долина</h3><span>${icon('leaf')}${esc(s.league.name)}</span></div><div class="farm-leagues">${leagues.map((name,i)=>`<div class="farm-league ${i===s.league.index?'is-current':''} ${i<s.league.index?'is-passed':''}">${icon(i<=s.league.index?'cup':'leaf')}<span>${name}</span><small>${i===s.league.index?'Твоя лига':i<s.league.index?'Пройдено':''}</small></div>`).join('')}</div><div class="farm-total-stats"><div><small>Урожай за всё время</small><b>${fmt(s.earned)}</b></div><div><small>Собрано вручную</small><b>${fmt(s.manual)}</b></div><div><small>Выросло само</small><b>${fmt(s.passive)}</b></div><div><small>Нажатий</small><b>${fmt(s.taps)}</b></div></div></section><section class="farm-panel"><div class="farm-panel-title"><h3>Фермеры</h3><span>Общий урожай</span></div><div class="farm-leaderboard" aria-live="polite">Загружаем долину…</div><button class="farm-tour-card" data-farm-sprint>${icon('cup')}<span><b>Аркадный турнир</b><small>90 секунд · рейтинг и награды AC</small></span>${icon('arrow')}</button></section></div>`;
+    return `<div class="farm-valley-grid"><section class="farm-panel"><div class="farm-panel-title"><h3>Твоя долина</h3><span>${icon('leaf')}${esc(s.league.name)}</span></div><div class="farm-leagues">${leagues.map((name,i)=>`<div class="farm-league ${i===s.league.index?'is-current':''} ${i<s.league.index?'is-passed':''}">${icon(i<=s.league.index?'cup':'leaf')}<span>${name}</span><small>${i===s.league.index?'Твоя лига':i<s.league.index?'Пройдено':''}</small></div>`).join('')}</div><div class="farm-total-stats"><div><small>Урожай за всё время</small><b>${fmt(s.earned)}</b></div><div><small>Собрано вручную</small><b>${fmt(s.manual)}</b></div><div><small>Выросло само</small><b>${fmt(s.passive)}</b></div><div><small>Нажатий</small><b>${fmt(s.taps)}</b></div></div></section><section class="farm-panel"><div class="farm-panel-title"><h3>Фермеры</h3><span>Общий урожай</span></div><div class="farm-leaderboard" aria-live="polite">Загружаем долину…</div><button class="farm-tour-card" data-farm-sprint>${icon('cup')}<span><b>Аркадный турнир</b><small>90 секунд · рейтинг и награды AC</small></span>${icon('arrow')}</button></section></div><section class="farm-roadmap"><h3>Путь фермера · ${s.roadmap.length} уровней</h3><div>${s.roadmap.map(r=>`<div class="${r.level===s.level?'is-current':r.level<s.level?'is-done':''}"><b>${r.level}</b><span>${r.unlocks.length?esc(r.unlocks.join(' · ')):fmt(r.earned)+' урожая'}</span></div>`).join('')}</div></section>`;
   }
   async function loadBoard(f) {
     try {
@@ -304,6 +348,28 @@
       b.disabled = f.busy || f.failed || i.locked || i.maxed || v.balance < i.cost;
       b.classList.toggle('is-affordable', !b.disabled);
     }
+    for (const node of d.querySelectorAll('[data-missing]')) {
+      const i = s.items.find(i => i.id === node.dataset.missing);
+      node.textContent = v.balance < i.cost ? 'Ещё ' + fmt(i.cost - v.balance) : 'Купить';
+    }
+    for (const button of d.querySelectorAll('[data-farm-action]:not([data-farm-action="buy"]):not([data-farm-action="boost"]):not([data-farm-action="refill"])')) {
+      if (!button.dataset.initialDisabled) button.dataset.initialDisabled = button.disabled ? 'yes' : 'no';
+      button.disabled = f.busy || f.failed || button.dataset.initialDisabled === 'yes';
+    }
+    const collect = $('[data-farm-action="claim_all"]', d);
+    collect.disabled = f.busy || f.failed || !s.claimable.count;
+    $('[data-collect-count]', d).textContent = s.claimable.count ? 'Награды готовы · ' + s.claimable.count : 'Все награды собраны';
+    $('[data-collect-amount]', d).textContent = s.claimable.amount ? '+' + fmt(s.claimable.amount) : '';
+    const order = s.order,
+      remaining = order ? Math.max(0, (order.finish_at - s.server_ms) / 1000 - age) : 0;
+    for (const node of d.querySelectorAll('[data-order-clock]')) node.textContent = remaining ? 'Осталось ' + clock(remaining) : 'Доставка завершена';
+    const orderLabel = $('[data-order-label]', d);
+    if (orderLabel) orderLabel.textContent = remaining ? 'В ПУТИ' : 'ДОСТАВЛЕНО';
+    $('.farm-active-order', d)?.classList.toggle('is-ready', remaining === 0);
+    const orderProgress = $('[data-order-progress]', d);
+    if (orderProgress) orderProgress.value = order.seconds - remaining;
+    const orderClaim = $('[data-farm-action="claim_order"]', d);
+    if (orderClaim) orderClaim.disabled = f.busy || f.failed || remaining > 0;
     const boost = $('[data-farm-action="boost"]', d),
       refill = $('[data-farm-action="refill"]', d);
     if (boost) {
@@ -327,14 +393,25 @@
         $('progress', node).value = q.value;
       }
     }
+    for (const c of s.chapters) {
+      const node = d.querySelector('[data-chapter="' + c.id + '"]');
+      if (node) {
+        $('progress', node).value = Math.min(c.value, c.goal);
+        $('small', node).textContent = fmt(Math.min(c.value, c.goal)) + ' / ' + fmt(c.goal);
+      }
+    }
+    for (const button of d.querySelectorAll('[data-farm-action="start_order"]')) {
+      const option = s.orders.find(o => o.id === button.dataset.item);
+      button.disabled = f.busy || f.failed || !!s.order || s.level < option.unlock || v.balance < option.cost;
+    }
     for (const b of s.badges) {
       const node = d.querySelector('[data-badge="' + b.id + '"]');
-      if (node) $('small', node).textContent = fmt(Math.min(b.value, b.target)) + ' / ' + fmt(b.target);
+      if (node) $('small', node).textContent = b.description + ' · ' + fmt(Math.min(b.value, b.target)) + ' / ' + fmt(b.target);
     }
     const reset = $('[data-farm-reset]', d);
     if (reset) reset.textContent = 'Обновление через ' + clock((s.daily.reset_at - s.server_ms) / 1000 - age);
     for (const b of d.querySelectorAll('[data-farm-tab="tasks"] i')) {
-      const count = s.quests.filter(q => q.ready && !q.claimed).length + s.badges.filter(b => b.ready && !b.claimed).length + Number(!s.daily.claimed) + Number(s.daily.combo_ready && !s.daily.combo_claimed);
+      const count = s.claimable.count;
       b.textContent = count || '';
     }
     const offline = $('.farm-offline', d);
@@ -398,6 +475,7 @@
     }).then(value => {
       if (f.request === request) f.request = null;
       if (current !== f) return;
+      f.lastResult = value.result;
       accept(f, value.farm);
       status(f, '');
     }).catch(async error => {
@@ -446,7 +524,10 @@
       await flush(f);
       if (current === f) {
         render(f);
-        if (kind === 'buy') status(f, 'Улучшение куплено');
+        if (kind === 'claim_all') status(f, f.lastResult?.amount ? `Собрано ${fmt(f.lastResult.amount)} морковок · наград: ${f.lastResult.count}` : 'Пока нет готовых наград');
+        else if (kind === 'start_order') status(f, 'Заказ отправлен');
+        else if (kind === 'claim_order' || kind === 'claim_chapter') status(f, 'Награда в корзинке');
+        else if (kind === 'buy') status(f, 'Улучшение куплено');
         else if (kind === 'claim_daily' || kind === 'claim_quest' || kind === 'claim_badge') status(f, 'Морковки уже в корзинке');
       }
     } catch {} finally {
@@ -464,6 +545,13 @@
     if (b.hasAttribute('data-farm-sprint')) {
       close();
       f.options.onSprint?.();
+      return;
+    }
+    if (b.dataset.taskView) {
+      f.taskView = b.dataset.taskView;
+      f.tab = 'tasks';
+      persistUi(f);
+      render(f);
       return;
     }
     if (b.dataset.farmTab) {
@@ -509,6 +597,11 @@
   function tick(f) {
     if (current !== f || document.hidden || !f.snapshot) return;
     update(f);
+    const order = f.snapshot.order;
+    if (order && f.orderReadyChecked !== order.finish_at && f.snapshot.server_ms + (performance.now() - f.received) >= order.finish_at) {
+      f.orderReadyChecked = order.finish_at;
+      f.pollAt = 0;
+    }
     if (!f.busy && !f.failed && !f.inflight && (f.taps || f.request)) void flush(f).catch(() => {});
     else if (!f.busy && !f.failed && !f.inflight && performance.now() > f.pollAt) {
       f.pollAt = performance.now() + 15000;

@@ -1,5 +1,6 @@
 """Persistent Kopatych farm. Carrots are isolated from arcade and school AC wallets."""
 
+import copy
 import hashlib
 import hmac
 import json
@@ -26,6 +27,19 @@ LEVELS = [
     1000000,
     1600000,
     2500000,
+    4000000,
+    6500000,
+    10000000,
+    16000000,
+    25000000,
+    40000000,
+    65000000,
+    100000000,
+    160000000,
+    250000000,
+    400000000,
+    650000000,
+    1000000000,
 ]
 ITEMS = [
     dict(
@@ -48,7 +62,7 @@ ITEMS = [
         growth=1.6,
         unlock=2,
         maximum=15,
-        text="Усиливают ручной сбор на 10% за уровень",
+        text="Каждый уровень: +10% базового сбора, минимум +1 морковка",
     ),
     dict(
         id="battery",
@@ -166,6 +180,78 @@ ITEMS = [
         text="Ещё 2 часа накопления без захода в игру",
     ),
 ]
+ITEMS += [
+    dict(
+        id="compost",
+        name="Компостер",
+        category="business",
+        icon="compost",
+        price=4500,
+        growth=1.75,
+        unlock=8,
+        maximum=15,
+        text="Питательная почва: +9% к общему урожаю за уровень",
+    ),
+    dict(
+        id="windmill",
+        name="Мельница",
+        category="garden",
+        icon="windmill",
+        price=6500,
+        growth=1.65,
+        unlock=9,
+        maximum=25,
+        base=3800,
+        text="Перерабатывает урожай всей долины",
+    ),
+    dict(
+        id="pond",
+        name="Пруд",
+        category="garden",
+        icon="pond",
+        price=15000,
+        growth=1.7,
+        unlock=11,
+        maximum=25,
+        base=9000,
+        text="Водный сад с круглосуточным урожаем",
+    ),
+    dict(
+        id="tractor",
+        name="Трактор",
+        category="tools",
+        icon="tractor",
+        price=25000,
+        growth=1.7,
+        unlock=12,
+        maximum=20,
+        text="+20 к базовому ручному сбору за уровень; перчатки усиливают его",
+    ),
+    dict(
+        id="nursery",
+        name="Питомник",
+        category="garden",
+        icon="nursery",
+        price=60000,
+        growth=1.7,
+        unlock=14,
+        maximum=25,
+        base=35000,
+        text="Выращивает лучшие сорта для большого хозяйства",
+    ),
+    dict(
+        id="railway",
+        name="Железная дорога",
+        category="garden",
+        icon="railway",
+        price=250000,
+        growth=1.75,
+        unlock=17,
+        maximum=25,
+        base=150000,
+        text="Связывает ферму со всей долиной",
+    ),
+]
 BY_ID = {item["id"]: item for item in ITEMS}
 DAILY_REWARDS = [100, 150, 200, 300, 400, 600, 1000]
 BADGES = [
@@ -177,6 +263,42 @@ BADGES = [
     ("build_10", "Хозяйственник", "upgrades", 10, 400),
     ("build_30", "Большая ферма", "upgrades", 30, 2000),
     ("idle_5000", "Растёт само", "passive", 5000, 1500),
+    ("million", "Морковный миллион", "earned", 1000000, 15000),
+    ("ten_million", "Оранжевая империя", "earned", 10000000, 75000),
+    ("billion", "Легенда долины", "earned", 1000000000, 1000000),
+    ("tap_10000", "Без устали", "taps", 10000, 5000),
+    ("tap_50000", "Мастер лопаты", "taps", 50000, 20000),
+    ("build_75", "Строитель долины", "upgrades", 75, 8000),
+    ("build_150", "Большие планы", "upgrades", 150, 30000),
+    ("idle_100000", "Самоходная ферма", "passive", 100000, 8000),
+    ("idle_million", "Урожай без границ", "passive", 1000000, 25000),
+    ("variety_6", "На все руки", "variety", 6, 1000),
+    ("variety_12", "Полное хозяйство", "variety", 12, 10000),
+    ("variety_18", "Есть всё", "variety", 18, 50000),
+    ("orders_1", "Добрый сосед", "deliveries", 1, 150),
+    ("orders_10", "Надёжный поставщик", "deliveries", 10, 1500),
+    ("orders_50", "Вся долина знакома", "deliveries", 50, 10000),
+    ("streak_7", "Неделя на ферме", "best_streak", 7, 1500),
+    ("streak_30", "Месяц заботы", "best_streak", 30, 10000),
+]
+CHAPTERS = [
+    ("start", "Первый росток", "Вырастить первые 80 морковок", "earned", 80, 80),
+    ("build", "Дом для урожая", "Купить 3 уровня улучшений", "upgrades", 3, 180),
+    ("neighbour", "Знакомство с соседями", "Выполнить первый заказ", "deliveries", 1, 200),
+    ("harvest", "Тысяча причин расти", "Вырастить 1 000 морковок", "earned", 1000, 400),
+    ("variety", "Разнообразный огород", "Приобрести 6 разных улучшений", "variety", 6, 700),
+    ("power", "Дело пошло", "Достичь дохода 2 000 в час", "income", 2000, 1000),
+    ("village", "Свой человек", "Выполнить 10 заказов", "deliveries", 10, 2000),
+    ("large", "Большое хозяйство", "Купить 50 уровней улучшений", "upgrades", 50, 4000),
+    ("river", "На другом берегу", "Открыть пруд", "pond", 1, 6000),
+    ("million", "Первый миллион", "Вырастить 1 000 000 морковок", "earned", 1000000, 12000),
+    ("rail", "Дорога в долину", "Построить железную дорогу", "railway", 1, 25000),
+    ("legend", "Урожайная легенда", "Вырастить 10 000 000 морковок", "earned", 10000000, 50000),
+]
+ORDERS = [
+    dict(id="basket", name="Корзинка для Ёжика", cost=40, reward=80, seconds=300, unlock=1),
+    dict(id="picnic", name="Пикник у Кроша", cost=200, reward=360, seconds=1800, unlock=5),
+    dict(id="fair", name="Ярмарка долины", cost=1000, reward=1800, seconds=7200, unlock=9),
 ]
 
 
@@ -185,14 +307,19 @@ def level(earned):
 
 
 def stats(state, now_ms):
-    upgrades = state["items"]
+    upgrades = {key: state["items"].get(key, 0) for key in BY_ID}
     production = 120 + sum(
         int(item["base"] * upgrades[item["id"]] * 1.12 ** max(0, upgrades[item["id"]] - 1))
         for item in ITEMS
         if "base" in item
     )
-    production = production * (100 + 7 * upgrades["irrigation"] + 5 * upgrades["market"]) // 100
-    tap = (1 + 2 * upgrades["shovel"]) * (100 + 10 * upgrades["gloves"]) // 100
+    production = (
+        production
+        * (100 + 7 * upgrades["irrigation"] + 5 * upgrades["market"] + 9 * upgrades["compost"])
+        // 100
+    )
+    raw_tap = 1 + 2 * upgrades["shovel"] + 20 * upgrades["tractor"]
+    tap = raw_tap + max(upgrades["gloves"], raw_tap * 10 * upgrades["gloves"] // 100)
     boost = state["boost_until"] > now_ms
     return dict(
         per_hour=production,
@@ -262,10 +389,20 @@ class FarmStore:
         self.arcade._player(db, player)
         row = db.execute("SELECT state FROM kopatych_farms WHERE player=?", (player,)).fetchone()
         if row:
-            return json.loads(row[0])
+            state = json.loads(row[0])
+            for key in BY_ID:
+                state["items"].setdefault(key, 0)
+            state.setdefault("chapters", [])
+            state.setdefault("deliveries", 0)
+            state.setdefault("order", None)
+            state.setdefault("best_streak", state["streak"])
+            if state["daily"]:
+                state["daily"].setdefault("deliveries", 0)
+            state["version"] = 2
+            return state
         now = self._now()
         state = dict(
-            version=1,
+            version=2,
             balance=150,
             earned=0,
             passive=0,
@@ -283,6 +420,10 @@ class FarmStore:
             daily_last=None,
             streak=0,
             badges=[],
+            chapters=[],
+            deliveries=0,
+            order=None,
+            best_streak=0,
             created=now,
         )
         self._event(db, player, "welcome", 150, "На первые улучшения")
@@ -322,6 +463,7 @@ class FarmStore:
             combo=eligible[:3],
             boosts=0,
             refills=0,
+            deliveries=0,
         )
 
     def _settle(self, db, player, state):
@@ -396,10 +538,148 @@ class FarmStore:
             name="Растём дальше" if fixed_goal else "Ручной урожай",
             unit="улучшения" if fixed_goal else "морковок вручную",
         )
+        daily.setdefault(
+            "variety_goal", min(3, sum(state["items"][i["id"]] < i["maximum"] for i in ITEMS))
+        )
+        variety_goal = daily["variety_goal"]
+        quests.extend(
+            [
+                dict(
+                    id="manual",
+                    name="Личная забота",
+                    goal=600,
+                    value=daily["manual"],
+                    reward=180,
+                    unit="морковок вручную",
+                ),
+                dict(
+                    id="variety",
+                    name="Мастер на все руки" if variety_goal else "Запас на зиму",
+                    goal=variety_goal or 1000,
+                    value=len(daily["bought"]) if variety_goal else daily["passive"],
+                    reward=240,
+                    unit="разных улучшений" if variety_goal else "морковок без нажатий",
+                ),
+                dict(
+                    id="sun",
+                    name="Солнечная смена",
+                    goal=1,
+                    value=daily["boosts"],
+                    reward=60,
+                    unit="усиление",
+                ),
+                dict(
+                    id="delivery",
+                    name="Соседская помощь",
+                    goal=1,
+                    value=daily["deliveries"],
+                    reward=120,
+                    unit="заказ",
+                ),
+            ]
+        )
         for quest in quests:
             quest["claimed"] = quest["id"] in daily["claimed"]
             quest["ready"] = quest["value"] >= quest["goal"] and not quest["claimed"]
         return quests
+
+    def _metrics(self, state):
+        return {
+            "earned": state["earned"],
+            "taps": state["taps"],
+            "upgrades": sum(state["items"].values()),
+            "passive": state["passive"],
+            "variety": sum(v > 0 for v in state["items"].values()),
+            "deliveries": state["deliveries"],
+            "best_streak": state["best_streak"],
+            "income": stats(state, state["last_ms"])["per_hour"],
+            **{key: state["items"][key] for key in ("pond", "railway")},
+        }
+
+    def _chapters(self, state):
+        metrics = self._metrics(state)
+        first = next((key for key, *_ in CHAPTERS if key not in state["chapters"]), None)
+        return [
+            dict(
+                id=key,
+                name=name,
+                text=text,
+                value=metrics[metric],
+                goal=goal,
+                reward=reward,
+                claimed=key in state["chapters"],
+                locked=key != first,
+                ready=key == first and metrics[metric] >= goal,
+            )
+            for key, name, text, metric, goal, reward in CHAPTERS
+        ]
+
+    def _available(self, state):
+        """Only server-earned rewards; bonuses never increase productive experience."""
+        daily = state["daily"]
+        rewards = []
+        if state["daily_last"] != daily["day"]:
+            yesterday = (
+                (datetime.fromisoformat(daily["day"]) - timedelta(days=1)).date().isoformat()
+            )
+            streak = state["streak"] + 1 if state["daily_last"] == yesterday else 1
+            rewards.append(
+                dict(
+                    kind="daily", id="daily", amount=DAILY_REWARDS[(streak - 1) % 7], streak=streak
+                )
+            )
+        for q in self._quests(state):
+            if q["ready"]:
+                rewards.append(dict(kind="quest", id=q["id"], amount=q["reward"]))
+        if (
+            daily["combo"]
+            and "combo" not in daily["claimed"]
+            and all(key in daily["bought"] for key in daily["combo"])
+        ):
+            rewards.append(dict(kind="quest", id="combo", amount=600))
+        metrics = self._metrics(state)
+        for key, _name, metric, target, reward in BADGES:
+            if key not in state["badges"] and metrics[metric] >= target:
+                rewards.append(dict(kind="badge", id=key, amount=reward))
+        for key, _name, _text, metric, goal, reward in CHAPTERS:
+            if key in state["chapters"]:
+                continue
+            if metrics[metric] < goal:
+                break
+            rewards.append(dict(kind="chapter", id=key, amount=reward))
+        order = state["order"]
+        if order and state["last_ms"] >= order["finish_at"]:
+            rewards.append(dict(kind="order", id=order["id"], amount=order["reward"]))
+        return rewards
+
+    def _collect(self, db, player, state, rewards):
+        for reward in rewards:
+            kind, key = reward["kind"], reward["id"]
+            if kind == "daily":
+                state["daily_last"] = state["daily"]["day"]
+                state["streak"] = reward["streak"]
+                state["best_streak"] = max(state["best_streak"], state["streak"])
+            elif kind == "quest":
+                state["daily"]["claimed"].append(key)
+            elif kind == "badge":
+                state["badges"].append(key)
+            elif kind == "chapter":
+                state["chapters"].append(key)
+            elif kind == "order":
+                state["order"] = None
+                state["deliveries"] += 1
+                state["daily"]["deliveries"] += 1
+            state["balance"] += reward["amount"]
+            if db is not None:
+                self._event(db, player, kind, reward["amount"], key)
+
+    def _bundle(self, state):
+        projected = copy.deepcopy(state)
+        bundle = []
+        while rewards := self._available(projected):
+            bundle.extend(rewards)
+            self._collect(None, None, projected, rewards)
+        return bundle
 
     def _snapshot(self, db, player, state, offline=None):
         now = state["last_ms"]
@@ -408,8 +688,33 @@ class FarmStore:
         items = []
         for item in ITEMS:
             count = state["items"][item["id"]]
-            future = {**state, "items": {**state["items"], item["id"]: count + 1}}
+            future = {
+                **state,
+                "items": {**state["items"], item["id"]: min(count + 1, item["maximum"])},
+            }
             upgraded = stats(future, now)
+            without = stats({**state, "items": {**state["items"], item["id"]: 0}}, now)
+            if "base" in item:
+                effect = dict(
+                    label="Доход этой постройки",
+                    unit="/ ч",
+                    current=values["per_hour"] - without["per_hour"],
+                    next=upgraded["per_hour"] - without["per_hour"],
+                )
+            else:
+                field, label, unit = (
+                    ("energy_max", "Запас энергии", "энергии")
+                    if item["id"] == "battery"
+                    else ("energy_per_second", "Восстановление", "/ с")
+                    if item["id"] == "well"
+                    else ("offline_hours", "Накопление без захода", "ч")
+                    if item["id"] == "silo"
+                    else ("base_tap", "Ручной сбор без усиления", "/ нажатие")
+                    if item["id"] in ("shovel", "gloves", "tractor")
+                    else ("per_hour", "Доход всей фермы", "/ ч")
+                )
+                effect = dict(label=label, unit=unit, current=values[field], next=upgraded[field])
+            effect["gain"] = round(effect["next"] - effect["current"], 2)
             items.append(
                 {
                     **item,
@@ -420,6 +725,12 @@ class FarmStore:
                     "per_hour_gain": upgraded["per_hour"] - values["per_hour"],
                     "per_tap_gain": upgraded["base_tap"] - values["base_tap"],
                     "affordable": state["balance"] >= price(item, count),
+                    "effect": effect,
+                    "payback_hours": round(
+                        price(item, count) / (upgraded["per_hour"] - values["per_hour"]), 2
+                    )
+                    if upgraded["per_hour"] > values["per_hour"]
+                    else None,
                 }
             )
         daily = state["daily"]
@@ -430,12 +741,7 @@ class FarmStore:
         proposed_streak = state["streak"] + 1 if state["daily_last"] == yesterday else 1
         streak = state["streak"] if bonus_claimed else proposed_streak
         badges = []
-        metrics = {
-            "earned": state["earned"],
-            "taps": state["taps"],
-            "upgrades": sum(state["items"].values()),
-            "passive": state["passive"],
-        }
+        metrics = self._metrics(state)
         for key, name, metric, target, reward in BADGES:
             badges.append(
                 dict(
@@ -446,6 +752,15 @@ class FarmStore:
                     reward=reward,
                     ready=metrics[metric] >= target,
                     claimed=key in state["badges"],
+                    description={
+                        "earned": "Выращено морковок",
+                        "taps": "Нажатия",
+                        "upgrades": "Уровни улучшений",
+                        "passive": "Выросло само",
+                        "variety": "Разных улучшений",
+                        "deliveries": "Заказы соседей",
+                        "best_streak": "Дней подряд",
+                    }[metric],
                 )
             )
         next_day = datetime.fromisoformat(daily["day"]).replace(tzinfo=MOSCOW) + timedelta(days=1)
@@ -457,9 +772,24 @@ class FarmStore:
                 (player,),
             )
         ]
+        sources = [
+            dict(
+                id=i["id"],
+                name=i["name"],
+                amount=int(
+                    i["base"]
+                    * state["items"][i["id"]]
+                    * 1.12 ** max(0, state["items"][i["id"]] - 1)
+                ),
+            )
+            for i in ITEMS
+            if "base" in i and state["items"][i["id"]]
+        ]
+        raw = 120 + sum(row["amount"] for row in sources)
+        available = self._bundle(state)
         return dict(
             player=player,
-            version=1,
+            version=2,
             balance=state["balance"],
             earned=state["earned"],
             manual=state["manual"],
@@ -468,12 +798,35 @@ class FarmStore:
             level=lv,
             level_start=LEVELS[lv - 1],
             level_next=LEVELS[lv] if lv < len(LEVELS) else None,
+            roadmap=[
+                dict(
+                    level=n + 1,
+                    earned=threshold,
+                    unlocks=[i["name"] for i in ITEMS if i["unlock"] == n + 1],
+                )
+                for n, threshold in enumerate(LEVELS)
+            ],
             league=league(state["earned"]),
             energy=state["energy_milli"] // 1000,
             stats=values,
             items=items,
             quests=quests,
             badges=badges,
+            chapters=self._chapters(state),
+            orders=ORDERS,
+            order=state["order"],
+            deliveries=state["deliveries"],
+            claimable=dict(count=len(available), amount=sum(r["amount"] for r in available)),
+            production=dict(
+                base=120,
+                sources=sources,
+                raw=raw,
+                bonus=values["per_hour"] - raw,
+                total=values["per_hour"],
+                percent=7 * state["items"]["irrigation"]
+                + 5 * state["items"]["market"]
+                + 9 * state["items"]["compost"],
+            ),
             events=events,
             daily=dict(
                 day=daily["day"],
@@ -513,6 +866,10 @@ class FarmStore:
             "claim_badge",
             "boost",
             "refill",
+            "claim_all",
+            "claim_chapter",
+            "claim_order",
+            "start_order",
         ):
             raise ArcadeError("Неизвестное действие на ферме.")
         if not isinstance(count, int) or isinstance(count, bool) or not 1 <= count <= 20:
@@ -539,7 +896,46 @@ class FarmStore:
                 }
             now, daily = state["last_ms"], state["daily"]
             result = {"action": action, "amount": 0}
-            if action == "tap":
+            if action in ("claim_all", "claim_chapter", "claim_order"):
+                collected = []
+                # A completed order can finish a daily quest or chapter. Collect those too.
+                while True:
+                    rewards = self._available(state)
+                    if action != "claim_all":
+                        kind = "chapter" if action == "claim_chapter" else "order"
+                        rewards = [r for r in rewards if r["kind"] == kind][:1]
+                        if item and rewards and rewards[0]["id"] != item:
+                            rewards = []
+                    if not rewards:
+                        break
+                    self._collect(db, player, state, rewards)
+                    collected.extend(rewards)
+                    if action != "claim_all":
+                        break
+                if not collected and action != "claim_all":
+                    raise ArcadeError("Награда пока не готова или уже получена.")
+                result.update(
+                    amount=sum(r["amount"] for r in collected),
+                    rewards=collected,
+                    count=len(collected),
+                )
+            elif action == "start_order":
+                definition = next((o for o in ORDERS if o["id"] == item), None)
+                if not definition or level(state["earned"]) < definition["unlock"]:
+                    raise ArcadeError("Этот заказ пока недоступен.")
+                if state["order"]:
+                    raise ArcadeError("Сначала забери награду за текущий заказ.")
+                if state["balance"] < definition["cost"]:
+                    raise ArcadeError("На подготовку заказа пока не хватает морковок.")
+                state["balance"] -= definition["cost"]
+                state["order"] = {
+                    **definition,
+                    "started_at": now,
+                    "finish_at": now + definition["seconds"] * 1000,
+                }
+                result["amount"] = -definition["cost"]
+                self._event(db, player, "order_start", -definition["cost"], definition["name"])
+            elif action == "tap":
                 accepted = min(count, state["tokens_milli"] // 1000, state["energy_milli"] // 1000)
                 amount = accepted * stats(state, now)["per_tap"]
                 state["tokens_milli"] -= accepted * 1000
@@ -579,6 +975,7 @@ class FarmStore:
                 bonus = self._snapshot(db, player, state)["daily"]
                 state["daily_last"] = daily["day"]
                 state["streak"] = bonus["streak"]
+                state["best_streak"] = max(state["best_streak"], state["streak"])
                 state["balance"] += bonus["reward"]
                 result["amount"] = bonus["reward"]
                 self._event(db, player, "daily", result["amount"], f"День {state['streak']}")
