@@ -5,14 +5,36 @@
   const p = {ink:'#775034',orange:'#cf773c',light:'#e9984d',cream:'#fae6b2',leaf:'#71864b',dark:'#4d623d',gold:'#ebbf62',wood:'#bc8d59',blue:'#a5c4c4'};
   const wrap = (body,box='0 0 80 80',cover=false) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${box}" preserveAspectRatio="${cover?'xMidYMid slice':'xMidYMid meet'}" fill="none" aria-hidden="true" focusable="false">${body}</svg>`;
   const leaf=(x,y,rotate=0)=>`<g transform="translate(${x} ${y}) rotate(${rotate})"><path d="M0 0Q-21-19-24-6-22 7 0 0Z" fill="#879a52"/><path d="M0 0Q17-28 24-13 25-1 0 0Z" fill="#6b8648"/><path d="M0 0q-5-35 5-33 11 2-5 33Z" fill="#a3b66c"/></g>`;
-  function character(boost=false){
+  const STAGES=[
+    {level:1,name:'Первый огород'}, {level:5,name:'Уютная ферма'},
+    {level:10,name:'Цветущая долина'}, {level:17,name:'Большое хозяйство'},
+    {level:24,name:'Легендарная усадьба'}
+  ];
+  function stage(level=1){
+    const index=Math.max(0,STAGES.filter(s=>level>=s.level).length-1);
+    return {...STAGES[index],index,next:STAGES[index+1]?.level||null};
+  }
+  function character(boost=false,level=1){
+    const t=stage(level).index;
+    const cloth=['','#8da36a','#779aa0','#557b65','#e6d6a2'][t];
+    const band=['#a96940','#72824c','#86624a','#416354','#a47e3d'][t];
+    const outfit=t?`<g stroke="#675c3d" stroke-width="2.5" stroke-linejoin="round">
+      <path d="M76 205q11 11 21 14l-2 22q45 24 96-1l-1-21 19-14 15 37q-23 29-81 29-49 0-73-24Z" fill="${cloth}"/>
+      <path d="m83 181 14 5 12 55-15 4Zm111 3 13-4-8 63-15-3Z" fill="${cloth}"/>
+      <circle cx="103" cy="236" r="4" fill="#ead18a"/><circle cx="190" cy="236" r="4" fill="#ead18a"/>
+      <path d="M123 241h44l-3 17q-18 8-37 0Z" fill="${t===4?'#b49c5e':t===3?'#3d6450':'#627f64'}"/>
+      <path d="M127 247h35" stroke="#e4d9ad" stroke-width="1.5"/>
+      ${t>=2?'<path d="M79 267q23-10 41-2v10q-26 16-40 4Zm96-3q25-7 41 5l-5 11q-19 9-34-3Z" fill="#6d7656"/>':''}
+      ${t>=3?'<path d="m190 216 10 4-5 13-11-6Z" fill="#e0b75c"/><circle cx="194" cy="222" r="3" fill="#f9e3a0"/>':''}
+      ${t===4?'<path d="M77 231q-10 15-4 19m143-20q9 16 0 24" stroke="#d6b15c" stroke-width="4"/>':''}
+    </g>`:'';
     const id='kopatych-coat-'+(++serial);
     return wrap(`<defs><radialGradient id="${id}" cx=".3" cy=".23" r=".84"><stop stop-color="#e89c54"/><stop offset=".65" stop-color="#d78542"/><stop offset="1" stop-color="#be6933"/></radialGradient></defs>
       <ellipse cx="150" cy="281" rx="88" ry="10" fill="#6c58391b"/>
       <g stroke="#87512e" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
       <path d="M222 153q31-19 35-1 6 19-25 31" fill="#cb7638"/>
       <path d="m253 130-8 129" stroke="#ba8c54" stroke-width="9"/>
-      <path d="m249 255 26 3-6 22-14 9-12-11Z" fill="#c0c6bb" stroke="#7f8c7d" stroke-width="3"/>
+      <path d="m249 255 26 3-6 22-14 9-12-11Z" fill="${t>=3?'#d9be73':t>=2?'#d0ded9':'#c0c6bb'}" stroke="#7f8c7d" stroke-width="3"/>
       <path d="m248 126 11 1 3-22-15-1Z" fill="#bd8a50"/>
       <path d="M99 251q-21 12-16 23 8 15 36 2l5-17m47 0 8 18q26 11 32-3 4-11-19-23" fill="#b96d35"/>
       <path d="M78 105q-20-26-35-8-13 17 9 34m151-24q21-27 36-10 14 16-7 35" fill="#c77a3c"/>
@@ -21,6 +43,7 @@
       <path d="M62 189q-26-10-32 8-6 19 27 27" fill="#d98944"/>
       <path d="M62 197q-10-4-15-1m12 12-10 1" stroke="#b76b32" stroke-width="2.5"/>
       </g>
+      ${outfit}
       <path d="M77 157q4-38 35-49" stroke="#f5bd7380" stroke-width="7" stroke-linecap="round"/>
       <ellipse cx="120" cy="160" rx="25" ry="33" fill="#fff6db" stroke="#a96b3c" stroke-width="2"/>
       <ellipse cx="169" cy="160" rx="25" ry="33" fill="#fff6db" stroke="#a96b3c" stroke-width="2"/>
@@ -33,17 +56,35 @@
       <path d="m136 224 18-1-2 8h-12Z" fill="#fff4d9"/>
       <ellipse cx="98" cy="200" rx="10" ry="5" fill="#df9c5e"/><ellipse cx="190" cy="200" rx="10" ry="5" fill="#df9c5e"/>
       <g transform="rotate(-7 143 82)" stroke="#aa793b" stroke-width="3" stroke-linejoin="round">
-      <path d="m91 80 14-45q29-23 63-6l23 50" fill="${boost?'#f5d582':'#edc66e'}"/>
-      <path d="m99 60q46-12 84 0l5 14-92 9Z" fill="#a96940" stroke="none"/>
+      <path d="m91 80 14-45q29-23 63-6l23 50" fill="${boost?'#f5d582':t===4?'#f5dda0':t>=2?'#d5be7f':'#edc66e'}"/>
+      <path d="m99 60q46-12 84 0l5 14-92 9Z" fill="${band}" stroke="none"/>
       <path d="M58 86q70-37 166-6 16 7 5 17-74-8-155 8-22-5-16-19Z" fill="#f2d48c"/>
       <path d="m103 42 3 10m17-20 1 16m18-19v17m18-15 2 17m17-11 4 13" stroke="#e1af56" stroke-width="2"/>
       <path d="M77 93q72-18 132-5" fill="none" stroke="#ffe8ac" stroke-width="3"/>
       <g transform="translate(90 62)" stroke="none"><circle cx="-6" cy="-3" r="6" fill="#fff7d8"/><circle cx="1" cy="-8" r="6" fill="#fff7d8"/><circle cx="7" cy="0" r="6" fill="#fff7d8"/><circle cx="0" cy="6" r="6" fill="#fff7d8"/><circle r="4.5" fill="#d9a841"/></g>
+      ${t>=2?'<path d="m195 67 9-27q13 7 4 25l-12 8" fill="#71945a" stroke="#577342" stroke-width="2"/>':''}
+      ${t===4?'<g transform="translate(157 68)" stroke="#aa803c" stroke-width="2"><path d="m0-11 4 7 8 1-6 6 1 8-7-4-7 4 1-8-6-6 8-1Z" fill="#f8df8b"/></g>':''}
       </g>
       <path d="M243 154q13-3 13 7t-13 8" fill="#d48340" stroke="#87512e" stroke-width="3"/>`, '0 0 300 300');
   }
-  function scene(){
-    return wrap(`<rect width="640" height="560" fill="#eaf0d8"/>
+  function scene(level=1){
+    const t=stage(level).index;
+    const sky=['#eaf0d8','#e9efcf','#dcebdc','#dfeddf','#f0e7c9'][t];
+    const flourish=t>=1?`<path d="M270 560q-23-76 86-190l32 12q-95 106-67 178Z" fill="#e1cf9c"/>
+      <g fill="#ecbd9a">${[30,65,112,548,586,622].map((x,n)=>`<circle cx="${x}" cy="${350+n%2*20}" r="6"/>`).join('')}</g>
+      <g fill="#e5cd89">${[48,87,570,608].map(x=>`<circle cx="${x}" cy="387" r="4"/>`).join('')}</g>
+      <g stroke="#d1c09a" stroke-width="3"><path d="M18 318h102m-102 20h102m-85-31v45m32-45v45m32-45v45"/></g>`:'';
+    const water=t>=2?`<path d="M0 300q105-31 186 14t-5 49Q70 349 0 393Z" fill="#a5c9c4"/>
+      <path d="M0 337q90-21 156 12m-128 9 49-5" stroke="#deebd7" stroke-width="3" stroke-linecap="round"/>
+      <path d="m106 313 65 11-8 34-66-11Z" fill="#bca273"/><path d="m110 320 52 9m-56 1 52 9m-54 0 52 9" stroke="#ead5ac" stroke-width="3"/>
+      <g transform="translate(506 247)"><path d="M0 26Q0 0 39 0t39 26v60H0Z" fill="#cfdfb5" stroke="#8ea27b" stroke-width="3"/><path d="M26 2v84m26-84v84M0 29h78M0 57h78" stroke="#8ea27b" stroke-width="3"/><path d="m52 15 14-6" stroke="#f7f1d8" stroke-width="5"/></g>`:'';
+    const mill=t>=3?`<g transform="translate(40 130)"><path d="m27 41-8 116h89L88 41 57 8Z" fill="#d9c89b" stroke="#9d845a" stroke-width="3"/><path d="M12 51 57 5l45 46Z" fill="#a97548"/><path d="M48 157v-34h25v34" fill="#927c56"/><g transform="rotate(18 57 58)" stroke="#9c885c" stroke-width="3" fill="#f3e2b6"><path d="M50 0h14v116H50Z"/><path d="M0 51h115v14H0Z"/></g><circle cx="57" cy="58" r="9" fill="#aa9362"/></g>
+      <path d="M0 400q303-46 640 4" stroke="#a39475" stroke-width="9"/><path d="M0 395q303-46 640 4" stroke="#ded0af" stroke-width="3"/>`:'';
+    const festival=t>=4?`<path d="M0 95q300 70 640-10" stroke="#b29b69" stroke-width="2"/>
+      ${[30,100,175,255,335,415,495,575].map((x,n)=>`<path d="m${x} ${108+Math.sin(n*.5)*25} 25 4-15 24Z" fill="${['#d6a26a','#99af76','#cdb76b'][n%3]}"/>`).join('')}
+      <g transform="translate(463 175)"><path d="M0 43 65 0l65 43v113H0Z" fill="#ece0b7" stroke="#b89c68" stroke-width="3"/><path d="m-8 44 73-51 73 51" stroke="#71875b" stroke-width="12"/><path d="M48 156v-61h35v61" fill="#a9b988"/><circle cx="65" cy="57" r="14" fill="#d4b775"/><path d="M16 76h20v29H16Zm78 0h20v29H94Z" fill="#b8cfb1"/></g>
+      <g fill="#fff2c4">${[37,90,187,460,578,611].map((x,n)=>`<path d="m${x} ${282+n%3*21} 3-7 3 7 7 3-7 3-3 7-3-7-7-3Z"/>`).join('')}</g>`:'';
+    return wrap(`<rect width="640" height="560" fill="${sky}"/>
       <path d="M0 207Q141 105 308 185T640 164V560H0Z" fill="#d7e2b8"/>
       <path d="M0 276Q162 175 334 245T640 221V560H0Z" fill="#c7d59f"/>
       <path d="M0 359Q160 259 373 336T640 282V560H0Z" fill="#afc385"/>
@@ -57,8 +98,14 @@
       <g fill="none" stroke="#ac8b58" stroke-width="2" opacity=".35"><path d="M80 430q210-37 468 5M43 508q281-54 557 2"/></g>
       ${[87,151,215,405,470,533].map((x,i)=>leaf(x,429+(i%2)*4,i%2?14:-8)).join('')}
       ${[55,116,177,238,371,432,493,554,609].map((x,i)=>leaf(x,509+(i%2)*6,i%2?-12:6)).join('')}
+      ${water}${flourish}${mill}${festival}
       <g fill="#f4e8bc"><circle cx="36" cy="380" r="3"/><circle cx="590" cy="370" r="3"/><circle cx="562" cy="336" r="2"/></g>
       <g fill="#8c9f6a"><ellipse cx="113" cy="352" rx="9" ry="2" transform="rotate(-31 113 352)"/><ellipse cx="118" cy="348" rx="7" ry="2" transform="rotate(24 118 348)"/></g>`, '0 0 640 560',true);
+  }
+  function neighbor(kind){
+    const outline='stroke="#67503d" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"';
+    const body=kind==='rabbit'?`<g ${outline}><path d="M27 30Q8-12 25 3q13 14 14 29m7-1Q42-6 57 2q12 6-1 30" fill="#a7cdcf"/><circle cx="40" cy="47" r="29" fill="#a7cdcf"/><ellipse cx="31" cy="43" rx="8" ry="11" fill="#fff9de"/><ellipse cx="49" cy="43" rx="8" ry="11" fill="#fff9de"/><path d="m29 44 1 1m18-1 1 1" stroke-width="5"/><path d="M35 53q5-5 10 0l-5 5Z" fill="#c5786d"/><path d="M28 60q12 14 25-3" fill="none"/><path d="M36 65h10l-1 7h-8Z" fill="#fff9de"/></g>`:kind==='hedgehog'?`<g ${outline}><path d="m12 35-6-15 16 2 1-16 15 10L50 4l6 17 17 1-6 17Z" fill="#92759f"/><circle cx="40" cy="48" r="29" fill="#b69bc0"/><circle cx="27" cy="45" r="12" fill="#f8ecd8"/><circle cx="53" cy="45" r="12" fill="#f8ecd8"/><path d="M38 44h4m-31-2-5-3m62 3 6-3" stroke="#745278" stroke-width="4"/><path d="m28 45 1 1m23-1 1 1" stroke-width="5"/><path d="m36 55 4 4 5-4" fill="#916383"/><path d="M32 66q8 5 16 0" fill="none"/></g>`:`<g ${outline}><path d="m15 33-6-23 23 10m23 0 19-11-8 27" fill="#b39bb9"/><circle cx="40" cy="47" r="30" fill="#b39bb9"/><ellipse cx="28" cy="43" rx="13" ry="15" fill="#f6e6c7"/><ellipse cx="53" cy="43" rx="13" ry="15" fill="#f6e6c7"/><path d="m28 43 1 1m23-1 1 1" stroke-width="6"/><path d="m34 54 13-1-7 12Z" fill="#daa66c"/><path d="M24 70q16 11 32 0" stroke="#90769b"/><path d="m18 13 13-10 19 3 12 10" fill="#dfcc98"/></g>`;
+    return wrap(body);
   }
   function item(id){
     id=({battery:'energy',irrigation:'water',beehives:'bee',orchard:'tree',silo:'barn'})[id]||id;
@@ -86,5 +133,5 @@
     if(id==='gift')body=`<g ${stroke}><rect x="13" y="29" width="54" height="43" rx="4" fill="#e2be72"/><rect x="9" y="24" width="62" height="14" rx="4" fill="#edce88"/><path d="M34 25v47h12V25" fill="#a5b17a"/><path d="M40 24Q13 27 19 10q7-12 21 14Zm0 0Q67 27 61 10q-7-12-21 14Z" fill="#bdc699"/></g>`;
     return wrap(`<ellipse cx="40" cy="74" rx="28" ry="4" fill="#bfb08e25"/>${body}`);
   }
-  window.KopatychArt={character,scene,item};
+  window.KopatychArt={character,scene,item,stage,neighbor};
 })();

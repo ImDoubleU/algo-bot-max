@@ -296,9 +296,42 @@ CHAPTERS = [
     ("legend", "Урожайная легенда", "Вырастить 10 000 000 морковок", "earned", 10000000, 50000),
 ]
 ORDERS = [
-    dict(id="basket", name="Корзинка для Ёжика", cost=40, reward=80, seconds=300, unlock=1),
-    dict(id="picnic", name="Пикник у Кроша", cost=200, reward=360, seconds=1800, unlock=5),
-    dict(id="fair", name="Ярмарка долины", cost=1000, reward=1800, seconds=7200, unlock=9),
+    dict(
+        id="basket",
+        name="Пирог для друзей",
+        person="Ёжик",
+        portrait="hedgehog",
+        request="Собираю друзей на чай. Привезёшь морковку для пирога?",
+        cost=40,
+        profit=140,
+        factor=3.6,
+        seconds=300,
+        unlock=1,
+    ),
+    dict(
+        id="picnic",
+        name="Большой пикник",
+        person="Крош",
+        portrait="rabbit",
+        request="Нужен запас на целую компанию. Устроим пикник у озера!",
+        cost=200,
+        profit=900,
+        factor=3,
+        seconds=1800,
+        unlock=5,
+    ),
+    dict(
+        id="fair",
+        name="Урожайная ярмарка",
+        person="Совунья",
+        portrait="owl",
+        request="Вся долина ждёт твой урожай. Готовлю самое большое место на ярмарке.",
+        cost=1000,
+        profit=5000,
+        factor=2.5,
+        seconds=7200,
+        unlock=9,
+    ),
 ]
 
 
@@ -596,6 +629,44 @@ class FarmStore:
             **{key: state["items"][key] for key in ("pond", "railway")},
         }
 
+    def _neighbors(self, state):
+        thresholds = [0, 5, 15, 30, 50]
+        rank = sum(state["deliveries"] >= n for n in thresholds) - 1
+        return dict(
+            rank=rank,
+            name=["Знакомство", "Свой сосед", "Надёжный друг", "Любимец долины", "Легенда долины"][
+                rank
+            ],
+            bonus=rank * 5,
+            deliveries=state["deliveries"],
+            start=thresholds[rank],
+            next=thresholds[rank + 1] if rank < 4 else None,
+        )
+
+    def _offers(self, state):
+        income = stats(state, state["last_ms"])["per_hour"]
+        bonus = self._neighbors(state)["bonus"]
+        offers = []
+        for definition in ORDERS:
+            profit = math.ceil(
+                max(
+                    definition["profit"],
+                    income * definition["seconds"] / 3600 * definition["factor"],
+                )
+                * (100 + bonus)
+                / 100
+            )
+            offers.append(
+                {
+                    **definition,
+                    "profit": profit,
+                    "reward": definition["cost"] + profit,
+                    "income_minutes": round(profit * 60 / income),
+                    "bonus": bonus,
+                }
+            )
+        return offers
+
     def _chapters(self, state):
         metrics = self._metrics(state)
         first = next((key for key, *_ in CHAPTERS if key not in state["chapters"]), None)
@@ -750,7 +821,7 @@ class FarmStore:
                     value=metrics[metric],
                     target=target,
                     reward=reward,
-                    ready=metrics[metric] >= target,
+                    ready=metrics[metric] >= target and key not in state["badges"],
                     claimed=key in state["badges"],
                     description={
                         "earned": "Выращено морковок",
@@ -813,7 +884,8 @@ class FarmStore:
             quests=quests,
             badges=badges,
             chapters=self._chapters(state),
-            orders=ORDERS,
+            orders=self._offers(state),
+            neighbors=self._neighbors(state),
             order=state["order"],
             deliveries=state["deliveries"],
             claimable=dict(count=len(available), amount=sum(r["amount"] for r in available)),
@@ -920,7 +992,7 @@ class FarmStore:
                     count=len(collected),
                 )
             elif action == "start_order":
-                definition = next((o for o in ORDERS if o["id"] == item), None)
+                definition = next((o for o in self._offers(state) if o["id"] == item), None)
                 if not definition or level(state["earned"]) < definition["unlock"]:
                     raise ArcadeError("Этот заказ пока недоступен.")
                 if state["order"]:

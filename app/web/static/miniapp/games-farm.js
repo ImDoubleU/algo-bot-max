@@ -85,7 +85,7 @@
     const dialog = document.createElement('dialog');
     dialog.id = 'kopatychFarm';
     dialog.className = 'farm-dialog';
-    dialog.innerHTML = `<header class="farm-header"><div class="farm-brand">${carrot()}<div><small>КОПАТЫЧ</small><h2>Моя ферма</h2></div></div><button class="farm-tournament" data-farm-sprint>${icon('cup')}<span>Турнир · 90 с</span></button><button class="farm-close" data-farm-close aria-label="Закрыть ферму">${icon('close')}</button></header><div class="farm-loading">Готовим огород…</div><div class="farm-app" hidden><div class="farm-wallet"><div class="farm-balance"><span>Морковки в корзинке</span><div class="farm-balance-number">${carrot()}<strong data-farm-bank>0</strong></div></div><div class="farm-income"><span>Растёт само</span><div><strong data-farm-income>0</strong><small>в час</small></div></div><div class="farm-level-chip"><span>Уровень</span><strong data-farm-level>1</strong></div></div><div class="farm-offline" hidden></div><nav class="farm-tabs" aria-label="Разделы фермы">${[['home','leaf','Ферма'],['upgrades','barn','Улучшения'],['tasks','gift','Задания'],['valley','cup','Долина']].map(([tab,i,t])=>`<button data-farm-tab="${tab}">${icon(i)}<span>${t}</span><i></i></button>`).join('')}</nav><div class="farm-collect-bar"><span data-collect-count></span><button class="farm-button" data-farm-action="claim_all">Забрать всё <span data-collect-amount></span></button></div><p class="farm-status" role="status" hidden></p><div class="farm-content"></div><footer class="farm-save-line"><span class="farm-save-dot"></span><span data-save-label>Прогресс сохраняется</span><span class="farm-offline-rule">Растёт даже с закрытым приложением</span></footer></div>`;
+    dialog.innerHTML = `<header class="farm-header"><div class="farm-brand">${carrot()}<div><small>КОПАТЫЧ</small><h2>Моя ферма</h2></div></div><button class="farm-tournament" data-farm-sprint>${icon('cup')}<span>Турнир · 90 с</span></button><button class="farm-close" data-farm-close aria-label="Закрыть ферму">${icon('close')}</button></header><div class="farm-loading">Готовим огород…</div><div class="farm-app" hidden><div class="farm-wallet"><div class="farm-balance"><span>Морковки в корзинке</span><div class="farm-balance-number">${carrot()}<strong data-farm-bank>0</strong></div></div><div class="farm-income"><span>Растёт само</span><div><strong data-farm-income>0</strong><small>в час</small></div></div><div class="farm-level-chip"><span>Уровень</span><strong data-farm-level>1</strong></div></div><div class="farm-offline" hidden></div><nav class="farm-tabs" aria-label="Разделы фермы">${[['home','leaf','Ферма'],['upgrades','barn','Улучшения'],['tasks','gift','Задания'],['valley','cup','Долина']].map(([tab,i,t])=>`<button data-farm-tab="${tab}">${icon(i)}<span>${t}</span><i></i></button>`).join('')}</nav><div class="farm-collect-bar"><span data-collect-count></span><button class="farm-button" data-farm-action="claim_all">Забрать всё <span data-collect-amount></span></button></div><p class="farm-status" role="status" hidden></p><div class="farm-content"></div></div>`;
     document.body.append(dialog);
     dialog.showModal();
     const f = {
@@ -219,14 +219,14 @@
     const quick = s.items.filter(i => !i.locked && !i.maxed)
       .sort((a, b) => Number(b.affordable) - Number(a.affordable) || a.cost - b.cost).slice(0, 3);
     return `<div class="farm-home-grid">
-      <section class="farm-scene">
+      <section class="farm-scene" data-farm-stage="${F().stage(s.level).index}">
         <div class="farm-playground">
-          <div class="farm-landscape">${F().scene()}</div><div class="farm-built" aria-hidden="true">${s.items.filter(i=>i.level>0&&['greenhouse','windmill','pond','nursery','railway','beehives','orchard'].includes(i.id)).sort((a,b)=>b.unlock-a.unlock).slice(0,3).map(i=>`<span title="${esc(i.name)} · ${i.level}">${F().item(i.id)}</span>`).join('')}</div>
+          <div class="farm-landscape">${F().scene(s.level)}</div><div class="farm-built" aria-hidden="true">${s.items.filter(i=>i.level>0&&['greenhouse','windmill','pond','nursery','railway','beehives','orchard'].includes(i.id)).sort((a,b)=>b.unlock-a.unlock).slice(0,3).map(i=>`<span title="${esc(i.name)} · ${i.level}">${F().item(i.id)}</span>`).join('')}</div>
           <div class="farm-scene-top">
-            <span class="farm-league-label">${icon('leaf')}${esc(s.league.name)}</span>
+            <span class="farm-league-label">${icon('leaf')}${esc(F().stage(s.level).name)}</span>
             <span class="farm-storage-tag">${icon('barn')}Амбар · <b>${s.stats.offline_hours} ч</b></span>
           </div>
-          <button class="farm-bear" aria-label="Собрать морковки">${F().character(s.stats.boost)}</button>
+          <button class="farm-bear" aria-label="Собрать морковки">${F().character(s.stats.boost,s.level)}</button>
           <div class="farm-tap-value">${carrot()}<span>+<b data-per-tap>${s.stats.per_tap}</b> за нажатие</span></div>
         </div>
         <div class="farm-scene-controls">
@@ -239,7 +239,7 @@
       </section>
       <aside class="farm-side">
         <button class="farm-daily-shortcut" data-farm-tab="tasks"><span class="farm-gift-art">${F().item('gift')}</span><span><b>${s.daily.claimed?'Задания дня':'Подарок дня'}</b><small>${s.daily.claimed?s.quests.filter(q=>q.claimed).length+' из '+s.quests.length+' выполнено':`+${fmt(s.daily.reward)} морковок уже ждут`}</small></span>${icon('arrow')}</button>
-        <section class="farm-level-card"><div><span>Уровень ${s.level}</span><b data-level-total>${s.level_next?fmt(s.earned)+' / '+fmt(s.level_next):'Вершина долины'}</b></div><progress data-level-progress max="${s.level_next?s.level_next-s.level_start:1}" value="${s.level_next?s.earned-s.level_start:1}"></progress><small data-level-remaining>${s.level_next?'До следующего уровня '+fmt(Math.max(0,s.level_next-s.earned))+' морковок':'Все уровни открыты'}</small></section>
+        <section class="farm-level-card"><div><span>Уровень ${s.level}</span><b data-level-total>${s.level_next?fmt(s.earned)+' / '+fmt(s.level_next):'Вершина долины'}</b></div><progress data-level-progress max="${s.level_next?s.level_next-s.level_start:1}" value="${s.level_next?s.earned-s.level_start:1}"></progress><small data-level-remaining>${s.level_next?'До следующего уровня '+fmt(Math.max(0,s.level_next-s.earned))+' морковок':'Все уровни открыты'}</small><span class="farm-appearance-next">${F().stage(s.level).next?'Новый облик · уровень '+F().stage(s.level).next:'Легендарный облик открыт'}</span></section>
         <div class="farm-section-title"><h3>Для огорода</h3><button data-farm-tab="upgrades">Все ${icon('arrow')}</button></div>
         <div class="farm-quick-upgrades">${quick.map(i=>upgrade(f,i,true)).join('')}</div>
         <div class="farm-next-unlock">${icon('leaf')}<span><b>${nextUnlock(s)}</b><small>Всего выращено: <span data-total-earned>${fmt(s.earned)}</span></small></span></div>
@@ -287,8 +287,12 @@
 
   function orders(f) {
     const s = f.snapshot,
-      o = s.order;
-    return `<div class="farm-orders-heading"><span>${F().item('cart')}</span><div><h3>Заказы соседей</h3><p>Отправь морковки, дождись доставки и забери награду.</p></div><b>${s.deliveries} выполнено</b></div>${o?`<section class="farm-active-order"><span>${F().item('cart')}</span><div><small data-order-label>В ПУТИ</small><h3>${esc(o.name)}</h3><progress data-order-progress max="${o.seconds}" value="0"></progress><p data-order-clock></p></div><button class="farm-button" data-farm-action="claim_order" data-item="${o.id}">Забрать ${fmt(o.reward)}</button></section>`:''}<div class="farm-order-options">${s.orders.map(o=>`<section class="farm-order-option ${s.level<o.unlock?'is-locked':''}"><div class="farm-order-art">${F().item(o.id==='basket'?'beds':o.id==='picnic'?'tree':'market')}</div><h4>${esc(o.name)}</h4><span>${o.seconds/60} минут${s.level<o.unlock?' · с уровня '+o.unlock:''}</span><div class="farm-order-economy"><div><small>Отправишь</small>${money(o.cost)}</div>${icon('arrow')}<div><small>Получишь</small>${money(o.reward)}</div></div><b class="farm-order-profit">Прибыль +${fmt(o.reward-o.cost)}</b><button class="farm-button" data-farm-action="start_order" data-item="${o.id}" ${s.level<o.unlock||s.order||s.balance<o.cost?'disabled':''}>${s.level<o.unlock?'Откроется позже':s.order?'Доставка занята':'Отправить'}</button></section>`).join('')}</div>`;
+      o = s.order,
+      n = s.neighbors;
+    return `<div class="farm-orders-heading"><span>${F().item('cart')}</span><div><h3>Соседи ждут урожай</h3><p>Чем сильнее ферма, тем щедрее заказы.</p></div><b>${s.deliveries} выполнено</b></div>
+      <div class="farm-neighbor-trust"><span>${icon('leaf')}</span><div><b>${esc(n.name)}</b><small>${n.next?`${n.deliveries} / ${n.next} доставок до следующего ранга`:'Высший ранг доверия'}</small><progress max="${n.next?n.next-n.start:1}" value="${n.next?n.deliveries-n.start:1}"></progress></div><strong>+${n.bonus||5}%<small>${n.bonus?'к прибыли':'за 5 доставок'}</small></strong></div>
+      ${o?`<section class="farm-active-order"><span>${F().item('cart')}</span><div><small data-order-label>В ПУТИ</small><h3>${esc(o.name)}</h3><progress data-order-progress max="${o.seconds}" value="0"></progress><p data-order-clock></p></div><button class="farm-button" data-farm-action="claim_order" data-item="${o.id}">Забрать ${fmt(o.reward)}</button></section>`:''}
+      <div class="farm-order-options">${s.orders.map(o=>`<section class="farm-order-option farm-contract ${o.portrait} ${s.level<o.unlock?'is-locked':''}"><div class="farm-contract-person"><span>${F().neighbor(o.portrait)}</span><div><small>${esc(o.person)}</small><h4>${esc(o.name)}</h4></div></div><p class="farm-order-request">«${esc(o.request)}»</p><span class="farm-contract-time">${icon('sun')}${o.seconds/60} минут${s.level<o.unlock?' · с уровня '+o.unlock:''}</span><div class="farm-contract-profit"><small>Чистая прибыль</small>${money(o.profit)}<span>Как ${fmt(o.income_minutes)} минут работы фермы${o.bonus?` · бонус +${o.bonus}%`:''}</span></div><div class="farm-order-economy"><div><small>Отправишь</small>${money(o.cost)}</div>${icon('arrow')}<div><small>Получишь</small>${money(o.reward)}</div></div><button class="farm-button" data-farm-action="start_order" data-item="${o.id}" ${s.level<o.unlock||s.order||s.balance<o.cost?'disabled':''}>${s.level<o.unlock?'С уровня '+o.unlock:s.order?'Доставка занята':'Отправить заказ'}</button></section>`).join('')}</div>`;
   }
 
   function dailyTasks(f) {
@@ -307,7 +311,7 @@
   function tasks(f) {
     const s = f.snapshot;
     const nav = `<div class="farm-task-filters">${[['daily','На сегодня'],['story','История'],['orders','Заказы'],['badges','Достижения']].map(([key,name])=>`<button data-task-view="${key}" aria-pressed="${f.taskView===key}">${name}</button>`).join('')}</div>`;
-    const badges = `<section class="farm-panel"><div class="farm-panel-title"><h3>Достижения фермы</h3><span>${s.badges.filter(b=>b.claimed).length}/${s.badges.length}</span></div><div class="farm-badges">${s.badges.map(b=>`<div data-badge="${b.id}" class="farm-badge ${b.ready?'is-ready':''}">${icon(b.ready?'cup':'leaf')}<div><b>${esc(b.name)}</b><small>${esc(b.description)} · ${fmt(Math.min(b.value,b.target))} / ${fmt(b.target)}</small></div><button class="farm-small-button" data-farm-action="claim_badge" data-item="${b.id}" ${b.ready&&!b.claimed?'':'disabled'}>${b.claimed?'✓':money(b.reward)}</button></div>`).join('')}</div></section>`;
+    const badges = `<section class="farm-panel"><div class="farm-panel-title"><h3>Достижения фермы</h3><span>${s.badges.filter(b=>b.claimed).length}/${s.badges.length}</span></div><div class="farm-badges">${s.badges.map(b=>`<div data-badge="${b.id}" class="farm-badge ${b.ready&&!b.claimed?'is-ready':''} ${b.claimed?'is-claimed':''}">${icon(b.claimed?'check':b.ready?'cup':'leaf')}<div><b>${esc(b.name)}</b><small>${esc(b.description)} · ${fmt(Math.min(b.value,b.target))} / ${fmt(b.target)}</small></div><button class="farm-small-button" data-farm-action="claim_badge" data-item="${b.id}" ${b.ready&&!b.claimed?'':'disabled'}>${b.claimed?'✓':money(b.reward)}</button></div>`).join('')}</div></section>`;
     return nav + (f.taskView === 'daily' ? dailyTasks(f) : f.taskView === 'story' ? story(f) : f.taskView === 'orders' ? orders(f) : badges);
   }
 
@@ -357,6 +361,7 @@
       button.disabled = f.busy || f.failed || button.dataset.initialDisabled === 'yes';
     }
     const collect = $('[data-farm-action="claim_all"]', d);
+    $('.farm-collect-bar', d).hidden = !s.claimable.count;
     collect.disabled = f.busy || f.failed || !s.claimable.count;
     $('[data-collect-count]', d).textContent = s.claimable.count ? 'Награды готовы · ' + s.claimable.count : 'Все награды собраны';
     $('[data-collect-amount]', d).textContent = s.claimable.amount ? '+' + fmt(s.claimable.amount) : '';
@@ -426,9 +431,7 @@
       offline.hidden = true;
       delete offline.dataset.key;
     }
-    $('.farm-save-dot', d).classList.toggle('is-busy', !!f.inflight || f.taps > 0);
-    $('.farm-save-dot', d).classList.toggle('is-error', f.failed);
-    $('[data-save-label]', d).textContent = f.failed ? 'Ожидаем соединения' : f.inflight || f.taps ? 'Сохраняем…' : 'Сохранено';
+    d.dataset.saveState = f.failed ? 'error' : f.inflight || f.taps ? 'pending' : 'saved';
   }
 
   function tap(f, e) {
@@ -524,8 +527,10 @@
       await flush(f);
       if (current === f) {
         render(f);
-        if (kind === 'claim_all') status(f, f.lastResult?.amount ? `Собрано ${fmt(f.lastResult.amount)} морковок · наград: ${f.lastResult.count}` : 'Пока нет готовых наград');
-        else if (kind === 'start_order') status(f, 'Заказ отправлен');
+        if (kind === 'claim_all') {
+          f.returning = null;
+          status(f, '');
+        } else if (kind === 'start_order') status(f, 'Заказ отправлен');
         else if (kind === 'claim_order' || kind === 'claim_chapter') status(f, 'Награда в корзинке');
         else if (kind === 'buy') status(f, 'Улучшение куплено');
         else if (kind === 'claim_daily' || kind === 'claim_quest' || kind === 'claim_badge') status(f, 'Морковки уже в корзинке');

@@ -908,7 +908,7 @@ def test_farm_gifts_purchases_and_keyboard_taps_survive_reentry(arcade):
     for _ in range(5):
         page.keyboard.press("Space")
         page.wait_for_timeout(160)
-    page.wait_for_function("document.querySelector('[data-save-label]')?.textContent==='Сохранено'")
+    page.wait_for_function("document.querySelector('#kopatychFarm')?.dataset.saveState==='saved'")
     assert FarmStore(store).get("p1")["taps"] == 5
     page.locator('.farm-tabs [data-farm-tab="tasks"]').click()
     page.locator('[data-farm-action="claim_daily"]').click()
@@ -983,7 +983,7 @@ def test_lost_farm_purchase_ack_retries_same_receipt_without_second_debit(arcade
     page.locator(".farm-retry").wait_for()
     assert farm.get("p1")["balance"] == 30
     page.locator(".farm-retry").click()
-    page.wait_for_function("document.querySelector('[data-save-label]')?.textContent==='Сохранено'")
+    page.wait_for_function("document.querySelector('#kopatychFarm')?.dataset.saveState==='saved'")
     state = farm.get("p1")
     assert (
         state["balance"] == 30
@@ -1051,13 +1051,50 @@ def test_farm_explains_purchase_and_collects_delivery_and_its_rewards_together(a
     page.locator('.game-card[data-game="kopatych"]').click()
     page.locator(".farm-active-order").wait_for()
     before = farm.get("p1")
-    assert before["claimable"]["amount"] == 350
+    assert before["claimable"]["amount"] == 450
     page.locator('[data-farm-action="claim_all"]').click()
     page.wait_for_function("!document.querySelector('.farm-active-order')")
     after = farm.get("p1")
-    assert after["balance"] == before["balance"] + 350
+    assert after["balance"] == before["balance"] + 450
     assert after["deliveries"] == 1 and not after["claimable"]["count"]
     assert page.locator('[data-farm-action="claim_all"]').is_disabled()
+    assert page.locator(".farm-collect-bar").is_hidden()
+    assert page.locator(".farm-status").is_hidden()
     page.locator('.farm-task-filters [data-task-view="badges"]').click()
     assert page.locator(".farm-badge").count() == 25
     assert not store.profile("p1")["awards"]
+
+
+def test_farm_outfit_and_environment_follow_saved_level_and_collected_notices_stay_gone(arcade):
+    from app.services.arcade_farm import LEVELS, FarmStore
+
+    page, store = arcade
+    store.clock = Clock()
+    farm = FarmStore(store)
+    farm.get("p1")
+    with store.db() as db:
+        state = farm._load(db, "p1")
+        state["earned"] = 1200
+        farm._save(db, "p1", state)
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator('[data-farm-action="claim_all"]').click()
+    page.wait_for_function("document.querySelector('.farm-collect-bar').hidden")
+    assert page.locator(".farm-status").is_hidden()
+    assert page.locator(".farm-save-line").count() == 0
+    page.locator('.farm-tabs [data-farm-tab="tasks"]').click()
+    page.locator('.farm-task-filters [data-task-view="badges"]').click()
+    assert page.locator(".farm-badge.is-ready").count() == 0
+    assert page.locator(".farm-badge.is-claimed").count() > 0
+    page.locator("[data-farm-close]").click()
+    for lv, stage in ((1, 0), (5, 1), (10, 2), (17, 3), (24, 4)):
+        with store.db() as db:
+            state = farm._load(db, "p1")
+            state["earned"] = LEVELS[lv - 1]
+            farm._save(db, "p1", state)
+        page.locator('.game-card[data-game="kopatych"]').click()
+        page.locator('.farm-tabs [data-farm-tab="home"]').click()
+        assert page.locator(".farm-scene").get_attribute("data-farm-stage") == str(stage)
+        assert page.locator("[data-farm-level]").inner_text() == str(lv)
+        assert page.locator(".farm-landscape svg").count() == 1
+        assert page.locator(".farm-bear svg").count() == 1
+        page.locator("[data-farm-close]").click()

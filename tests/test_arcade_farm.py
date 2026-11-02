@@ -108,12 +108,46 @@ def test_orders_use_server_time_and_one_delivery_slot_and_receipts(farm):
     restarted = FarmStore(ArcadeStore(farm.arcade.path, farm.arcade.clock))
     key = str(uuid.uuid4())
     result = act(restarted, "claim_order", "basket", key=key)
-    assert result["result"]["amount"] == 80
+    assert result["result"]["amount"] == 180
     assert result["farm"]["deliveries"] == 1 and result["farm"]["order"] is None
     assert act(restarted, "claim_order", "basket", key=key)["duplicate"]
     with pytest.raises(ArcadeError):
         act(restarted, "claim_order", "basket")
     assert farm.get("p2")["deliveries"] == 0
+
+
+def test_order_profit_grows_with_income_and_trust_but_started_reward_is_fixed(farm):
+    start = farm.get("p1")
+    offers = {o["id"]: o for o in start["orders"]}
+    assert offers["basket"]["profit"] == 140
+    assert offers["basket"]["reward"] == offers["basket"]["cost"] + 140
+    act(farm, "start_order", "basket")
+    with farm.arcade.db() as db:
+        state = farm._load(db, "p1")
+        state["earned"] = 100000
+        state["items"].update(beds=10, orchard=5, market=3)
+        state["deliveries"] = 15
+        farm._save(db, "p1", state)
+    grown = farm.get("p1")
+    assert grown["neighbors"]["bonus"] == 10
+    for offer in grown["orders"]:
+        old = offers[offer["id"]]
+        assert offer["profit"] > old["profit"]
+        assert offer["cost"] == old["cost"]  # No hidden increase in the required supplies.
+    assert grown["order"]["reward"] == 180
+    farm.arcade.clock.advance(300)
+    assert act(farm, "claim_order", "basket")["result"]["amount"] == 180
+
+
+def test_collect_all_clears_ready_badges_and_keeps_them_in_the_collection(farm):
+    seed(farm, earned=1200)
+    assert next(b for b in farm.get("p1")["badges"] if b["id"] == "first_harvest")["ready"]
+    after = act(farm, "claim_all")["farm"]
+    badge = next(b for b in after["badges"] if b["id"] == "first_harvest")
+    assert badge["claimed"] and not badge["ready"]
+    assert not after["claimable"]["count"]
+    restarted = FarmStore(ArcadeStore(farm.arcade.path, farm.arcade.clock))
+    assert not restarted.get("p1")["claimable"]["count"]
 
 
 def test_collect_all_includes_cascading_chapters_order_and_quests_exactly_once(farm):

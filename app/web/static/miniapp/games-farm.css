@@ -233,11 +233,6 @@
 .farm-status[hidden] { display: none; }
 .farm-status.is-error { color: #af7449; border-color: #dfc69a; background: #f7eedc; }
 .farm-retry { background: #fffbec; border: 1px solid #d9bf8d; border-radius: 7px; padding: 7px 10px; color: #a1844e; font-size: 11px; }
-.farm-save-line { display: flex; align-items: center; gap: 6px; flex-shrink: 0; border-top: 1px solid #e7e0cf; padding: 10px 28px; color: #b6ae95; font-size: 10px; background: #f7f2e6; }
-.farm-save-dot { width: 4px; height: 4px; background: #a7b382; border-radius: 50%; }
-.farm-save-dot.is-busy { background: #c6ad72; }
-.farm-save-dot.is-error { background: #c58c64; }
-.farm-offline-rule { margin-left: auto; color: #c1b69a; font-size: 9px; }
 @media(max-width:900px) {
   .farm-home-grid { gap: 20px; grid-template-columns: minmax(0,1.1fr) minmax(0,1fr); }
   .farm-content { padding: 21px 22px; }
@@ -365,8 +360,6 @@
   .farm-offline b { font-size: 12px; }
   .farm-offline small { font-size: 11px; }
   .farm-status { margin: 12px 16px 0; padding: 10px 12px; font-size: 11px; }
-  .farm-save-line { padding: 9px 18px; font-size: 10px; }
-  .farm-offline-rule { font-size: 8px; }
 }
 @media(max-width:350px) {
   .farm-header { padding-inline: 15px; gap: 8px; }
@@ -398,7 +391,6 @@
   .farm-panel-title { gap: 8px; }
   .farm-panel-title h3 { font-size: 20px; }
   .farm-panel-title > span { font-size: 9px; }
-  .farm-offline-rule { display: none; }
 }
 @media(max-height:700px) and (max-width:640px) {
   .farm-playground { height: 268px; }
@@ -537,3 +529,52 @@
  @keyframes farm-delivery-ride {0%,100% {transform:translateY(0) rotate(-2deg)}50% {transform:translateY(-3px) rotate(2deg)}}
 }
 .farm-active-order.is-ready>span svg {animation:none}
+/* Level milestones are visible in the garden, outfit and equipment. */
+.farm-collect-bar[hidden] {display:none}
+.farm-appearance-next {display:block;margin-top:7px;color:#8b7344;font-size:10px}
+.farm-badge.is-claimed {opacity:.64}
+.farm-badge.is-claimed>svg {color:#6d8551}
+.farm-neighbor-trust {display:flex;align-items:center;gap:14px;padding:15px 18px;background:#eceddc;border:1px solid #d8dcbf;border-radius:12px;margin-bottom:20px;color:#617348}
+.farm-neighbor-trust>span {display:grid;place-items:center;width:40px;height:40px;border-radius:50%;background:#dce3c2}
+.farm-neighbor-trust>div {flex:1;min-width:0}
+.farm-neighbor-trust b {font-size:13px;font-weight:600}
+.farm-neighbor-trust small {display:block;font-size:10px;color:#7b7b59;margin-top:4px}
+.farm-neighbor-trust>strong {font:600 24px/1.2 Georgia,serif;text-align:right}
+.farm-neighbor-trust>strong small {font:10px/1.4 "Segoe UI",sans-serif}
+.farm-neighbor-trust progress {height:4px;display:block;width:100%;margin-top:8px;accent-color:#8a9c66}
+.farm-contract {background:#f9f3e5;gap:0;--contract-accent:#9a789c;--contract-paper:#eee3ee}
+.farm-contract.rabbit {--contract-accent:#719ca1;--contract-paper:#dcebea;background:#f4f7ec}
+.farm-contract.owl {--contract-accent:#a38a59;--contract-paper:#ece3c9;background:#faf3df}
+.farm-contract-person {display:flex;align-items:center;gap:12px;min-height:81px}
+.farm-contract-person>span {width:73px;height:79px;flex-shrink:0;background:var(--contract-paper);border-radius:50% 50% 46% 46%}
+.farm-contract-person svg {width:100%;height:100%}
+.farm-contract-person small {display:block;font-size:11px;color:var(--contract-accent);margin-bottom:7px;font-weight:600}
+.farm-contract-person h4 {text-align:left;font-size:22px;margin:0;line-height:1.2}
+.farm-order-request {font-size:12px;line-height:1.65;color:#817357;margin:18px 0 14px;min-height:60px}
+.farm-contract>.farm-contract-time {display:flex;align-items:center;justify-content:flex-start;gap:6px;color:var(--contract-accent);font-size:11px;margin:0 0 17px;text-align:left}
+.farm-contract-time svg {width:15px;height:15px}
+.farm-contract-profit {background:var(--contract-paper);border-radius:10px;padding:16px 12px;display:flex;flex-direction:column;align-items:flex-start;gap:9px;margin-bottom:15px}
+.farm-contract-profit>small {font-size:10px;color:#766a4e}
+.farm-contract-profit .farm-money {font:600 29px/1.1 "Segoe UI",sans-serif;color:#536b3b;max-width:100%;white-space:normal;overflow-wrap:anywhere;justify-content:flex-start;gap:7px}
+.farm-contract-profit .farm-money svg {width:22px;height:26px}
+.farm-contract-profit>span:last-child {font-size:10px;line-height:1.5;color:#7a6e52}
+.farm-contract .farm-order-economy {padding:13px 0;margin:0 0 15px;flex-wrap:wrap}
+.farm-contract>.farm-button {margin-top:auto}
+@media(max-width:900px) and (min-width:641px) {
+ .farm-contract-person {flex-direction:column;align-items:flex-start;gap:8px}.farm-contract-person>span {width:66px;height:70px}.farm-contract-person h4 {font-size:21px}.farm-order-request {min-height:80px}
+}
+@media(max-width:640px) {
+ .farm-appearance-next {font-size:11px}
+ .farm-neighbor-trust {padding:13px;gap:11px}.farm-neighbor-trust>span {width:32px;height:32px}.farm-neighbor-trust b {font-size:12px}
+ .farm-order-options {gap:15px}
+ .farm-contract {display:flex;padding:18px}
+ .farm-contract-person {gap:14px}.farm-contract-person>span {width:70px;height:75px}.farm-contract-person h4 {font-size:24px}
+ .farm-order-request {min-height:0;margin:14px 0 12px;font-size:12px}
+ .farm-contract-profit {width:100%;box-sizing:border-box;padding:15px;margin-bottom:13px}
+ .farm-contract-profit .farm-money {font-size:31px}
+ .farm-contract .farm-order-economy {margin:0 0 15px;justify-content:space-between}
+ .farm-contract>.farm-button {min-height:44px;width:100%}
+}
+.farm-neighbor-trust progress {border:0;border-radius:4px;overflow:hidden;background:#d8dec5}
+.farm-neighbor-trust progress::-webkit-progress-bar {background:#d8dec5}
+.farm-neighbor-trust progress::-webkit-progress-value {background:#859a5e;border-radius:4px}
