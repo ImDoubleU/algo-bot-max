@@ -494,11 +494,37 @@ def build_badges(legacy):
                 category=category,
                 tier=tier,
                 unlock=unlock,
-                seed_reward=1 if b not in legacy and tier >= 1 else 0,
-                material_reward=tier if b not in legacy and tier >= 2 else 0,
+                income_minutes=(2, 5, 10, 20, 30)[tier],
+                seed_reward={
+                    "rare": (1, 2, 4, 7, 12),
+                    "research": (1, 1, 2, 3, 5),
+                    "trials": (1, 2, 3, 5, 8),
+                    "expeditions": (0, 0, 1, 2, 3),
+                }.get(category, (0, 0, 1, 2, 4))[tier],
+                material_reward={
+                    "expeditions": (1, 3, 6, 10, 18),
+                    "research": (1, 2, 3, 5, 8),
+                    "trials": (1, 3, 5, 8, 12),
+                    "rare": (0, 0, 1, 2, 4),
+                }.get(category, (0, 0, 1, 3, 6))[tier],
             )
         categories.append(dict(id=category, name=name, total=total))
     assert len(badges) == 100
+    # Milestone floors complement the income-based prize, including early farms.
+    badges = [
+        (
+            key,
+            name,
+            metric,
+            target,
+            max(
+                reward,
+                (60, 300, 2500, 25000, 250000)[meta[key]["tier"]],
+                target * 3 // 100 if metric in ("earned", "passive") else 0,
+            ),
+        )
+        for key, name, metric, target, reward in badges
+    ]
     return badges, meta, categories
 
 

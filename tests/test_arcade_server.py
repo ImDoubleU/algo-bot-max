@@ -1243,3 +1243,100 @@ def test_farm_resource_wallet_is_visible_everywhere_and_updates_after_spending_a
     page.locator('[data-farm-action="claim_project"]').click()
     page.wait_for_function("document.querySelector('[data-resource=materials]').textContent==='8'")
     assert page.locator('[data-resource="seeds"]').inner_text() == "4"
+
+
+@pytest.mark.parametrize(
+    "width,seeds,materials,target",
+    [(390, 0, 10, "plot"), (1440, 10, 0, "expedition"), (320, 0, 0, None)],
+)
+def test_farm_purchase_routes_missing_resources_to_source_and_returns_without_spending(
+    arcade, width, seeds, materials, target
+):
+    from app.services.arcade_farm import FarmStore
+
+    page, store = arcade
+    store.clock = Clock()
+    farm = FarmStore(store)
+    farm.get("p1")
+    with store.db() as db:
+        state = farm._load(db, "p1")
+        state.update(
+            earned=1000000000, balance=100000000, resources={"seeds": seeds, "materials": materials}
+        )
+        farm._save(db, "p1", state)
+    before = farm.get("p1")
+    actions = []
+    page.on(
+        "request",
+        lambda r: (
+            actions.append(r.post_data_json)
+            if r.method == "POST" and r.url.endswith("/farm/actions")
+            else None
+        ),
+    )
+    page.set_viewport_size({"width": width, "height": 844})
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator('.farm-tabs [data-farm-tab="upgrades"]').click()
+    page.locator('[data-farm-category="garden"]').click()
+    button = page.locator('[data-farm-action="buy"][data-item="vineyard"]')
+    assert button.is_enabled()
+    button.click()
+    assert page.locator(".farm-resource-guide").is_visible()
+    if target is None:
+        assert page.locator("[data-resource-route]").count() == 2
+        page.locator('[data-resource-route="materials"]').click()
+        target = "expedition"
+    assert page.locator(f'[data-activity-view="{target}"]').get_attribute("aria-pressed") == "true"
+    assert not actions
+    assert farm.get("p1")["balance"] == before["balance"]
+    assert page.locator(".farm-content").evaluate("(n)=>n.scrollWidth<=n.clientWidth")
+    # An expedition must not require the materials it is meant to produce.
+    if target == "expedition":
+        forest = page.locator('[data-farm-action="start_expedition"][data-item="forest"]')
+        assert forest.is_enabled()
+    page.locator("[data-resource-return]").click()
+    assert page.locator('[data-farm-category="garden"]').get_attribute("aria-pressed") == "true"
+    assert button.is_visible() and button.is_enabled()
+    assert not actions
+
+
+def test_farm_research_routes_both_resources_then_allows_purchase_after_harvest(arcade):
+    from app.services.arcade_farm import FarmStore
+
+    page, store = arcade
+    store.clock = Clock()
+    farm = FarmStore(store)
+    farm.get("p1")
+    with store.db() as db:
+        state = farm._load(db, "p1")
+        state.update(earned=250000, balance=10000, resources={"seeds": 1, "materials": 0})
+        farm._save(db, "p1", state)
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator('.farm-tabs [data-farm-tab="activities"]').click()
+    page.locator('[data-activity-view="research"]').click()
+    research = page.locator('[data-farm-action="research"][data-item="garden_notes"]')
+    research.click()
+    page.locator('[data-resource-route="materials"]').click()
+    page.locator('[data-farm-action="start_expedition"][data-item="forest"]').click()
+    page.locator(".farm-project").wait_for()
+    page.locator("[data-farm-close]").click()
+    store.clock.advance(1200)
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator('[data-farm-action="claim_project"]').click()
+    page.wait_for_function("document.querySelector('[data-resource=materials]').textContent==='3'")
+    # Reopening restores the source section; only seeds are missing now.
+    page.locator('[data-activity-view="research"]').click()
+    research.click()
+    assert page.locator('[data-activity-view="plot"]').get_attribute("aria-pressed") == "true"
+    page.locator('[data-farm-action="start_plot"][data-item="radish"]').click()
+    page.locator(".farm-project").wait_for()
+    page.locator("[data-farm-close]").click()
+    store.clock.advance(600)
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator('[data-farm-action="claim_project"]').click()
+    page.wait_for_function("document.querySelector('[data-resource=seeds]').textContent==='2'")
+    page.locator('[data-activity-view="research"]').click()
+    assert research.inner_text() == "Исследовать" and research.is_enabled()
+    research.click()
+    page.wait_for_function("document.querySelector('[data-resource=seeds]').textContent==='0'")
+    assert farm.get("p1")["activities"]["resources"] == dict(seeds=0, materials=0)

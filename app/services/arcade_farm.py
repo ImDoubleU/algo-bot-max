@@ -785,6 +785,33 @@ class FarmStore(ProgressionMixin):
             for key, name, text, metric, goal, reward in CHAPTERS
         ]
 
+    def _badge_prize(self, state, key, base, ready):
+        """Freeze a completed milestone at server income; claiming later cannot inflate it."""
+        prizes = state.setdefault("badge_rewards", {})
+        if key in prizes:
+            return prizes[key]
+        meta = BADGE_META[key]
+        prize = dict(
+            amount=max(
+                base, stats(state, state["last_ms"])["per_hour"] * meta["income_minutes"] // 60
+            ),
+            seeds=meta["seed_reward"],
+            materials=meta["material_reward"],
+        )
+        if ready and key not in state["badges"]:
+            prizes[key] = prize
+        return prize
+
+    def _lock_badge_rewards(self, state):
+        metrics = self._metrics(state)
+        for key, _name, metric, target, base in BADGES:
+            if (
+                key not in state["badges"]
+                and metrics[metric] >= target
+                and level(state["earned"]) >= BADGE_META[key]["unlock"]
+            ):
+                self._badge_prize(state, key, base, True)
+
     def _available(self, state):
         """Only server-earned rewards; bonuses never increase productive experience."""
         daily = state["daily"]
@@ -819,9 +846,7 @@ class FarmStore(ProgressionMixin):
                     dict(
                         kind="badge",
                         id=key,
-                        amount=reward,
-                        seeds=BADGE_META[key]["seed_reward"],
-                        materials=BADGE_META[key]["material_reward"],
+                        **self._badge_prize(state, key, reward, True),
                     )
                 )
         for key, _name, _text, metric, goal, reward in CHAPTERS:
@@ -951,19 +976,23 @@ class FarmStore(ProgressionMixin):
         badges = []
         metrics = self._metrics(state)
         for key, name, metric, target, reward in BADGES:
+            ready = metrics[metric] >= target and lv >= BADGE_META[key]["unlock"]
+            prize = self._badge_prize(state, key, reward, ready)
             badges.append(
                 dict(
                     id=key,
                     name=name,
                     value=metrics[metric],
                     target=target,
-                    reward=reward,
-                    ready=metrics[metric] >= target
-                    and key not in state["badges"]
-                    and lv >= BADGE_META[key]["unlock"],
+                    reward=prize["amount"],
+                    ready=ready and key not in state["badges"],
                     claimed=key in state["badges"],
                     description=METRIC_LABELS[metric],
-                    **BADGE_META[key],
+                    **{
+                        **BADGE_META[key],
+                        "seed_reward": prize["seeds"],
+                        "material_reward": prize["materials"],
+                    },
                 )
             )
         next_day = datetime.fromisoformat(daily["day"]).replace(tzinfo=MOSCOW) + timedelta(days=1)
@@ -1079,6 +1108,7 @@ class FarmStore(ProgressionMixin):
         with self.arcade.db() as db:
             state = self._load(db, player)
             offline = self._settle(db, player, state)
+            self._lock_badge_rewards(state)
             previous = db.execute(
                 "SELECT signature,result FROM kopatych_receipts WHERE player=? AND id=?",
                 (player, action_id),
@@ -1254,7 +1284,11 @@ class FarmStore(ProgressionMixin):
                     },
                 )
                 state["balance"] += badge["reward"]
-                result["amount"] = badge["reward"]
+                result.update(
+                    amount=badge["reward"],
+                    seeds=badge["seed_reward"],
+                    materials=badge["material_reward"],
+                )
                 self._event(db, player, "badge", badge["reward"], badge["name"])
             elif action == "boost":
                 if daily["boosts"] >= 2 or state["boost_until"] > now:

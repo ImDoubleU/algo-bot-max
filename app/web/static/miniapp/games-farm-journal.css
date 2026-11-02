@@ -68,3 +68,18 @@
 .farm-project.is-ready {background:#eee8ce;border-left-color:#c3a45c}.farm-project.is-ready p {color:#a37b3e}
 .farm-trial-options .farm-activity-option>span {width:64px;height:84px}.farm-trial-options .farm-activity-option>span>svg {width:100%;height:100%}
 @media(max-width:640px) {.farm-trial-options .farm-activity-option {display:grid;grid-template-columns:72px minmax(0,1fr);align-items:center;gap:9px 16px}.farm-trial-options .farm-activity-option>span {grid-row:1/4;width:66px;height:86px}.farm-trial-options .farm-activity-option>h4,.farm-trial-options .farm-activity-option>small,.farm-trial-options .farm-activity-option>strong {grid-column:2}.farm-trial-options .farm-activity-option>p,.farm-trial-options .farm-activity-option>b,.farm-trial-options .farm-activity-option>.farm-button {grid-column:1/-1}}
+
+/* Missing resources lead to their source, with a clear route back to the purchase. */
+#kopatychFarm .farm-resource-guide{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 0;margin:0 0 20px;border-bottom:1px solid #c9c4ad;outline:none}
+#kopatychFarm .farm-resource-guide>div:first-child{display:grid;gap:7px;min-width:0}
+#kopatychFarm .farm-resource-guide small{font-size:10px;letter-spacing:.07em;color:#8f7956}
+#kopatychFarm .farm-resource-guide b{font-size:16px;color:#4c5e3b}
+#kopatychFarm .farm-resource-links{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+#kopatychFarm .farm-resource-links svg{width:14px;height:14px;vertical-align:middle}
+#kopatychFarm .farm-resource-return{background:transparent;border:0;padding:10px;color:#596b44;text-decoration:underline;text-underline-offset:4px;cursor:pointer}
+#kopatychFarm .is-resource-short:not(:disabled){border-color:#b79960}
+#kopatychFarm .farm-medal-card>.farm-small-button{min-width:80px;max-width:120px}
+@media(max-width:600px){#kopatychFarm .farm-resource-guide{align-items:stretch;flex-direction:column;gap:12px}#kopatychFarm .farm-resource-links{gap:6px}#kopatychFarm .farm-resource-guide b{font-size:14px}}
+
+#kopatychFarm .farm-resource-links>.farm-small-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
+#kopatychFarm .farm-medal-card:not(.is-claimed) .farm-small-button:disabled .farm-money{color:#8a774d}

@@ -785,3 +785,66 @@ def test_offline_production_is_calculated_after_server_was_stopped(farm):
     assert state["offline"]["amount"] == 240
     assert state["balance"] == 390
     assert farm.get("p1")["offline"]["amount"] == 0
+
+
+def test_achievement_prizes_scale_with_production_and_freeze_before_later_upgrades(farm):
+    from app.services.arcade_farm import BADGE_META
+
+    initial = farm.get("p1")
+    items = {i["id"]: 0 for i in initial["items"]}
+    items.update(beds=20, helper=15, greenhouse=10)
+    seed(farm, earned=1_000_000, balance=100_000_000, items=items)
+    before = farm.get("p1")
+    badge = next(b for b in before["badges"] if b["id"] == "tap_500")
+    assert not badge["ready"]
+    preview = badge["reward"]
+    assert preview >= before["stats"]["per_hour"] * BADGE_META["tap_500"]["income_minutes"] // 60
+    # This milestone becomes ready through real, server-accepted taps.
+    seed(farm, taps=499)
+    ready = act(farm, "tap")["farm"]
+    prize = next(b for b in ready["badges"] if b["id"] == "tap_500")
+    assert prize["ready"] and prize["reward"] == preview
+    assert prize["reward"] > 300
+    items.update(greenhouse=25, irrigation=10)
+    seed(farm, items=items)
+    restarted = FarmStore(ArcadeStore(farm.arcade.path, farm.arcade.clock))
+    later = restarted.get("p1")
+    assert later["stats"]["per_hour"] > before["stats"]["per_hour"]
+    assert next(b for b in later["badges"] if b["id"] == "tap_500")["reward"] == preview
+    key = "achievement-frozen-receipt"
+    result = act(restarted, "claim_badge", "tap_500", key=key)
+    assert result["result"]["amount"] == preview
+    assert result["farm"]["balance"] == later["balance"] + preview
+    assert result["farm"]["earned"] == later["earned"]
+    duplicate = act(restarted, "claim_badge", "tap_500", key=key)
+    assert duplicate["duplicate"] and duplicate["farm"]["balance"] == result["farm"]["balance"]
+    assert not farm.arcade.profile("p1")["awards"]
+
+
+def test_achievement_resource_prizes_follow_difficulty_and_are_paid_once(farm):
+    from app.services.arcade_farm import BADGE_META
+
+    # Each category has prizes fitting its activity, with larger later milestones.
+    for category, resource in (("rare", "seed_reward"), ("expeditions", "material_reward")):
+        values = [m[resource] for m in BADGE_META.values() if m["category"] == category]
+        assert min(values) >= 1 and max(values) >= 10
+    seed(
+        farm,
+        earned=4000,
+        balance=10000,
+        activity_counts=dict(plots=1, watering=0, expeditions=0, research=0, trials=0),
+    )
+    before = farm.get("p1")
+    prize = next(b for b in before["badges"] if b["category"] == "rare" and b["ready"])
+    result = act(farm, "claim_badge", prize["id"], key="rare-resource-prize-0001")
+    for resource, field in (("seeds", "seed_reward"), ("materials", "material_reward")):
+        assert result["result"][resource] == prize[field]
+        assert (
+            result["farm"]["activities"]["resources"][resource]
+            == before["activities"]["resources"][resource] + prize[field]
+        )
+    assert result["farm"]["activities"]["counts"] == before["activities"]["counts"]
+    repeated = act(farm, "claim_badge", prize["id"], key="rare-resource-prize-0001")
+    assert repeated["farm"]["activities"]["resources"] == result["farm"]["activities"]["resources"]
+    with pytest.raises(ArcadeError):
+        act(farm, "claim_badge", prize["id"])

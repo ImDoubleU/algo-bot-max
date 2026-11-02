@@ -56,7 +56,7 @@
   let current = null;
 
   function structure(s) {
-    return JSON.stringify([s.items.map(i => i.level), s.level, s.daily.day, s.daily.claimed, s.daily.combo_claimed, s.quests.map(q => [q.ready, q.claimed]), s.badges.map(b => [b.ready, b.claimed]), s.chapters.map(c => [c.ready, c.claimed]), s.order, s.claimable, s.activities.resources, s.activities.projects, s.activities.research.map(r => r.level), s.activities.trial ? [s.activities.trial.project_id, s.activities.trial.progress >= s.activities.trial.goal, s.server_ms >= s.activities.trial.finish_at] : null]);
+    return JSON.stringify([s.items.map(i => i.level), s.level, s.daily.day, s.daily.claimed, s.daily.combo_claimed, s.quests.map(q => [q.ready, q.claimed]), s.badges.map(b => [b.ready, b.claimed, b.reward]), s.chapters.map(c => [c.ready, c.claimed]), s.order, s.claimable, s.activities.resources, s.activities.projects, s.activities.research.map(r => r.level), s.activities.trial ? [s.activities.trial.project_id, s.activities.trial.progress >= s.activities.trial.goal, s.server_ms >= s.activities.trial.finish_at] : null]);
   }
 
   function pending(f) {
@@ -209,7 +209,7 @@
     host.dataset.section = f.tab;
     host.dataset.activity = f.activityView;
     host.dataset.tasks = f.taskView;
-    host.innerHTML = f.tab === 'home' ? home(f) : f.tab === 'upgrades' ? shop(f) : f.tab === 'tasks' ? tasks(f) : f.tab === 'activities' ? activities(f) : valley(f);
+    host.innerHTML = resourceGuide(f) + (f.tab === 'home' ? home(f) : f.tab === 'upgrades' ? shop(f) : f.tab === 'tasks' ? tasks(f) : f.tab === 'activities' ? activities(f) : valley(f));
     const bear = $('.farm-bear', host);
     if (bear) {
       bear.addEventListener('pointerdown', e => {
@@ -349,6 +349,58 @@
     return v.balance >= (c.cost || 0) && r.seeds >= (c.seeds || 0) && r.materials >= (c.materials || 0) && v.energy >= (c.energy || 0);
   }
 
+  function missingResources(f, cost) {
+    return ['seeds', 'materials'].filter(key => f.snapshot.activities.resources[key] < (cost[key] || 0));
+  }
+
+  function paymentButton(f, button, cost, blocked) {
+    const missing = missingResources(f, cost);
+    button.dataset.resourceNeeded = missing.join(',');
+    button.disabled = f.busy || f.failed || blocked || (!missing.length && !canPay(f, cost));
+    button.classList.toggle('is-resource-short', !blocked && !!missing.length);
+    return missing;
+  }
+
+  function purchaseCost(f, action, item) {
+    const s = f.snapshot;
+    if (action === 'buy') {
+      const i = s.items.find(i => i.id === item);
+      return {
+        ...i.resource_cost,
+        cost: i.cost,
+        name: i.name
+      };
+    }
+    const option = (action === 'research' ? s.activities.research : action === 'start_expedition' ? s.activities.routes : s.activities.trials).find(i => i.id === item);
+    return action === 'start_expedition' ? {
+      ...option,
+      materials: 0
+    } : option;
+  }
+
+  function resourceGuide(f) {
+    const request = f.resourceRequest;
+    if (!request) return '';
+    const cost = purchaseCost(f, request.action, request.item),
+      missing = missingResources(f, cost);
+    return `<section class="farm-resource-guide" tabindex="-1" aria-label="Ресурсы для покупки"><div><small>ДЛЯ «${esc(cost.name)}»</small><b>${missing.length?'Не хватает: '+resourceCost(Object.fromEntries(missing.map(key=>[key,cost[key]-f.snapshot.activities.resources[key]]))):'Ресурсы собраны'}</b></div><div class="farm-resource-links">${missing.map(key=>`<button class="farm-small-button" data-resource-route="${key}">${key==='seeds'?'На грядку':'В экспедиции'} ${icon('arrow')}</button>`).join('')}<button class="farm-resource-return" data-resource-return>К покупке</button></div></section>`;
+  }
+
+  function resourceRoute(f, resource) {
+    f.tab = 'activities';
+    f.activityView = resource === 'seeds' ? 'plot' : 'expedition';
+    persistUi(f);
+    render(f);
+    const guide = $('.farm-resource-guide', f.dialog);
+    guide?.focus({
+      preventScroll: true
+    });
+    guide?.scrollIntoView({
+      block: 'start',
+      behavior: 'smooth'
+    });
+  }
+
   function activityRemaining(f, p) {
     return Math.max(0, (p.finish_at - f.snapshot.server_ms - (performance.now() - f.received)) / 1000);
   }
@@ -363,7 +415,7 @@
       a = s.activities,
       view = f.activityView;
     const head = `<div class="farm-task-filters">${[['plot','Грядка',3],['expedition','Экспедиции',8],['research','Наука',12],['trial','Испытания',18]].map(([key,name,lv])=>`<button data-activity-view="${key}" aria-pressed="${view===key}">${name}${s.level<lv?`<small>${lv} ур.</small>`:''}</button>`).join('')}</div>`;
-    if (view === 'research') return head + `<div class="farm-activity-intro"><h3>Исследования</h3><p>Изучено ${a.research.reduce((n,r)=>n+r.level,0)} из ${a.research.reduce((n,r)=>n+r.maximum,0)}</p></div><div class="farm-research-grid">${a.research.map((r,index)=>`<section class="farm-research ${r.locked?'is-locked':''}"><span class="farm-research-art">${F().note(r.id)}<em>${String(index+1).padStart(2,'0')}</em></span><div><small>${r.level} / ${r.maximum} · с ${r.unlock} уровня</small><h4>${esc(r.name)}</h4><p>${esc(r.text)}</p>${r.requires?`<small>Нужно: ${esc(a.research.find(x=>x.id===r.requires).name)} · ${r.requires_level}</small>`:''}<b>${resourceCost(r)} · ${fmt(r.cost)} морковок</b></div><button class="farm-button" data-farm-action="research" data-item="${r.id}" ${r.locked||r.maxed||!canPay(f,r)?'disabled':''}>${r.maxed?'Изучено':'Исследовать'}</button></section>`).join('')}</div>`;
+    if (view === 'research') return head + `<div class="farm-activity-intro"><h3>Исследования</h3><p>Изучено ${a.research.reduce((n,r)=>n+r.level,0)} из ${a.research.reduce((n,r)=>n+r.maximum,0)}</p></div><div class="farm-research-grid">${a.research.map((r,index)=>`<section class="farm-research ${r.locked?'is-locked':''}"><span class="farm-research-art">${F().note(r.id)}<em>${String(index+1).padStart(2,'0')}</em></span><div><small>${r.level} / ${r.maximum} · с ${r.unlock} уровня</small><h4>${esc(r.name)}</h4><p>${esc(r.text)}</p>${r.requires?`<small>Нужно: ${esc(a.research.find(x=>x.id===r.requires).name)} · ${r.requires_level}</small>`:''}<b>${resourceCost(r)} · ${fmt(r.cost)} морковок</b></div><button class="farm-button" data-farm-action="research" data-item="${r.id}" ${r.locked||r.maxed?'disabled':''}>${r.maxed?'Изучено':'Исследовать'}</button></section>`).join('')}</div>`;
     if (view === 'trial') return head + trialView(f);
     const kind = view,
       project = a.projects[kind],
@@ -379,7 +431,7 @@
 
   function badgeCard(b) {
     const tiers = ['Росток', 'Бронза', 'Серебро', 'Золото', 'Легенда'];
-    return `<article data-badge="${b.id}" class="farm-badge farm-medal-card tier-${b.tier} ${b.ready&&!b.claimed?'is-ready':''} ${b.claimed?'is-claimed':''}"><span class="farm-medal">${F().medal(b.category,b.tier,b.claimed)}<em>${tiers[b.tier]}</em></span><div><b>${esc(b.name)}</b><p>${esc(b.description)}</p><small>${fmt(Math.min(b.value,b.target))} / ${fmt(b.target)}</small><progress max="${b.target}" value="${Math.min(b.value,b.target)}"></progress><span>${b.seed_reward||b.material_reward?resourceCost({seeds:b.seed_reward,materials:b.material_reward}):''}</span></div><button class="farm-small-button" data-farm-action="claim_badge" data-item="${b.id}" ${b.ready&&!b.claimed?'':'disabled'}>${b.claimed?'✓':money(b.reward)}</button></article>`;
+    return `<article data-badge="${b.id}" class="farm-badge farm-medal-card tier-${b.tier} ${b.ready&&!b.claimed?'is-ready':''} ${b.claimed?'is-claimed':''}"><span class="farm-medal">${F().medal(b.category,b.tier,b.claimed)}<em>${tiers[b.tier]}</em></span><div><b>${esc(b.name)}</b><p>${esc(b.description)}</p><small>${fmt(Math.min(b.value,b.target))} / ${fmt(b.target)}</small><progress max="${b.target}" value="${Math.min(b.value,b.target)}"></progress><span>${!b.claimed&&(b.seed_reward||b.material_reward)?resourceCost({seeds:b.seed_reward,materials:b.material_reward}):''}</span></div><button class="farm-small-button" data-farm-action="claim_badge" data-item="${b.id}" ${b.ready&&!b.claimed?'':'disabled'}>${b.claimed?'✓':`<span class="farm-money" title="${fmt(b.reward)} морковок">${carrot()}${compact(b.reward)}</span>`}</button></article>`;
   }
 
   function achievements(f) {
@@ -433,12 +485,16 @@
     $('.farm-scene', d)?.classList.toggle('is-boosted', v.boost > 0);
     for (const b of d.querySelectorAll('[data-farm-action="buy"]')) {
       const i = s.items.find(i => i.id === b.dataset.item);
-      b.disabled = f.busy || f.failed || i.locked || i.maxed || v.balance < i.cost || !canPay(f, i.resource_cost);
-      b.classList.toggle('is-affordable', !b.disabled);
+      paymentButton(f, b, {
+        ...i.resource_cost,
+        cost: i.cost
+      }, i.locked || i.maxed);
+      b.classList.toggle('is-affordable', !b.disabled && !b.dataset.resourceNeeded);
     }
     for (const node of d.querySelectorAll('[data-missing]')) {
       const i = s.items.find(i => i.id === node.dataset.missing);
-      node.textContent = v.balance < i.cost ? 'Ещё ' + fmt(i.cost - v.balance) : 'Купить';
+      const missing = missingResources(f, i.resource_cost);
+      node.textContent = missing.length ? (missing.length === 2 ? 'Найти ресурсы' : missing[0] === 'seeds' ? 'Найти семена' : 'Найти материалы') : v.balance < i.cost ? 'Ещё ' + fmt(i.cost - v.balance) : 'Купить';
     }
     for (const button of d.querySelectorAll('[data-farm-action]:not([data-farm-action="buy"]):not([data-farm-action="boost"]):not([data-farm-action="refill"])')) {
       if (!button.dataset.initialDisabled) button.dataset.initialDisabled = button.disabled ? 'yes' : 'no';
@@ -448,7 +504,9 @@
     $('.farm-collect-bar', d).hidden = !s.claimable.count;
     collect.disabled = f.busy || f.failed || !s.claimable.count;
     $('[data-collect-count]', d).textContent = s.claimable.count ? 'Награды готовы · ' + s.claimable.count : 'Все награды собраны';
-    $('[data-collect-amount]', d).textContent = s.claimable.amount ? '+' + fmt(s.claimable.amount) : '';
+    const collectAmount = $('[data-collect-amount]', d);
+    collectAmount.textContent = s.claimable.amount ? '+' + compact(s.claimable.amount) : '';
+    collectAmount.title = fmt(s.claimable.amount) + ' морковок';
     const order = s.order,
       remaining = order ? Math.max(0, (order.finish_at - s.server_ms) / 1000 - age) : 0;
     for (const node of d.querySelectorAll('[data-order-clock]')) node.textContent = remaining ? 'Осталось ' + clock(remaining) : 'Доставка завершена';
@@ -516,14 +574,17 @@
     for (const button of d.querySelectorAll('[data-farm-action="start_plot"],[data-farm-action="start_expedition"]')) {
       const kind = button.dataset.farmAction === 'start_plot' ? 'plot' : 'expedition';
       const c = (kind === 'plot' ? a.crops : a.routes).find(c => c.id === button.dataset.item);
-      button.disabled = f.busy || f.failed || !!a.projects[kind] || s.level < c.unlock || !canPay(f, kind === 'plot' ? {
+      const missing = paymentButton(f, button, {
         ...c,
-        seeds: 0
-      } : c) || (c.requires_item && !s.items.find(i => i.id === c.requires_item)?.level);
+        seeds: kind === 'plot' ? 0 : c.seeds,
+        materials: 0
+      }, !!a.projects[kind] || s.level < c.unlock || (c.requires_item && !s.items.find(i => i.id === c.requires_item)?.level));
+      if (!button.disabled && missing.length) button.textContent = 'Найти семена';
     }
     for (const button of d.querySelectorAll('[data-farm-action="research"]')) {
       const r = a.research.find(r => r.id === button.dataset.item);
-      button.disabled = f.busy || f.failed || r.locked || r.maxed || !canPay(f, r);
+      const missing = paymentButton(f, button, r, r.locked || r.maxed);
+      button.textContent = r.maxed ? 'Изучено' : missing.length ? 'Найти ресурсы' : 'Исследовать';
     }
     const plot = a.projects.plot;
     for (const button of d.querySelectorAll('[data-farm-action="claim_project"]')) {
@@ -555,9 +616,10 @@
     }
     for (const button of d.querySelectorAll('[data-farm-action="start_trial"]')) {
       const t = a.trials.find(t => t.id === button.dataset.item);
-      button.disabled = f.busy || f.failed || !!trial || s.level < t.unlock || a.trial_wait > age || !canPay(f, {
+      const missing = paymentButton(f, button, {
         seeds: t.seeds
-      });
+      }, !!trial || s.level < t.unlock || a.trial_wait > age);
+      button.textContent = missing.length ? 'Найти семена' : 'Начать';
     }
     const wait = $('[data-trial-wait]', d);
     if (wait) wait.textContent = a.trial_wait > age ? 'Следующая попытка через ' + clock(a.trial_wait - age) : '';
@@ -697,7 +759,8 @@
           start_trial: 'Испытание началось'
         })[kind]);
         else if (kind === 'buy') status(f, 'Улучшение куплено');
-        else if (kind === 'claim_daily' || kind === 'claim_quest' || kind === 'claim_badge') status(f, 'Морковки уже в корзинке');
+        else if (kind === 'claim_badge') status(f, 'Получено: ' + fmt(f.lastResult.amount) + ' морковок' + (resourceCost(f.lastResult) ? ' · ' + resourceCost(f.lastResult) : ''));
+        else if (kind === 'claim_daily' || kind === 'claim_quest') status(f, 'Морковки уже в корзинке');
       }
     } catch {} finally {
       f.busy = false;
@@ -767,6 +830,47 @@
     if (b.hasAttribute('data-trial-harvest')) {
       tap(f, e);
       M().pop(b);
+      return;
+    }
+    if (b.dataset.resourceRoute) {
+      resourceRoute(f, b.dataset.resourceRoute);
+      return;
+    }
+    if (b.hasAttribute('data-resource-return')) {
+      const request = f.resourceRequest;
+      if (!request) return;
+      Object.assign(f, {
+        tab: request.tab,
+        category: request.category,
+        activityView: request.activityView
+      });
+      f.resourceRequest = null;
+      persistUi(f);
+      render(f);
+      const target = f.dialog.querySelector(`[data-farm-action="${request.action}"][data-item="${request.item}"]`);
+      target?.focus({
+        preventScroll: true
+      });
+      target?.scrollIntoView({
+        block: 'center',
+        behavior: 'smooth'
+      });
+      return;
+    }
+    if (b.dataset.resourceNeeded) {
+      f.resourceRequest = {
+        action: b.dataset.farmAction,
+        item: b.dataset.item,
+        tab: f.tab,
+        category: f.category,
+        activityView: f.activityView
+      };
+      const missing = missingResources(f, purchaseCost(f, b.dataset.farmAction, b.dataset.item));
+      if (missing.length === 1) resourceRoute(f, missing[0]);
+      else {
+        render(f);
+        $('.farm-resource-guide', f.dialog)?.focus();
+      }
       return;
     }
     if (b.dataset.farmAction) {
