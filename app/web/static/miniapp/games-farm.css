@@ -640,3 +640,15 @@
 .farm-badge-categories progress::-webkit-progress-value,.farm-medal-card progress::-webkit-progress-value {background:#9aad72;border-radius:4px}
 .farm-medal {border:1px solid currentColor;border-radius:48% 48% 42% 42%;background:linear-gradient(145deg,#fffbee,#eae2c7);box-shadow:inset 0 0 0 3px #fffcf466}
 .farm-medal svg {width:26px;height:28px}
+/* Inventory stays visible while switching between the farm, shop and activities. */
+.farm-resource-wallet {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;flex-shrink:0;margin:0 28px 13px;padding:9px 15px;font-size:12px}
+.farm-resource-wallet>span {min-width:0;gap:8px}
+.farm-resource-wallet>span+span {border-left:1px solid #d7ddbe;padding-left:24px}
+.farm-resource-wallet b {margin-left:auto;font-size:20px;font-variant-numeric:tabular-nums;color:#536a3b;white-space:nowrap}
+.farm-resource-wallet svg {width:18px;height:18px}
+@media(max-width:640px) {
+ .farm-resource-wallet {margin:0 16px 10px;padding:9px 11px;gap:12px;font-size:11px}
+ .farm-resource-wallet>span {gap:6px}.farm-resource-wallet>span+span {padding-left:12px}
+ .farm-resource-wallet b {font-size:18px}.farm-resource-wallet svg {width:16px;height:16px}
+}
+@media(max-width:350px) {.farm-resource-wallet {margin-inline:12px;gap:9px;font-size:10px}.farm-resource-wallet>span+span {padding-left:9px}.farm-resource-wallet b {font-size:16px}}

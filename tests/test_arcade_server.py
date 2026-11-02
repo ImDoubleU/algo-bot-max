@@ -1209,3 +1209,37 @@ def test_farm_trial_uses_the_actual_harvest_and_collects_resource_prize(arcade):
     assert after["activities"]["counts"]["trials"] == 1
     assert after["activities"]["resources"] == {"seeds": 4, "materials": 4}
     assert not store.profile("p1")["awards"]
+
+
+def test_farm_resource_wallet_is_visible_everywhere_and_updates_after_spending_and_harvest(arcade):
+    from app.services.arcade_farm import FarmStore
+
+    page, store = arcade
+    store.clock = Clock()
+    farm = FarmStore(store)
+    farm.get("p1")
+    with store.db() as db:
+        state = farm._load(db, "p1")
+        state.update(earned=250000, balance=10000, resources={"seeds": 6, "materials": 8})
+        farm._save(db, "p1", state)
+    page.locator('.game-card[data-game="kopatych"]').click()
+    for tab in ("home", "upgrades", "activities", "tasks", "valley"):
+        page.locator(f'.farm-tabs [data-farm-tab="{tab}"]').click()
+        assert page.locator(".farm-resource-wallet").is_visible()
+        assert page.locator('[data-resource="seeds"]').inner_text() == "6"
+        assert page.locator('[data-resource="materials"]').inner_text() == "8"
+        assert page.locator('[data-resource="seeds"]').count() == 1
+    page.locator('.farm-tabs [data-farm-tab="activities"]').click()
+    page.locator('[data-activity-view="research"]').click()
+    page.locator('[data-farm-action="research"][data-item="garden_notes"]').click()
+    page.wait_for_function("document.querySelector('[data-resource=seeds]').textContent==='4'")
+    assert page.locator('[data-resource="materials"]').inner_text() == "5"
+    page.locator('[data-activity-view="expedition"]').click()
+    page.locator('[data-farm-action="start_expedition"][data-item="forest"]').click()
+    page.locator(".farm-project").wait_for()
+    page.locator("[data-farm-close]").click()
+    store.clock.advance(1200)
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator('[data-farm-action="claim_project"]').click()
+    page.wait_for_function("document.querySelector('[data-resource=materials]').textContent==='8'")
+    assert page.locator('[data-resource="seeds"]').inner_text() == "4"

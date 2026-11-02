@@ -135,6 +135,37 @@
     const body=kind==='rabbit'?`<g ${outline}><path d="M27 30Q8-12 25 3q13 14 14 29m7-1Q42-6 57 2q12 6-1 30" fill="#a7cdcf"/><circle cx="40" cy="47" r="29" fill="#a7cdcf"/><ellipse cx="31" cy="43" rx="8" ry="11" fill="#fff9de"/><ellipse cx="49" cy="43" rx="8" ry="11" fill="#fff9de"/><path d="m29 44 1 1m18-1 1 1" stroke-width="5"/><path d="M35 53q5-5 10 0l-5 5Z" fill="#c5786d"/><path d="M28 60q12 14 25-3" fill="none"/><path d="M36 65h10l-1 7h-8Z" fill="#fff9de"/></g>`:kind==='hedgehog'?`<g ${outline}><path d="m12 35-6-15 16 2 1-16 15 10L50 4l6 17 17 1-6 17Z" fill="#92759f"/><circle cx="40" cy="48" r="29" fill="#b69bc0"/><circle cx="27" cy="45" r="12" fill="#f8ecd8"/><circle cx="53" cy="45" r="12" fill="#f8ecd8"/><path d="M38 44h4m-31-2-5-3m62 3 6-3" stroke="#745278" stroke-width="4"/><path d="m28 45 1 1m23-1 1 1" stroke-width="5"/><path d="m36 55 4 4 5-4" fill="#916383"/><path d="M32 66q8 5 16 0" fill="none"/></g>`:`<g ${outline}><path d="m15 33-6-23 23 10m23 0 19-11-8 27" fill="#b39bb9"/><circle cx="40" cy="47" r="30" fill="#b39bb9"/><ellipse cx="28" cy="43" rx="13" ry="15" fill="#f6e6c7"/><ellipse cx="53" cy="43" rx="13" ry="15" fill="#f6e6c7"/><path d="m28 43 1 1m23-1 1 1" stroke-width="6"/><path d="m34 54 13-1-7 12Z" fill="#daa66c"/><path d="M24 70q16 11 32 0" stroke="#90769b"/><path d="m18 13 13-10 19 3 12 10" fill="#dfcc98"/></g>`;
     return wrap(body);
   }
+  function crop(id){
+    const moon=id==='moon',amber=id==='amber';
+    const soil=moon?'#c7c9b3':amber?'#dfc58b':'#c7cfaa',root=moon?'#a497bc':amber?'#e3aa51':'#d08368';
+    return wrap(`<ellipse cx="80" cy="112" rx="51" ry="7" fill="#c6bda33b"/><path d="M24 78q57-17 112 0l-9 29q-45 15-93 0Z" fill="${soil}"/>
+      <g stroke="#806342" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M65 52q-12 8-9 25l18 30q6 5 10-2l20-34q1-18-14-21Z" fill="${root}"/>
+      <path d="m60 67 14 5m-5 15 13 4m13-27-13 5" fill="none" stroke="#ac7d50" opacity=".6"/>
+      <path d="M79 54Q45 37 51 21q24-4 28 33Zm0 0Q75 16 91 12q16 17-12 42Zm0 0q30-30 42-15-9 20-42 15Z" fill="#91a56b" stroke="#73834f"/>
+      <path d="m39 87 12 3m55-3 14-3" stroke="#a99b74"/></g>
+      ${moon?'<g fill="#e5d795"><path d="m30 26 3-7 3 7 7 3-7 3-3 7-3-7-7-3Z"/><circle cx="122" cy="19" r="2"/><path d="M122 49q-12-5-5-17-1 11 10 10Z"/></g>':amber?'<g fill="#efce76"><path d="m29 40 5-13 5 13 13 5-13 5-5 13-5-13-13-5Z"/><circle cx="122" cy="65" r="3"/></g>':'<path d="M25 45q-11-3-10-11 11-3 16 7" fill="#bdcb9b"/>'}`, '0 0 160 130');
+  }
+  function route(id){
+    const sky=id==='sky',coast=id==='coast';
+    return wrap(`<rect x="1" y="1" width="248" height="128" rx="5" fill="${sky?'#e7e5d7':coast?'#dfeae1':'#e8ecd6'}"/>
+      <circle cx="204" cy="28" r="14" fill="#ead198"/><path d="M0 78q62-50 139-4t111-20v76H0Z" fill="#c3d1ae"/><path d="M0 108q82-47 164-7t86-3v32H0Z" fill="#a9bd8d"/>
+      ${coast?'<path d="M0 87q97-18 146 11t104-3v35H0Z" fill="#abc9c4"/><path d="m23 106 32-3m62 15 41-1m40-6 30-3" stroke="#e3ede1" stroke-width="2"/><path d="M64 96 86 63l34 37Z" fill="#9dad91"/><path d="m77 79 9-16 9 18" fill="#e6e6cd"/>':sky?sceneryItem('balloon',71,12,1.05)+'<path d="m157 79 39-9 32 11-12 13-46 3Z" fill="#8ca07a"/><path d="m170 96 18 20 9-22" fill="#b7bd9b"/>':'<path d="M105 130q-17-31 28-65" stroke="#dfc99a" stroke-width="15" fill="none"/><g fill="#819d72">'+[25,59,190,218].map((x,i)=>`<path d="m${x} ${42+i%2*11}-19 39h38Z"/><path d="M${x-2} ${77+i%2*11}v21" stroke="#9b895f" stroke-width="4"/>`).join('')+'</g>'}
+      <path d="M15 15h27m-27 5h16" stroke="#a8b79c" stroke-width="2" stroke-linecap="round"/>`, '0 0 250 130');
+  }
+  function note(id){
+    let body='';const st='stroke="#7a6a4a" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"';
+    if(id==='garden_notes')body=`<g ${st}><path d="M37 15h80v99H37Z" fill="#a5b58a"/><path d="M45 15v99m-7-88h9m-9 15h9m-9 15h9m-9 15h9m-9 15h9" stroke="#e6dbbc"/><path d="M60 37h39v48H60Z" fill="#f1e8ca"/><path d="M78 75V50m0 14q-21-5-9-18 15 6 9 18Zm1-9q20 0 15-17-16 0-15 17Z" fill="#91a46e"/></g>`;
+    if(id==='seed_sorting')body=`<g ${st}><path d="m24 48 73-22 35 26-72 30Z" fill="#d9c39a"/><path d="M24 48v28l35 28 73-30V52L60 82Z" fill="#bda06c"/><path d="m49 40 33 31m-6-40 31 30M24 62l35 28 73-30" fill="none"/><g fill="#e7d79c">${[0,1,2,3].map((n)=>`<ellipse cx="${46+n*17}" cy="${49+n%2*7}" rx="7" ry="4" transform="rotate(-25 ${46+n*17} ${49+n%2*7})"/>`).join('')}</g></g>`;
+    if(id==='trail_maps')body=`<g ${st}><path d="m24 27 35-11 39 12 38-13-9 89-36 11-38-14-37 12Z" fill="#eee1bb"/><path d="m59 16-6 85m45-73-7 87" stroke="#c4b18a"/><path d="M37 83q6-37 43-18t33-31" fill="none" stroke="#a18e59" stroke-dasharray="4 5"/><circle cx="37" cy="83" r="5" fill="#a3b77d"/><path d="m106 32 15 9m-1-11-14 14" stroke="#ad8756"/></g>`;
+    if(id==='soil_calendar')body=`<g ${st}><rect x="31" y="24" width="96" height="86" rx="4" fill="#f0e5c6"/><path d="M31 24h96v22H31Z" fill="#a2b487"/><path d="M48 16v19m60-19v19" stroke-width="5"/><path d="M47 61h64M47 79h64m-48-23v42m19-42v42m19-42v42" stroke="#cbbd96"/><path d="m86 85 8 7 16-18" fill="none" stroke="#7f965d" stroke-width="4"/></g>`;
+    if(id==='challenge_training')body=`<g ${st}><path d="M69 15h25v10H69Zm12 10v8m31 6 8-7" fill="#ccb577"/><circle cx="81" cy="73" r="40" fill="#ded2a8"/><circle cx="81" cy="73" r="31" fill="#f8efd2"/><path d="M81 50v24l17 8" fill="none" stroke="#89995e" stroke-width="4"/><path d="M53 73h5m47 0h5m-29 23v5"/></g>`;
+    return wrap(`<ellipse cx="80" cy="117" rx="51" ry="5" fill="#c6bda330"/>${body}`, '0 0 160 130');
+  }
+  function medal(kind,tier,claimed=false){
+    const colors=[['#b9c79c','#e5ebd6'],['#bc926b','#ead4b4'],['#a6b5b1','#e0e6df'],['#c6a15a','#f1dfaa'],['#aa91ae','#e6dbea']][tier];
+    const glyph={harvest:'M32 31q-4-8 4-10 9 1 4 10L29 46Zm3-10-6-5m7 5 7-7',manual:'m27 44 18-20m-2-7 5-5 9 8-5 5Zm-20 17-8 2 1 9 9-1 4-8',building:'m19 31 21-16 21 16v22H19Zm15 22V36h13v17',neighbors:'M20 47q0-13 11-13t11 13m1-3q0-11 10-11t10 11M24 23a7 7 0 1 0 14 0 7 7 0 0 0-14 0m22-1a6 6 0 1 0 12 0 6 6 0 0 0-12 0',care:'M40 49V32m-1 4Q18 33 24 21q16 0 15 15Zm1-9q16 0 13-13-13-2-13 13Z',rare:'M24 44h32l-3 13H27ZM40 44V24m0 12Q18 32 25 20q14 0 15 16Zm0-8q17 0 14-14-14-2-14 14Z',expeditions:'m40 15 8 18 16 7-18 7-6 17-7-18-18-6 18-7Z',research:'M22 18h34v38H22Zm8 0v38m6-28h12m-12 9h12m-12 9h8',trials:'m40 14 8 16 18 2-13 13 3 18-16-9-16 9 3-18-13-13 18-2Z'}[kind];
+    return wrap(`<path d="m20 48-5 29 17-7 8 8 3-25m-3 0 10 24 8-9 15 3-12-29" fill="${colors[0]}" opacity=".72"/><circle cx="40" cy="35" r="31" fill="${colors[0]}"/><circle cx="40" cy="35" r="26" fill="${colors[1]}" stroke="#fff8dd" stroke-width="1.5"/><path d="${glyph}" transform="translate(6 4) scale(.85)" fill="none" stroke="#7c694b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>${claimed?'<circle cx="64" cy="58" r="10" fill="#819a61"/><path d="m59 58 4 4 7-8" fill="none" stroke="#fff9e5" stroke-width="2.4"/>':''}`, '0 0 80 84');
+  }
   function item(id){
     id=({battery:'energy',irrigation:'water',beehives:'bee',orchard:'tree',silo:'barn',vineyard:'tree',autoshovel:'shovel',orangery:'greenhouse',foundry:'workshop'})[id]||id;
     const stroke=`stroke="${p.ink}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"`;
@@ -166,8 +197,10 @@
     if(id==='highland')body=`<g ${stroke}><path d="m4 65 25-49 14 23 13-32 21 58Z" fill="#b0c1a3"/><path d="m20 34 9-18 11 19-10-5Z" fill="#f1edd8"/><path d="m47 29 9-22 10 27-11-6Z" fill="#f1edd8"/><path d="M5 64h72v10H5Z" fill="#91a573"/><path d="M30 64V48h22v16" fill="#c5a97c"/><path d="m25 49 16-14 17 14" fill="#a98057"/></g>`;
     if(id==='exosuit')body=`<g ${stroke}><path d="M22 16h36v36H22Z" fill="#a5bdb0"/><path d="m22 25-10 9v25m46-34 10 9v25M29 52l-7 23m29-23 7 23" stroke-width="8"/><circle cx="40" cy="33" r="11" fill="#d8c58b"/><path d="m40 24-5 10h7l-3 9" fill="none"/></g>`;
     if(id==='lighthouse')body=`<g ${stroke}><path d="m25 24-8 49h47l-9-49Z" fill="#e2d4ab"/><path d="M21 48h39l-3-13H23Z" fill="#c99c74"/><path d="M24 23V11h32v12" fill="#d9deb5"/><path d="m18 12 22-10 23 10Z" fill="#a47c54"/><path d="M37 73V58h10v15" fill="#a18e64"/><path d="M9 17H2m77 0h-7" stroke="#dbc476" stroke-width="4"/></g>`;
+    if(id==='seedbag')body=`<g ${stroke}><path d="M29 17h23l-4 16q16 8 19 29 1 13-27 13T13 62q3-22 20-29Z" fill="#d2bd8b"/><path d="M27 32h27" stroke="#8b9861" stroke-width="5"/><path d="M40 62V44m0 11q-18-3-11-14 13 1 11 14Zm1-8q15-1 10-11-11 0-10 11Z" fill="#9cad76"/></g>`;
+    if(id==='materials')body=`<g ${stroke}><path d="m8 31 52-14 12 12-53 15Z" fill="#d9b580"/><path d="m19 44 53-15v13L19 57 8 44V31" fill="#bf9c68"/><path d="m9 56 51-13 12 12-52 15Z" fill="#e0c494"/><path d="M20 70v8l52-15v-8" fill="#bca171"/><path d="m25 31 21-5m-18 37 24-7" stroke="#f0d6a7"/></g>`;
     if(id==='gift')body=`<g ${stroke}><rect x="13" y="29" width="54" height="43" rx="4" fill="#e2be72"/><rect x="9" y="24" width="62" height="14" rx="4" fill="#edce88"/><path d="M34 25v47h12V25" fill="#a5b17a"/><path d="M40 24Q13 27 19 10q7-12 21 14Zm0 0Q67 27 61 10q-7-12-21 14Z" fill="#bdc699"/></g>`;
     return wrap(`<ellipse cx="40" cy="74" rx="28" ry="4" fill="#bfb08e25"/>${body}`);
   }
-  window.KopatychArt={character,scene,item,stage,neighbor};
+  window.KopatychArt={character,scene,item,stage,neighbor,crop,route,note,medal};
 })();
