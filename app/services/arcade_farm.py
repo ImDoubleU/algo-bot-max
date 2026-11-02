@@ -51,7 +51,7 @@ ITEMS = [
         growth=1.65,
         unlock=1,
         maximum=20,
-        text="Больше морковок за нажатие",
+        text="Сила лопаты растёт с каждым уровнем и доходом фермы",
     ),
     dict(
         id="gloves",
@@ -62,7 +62,7 @@ ITEMS = [
         growth=1.6,
         unlock=2,
         maximum=15,
-        text="Каждый уровень: +10% базового сбора, минимум +1 морковка",
+        text="Каждый уровень: +25% к лопате и трактору, минимум +2 морковки",
     ),
     dict(
         id="battery",
@@ -73,7 +73,7 @@ ITEMS = [
         growth=1.6,
         unlock=1,
         maximum=15,
-        text="Ещё 200 единиц энергии",
+        text="Ещё 750 единиц энергии за уровень",
     ),
     dict(
         id="well",
@@ -84,7 +84,7 @@ ITEMS = [
         growth=1.7,
         unlock=3,
         maximum=15,
-        text="Быстрее восстанавливает энергию",
+        text="Ещё 0,5 энергии в секунду за уровень",
     ),
     dict(
         id="beds",
@@ -155,7 +155,7 @@ ITEMS = [
         growth=1.7,
         unlock=4,
         maximum=15,
-        text="Все постройки дают на 7% больше за уровень",
+        text="Множитель полива +0,15 за уровень. Усиливает весь урожай",
     ),
     dict(
         id="market",
@@ -166,7 +166,7 @@ ITEMS = [
         growth=1.8,
         unlock=6,
         maximum=15,
-        text="Доход всех построек +5% за уровень",
+        text="Множитель лавки +0,10 за уровень. Перемножается с поливом и компостом",
     ),
     dict(
         id="silo",
@@ -177,7 +177,7 @@ ITEMS = [
         growth=1.7,
         unlock=2,
         maximum=10,
-        text="Ещё 2 часа накопления без захода в игру",
+        text="Ещё 4 часа накопления без захода за уровень — до 44 часов",
     ),
 ]
 ITEMS += [
@@ -190,7 +190,7 @@ ITEMS += [
         growth=1.75,
         unlock=8,
         maximum=15,
-        text="Питательная почва: +9% к общему урожаю за уровень",
+        text="Множитель компоста +0,20 за уровень. Усиливает весь урожай",
     ),
     dict(
         id="windmill",
@@ -225,7 +225,7 @@ ITEMS += [
         growth=1.7,
         unlock=12,
         maximum=20,
-        text="+20 к базовому ручному сбору за уровень; перчатки усиливают его",
+        text="Мощность растёт с уровнем трактора и доходом фермы. Усиливается перчатками",
     ),
     dict(
         id="nursery",
@@ -251,6 +251,39 @@ ITEMS += [
         base=150000,
         text="Связывает ферму со всей долиной",
     ),
+    dict(
+        id="workshop",
+        name="Мастерская",
+        category="business",
+        icon="workshop",
+        price=9000,
+        growth=1.7,
+        unlock=10,
+        maximum=15,
+        text="Каждый уровень: +12% ко всему ручному сбору после усиления перчатками",
+    ),
+    dict(
+        id="logistics",
+        name="Логистика",
+        category="business",
+        icon="logistics",
+        price=18000,
+        growth=1.75,
+        unlock=13,
+        maximum=10,
+        text="Каждый уровень: доставка на 4% быстрее. До −40% времени с полной наградой",
+    ),
+    dict(
+        id="seedlab",
+        name="Селекционная станция",
+        category="business",
+        icon="seedlab",
+        price=90000,
+        growth=1.7,
+        unlock=16,
+        maximum=10,
+        text="Усиливает прирост за каждый уровень постройки: с 12% до 17%",
+    ),
 ]
 BY_ID = {item["id"]: item for item in ITEMS}
 DAILY_REWARDS = [100, 150, 200, 300, 400, 600, 1000]
@@ -274,7 +307,7 @@ BADGES = [
     ("idle_million", "Урожай без границ", "passive", 1000000, 25000),
     ("variety_6", "На все руки", "variety", 6, 1000),
     ("variety_12", "Полное хозяйство", "variety", 12, 10000),
-    ("variety_18", "Есть всё", "variety", 18, 50000),
+    ("variety_18", "Большой выбор", "variety", 18, 50000),
     ("orders_1", "Добрый сосед", "deliveries", 1, 150),
     ("orders_10", "Надёжный поставщик", "deliveries", 10, 1500),
     ("orders_50", "Вся долина знакома", "deliveries", 50, 10000),
@@ -339,28 +372,55 @@ def level(earned):
     return min(len(LEVELS), sum(earned >= value for value in LEVELS))
 
 
+def production_sources(upgrades):
+    growth = 1.12 + 0.005 * upgrades.get("seedlab", 0)
+    return [
+        dict(
+            id=i["id"],
+            name=i["name"],
+            amount=int(i["base"] * upgrades[i["id"]] * growth ** max(0, upgrades[i["id"]] - 1)),
+        )
+        for i in ITEMS
+        if "base" in i and upgrades.get(i["id"], 0)
+    ]
+
+
+def income_factor(upgrades):
+    return (
+        (100 + 15 * upgrades.get("irrigation", 0))
+        * (100 + 10 * upgrades.get("market", 0))
+        * (100 + 20 * upgrades.get("compost", 0))
+    )
+
+
 def stats(state, now_ms):
     upgrades = {key: state["items"].get(key, 0) for key in BY_ID}
-    production = 120 + sum(
-        int(item["base"] * upgrades[item["id"]] * 1.12 ** max(0, upgrades[item["id"]] - 1))
-        for item in ITEMS
-        if "base" in item
-    )
     production = (
-        production
-        * (100 + 7 * upgrades["irrigation"] + 5 * upgrades["market"] + 9 * upgrades["compost"])
-        // 100
+        (120 + sum(r["amount"] for r in production_sources(upgrades)))
+        * income_factor(upgrades)
+        // 1000000
     )
-    raw_tap = 1 + 2 * upgrades["shovel"] + 20 * upgrades["tractor"]
-    tap = raw_tap + max(upgrades["gloves"], raw_tap * 10 * upgrades["gloves"] // 100)
+    shovel, tractor = upgrades["shovel"], upgrades["tractor"]
+    flat = 1 + 4 * shovel + 2 * shovel**2 + int(150 * tractor * 1.15 ** max(0, tractor - 1))
+    scaled = production * shovel // 100000 + production * tractor // 20000
+    raw_tap = flat + scaled
+    gloves = max(2 * upgrades["gloves"], raw_tap * 25 * upgrades["gloves"] // 100)
+    tap = (raw_tap + gloves) * (100 + 12 * upgrades["workshop"]) // 100
     boost = state["boost_until"] > now_ms
     return dict(
         per_hour=production,
         per_tap=tap * (2 if boost else 1),
         base_tap=tap,
-        energy_max=500 + 200 * upgrades["battery"],
-        energy_per_second=1 + 0.2 * upgrades["well"],
-        offline_hours=4 + 2 * upgrades["silo"],
+        tap_flat=flat,
+        tap_income=scaled,
+        tap_gloves=gloves,
+        tap_workshop=tap - raw_tap - gloves,
+        energy_max=500 + 750 * upgrades["battery"],
+        energy_regen_milli=1000 + 500 * upgrades["well"],
+        energy_per_second=1 + 0.5 * upgrades["well"],
+        offline_hours=4 + 4 * upgrades["silo"],
+        delivery_speed=4 * upgrades["logistics"],
+        growth_percent=12 + 0.5 * upgrades["seedlab"],
         boost=boost,
         boost_seconds=max(0, math.ceil((state["boost_until"] - now_ms) / 1000)),
     )
@@ -520,7 +580,7 @@ class FarmStore:
         state["earned"] += produced
         state["passive"] += produced
         state["daily"]["passive"] += produced
-        regen = state["energy_carry"] + elapsed * (1000 + state["items"]["well"] * 200)
+        regen = state["energy_carry"] + elapsed * values["energy_regen_milli"]
         gain, state["energy_carry"] = divmod(regen, 1000)
         state["energy_milli"] = min(values["energy_max"] * 1000, state["energy_milli"] + gain)
         if state["energy_milli"] == values["energy_max"] * 1000:
@@ -652,7 +712,8 @@ class FarmStore:
         )
 
     def _offers(self, state):
-        income = stats(state, state["last_ms"])["per_hour"]
+        values = stats(state, state["last_ms"])
+        income = values["per_hour"]
         bonus = self._neighbors(state)["bonus"]
         offers = []
         for definition in ORDERS:
@@ -669,6 +730,10 @@ class FarmStore:
                     **definition,
                     "profit": profit,
                     "reward": definition["cost"] + profit,
+                    "base_seconds": definition["seconds"],
+                    "seconds": math.ceil(
+                        definition["seconds"] * (100 - values["delivery_speed"]) / 100
+                    ),
                     "income_minutes": round(profit * 60 / income),
                     "bonus": bonus,
                 }
@@ -788,8 +853,12 @@ class FarmStore:
                     if item["id"] == "well"
                     else ("offline_hours", "Накопление без захода", "ч")
                     if item["id"] == "silo"
+                    else ("delivery_speed", "Сокращение срока доставки", "%")
+                    if item["id"] == "logistics"
+                    else ("growth_percent", "Прирост за уровень постройки", "%")
+                    if item["id"] == "seedlab"
                     else ("base_tap", "Ручной сбор без усиления", "/ нажатие")
-                    if item["id"] in ("shovel", "gloves", "tractor")
+                    if item["id"] in ("shovel", "gloves", "tractor", "workshop")
                     else ("per_hour", "Доход всей фермы", "/ ч")
                 )
                 effect = dict(label=label, unit=unit, current=values[field], next=upgraded[field])
@@ -805,6 +874,9 @@ class FarmStore:
                     "per_tap_gain": upgraded["base_tap"] - values["base_tap"],
                     "affordable": state["balance"] >= price(item, count),
                     "effect": effect,
+                    "manual_gain_from_income": upgraded["base_tap"] - values["base_tap"]
+                    if upgraded["per_hour"] > values["per_hour"]
+                    else 0,
                     "payback_hours": round(
                         price(item, count) / (upgraded["per_hour"] - values["per_hour"]), 2
                     )
@@ -851,19 +923,7 @@ class FarmStore:
                 (player,),
             )
         ]
-        sources = [
-            dict(
-                id=i["id"],
-                name=i["name"],
-                amount=int(
-                    i["base"]
-                    * state["items"][i["id"]]
-                    * 1.12 ** max(0, state["items"][i["id"]] - 1)
-                ),
-            )
-            for i in ITEMS
-            if "base" in i and state["items"][i["id"]]
-        ]
+        sources = production_sources(state["items"])
         raw = 120 + sum(row["amount"] for row in sources)
         available = self._bundle(state)
         return dict(
@@ -903,9 +963,12 @@ class FarmStore:
                 raw=raw,
                 bonus=values["per_hour"] - raw,
                 total=values["per_hour"],
-                percent=7 * state["items"]["irrigation"]
-                + 5 * state["items"]["market"]
-                + 9 * state["items"]["compost"],
+                percent=round(income_factor(state["items"]) / 10000 - 100, 2),
+                multipliers=dict(
+                    irrigation=1 + 0.15 * state["items"]["irrigation"],
+                    market=1 + 0.1 * state["items"]["market"],
+                    compost=1 + 0.2 * state["items"]["compost"],
+                ),
             ),
             events=events,
             daily=dict(

@@ -55,7 +55,17 @@ def test_old_farm_migrates_without_changing_money_items_or_progress(farm):
     original = act(farm, "buy", "beds")["farm"]
     with farm.arcade.db() as db:
         state = farm._load(db, "p1")
-        for key in ("compost", "windmill", "pond", "tractor", "nursery", "railway"):
+        for key in (
+            "compost",
+            "windmill",
+            "pond",
+            "tractor",
+            "nursery",
+            "railway",
+            "workshop",
+            "logistics",
+            "seedlab",
+        ):
             del state["items"][key]
         for key in ("chapters", "order", "deliveries", "best_streak"):
             del state[key]
@@ -66,13 +76,25 @@ def test_old_farm_migrates_without_changing_money_items_or_progress(farm):
     assert upgraded["balance"] == original["balance"] == 30
     assert upgraded["stats"] == original["stats"]
     assert upgraded["version"] == 2 and upgraded["deliveries"] == 0
-    assert len(upgraded["items"]) == 18 and len(upgraded["roadmap"]) == 30
+    assert len(upgraded["items"]) == 21 and len(upgraded["roadmap"]) == 30
     assert farm.board("p1")["me"]["per_hour"] == 210
 
 
 def test_upgrade_projection_matches_actual_purchase_and_income_breakdown(farm):
     seed(farm, balance=10000000, earned=3000000)
-    for key in ("beds", "gloves", "irrigation", "well", "silo", "tractor", "compost", "windmill"):
+    for key in (
+        "beds",
+        "gloves",
+        "irrigation",
+        "well",
+        "silo",
+        "tractor",
+        "compost",
+        "windmill",
+        "workshop",
+        "logistics",
+        "seedlab",
+    ):
         before = farm.get("p1")
         offer = next(i for i in before["items"] if i["id"] == key)
         after = act(farm, "buy", key)["farm"]
@@ -87,6 +109,72 @@ def test_upgrade_projection_matches_actual_purchase_and_income_breakdown(farm):
             == after["stats"]["per_hour"]
         )
     assert next(i for i in after["items"] if i["id"] == "railway")["locked"] is False
+
+
+def test_manual_tools_grow_with_the_farm_and_breakdown_matches_real_harvest(farm):
+    state = farm.get("p1")
+    items = {i["id"]: 0 for i in state["items"]}
+    items.update(shovel=10, gloves=5, tractor=4, workshop=2, beds=15, orchard=10)
+    seed(farm, balance=10000000, earned=3000000, items=items)
+    before = farm.get("p1")
+    v = before["stats"]
+    assert v["base_tap"] > 1000
+    assert v["tap_flat"] + v["tap_income"] + v["tap_gloves"] + v["tap_workshop"] == v["base_tap"]
+    assert act(farm, "tap")["result"]["amount"] == v["base_tap"]
+    offer = next(i for i in before["items"] if i["id"] == "irrigation")
+    after = act(farm, "buy", "irrigation")["farm"]
+    assert after["stats"]["base_tap"] > v["base_tap"]
+    assert after["stats"]["base_tap"] - v["base_tap"] == offer["manual_gain_from_income"]
+    act(farm, "boost")
+    assert act(farm, "tap")["result"]["amount"] == 2 * after["stats"]["base_tap"]
+    assert farm.arcade.profile("p1")["balance"] == 0
+
+
+def test_energy_upgrade_capacity_and_regeneration_use_the_advertised_rate(farm):
+    seed(farm, balance=1000000, earned=8000)
+    act(farm, "buy", "battery")
+    upgraded = act(farm, "buy", "well")["farm"]
+    assert upgraded["stats"]["energy_max"] == 1250
+    assert upgraded["stats"]["energy_per_second"] == 1.5
+    seed(farm, energy_milli=0, energy_carry=0)
+    farm.arcade.clock.advance(2)
+    assert farm.get("p1")["energy"] == 3
+    farm.arcade.clock.advance(10000)
+    assert farm.get("p1")["energy"] == 1250
+
+
+def test_business_income_multipliers_stack_and_seedlab_improves_existing_buildings(farm):
+    state = farm.get("p1")
+    items = {i["id"]: 0 for i in state["items"]}
+    items.update(irrigation=1, market=1, compost=1)
+    seed(farm, balance=1000000, earned=3000000, items=items)
+    before = farm.get("p1")
+    assert before["stats"]["per_hour"] == 182  # 120 × 1.15 × 1.10 × 1.20, rounded down.
+    act(farm, "buy", "beds")
+    act(farm, "buy", "beds")
+    before = farm.get("p1")
+    offer = next(i for i in before["items"] if i["id"] == "seedlab")
+    after = act(farm, "buy", "seedlab")["farm"]
+    assert after["stats"]["growth_percent"] == 12.5
+    assert after["stats"]["per_hour"] > before["stats"]["per_hour"]
+    assert after["stats"]["per_hour"] - before["stats"]["per_hour"] == offer["per_hour_gain"]
+
+
+def test_logistics_shortens_future_deliveries_with_full_profit_and_keeps_current_timer(farm):
+    seed(farm, balance=100000000, earned=3000000)
+    order = act(farm, "start_order", "basket")["farm"]["order"]
+    upgraded = act(farm, "buy", "logistics")["farm"]
+    assert upgraded["order"] == order
+    offer = next(o for o in upgraded["orders"] if o["id"] == "basket")
+    assert offer["seconds"] == 288 and offer["reward"] == order["reward"]
+    act(farm, "cancel_order", order["delivery_id"])
+    new = act(farm, "start_order", "basket")["farm"]["order"]
+    assert new["finish_at"] - new["started_at"] == 288000
+    for _ in range(9):
+        upgraded = act(farm, "buy", "logistics")["farm"]
+    assert upgraded["stats"]["delivery_speed"] == 40
+    assert next(o for o in upgraded["orders"] if o["id"] == "basket")["seconds"] == 180
+    assert upgraded["order"] == new
 
 
 def test_orders_use_server_time_and_one_delivery_slot_and_receipts(farm):
@@ -286,7 +374,7 @@ def test_first_farm_starts_production_without_a_purchase_and_uses_no_ac(farm):
     state = farm.get("p1")
     assert state["balance"] == 150 and state["stats"]["per_hour"] == 120
     assert state["stats"]["offline_hours"] == 4 and state["energy"] == 500
-    assert len(state["items"]) == 18 and len(state["quests"]) == 7
+    assert len(state["items"]) == 21 and len(state["quests"]) == 7
     act(farm, "tap", count=8)
     assert farm.arcade.profile("p1")["balance"] == before["balance"] == 0
     assert not farm.arcade.profile("p1")["awards"]
@@ -313,13 +401,13 @@ def test_storage_caps_absence_and_barn_extends_it_only_after_purchase(farm):
     assert result["offline"]["amount"] == 480 and result["offline"]["capped"]
     assert result["offline"]["credited_seconds"] == 4 * 3600
     bought = act(farm, "buy", "silo")["farm"]
-    assert bought["stats"]["offline_hours"] == 6
+    assert bought["stats"]["offline_hours"] == 8
     farm.arcade.clock.advance(12 * 3600)
-    assert farm.get("p1")["offline"]["amount"] == 720
+    assert farm.get("p1")["offline"]["amount"] == 960
     seed(farm, balance=1000000)
     for _ in range(9):
         act(farm, "buy", "silo")
-    assert farm.get("p1")["stats"]["offline_hours"] == 24
+    assert farm.get("p1")["stats"]["offline_hours"] == 44
 
 
 def test_upgrade_settles_old_rate_and_duplicate_purchase_never_charges_twice(farm):

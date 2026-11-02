@@ -16,11 +16,14 @@
   const decimal = n => Number(n || 0).toLocaleString('ru-RU', {
     maximumFractionDigits: 2
   });
-  const compact = n => n >= 1000000 ? (n / 1000000).toLocaleString('ru-RU', {
+  const compact = n => n >= 1000000000 ? (n / 1000000000).toLocaleString('ru-RU', {
+    maximumFractionDigits: 1
+  }) + ' млрд' : n >= 1000000 ? (n / 1000000).toLocaleString('ru-RU', {
     maximumFractionDigits: 1
   }) + ' млн' : n >= 100000 ? (n / 1000).toLocaleString('ru-RU', {
     maximumFractionDigits: 1
   }) + ' тыс.' : fmt(n);
+  const duration = n => [Math.floor(n / 3600) && Math.floor(n / 3600) + ' ч', Math.floor(n % 3600 / 60) && Math.floor(n % 3600 / 60) + ' мин', n % 60 && n % 60 + ' с'].filter(Boolean).join(' ') || '0 с';
   const clock = n => {
     n = Math.max(0, Math.ceil(n));
     return n >= 3600 ? Math.floor(n / 3600) + ':' + String(Math.floor(n % 3600 / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0') : Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0');
@@ -261,17 +264,25 @@
     return `<button class="farm-upgrade ${small?'is-compact':''} ${i.locked?'is-locked':''}" data-farm-action="buy" data-item="${i.id}" ${i.locked||i.maxed?'disabled':''}>
       <span class="farm-upgrade-icon">${F().item(i.id)}</span>
       <span class="farm-upgrade-info"><b>${esc(i.name)}<em>${i.level} / ${i.maximum}</em></b><small>${esc(subtitle)}</small>
-      ${!small?`<span class="farm-effect"><span>${esc(e.label)}</span><span><b>${decimal(e.current)}</b><i>→</i><strong>${decimal(e.next)}</strong> ${esc(e.unit)}</span></span><span class="farm-upgrade-note">${esc(i.text)}${i.payback_hours&&!i.maxed?` · Окупится за ${decimal(i.payback_hours)} ч`:''}</span>`:''}</span>
+      ${!small?`<span class="farm-effect"><span>${esc(e.label)}</span><span><b>${decimal(e.current)}</b>${!i.maxed?`<i>→</i><strong>${decimal(e.next)}</strong>`:''} ${esc(e.unit)}</span></span><span class="farm-upgrade-note">${esc(i.text)}${i.manual_gain_from_income?`<span class="farm-extra-effect">Ручной сбор тоже +${fmt(i.manual_gain_from_income)} за нажатие</span>`:''}${i.id==='seedlab'&&i.per_hour_gain?`<span class="farm-extra-effect">Доход фермы +${fmt(i.per_hour_gain)} / ч</span>`:''}${i.payback_hours&&!i.maxed?` · Окупится за ${decimal(i.payback_hours)} ч`:''}</span>`:''}</span>
       <strong class="farm-upgrade-price">${i.maxed?'Максимум':money(i.cost)}${!small&&!i.maxed&&!i.locked?`<small data-missing="${i.id}"></small>`:''}</strong></button>`;
   }
 
   function production(s) {
     const p = s.production;
-    return `<details class="farm-production"><summary><span>${icon('leaf')}Из чего складывается доход</span><b>${fmt(p.total)} / ч</b></summary><div class="farm-production-rows"><div><span>Огород Копатыча</span><b>${fmt(p.base)} / ч</b></div>${p.sources.map(r=>`<div><span>${esc(r.name)}</span><b>${fmt(r.amount)} / ч</b></div>`).join('')}<div class="farm-production-bonus"><span>Полив, лавка и компост · +${p.percent}%</span><b>+${fmt(p.bonus)} / ч</b></div><div><strong>Итого</strong><strong>${fmt(p.total)} / ч</strong></div></div></details>`;
+    return `<details class="farm-production"><summary><span>${icon('leaf')}Из чего складывается доход</span><b>${fmt(p.total)} / ч</b></summary><div class="farm-production-rows"><div><span>Огород Копатыча</span><b>${fmt(p.base)} / ч</b></div>${p.sources.map(r=>`<div><span>${esc(r.name)}</span><b>${fmt(r.amount)} / ч</b></div>`).join('')}<div class="farm-production-bonus"><span>Множители: ×${decimal(p.multipliers.irrigation)} · ×${decimal(p.multipliers.market)} · ×${decimal(p.multipliers.compost)}</span><b>+${fmt(p.bonus)} / ч</b></div><div><strong>Итого</strong><strong>${fmt(p.total)} / ч</strong></div></div></details>`;
+  }
+
+  function manualProduction(s) {
+    const v = s.stats;
+    return `<details class="farm-production farm-manual-production"><summary><span>${icon('shovel')}Сила ручного сбора</span><b>${fmt(v.base_tap)} / нажатие</b></summary><div class="farm-production-rows"><div><span>Лопата и трактор</span><b>${fmt(v.tap_flat)}</b></div><div><span>От дохода фермы</span><b>+${fmt(v.tap_income)}</b></div><div><span>Перчатки</span><b>+${fmt(v.tap_gloves)}</b></div><div><span>Мастерская</span><b>+${fmt(v.tap_workshop)}</b></div><div><strong>Без временного усиления</strong><strong>${fmt(v.base_tap)} / нажатие</strong></div></div></details>`;
   }
 
   function shop(f) {
-    return `${production(f.snapshot)}<div class="farm-shop-head"><div><h3>Улучшения фермы</h3></div><div class="farm-shop-filters">${[['garden','Огород'],['tools','Инструменты'],['business','Хозяйство']].map(([key,name])=>`<button data-farm-category="${key}" aria-pressed="${key===f.category}">${name}</button>`).join('')}</div></div><div class="farm-shop-grid">${f.snapshot.items.filter(i=>i.category===f.category).map(i=>upgrade(f,i)).join('')}</div>`;
+    const s = f.snapshot,
+      v = s.stats;
+    const summary = f.category === 'tools' ? `<div><small>За нажатие</small><b title="${fmt(v.base_tap)}">${v.base_tap<1000000?fmt(v.base_tap):compact(v.base_tap)}</b></div><div><small>Запас энергии</small><b>${fmt(v.energy_max)}</b></div><div><small>Восстановление</small><b>${decimal(v.energy_per_second)} / с</b></div>` : f.category === 'business' ? `<div><small>Урожай</small><b>×${decimal((s.production.percent+100)/100)}</b></div><div><small>Срок доставки</small><b>${v.delivery_speed?'−':''}${v.delivery_speed}%</b></div><div><small>Без захода</small><b>${v.offline_hours} ч</b></div>` : '';
+    return `<div class="farm-shop-head"><div><h3>Улучшения фермы</h3></div><div class="farm-shop-filters">${[['garden','Огород'],['tools','Инструменты'],['business','Хозяйство']].map(([key,name])=>`<button data-farm-category="${key}" aria-pressed="${key===f.category}">${name}</button>`).join('')}</div></div>${summary?`<div class="farm-shop-summary">${summary}</div>`:''}${f.category==='tools'?manualProduction(s):production(s)}<div class="farm-shop-grid">${s.items.filter(i=>i.category===f.category).map(i=>upgrade(f,i)).join('')}</div>`;
   }
 
   function chapterPreview(s) {
@@ -294,7 +305,7 @@
     return `<div class="farm-orders-heading"><span>${F().item('cart')}</span><div><h3>Соседи ждут урожай</h3><p>Чем сильнее ферма, тем щедрее заказы.</p></div><b>${s.deliveries} выполнено</b></div>
       <div class="farm-neighbor-trust"><span>${icon('leaf')}</span><div><b>${esc(n.name)}</b><small>${n.next?`${n.deliveries} / ${n.next} доставок до следующего ранга`:'Высший ранг доверия'}</small><progress max="${n.next?n.next-n.start:1}" value="${n.next?n.deliveries-n.start:1}"></progress></div><strong>+${n.bonus||5}%<small>${n.bonus?'к прибыли':'за 5 доставок'}</small></strong></div>
       ${o?`<section class="farm-active-order"><span>${F().item('cart')}</span><div><small data-order-label>В ПУТИ</small><h3>${esc(o.name)}</h3><progress data-order-progress max="${o.seconds}" value="0"></progress><p data-order-clock></p></div><div class="farm-order-actions"><button class="farm-button" data-farm-action="claim_order" data-item="${o.id}">Забрать ${fmt(o.reward)}</button><button class="farm-cancel-order" data-farm-cancel-delivery="${o.delivery_id}">Отменить доставку</button></div>${f.cancelOrderId===o.delivery_id?`<div class="farm-cancel-confirm" role="alertdialog" aria-label="Отменить доставку?"><b>Отменить доставку?</b><p>Вернём ${fmt(o.cost)} морковок. Прибыли и прогресса за заказ не будет.</p><div><button class="farm-small-button" data-farm-keep-delivery>Оставить доставку</button><button class="farm-button" data-farm-action="cancel_order" data-item="${o.delivery_id}">Отменить и вернуть ${fmt(o.cost)}</button></div></div>`:''}</section>`:''}
-      <div class="farm-order-options">${s.orders.map(o=>`<section class="farm-order-option farm-contract ${o.portrait} ${s.level<o.unlock?'is-locked':''}"><div class="farm-contract-person"><span>${F().neighbor(o.portrait)}</span><div><small>${esc(o.person)}</small><h4>${esc(o.name)}</h4></div></div><p class="farm-order-request">«${esc(o.request)}»</p><span class="farm-contract-time">${icon('sun')}${o.seconds/60} минут${s.level<o.unlock?' · с уровня '+o.unlock:''}</span><div class="farm-contract-profit"><small>Чистая прибыль</small>${money(o.profit)}<span>Как ${fmt(o.income_minutes)} минут работы фермы${o.bonus?` · бонус +${o.bonus}%`:''}</span></div><div class="farm-order-economy"><div><small>Отправишь</small>${money(o.cost)}</div>${icon('arrow')}<div><small>Получишь</small>${money(o.reward)}</div></div><button class="farm-button" data-farm-action="start_order" data-item="${o.id}" ${s.level<o.unlock||s.order||s.balance<o.cost?'disabled':''}>${s.level<o.unlock?'С уровня '+o.unlock:s.order?'Доставка занята':'Отправить заказ'}</button></section>`).join('')}</div>`;
+      <div class="farm-order-options">${s.orders.map(o=>`<section class="farm-order-option farm-contract ${o.portrait} ${s.level<o.unlock?'is-locked':''}"><div class="farm-contract-person"><span>${F().neighbor(o.portrait)}</span><div><small>${esc(o.person)}</small><h4>${esc(o.name)}</h4></div></div><p class="farm-order-request">«${esc(o.request)}»</p><span class="farm-contract-time">${icon('sun')}${duration(o.seconds)}${o.base_seconds>o.seconds?` · вместо ${duration(o.base_seconds)}`:''}${s.level<o.unlock?' · с уровня '+o.unlock:''}</span><div class="farm-contract-profit"><small>Чистая прибыль</small>${money(o.profit)}<span>Как ${fmt(o.income_minutes)} минут работы фермы${o.bonus?` · бонус +${o.bonus}%`:''}</span></div><div class="farm-order-economy"><div><small>Отправишь</small>${money(o.cost)}</div>${icon('arrow')}<div><small>Получишь</small>${money(o.reward)}</div></div><button class="farm-button" data-farm-action="start_order" data-item="${o.id}" ${s.level<o.unlock||s.order||s.balance<o.cost?'disabled':''}>${s.level<o.unlock?'С уровня '+o.unlock:s.order?'Доставка занята':'Отправить заказ'}</button></section>`).join('')}</div>`;
   }
 
   function dailyTasks(f) {
