@@ -221,7 +221,7 @@
     return `<div class="farm-home-grid">
       <section class="farm-scene" data-farm-stage="${F().stage(s.level).index}">
         <div class="farm-playground">
-          <div class="farm-landscape">${F().scene(s.level)}</div><div class="farm-built" aria-hidden="true">${s.items.filter(i=>i.level>0&&['greenhouse','windmill','pond','nursery','railway','beehives','orchard'].includes(i.id)).sort((a,b)=>b.unlock-a.unlock).slice(0,3).map(i=>`<span title="${esc(i.name)} · ${i.level}">${F().item(i.id)}</span>`).join('')}</div>
+          <div class="farm-landscape">${F().scene(s.level,Object.fromEntries(s.items.map(i=>[i.id,i.level])))}</div>
           <div class="farm-scene-top">
             <span class="farm-league-label">${icon('leaf')}${esc(F().stage(s.level).name)}</span>
             <span class="farm-storage-tag">${icon('barn')}Амбар · <b>${s.stats.offline_hours} ч</b></span>

@@ -515,13 +515,8 @@
 .farm-chapter progress,.farm-active-order progress {border:0;border-radius:4px;overflow:hidden;background:#e0dfc8}
 .farm-chapter progress::-webkit-progress-bar,.farm-active-order progress::-webkit-progress-bar {background:#e0dfc8}
 .farm-chapter progress::-webkit-progress-value,.farm-active-order progress::-webkit-progress-value {background:#899963;border-radius:4px}
-.farm-built {position:absolute;inset:0;pointer-events:none}
-.farm-built>span {position:absolute;width:80px;height:85px;right:8px;bottom:58px;filter:drop-shadow(0 3px 2px #67744115)}
-.farm-built>span svg {width:100%;height:100%}
-.farm-built>span:nth-child(2) {left:5px;right:auto;bottom:76px;width:74px}
-.farm-built>span:nth-child(3) {right:10px;bottom:155px;width:64px;opacity:.8}
 @media(min-width:1000px) {.farm-dialog {height:min(860px,94dvh)}}
-@media(max-width:640px) {.farm-built>span {width:60px;right:0;bottom:57px}.farm-built>span:nth-child(2) {width:56px;left:1px;bottom:70px}.farm-built>span:nth-child(3) {width:45px;bottom:132px}.farm-orders-heading>span svg,.farm-active-order>span svg {height:55px}}
+@media(max-width:640px) {.farm-orders-heading>span svg,.farm-active-order>span svg {height:55px}}
 .farm-income small {white-space:nowrap}
 @media(max-width:640px) {.farm-income>div {flex-wrap:wrap;gap:2px 5px}.farm-income small {font-size:10px}}
 @media(prefers-reduced-motion:no-preference) {

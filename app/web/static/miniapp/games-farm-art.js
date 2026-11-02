@@ -67,22 +67,53 @@
       </g>
       <path d="M243 154q13-3 13 7t-13 8" fill="#d48340" stroke="#87512e" stroke-width="3"/>`, '0 0 300 300');
   }
-  function scene(level=1){
+  // The same closed panels are used in scenery and in the shop illustration.
+  function greenhouse(){
+    return `<g stroke="#7f956e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <ellipse cx="40" cy="71" rx="37" ry="4" fill="#697b4d22" stroke="none"/>
+      <path d="M8 35Q8 10 32 10T56 35L70 28Q70 4 47 4T22 28Z" fill="#c8dcbd"/>
+      <path d="m56 35 14-7v33l-14 7Z" fill="#adc4a3"/>
+      <path d="M8 35Q8 10 32 10T56 35v33H8Z" fill="#e2ecd4"/>
+      <path d="M20 18v50m24-50v50M8 36h48M8 50h48m7-18v33m-7-18 14-7" fill="none"/>
+      <path d="M26 68V44h14v24Z" fill="#b9cda9"/>
+      <path d="M36 55v4" stroke="#7d895f"/>
+      <path d="m13 31 9-10m24 10 4-5" stroke="#fffbed" stroke-width="3"/>
+      <path d="M5 70h53l15-8" fill="none" stroke="#a08d63" stroke-width="3"/>
+    </g>`;
+  }
+  function sceneryItem(id,x,y,scale){
+    const art=item(id).replace(/^<svg[^>]*>/,'').replace(/<\/svg>$/,'');
+    return `<g data-scenery="${id}" transform="translate(${x} ${y}) scale(${scale})">${art}</g>`;
+  }
+  function scene(level=1,items={}){
     const t=stage(level).index;
     const sky=['#eaf0d8','#e9efcf','#dcebdc','#dfeddf','#f0e7c9'][t];
+    const cottage=t>=1&&t<4?`<g transform="translate(500 151)"><path d="M-5 46 36 8l42 38v83H-5Z" fill="#d8b786"/><path d="m-17 49 54-52 55 52-8 9L37 16-9 59Z" fill="#b77a4a"/><path d="M23 129V74h28v55" fill="#a37a50"/><path d="m28 82 19 39m0-39-19 39" stroke="#dcb98a" stroke-width="3"/><rect x="11" y="48" width="19" height="16" rx="3" fill="#f7dfac"/><path d="M20 49v13" stroke="#bd9967" stroke-width="2"/></g>`:'';
+    const fence=t>=1?`<g stroke="#c1b180" stroke-width="4" fill="#e4d8b1"><path d="M0 298h95m-95 18h95"/><path d="m10 285 6-7 6 7v49H10Zm32-4 6-7 6 7v52H42Zm31-3 6-7 6 7v51H73Z"/></g>`:'';
+    const shrubs=t>=1?`<g fill="#91a76a"><ellipse cx="43" cy="217" rx="39" ry="48"/><ellipse cx="80" cy="239" rx="31" ry="40"/><ellipse cx="614" cy="248" rx="51" ry="57"/></g>`:'';
+    const beds=t>=1||items.beds>0?`<g fill="#c8a772"><path d="M62 417q231-52 514 7l-19 26q-251-47-481 1Z"/>${t>=1?'<path d="M16 493q307-66 613 4l-14 30q-300-65-582 0Z"/>':''}</g>
+      <g fill="none" stroke="#ac8b58" stroke-width="2" opacity=".35"><path d="M80 430q210-37 468 5${t>=1?'M43 508q281-54 557 2':''}"/></g>
+      ${[87,151,215,405,470,533].map((x,i)=>leaf(x,429+(i%2)*4,i%2?14:-8)).join('')}
+      ${(t>=1?[55,116,177,238,371,432,493,554,609]:[]).map((x,i)=>leaf(x,509+(i%2)*6,i%2?-12:6)).join('')}`:'';
+    const orchard=items.orchard>0?sceneryItem('orchard',2,170,1.1):'';
+    const apiary=items.beehives>0?sceneryItem('beehives',593,311,.5):'';
+    const nursery=items.nursery>0?sceneryItem('nursery',6,409,.72):'';
+    const train=items.railway>0?sceneryItem('railway',427,350,.7):'';
     const flourish=t>=1?`<path d="M270 560q-23-76 86-190l32 12q-95 106-67 178Z" fill="#e1cf9c"/>
       <g fill="#ecbd9a">${[30,65,112,548,586,622].map((x,n)=>`<circle cx="${x}" cy="${350+n%2*20}" r="6"/>`).join('')}</g>
       <g fill="#e5cd89">${[48,87,570,608].map(x=>`<circle cx="${x}" cy="387" r="4"/>`).join('')}</g>
       <g stroke="#d1c09a" stroke-width="3"><path d="M18 318h102m-102 20h102m-85-31v45m32-45v45m32-45v45"/></g>`:'';
-    const water=t>=2?`<path d="M0 300q105-31 186 14t-5 49Q70 349 0 393Z" fill="#a5c9c4"/>
+    const water=t>=2||items.pond>0?`<path d="M0 300q105-31 186 14t-5 49Q70 349 0 393Z" fill="#a5c9c4"/>
       <path d="M0 337q90-21 156 12m-128 9 49-5" stroke="#deebd7" stroke-width="3" stroke-linecap="round"/>
       <path d="m106 313 65 11-8 34-66-11Z" fill="#bca273"/><path d="m110 320 52 9m-56 1 52 9m-54 0 52 9" stroke="#ead5ac" stroke-width="3"/>
-      <g transform="translate(506 247)"><path d="M0 26Q0 0 39 0t39 26v60H0Z" fill="#cfdfb5" stroke="#8ea27b" stroke-width="3"/><path d="M26 2v84m26-84v84M0 29h78M0 57h78" stroke="#8ea27b" stroke-width="3"/><path d="m52 15 14-6" stroke="#f7f1d8" stroke-width="5"/></g>`:'';
-    const mill=t>=3?`<g transform="translate(40 130)"><path d="m27 41-8 116h89L88 41 57 8Z" fill="#d9c89b" stroke="#9d845a" stroke-width="3"/><path d="M12 51 57 5l45 46Z" fill="#a97548"/><path d="M48 157v-34h25v34" fill="#927c56"/><g transform="rotate(18 57 58)" stroke="#9c885c" stroke-width="3" fill="#f3e2b6"><path d="M50 0h14v116H50Z"/><path d="M0 51h115v14H0Z"/></g><circle cx="57" cy="58" r="9" fill="#aa9362"/></g>
-      <path d="M0 400q303-46 640 4" stroke="#a39475" stroke-width="9"/><path d="M0 395q303-46 640 4" stroke="#ded0af" stroke-width="3"/>`:'';
+`:'';
+    const glasshouse=t>=2||items.greenhouse>0?`<g data-scenery="greenhouse" transform="translate(510 306) scale(1.22)">${greenhouse()}</g>`:'';
+    const mill=t>=3||items.windmill>0?`<g transform="translate(40 130)"><path d="m27 41-8 116h89L88 41 57 8Z" fill="#d9c89b" stroke="#9d845a" stroke-width="3"/><path d="M12 51 57 5l45 46Z" fill="#a97548"/><path d="M48 157v-34h25v34" fill="#927c56"/><g transform="rotate(18 57 58)" stroke="#9c885c" stroke-width="3" fill="#f3e2b6"><path d="M50 0h14v116H50Z"/><path d="M0 51h115v14H0Z"/></g><circle cx="57" cy="58" r="9" fill="#aa9362"/></g>
+`:'';
+    const rails=t>=3||items.railway>0?`<path d="M0 400q303-46 640 4" stroke="#a39475" stroke-width="9"/><path d="M0 395q303-46 640 4" stroke="#ded0af" stroke-width="3"/>`:'';
     const festival=t>=4?`<path d="M0 95q300 70 640-10" stroke="#b29b69" stroke-width="2"/>
       ${[30,100,175,255,335,415,495,575].map((x,n)=>`<path d="m${x} ${108+Math.sin(n*.5)*25} 25 4-15 24Z" fill="${['#d6a26a','#99af76','#cdb76b'][n%3]}"/>`).join('')}
-      <g transform="translate(463 175)"><path d="M0 43 65 0l65 43v113H0Z" fill="#ece0b7" stroke="#b89c68" stroke-width="3"/><path d="m-8 44 73-51 73 51" stroke="#71875b" stroke-width="12"/><path d="M48 156v-61h35v61" fill="#a9b988"/><circle cx="65" cy="57" r="14" fill="#d4b775"/><path d="M16 76h20v29H16Zm78 0h20v29H94Z" fill="#b8cfb1"/></g>
+      <g transform="translate(463 130)"><path d="M0 43 65 0l65 43v113H0Z" fill="#ece0b7" stroke="#b89c68" stroke-width="3"/><path d="m-8 44 73-51 73 51" stroke="#71875b" stroke-width="12"/><path d="M48 156v-61h35v61" fill="#a9b988"/><circle cx="65" cy="57" r="14" fill="#d4b775"/><path d="M16 76h20v29H16Zm78 0h20v29H94Z" fill="#b8cfb1"/></g>
       <g fill="#fff2c4">${[37,90,187,460,578,611].map((x,n)=>`<path d="m${x} ${282+n%3*21} 3-7 3 7 7 3-7 3-3 7-3-7-7-3Z"/>`).join('')}</g>`:'';
     return wrap(`<rect width="640" height="560" fill="${sky}"/>
       <path d="M0 207Q141 105 308 185T640 164V560H0Z" fill="#d7e2b8"/>
@@ -91,14 +122,11 @@
       <g fill="#fbfbeb"><path d="M40 67q-9-25 16-28 11-26 31-10 25-9 28 20 24 1 23 17Z"/><path d="M435 91q-4-20 19-23 9-23 31-12 22-4 23 17 22 4 19 19Z" opacity=".65"/></g>
       <g transform="translate(-90 56)"><circle cx="531" cy="52" r="25" fill="#edcf87"/>
       <g stroke="#e6c87d" stroke-width="2.5" stroke-linecap="round"><path d="M531 15V7m0 90v-8m36-37h9m-90 0h9m11-26-6-6m62 62-6-6m6-56-6 6m-50 50-6 6"/></g>
-      </g><g transform="translate(500 151)"><path d="M-5 46 36 8l42 38v83H-5Z" fill="#d8b786"/><path d="m-17 49 54-52 55 52-8 9L37 16-9 59Z" fill="#b77a4a"/><path d="M23 129V74h28v55" fill="#a37a50"/><path d="m28 82 19 39m0-39-19 39" stroke="#dcb98a" stroke-width="3"/><rect x="11" y="48" width="19" height="16" rx="3" fill="#f7dfac"/><path d="M20 49v13" stroke="#bd9967" stroke-width="2"/></g>
-      <g stroke="#c1b180" stroke-width="4" fill="#e4d8b1"><path d="M0 298h95m-95 18h95"/><path d="m10 285 6-7 6 7v49H10Zm32-4 6-7 6 7v52H42Zm31-3 6-7 6 7v51H73Z"/></g>
-      <g fill="#91a76a"><ellipse cx="43" cy="217" rx="39" ry="48"/><ellipse cx="80" cy="239" rx="31" ry="40"/><ellipse cx="614" cy="248" rx="51" ry="57"/></g>
-      <g fill="#c8a772"><path d="M62 417q231-52 514 7l-19 26q-251-47-481 1Z"/><path d="M16 493q307-66 613 4l-14 30q-300-65-582 0Z"/></g>
-      <g fill="none" stroke="#ac8b58" stroke-width="2" opacity=".35"><path d="M80 430q210-37 468 5M43 508q281-54 557 2"/></g>
-      ${[87,151,215,405,470,533].map((x,i)=>leaf(x,429+(i%2)*4,i%2?14:-8)).join('')}
-      ${[55,116,177,238,371,432,493,554,609].map((x,i)=>leaf(x,509+(i%2)*6,i%2?-12:6)).join('')}
-      ${water}${flourish}${mill}${festival}
+      </g>${cottage}
+      ${fence}
+      ${shrubs}
+      ${beds}
+      ${water}${flourish}${orchard}${mill}${rails}${festival}${glasshouse}${apiary}${nursery}${train}
       <g fill="#f4e8bc"><circle cx="36" cy="380" r="3"/><circle cx="590" cy="370" r="3"/><circle cx="562" cy="336" r="2"/></g>
       <g fill="#8c9f6a"><ellipse cx="113" cy="352" rx="9" ry="2" transform="rotate(-31 113 352)"/><ellipse cx="118" cy="348" rx="7" ry="2" transform="rotate(24 118 348)"/></g>`, '0 0 640 560',true);
   }
@@ -119,7 +147,7 @@
     if(id==='beds')body=`<g ${stroke}><path d="m8 42 44-10 21 13-43 17Z" fill="#b99261"/><path d="M8 42v9l21 16 44-13v-9L29 58Z" fill="#b68e5e"/><path d="m17 42 13 11 32-9" stroke="#8e6d45"/><path d="m28 39 3 10m18-15 3 10" stroke="#ecaa63" stroke-width="7"/></g>${leaf(28,36,0)}${leaf(49,31,9)}`;
     if(id==='helper')body=`<g ${stroke}><path d="M18 69V47q2-14 22-14t22 14v22" fill="#9eaf7b"/><path d="m25 43 8 26m23-27-6 27" stroke="#d0d8b4"/><circle cx="40" cy="27" r="17" fill="#e5bb86"/><path d="M18 18q23-14 45 0l-1 7H18Z" fill="#dfc580"/><path d="m27 17 3-13h21l4 13" fill="#e5ce8b"/><path d="m34 29 1 1m12-1 1 1" stroke-width="4"/><path d="M36 37h9"/></g>`;
     if(id==='bee'||id==='beehives')body=`<g ${stroke}><path d="M23 27q-6-10 8-12 9-16 19 0 13 3 6 14" fill="#dabb77"/><path d="M16 32q0-10 25-10t25 10v7H16Zm-3 14q0-9 28-9t28 9v8H13Zm-3 17q0-10 31-10t31 10v9H10Z" fill="#e2c88e"/><path d="M34 72V59q7-9 14 0v13" fill="#8c693e"/><path d="M23 31h35M21 47h39" stroke="#f5dfab"/></g>`;
-    if(id==='greenhouse')body=`<g ${stroke}><path d="M9 38q0-28 31-28t31 28v33H9Z" fill="#d9e4ce"/><path d="M9 38h62M40 10v61M22 16v55m36-55v55" stroke="#8ea27a"/><path d="m9 50 61-1" stroke="#a3b78a"/><path d="M33 71V47h14v24" fill="#adc19b"/><path d="M5 73h70" stroke="#b69d70"/></g><path d="m49 28 9-10" stroke="#f8f5de" stroke-width="4" stroke-linecap="round"/>`;
+    if(id==='greenhouse')body=greenhouse();
     if(id==='tree'||id==='orchard')body=`<g ${stroke}><path d="M35 68V42h10v26" fill="#b28a59"/><path d="M16 28q-6-19 15-18 13-13 26 1 21 1 13 22 9 18-12 22-15 13-30 0Q5 52 16 28Z" fill="#9aaa70"/><circle cx="27" cy="29" r="7" fill="#db9a60"/><circle cx="55" cy="24" r="7" fill="#deb56b"/><circle cx="44" cy="44" r="7" fill="#d89051"/><path d="M23 72h34" stroke="#d3c4a1"/></g>`;
     if(id==='market')body=`<g ${stroke}><path d="M14 33h52v38H14Z" fill="#dec89d"/><path d="M9 33 17 9h46l9 24Z" fill="#c27b50"/><path d="m27 10-4 23m18-23v23m15-23 5 23" stroke="#f7e4bc" stroke-width="9"/><path d="M9 33q3 9 12 0 7 9 14 0 8 9 15 0 10 9 22 0" fill="#d99668"/><path d="M23 71V46h34v25" fill="#ac9268"/><path d="M18 56h44" stroke="#ecdab6"/><path d="M6 73h69" stroke="#c2b18c"/></g>`;
     if(id==='barn'||id==='silo')body=`<g ${stroke}><path d="M12 31 40 8l28 23v42H12Z" fill="#cb9970"/><path d="m6 34 34-29 35 29" stroke="#ad784f" stroke-width="8"/><path d="M25 73V42h30v31" fill="#b47d53"/><path d="m26 44 27 27m0-27L27 71" stroke="#ead0a0"/><rect x="32" y="20" width="16" height="13" rx="2" fill="#f1dfb1"/><path d="M5 75h71" stroke="#c4b28b"/></g>`;
