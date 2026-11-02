@@ -1,1580 +1,1039 @@
-/* Games are enabled only by the loopback preview CLI. Rewards stay in this browser. */
+/* Local arcade client. Ranked scores, achievements, caps and prizes belong to the server. */
 (() => {
-  "use strict";
-  if (!window.ALGO_GAMES_PROTOTYPE || !localDemoHost || !apiContext.demoMode) return;
-  const E = window.AlgoGameEngine,
-    M = window.AlgoGameMotion,
-    $ = (s, r = document) => r.querySelector(s);
-  const esc = s => String(s).replace(/[&<>"']/g, c => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  } [c]));
-  let profile = "",
-    data = E.blank(),
-    filter = "all",
-    tab = "games",
-    session = null,
-    storageError = false;
-  let selectedPlayer = "",
-    leaderGame = "orbit",
-    leaderPeriod = "week";
-  const boardKey = "algo-games-leaderboards:v2";
-  try {
-    selectedPlayer = localStorage.getItem("algo-games-demo-player") || "";
-  } catch {}
-
-  function players() {
-    return (window.ALGO_GAME_PLAYERS?.length ? window.ALGO_GAME_PLAYERS : students)
-      .filter(p => p.id && p.name);
-  }
-
-  function player() {
-    return players().find(p => p.id === selectedPlayer) ||
-      players().find(p => p.id === state.activeStudentId) || players()[0] || {
-        id: "preview",
-        name: "Игрок",
-        group: "Демка"
-      };
-  }
-
-  function readBoard() {
-    try {
-      const board = E.normalizeBoard(JSON.parse(localStorage.getItem(boardKey) || "null"));
-      if (E.settleBoard(board).length) localStorage.setItem(boardKey, JSON.stringify(board));
-      return board;
-    } catch {
-      return E.blankBoard();
-    }
-  }
-
-  function writeRank(g, score, level, who, details) {
-    if (!E.ranked.includes(g.id)) return;
-    try {
-      const board = readBoard();
-      E.recordBoard(board, g.id, who, score, level, new Date(), details);
-      localStorage.setItem(boardKey, JSON.stringify(board));
-    } catch {
-      storageError = true;
-    }
-  }
-
-  function leaguePrizes(board) {
-    const next = new Date(E.weekKey() + "T00:00:00+03:00");
-    next.setTime(next.getTime() + 7 * 86400000);
-    const past = Object.keys(board.settled).sort().at(-1),
-      closed = past ? board.settled[past] : null;
-    return `<div class="league-prizes"><div class="league-prize-heading"><b>Награды недели</b><small>Итоги ${next.toLocaleDateString("ru-RU",{timeZone:"Europe/Moscow",day:"numeric",month:"long"})} · 00:00 МСК</small></div><div class="league-prize-podium">${E.prizes.map((amount,i)=>`<div><span>${["🥇","🥈","🥉"][i]}</span><small>${i+1}-е место</small><b>${amount} <em>AC</em></b></div>`).join("")}</div><p>За общий топ‑3. Начисление после окончания недели.</p></div>
-      ${closed?.winners.length?`<details class="league-last-week"><summary>Итоги недели ${esc(past)}</summary>${closed.winners.map(r=>`<div><span>${["🥇","🥈","🥉"][r.rank-1]} ${esc(r.name)}</span><b>+${r.amount} AC</b></div>`).join("")}</details>`:""}`;
-  }
-
-  function rankDetail(id, row) {
-    if (id === "typing") return `Точность ${row.accuracy}%`;
-    if (id === "debug") return `${(row.timeMs/1000).toFixed(1)} с`;
-    if (id === "memory") return `${row.moves} ходов · ${(row.timeMs/1000).toFixed(0)} с`;
-    if (id === "react") return `${row.reactionMs} мс · ошибок: ${row.mistakes}`;
-    if (id === "2048") return row.result ? `Плитка ${row.result}` : `Уровень ${row.level}`;
-    return `Уровень ${row.level}`;
-  }
-
-  function leaderMarkup(id = null) {
-    const combined = !id,
-      board = readBoard(),
-      g = E.games.find(g => g.id === id),
-      rows = combined ? E.overall(board, leaderPeriod) : E.leaders(board, id, leaderPeriod),
-      mine = rows.find(r => r.player === player().id),
-      shown = rows.slice(0, 20);
-    if (mine && !shown.some(r => r.player === mine.player)) shown.push(mine);
-    return `<section class="games-leaders ${combined?"games-overall":""}"><div class="games-leaders-top"><div><small>${combined?"ВСЕ 10 ИГР":"ТАБЛИЦА ЛИДЕРОВ"}</small><h3>${combined?"Общий рейтинг":g.name}</h3></div><span>Локальная демка</span></div>
-      ${combined?leaguePrizes(board):""}
-      <div class="games-leader-controls"><div class="games-leader-period">${[["week","Неделя"],["all","Всё время"]].map(([v,t])=>`<button data-leader-period="${v}" aria-pressed="${leaderPeriod===v}">${t}</button>`).join("")}</div><small>${combined?"Сумма очков за места в играх":`Лучший результат · ${E.rankUnit(id)}`}</small></div>
-      ${mine?`<div class="games-my-rank"><span>Твоё место <b>#${mine.rank}</b></span><span>${mine.score.toLocaleString("ru-RU")} ${combined?"очков рейтинга":E.rankUnit(id)}<small>${combined?`${mine.games} из 10 игр`:rankDetail(id,mine)}</small></span></div>`:""}
-      ${shown.length?`<div class="games-leader-scroll"><table><thead><tr><th>Место</th><th>Игрок</th><th>${combined?"Рейтинг":"Рекорд"}</th></tr></thead><tbody>${shown.map(r=>`<tr class="${r.player===player().id?"is-me":""}"><td><span class="rank-medal rank-${r.rank}">${r.rank<=3?["🥇","🥈","🥉"][r.rank-1]:r.rank}</span></td><td><b>${esc(r.name)}${r.player===player().id?' <em>Ты</em>':""}</b><small>${esc(r.group)}</small>${combined?`<details class="league-contributions"><summary>${r.games} из 10 игр</summary><ul>${r.contributions.map(c=>`<li><span>${E.games.find(g=>g.id===c.game).name} · #${c.rank}</span><strong>+${c.points}</strong></li>`).join("")}</ul></details>`:""}</td><td><strong>${r.score.toLocaleString("ru-RU")}</strong><small>${combined?`${r.wins} первых мест`:rankDetail(id,r)}</small></td></tr>`).join("")}</tbody></table></div>`:`<div class="games-leaders-empty"><span>🏆</span><h4>${combined?"Собери свой рейтинг":"Первый рекорд может быть твоим"}</h4><p>${combined?"Выполни цель недели хотя бы в одной игре.":"Заверши партию — результат появится здесь."}</p></div>`}
-      ${combined?'<details class="league-rules"><summary>Как считаются очки</summary><p>В каждой игре: 100 очков за 1-е место, 80 за 2-е, 65 за 3-е; дальше 55, 45, 35, 25, 20, 15, 10 и по 5. В зачёт идут результаты с выполненной целью недели. Для печати нужна точность от 90%.</p><p>Складываются места во всех 10 играх. При равенстве: больше игр, затем первых мест, затем раньше достигнутый результат. Призы выдаются только за недельный общий рейтинг.</p></details>':'<p class="games-leader-note">Лучшая партия игрока. При равном результате учитываются точность, время или число ходов — в зависимости от игры.</p>'}
-      <p class="games-leader-note">Результаты и награды этой демки хранятся в этом браузере.</p></section>`;
-  }
-
-  function wireLeaders(host, draw) {
-    host.querySelectorAll("[data-leader-period]").forEach(el => el.onclick = () => {
-      leaderPeriod = el.dataset.leaderPeriod;
-      draw();
-    });
-  }
-
-  function openLeaders(id) {
-    if (id) leaderGame = id;
-    session?.pause();
-    $("#gamesLeaderDialog")?.remove();
-    const d = document.createElement("dialog");
-    d.id = "gamesLeaderDialog";
-    d.className = "games-leader-dialog";
-    const draw = () => {
-      d.innerHTML =
-        `<button class="games-leader-close" aria-label="Закрыть таблицу лидеров">×</button>${leaderMarkup(leaderGame)}`;
-      $(".games-leader-close", d).onclick = () => d.close();
-      wireLeaders(d, draw);
+    "use strict";
+    if (!window.ALGO_GAMES_PROTOTYPE || !localDemoHost || !apiContext.demoMode) return;
+    const E = AlgoGameEngine,
+        W = ArcadeWorld,
+        V = ArcadeView,
+        A = AlgoGameArt,
+        M = AlgoGameMotion;
+    const $ = (s, r = document) => r.querySelector(s),
+        root = $("#gamesRoot"),
+        apiRoot = window.ALGO_ARCADE_API;
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+    } [c]));
+    const title = id => E.games.find(g => g.id === id)?.name || id,
+        art = id => A.render(id),
+        speed = new Set(["orbit", "bugs", "tower", "typing", "react"]);
+    const goal = id => {
+        const g = E.games.find(g => g.id === id);
+        return id === "2048" ? `плитка ${g.goal}` : `${g.goal} ${g.unit}`;
     };
-    draw();
-    document.body.append(d);
-    d.addEventListener("close", () => d.remove());
-    d.showModal();
-  }
-  const root = $("#gamesRoot"),
-    symbols = ["🪨", "🌱", "🍄", "🐣", "🐱", "🦊", "🐲", "🪐", "🌞", "🌌"];
-  const icon = id => window.AlgoGameArt.render(id);
-
-  const target = g => g.id === "2048" ? `плитка ${g.goal}` : `${g.goal} ${g.unit}`;
-
-  function load() {
-    const key = "algo-games-prototype:v2:" + player().id;
-    if (profile === key) return;
-    profile = key;
-    storageError = false;
-    try {
-      data = E.normalize(JSON.parse(localStorage.getItem(key) || "null"));
-    } catch {
-      data = E.blank();
-      storageError = true;
-    }
-  }
-
-  function save() {
-    try {
-      localStorage.setItem(profile, JSON.stringify(data));
-    } catch {
-      storageError = true;
-    }
-  }
-
-  function refreshStored() {
-    try {
-      const raw = localStorage.getItem(profile);
-      if (raw) data = E.normalize(JSON.parse(raw));
-    } catch {
-      storageError = true;
-    }
-  }
-
-  function render() {
-    if (!root) return;
-    load();
-    refreshStored();
-    const received = E.collectPrizes(data, readBoard(), player().id);
-    E.unlockAchievements(data);
-    save();
-    const w = E.week(data),
-      available = E.games.filter(g => (w.scores[g.id] || 0) >= g.goal && !w.claimed[g.id]).length;
-    const balance = E.balance(data),
-      done = E.games.filter(g => w.claimed[g.id]).length;
-    const next = new Date(E.weekKey() + "T00:00:00+03:00");
-    next.setTime(next.getTime() + 7 * 86400000);
-    root.innerHTML = `<div class="games-heading"><div><div class="games-wordmark">${icon("arcade")}<span class="games-eyebrow">ALGO ARCADE</span></div><h1>Игры</h1></div><label class="games-player-picker">Игрок демки<select id="gamesPlayer">${players().map(p=>`<option value="${esc(p.id)}" ${p.id===player().id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></label></div>
-      <section class="games-hero"><div class="games-hero-copy"><span class="games-season">СЕЗОН 01 · КОСМИЧЕСКИЙ ХАОС</span><h2>Маленький перерыв.<br><em>Большой рекорд.</em></h2><p>10 игр. Твои рекорды. Новые достижения.</p><button data-game="orbit" class="games-main">Полетели <span>↗</span></button></div><div class="games-hero-art">${icon("orbit")}<span class="games-sticker">ЕЩЁ ОДНУ<br>И ВСЁ!</span></div></section>
-      <div class="games-weekbar"><div><span class="games-week-icon">✦</span><span><b>Награды недели</b><small>Обновятся ${next.toLocaleDateString("ru-RU",{timeZone:"Europe/Moscow",day:"numeric",month:"long"})} в 00:00 МСК</small></span></div><div class="games-week-pips" aria-label="Получено ${done} из 10 наград">${E.games.map(g=>`<i class="${w.claimed[g.id]?"claimed":(w.scores[g.id]||0)>=g.goal?"ready":""}"></i>`).join("")}</div><b>${done}<span> / 10</span></b><button data-games-tab="rewards">${available?`Забрать ${available*10} AC`:'Мои награды'} →</button></div>
-      <nav class="games-tabs" aria-label="Игры и достижения">${[["games","Все игры"],["leaders","Общий рейтинг"],["achievements","Достижения"],["rewards","Награды"]].map(([id,label])=>`<button data-games-tab="${id}" aria-pressed="${tab===id}" class="${tab===id?"active":""}">${label}${id==="achievements"?`<span>${Object.keys(data.unlocked).length}/${E.achievements.length}</span>`:""}</button>`).join("")}</nav>
-      ${tab==="leaders"?leaderMarkup():""}
-      ${storageError?'<p class="games-warning" role="alert">Браузер не сохраняет прогресс. Не закрывай вкладку, пока проверяешь демку.</p>':""}
-      ${tab==="games"?`<div class="games-filters" aria-label="Тип игры">${[["all","Все"],["fun","Залипательные"],["skill","С пользой"],["puzzle","Подумать"]].map(([id,label])=>`<button data-games-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${label}</button>`).join("")}</div><div class="games-grid">${E.games.filter(g=>filter==="all"||g.kind===filter).map(g=>{
-        const ready=(w.scores[g.id]||0)>=g.goal;return `<div class="game-card-shell"><button data-game="${g.id}" class="game-card ${g.color}"><div class="game-card-art">${icon(g.icon)}<span class="game-reward ${w.claimed[g.id]?"claimed":""}">${w.claimed[g.id]?"✓ Получено":ready?"✦ Награда ждёт":"✦ 10 AC"}</span></div><div class="game-card-body"><small>${g.tag}</small><h3>${g.name}</h3><div class="game-card-bottom"><span>${data.best[g.id]!==undefined?`Рекорд <b>${data.best[g.id]}</b>`:`Цель: ${target(g)}`}</span><span class="game-play" aria-hidden="true">↗</span></div></div></button><button class="game-card-leader" data-game-board="${g.id}">🏆 Лидеры</button></div>`;
-      }).join("")}</div>`:""}
-      ${tab==="achievements"?`<div class="games-achievement-grid">${E.achievements.map(a=>{
-        const unlocked=!!data.unlocked[a.id],count=Math.min(a.target,a.metric(data));return `<article class="game-achievement ${unlocked?"unlocked":""}"><span class="achievement-medal ${E.games.find(g=>g.id===a.game).color}">${icon(a.game)}<i>${unlocked?"✓":"◇"}</i></span><div><h3>${a.title}</h3><p>${a.detail}</p><progress value="${count}" max="${a.target}"></progress><small>${count} / ${a.target}</small></div><button data-claim="achievement" data-id="${a.id}" ${!unlocked||data.claimed[a.id]?"disabled":""}>${data.claimed[a.id]?"✓ Получено":`+${a.reward} AC`}</button></article>`;
-      }).join("")}</div>`:""}
-      ${tab==="rewards"?`<section class="games-reward-summary"><div><small>Тестовые астрокоины</small><strong>${balance} <span>AC</span></strong><p>Баланс ученика не меняется.</p></div><div><b>10 AC за цель в каждой игре</b><p>Один раз за неделю, с понедельника по Москве.<br>Награды за достижения — один раз за всё время.</p></div></section><div class="games-reward-list">${E.games.map(g=>{
-        const score=w.scores[g.id]||0;return `<div><span class="reward-dot ${g.color}">✦</span><span><b>${g.name}</b><small>${Math.min(score,g.goal)} / ${target(g)}</small></span><button data-claim="week" data-id="${g.id}" ${score<g.goal||w.claimed[g.id]?"disabled":""}>${w.claimed[g.id]?"✓ Получено":"Забрать 10 AC"}</button></div>`;
-      }).join("")}</div>${data.transactions.length?`<h3 class="games-history-title">История наград</h3><div class="games-reward-list">${data.transactions.slice(0,30).map(t=>`<div><span><b>${esc(t.label)}</b><small>${new Date(t.at).toLocaleString("ru-RU",{timeZone:"Europe/Moscow",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})}</small></span><strong>+${t.amount} AC</strong></div>`).join("")}</div>`:""}`:""}
-      <div class="games-toast" role="status" aria-live="polite"></div>`;
-    root.onclick = event => {
-      const b = event.target.closest("button");
-      if (!b || b.disabled) return;
-      if (b.dataset.game) open(b.dataset.game);
-      if (b.dataset.gameBoard) openLeaders(b.dataset.gameBoard);
-      if (b.dataset.gamesTab) {
-        tab = b.dataset.gamesTab;
-        render();
-      }
-      if (b.dataset.gamesFilter) {
-        filter = b.dataset.gamesFilter;
-        render();
-      }
-      if (b.dataset.claim) {
-        refreshStored();
-        const amount = E.claim(data, b.dataset.claim, b.dataset.id);
-        save();
-        render();
-        toast(amount ? `+${amount} тестовых AC` : "Награда уже получена");
-      }
-    };
-    $("#gamesPlayer", root).onchange = e => {
-      selectedPlayer = e.target.value;
-      try {
-        localStorage.setItem("algo-games-demo-player", selectedPlayer);
-      } catch {}
-      profile = "";
-      render();
-    };
-    if (tab === "leaders") wireLeaders(root, render);
-    if (received) toast(`Награда за общий рейтинг: +${received} тестовых AC`);
-  }
-
-  function toast(text) {
-    const el = $(".games-toast", root);
-    if (el) {
-      el.textContent = text;
-      el.classList.add("visible");
-      setTimeout(() => el.isConnected && el.classList.remove("visible"), 2600);
-    }
-  }
-
-  function close() {
-    if (session) {
-      session.destroy();
-      session = null;
-    }
-    $("#gameDialog")?.remove();
-    $("#gamesLeaderDialog")?.remove();
-  }
-
-  function open(id) {
-    close();
-    load();
-    const g = E.games.find(g => g.id === id);
-    if (!g) return;
-    const d = document.createElement("dialog");
-    d.id = "gameDialog";
-    d.className = "game-dialog";
-    d.innerHTML =
-      `<header><div><small>ALGO ARCADE</small><h2>${g.name}</h2></div><button class="game-close" aria-label="Закрыть игру">×</button></header><div class="game-hud"><span>Счёт <b id="gameScore">0</b></span><span id="gameClock"></span><span>Рекорд <b>${data.best[id]||0}</b></span></div><div class="game-stage"><div class="game-intro ${g.color}">${icon(g.icon)}<h3>${g.tag}</h3><p>${g.hint}</p><button class="games-main" id="gameStart">Начать игру →</button><small>Цель недели: ${target(g)} · 10 AC</small></div></div><footer><span id="gameHint">${["typing","debug"].includes(id)?"Короткая тренировка — большой навык":"Телефон или компьютер — играй как удобно"}</span><button id="gameFinish" hidden>Завершить</button></footer>`;
-    document.body.append(d);
-    if (E.ranked.includes(id)) {
-      const b = document.createElement("button");
-      b.className = "game-leaders-button";
-      b.textContent = "🏆";
-      b.setAttribute("aria-label", "Таблица лидеров");
-      b.onclick = () => openLeaders(id);
-      $("header", d).insertBefore(b, $(".game-close", d));
-    }
-    d.showModal();
-    $(".game-close", d).onclick = () => {
-      close();
-      render();
-    };
-    d.addEventListener("cancel", e => {
-      e.preventDefault();
-      close();
-      render();
-    });
-    $("#gameStart", d).onclick = () => start(g, d);
-    d.addEventListener("click", e => {
-      if (e.target === d) {
-        const r = d.getBoundingClientRect();
-        if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
-          close();
-          render();
-        }
-      }
-    });
-  }
-
-  function start(g, dialog) {
-    const who = {
-        ...player()
-      },
-      sparks = new M.Sparks();
-    const stage = $(".game-stage", dialog);
-    stage.innerHTML = "";
-    const abort = new AbortController();
-    let raf = 0,
-      last = performance.now(),
-      time = 0,
-      score = 0,
-      done = false,
-      recorded = false,
-      paused = false,
-      loop = () => {},
-      paint = () => {};
-    let rankScore = 0,
-      rankSet = false,
-      highLevel = 1,
-      progressHigh = 0,
-      effectContext = null;
-    const runDetails = {};
-    const runSnapshot = () => ({
-      timeMs: Math.round(time * 1000),
-      ...runDetails,
-      result: score
-    });
-    const on = (el, type, handler, opts = {}) => el.addEventListener(type, handler, {
-      ...opts,
-      signal: abort.signal
-    });
-    const scoreEl = $("#gameScore", dialog),
-      clock = $("#gameClock", dialog),
-      finishButton = $("#gameFinish", dialog);
-    finishButton.hidden = false;
-    $("#gameLevel", dialog)?.remove();
-    const levelEl = document.createElement("span");
-    levelEl.id = "gameLevel";
-    levelEl.className = "game-level";
-    levelEl.textContent = "Ур. 1";
-    levelEl.setAttribute("aria-live", "polite");
-    clock.after(levelEl);
-    const s = {
-      g,
-      stage,
-      dialog,
-      on,
-      details(values) {
-        Object.assign(runDetails, values);
-      },
-      progress(value) {
-        progressHigh = Math.max(progressHigh, value);
-        const config = E.difficulty(g.id, progressHigh);
-        if (config.level > highLevel) {
-          highLevel = config.level;
-          levelEl.textContent = `Ур. ${highLevel}`;
-          M.pop(levelEl);
-          const banner = document.createElement("div");
-          banner.className = "game-level-up";
-          banner.textContent = `Уровень ${highLevel}`;
-          stage.append(banner);
-          setTimeout(() => banner.remove(), 1600);
-        }
-        return config;
-      },
-      rank(value) {
-        rankScore = Math.max(0, Math.floor(value));
-        rankSet = true;
-      },
-      fx(x, y, color, count) {
-        sparks.burst(x, y, color, count);
-      },
-      effects(ctx) {
-        effectContext = ctx;
-      },
-      impact(strength = 3) {
-        M.shake(stage, strength);
-      },
-      get time() {
-        return time;
-      },
-      get score() {
-        return score;
-      },
-      get paused() {
-        return paused || done;
-      },
-      setScore(v) {
-        score = Math.max(0, Math.floor(v));
-        scoreEl.textContent = score;
-      },
-      add(v) {
-        this.setScore(score + v);
-      },
-      clock(text) {
-        clock.textContent = text;
-      },
-      hint(text) {
-        $("#gameHint", dialog).textContent = text;
-      },
-      tick(fn) {
-        loop = fn;
-      },
-      paint(fn) {
-        paint = fn;
-      },
-      end(reason = "Партия завершена") {
-        end(reason);
-      }
-    };
-
-    function pause() {
-      if (done || paused) return;
-      paused = true;
-      const cover = document.createElement("div");
-      cover.className = "game-pause";
-      cover.innerHTML = '<span>Ⅱ</span><h3>Пауза</h3><button class="games-main">Продолжить →</button>';
-      stage.append(cover);
-      $("button", cover).onclick = () => {
-        cover.remove();
-        paused = false;
-        last = performance.now();
-      };
-    }
-
-    function end(reason) {
-      if (done) return;
-      done = true;
-      cancelAnimationFrame(raf);
-      abort.abort();
-      finishButton.hidden = true;
-      refreshStored();
-      const unlocked = E.finish(data, g.id, score, new Date(), runSnapshot());
-      writeRank(g, rankSet ? rankScore : score, highLevel, who, runSnapshot());
-      recorded = true;
-      save();
-      const w = E.week(data),
-        eligible = (w.scores[g.id] || 0) >= g.goal && !w.claimed[g.id];
-      const result = document.createElement("div");
-      result.className = "game-result";
-      result.innerHTML =
-        `<span class="result-star">${score>=g.goal?"✦":"↗"}</span><small>${esc(reason)}</small><h3>${score} <span>${g.unit}</span></h3><p>${score>=g.goal?"Цель недели выполнена":`Цель недели: ${target(g)}`}</p>${unlocked.length?`<div class="game-new-achievement">◇ ${unlocked.map(id=>E.achievements.find(a=>a.id===id).title).join(" · ")}</div>`:""}<button class="games-main" id="gameAgain">Ещё раз ↻</button>${eligible?'<button class="game-claim-result">Забрать 10 AC</button>':""}<button class="game-back">К играм</button>`;
-      stage.append(result);
-      if (E.ranked.includes(g.id)) {
-        const b = document.createElement("button");
-        b.className = "game-result-leaders";
-        b.textContent = `🏆 Таблица лидеров · ${rankSet?rankScore:score} ${E.rankUnit(g.id)}`;
-        b.onclick = () => openLeaders(g.id);
-        $("#gameAgain", result).before(b);
-      }
-      $("#gameAgain", result).onclick = () => {
-        session?.destroy();
-        start(g, dialog);
-      };
-      $(".game-back", result).onclick = () => {
-        close();
-        render();
-      };
-      $(".game-claim-result", result)?.addEventListener("click", e => {
-        refreshStored();
-        const amount = E.claim(data, "week", g.id);
-        save();
-        e.currentTarget.textContent = amount ? "✓ +10 тестовых AC" : "✓ Получено";
-        e.currentTarget.disabled = true;
-      });
-      $("#gameAgain", result).focus();
-    }
-    session = {
-      pause,
-      destroy() {
-        if (!recorded && score > 0) {
-          refreshStored();
-          E.finish(data, g.id, score, new Date(), runSnapshot());
-          writeRank(g, rankSet ? rankScore : score, highLevel, who, runSnapshot());
-          recorded = true;
-          save();
-        }
-        done = true;
-        abort.abort();
-        cancelAnimationFrame(raf);
-      }
-    };
-    finishButton.onclick = () => end("Результат сохранён");
-    on(document, "visibilitychange", () => {
-      if (document.hidden) pause();
-    });
-    const init = {
-      orbit: orbit,
-      evolve: evolve,
-      bugs: bugs,
-      tower: tower,
-      typing: typing,
-      debug: debug,
-      "2048": numberGame,
-      drop: drop,
-      memory: memory,
-      react: react
-    } [g.id];
-    init(s);
-
-    function frame(now) {
-      if (done) return;
-      const dt = Math.min(.04, (now - last) / 1000);
-      last = now;
-      if (!paused) {
-        time += dt;
-        loop(dt);
-        sparks.tick(dt);
-      }
-      if (!done) paint();
-      if (!done && effectContext) sparks.paint(effectContext);
-      if (!done) raf = requestAnimationFrame(frame);
-    }
-    raf = requestAnimationFrame(frame);
-  }
-  const random = (a, b) => a + Math.random() * (b - a),
-    pick = a => a[Math.floor(Math.random() * a.length)];
-
-  function canvas(s) {
-    const c = document.createElement("canvas");
-    c.width = 720;
-    c.height = 860;
-    c.setAttribute("aria-label", s.g.name + ". " + s.g.hint);
-    c.tabIndex = 0;
-    s.stage.append(c);
-    const x = c.getContext("2d");
-    x.scale(2, 2);
-    s.effects(x);
-    c.focus();
-    const point = e => {
-      const r = c.getBoundingClientRect(),
-        scale = Math.min(r.width / 360, r.height / 430);
-      return {
-        x: (e.clientX - r.left - (r.width - 360 * scale) / 2) / scale,
-        y: (e.clientY - r.top - (r.height - 430 * scale) / 2) / scale
-      };
-    };
-    return {
-      c,
-      x,
-      point
-    };
-  }
-
-  function bg(x) {
-    x.fillStyle = "#17182c";
-    x.fillRect(0, 0, 360, 430);
-    x.fillStyle = "#777790";
-    for (let i = 0; i < 32; i++) {
-      const a = (i * 83 + 23) % 350,
-        b = (i * 59 + 31) % 420;
-      x.fillRect(a, b, i % 3 ? 1 : 2, i % 3 ? 1 : 2);
-    }
-  }
-
-  function text(x, t, a, b, size = 22, color = "#fff") {
-    x.fillStyle = color;
-    x.font = `700 ${size}px system-ui`;
-    x.textAlign = "center";
-    x.fillText(t, a, b);
-  }
-
-  function circle(x, a, b, r, color) {
-    x.fillStyle = color;
-    x.beginPath();
-    x.arc(a, b, r, 0, Math.PI * 2);
-    x.fill();
-  }
-
-  function action(s, c, handler) {
-    s.on(c, "pointerdown", e => {
-      e.preventDefault();
-      if (!s.paused) handler(e);
-    });
-    s.on(document, "keydown", e => {
-      if (["Space", "ArrowUp"].includes(e.code) && !e.repeat && !s.paused) {
-        e.preventDefault();
-        handler(e);
-      }
-    });
-  }
-
-  function orbit(s) {
-    const {
-      c,
-      x
-    } = canvas(s);
-    let angle = -Math.PI / 2,
-      flight = 0,
-      baseTarget = random(-2.3, -.8),
-      flightAngle = 0,
-      from = {
-        x: 0,
-        y: 0
-      },
-      landed = 5,
-      config = s.progress(0);
-    const aim = () => baseTarget + Math.sin(s.time * .8) * config.orbitDrift;
-    action(s, c, () => {
-      if (flight) return;
-      const delta = Math.atan2(Math.sin(angle - aim()), Math.cos(angle - aim()));
-      if (Math.abs(delta) > config.orbitWindow) {
-        s.impact(5);
-        s.end("Кот улетел исследовать космос");
-        return;
-      }
-      from = {
-        x: 180 + Math.cos(angle) * 69,
-        y: 281 + Math.sin(angle) * 69
-      };
-      flightAngle = aim();
-      flight = .001;
-    });
-    s.tick(dt => {
-      config = s.progress(s.score);
-      landed += dt;
-      if (flight) {
-        flight += dt * 2.3;
-        if (flight >= 1) {
-          flight = 0;
-          s.add(1);
-          angle = Math.PI / 2;
-          baseTarget = random(-2.5, -.65);
-          landed = 0;
-          s.fx(180, 350, "#d3f58b", 20);
-        }
-      } else angle += dt * config.orbitSpeed * (config.level >= 5 && Math.floor(s.score / 5) % 2 ? -1 :
-        1);
-      s.clock(`${Math.floor(s.time)} с`);
-    });
-    s.paint(() => {
-      bg(x);
-      const a = flight ? flightAngle : aim(),
-        target = {
-          x: 180 + Math.cos(a) * 105,
-          y: 281 + Math.sin(a) * 160
-        };
-      const t = flight ? Math.min(1, flight) : 0,
-        ease = t * t * (3 - 2 * t),
-        cam = {
-          x: (180 - target.x) * ease,
-          y: (281 - target.y) * ease
-        };
-      x.save();
-      x.translate(cam.x, cam.y);
-      x.strokeStyle = "#c5ef78";
-      x.lineWidth = 14;
-      x.globalAlpha = .25 * (1 - ease);
-      x.beginPath();
-      x.arc(180, 281, 69, a - config.orbitWindow, a + config.orbitWindow);
-      x.stroke();
-      x.globalAlpha = 1;
-      x.strokeStyle = "#45465e";
-      x.lineWidth = 1;
-      x.beginPath();
-      x.arc(180, 281, 69, 0, Math.PI * 2);
-      x.stroke();
-      x.setLineDash([4, 7]);
-      x.beginPath();
-      x.moveTo(180, 281);
-      x.lineTo(target.x, target.y);
-      x.stroke();
-      x.setLineDash([]);
-      const squash = 1 + Math.sin(landed * 24) * Math.exp(-landed * 9) * .13;
-      x.save();
-      x.translate(180, 281);
-      x.scale(1 / squash, squash);
-      circle(x, 0, 0, 43, "#9b87f5");
-      circle(x, -12, -11, 13, "#b7a6ff");
-      x.restore();
-      circle(x, target.x, target.y, 28 + 15 * ease, "#bfec7f");
-      circle(x, target.x - 7, target.y - 7, 8, "#d9f7ad");
-      const cx = flight ? from.x + (target.x - from.x) * ease : 180 + Math.cos(angle) * 69;
-      const cy = flight ? from.y + (target.y + 69 - from.y) * ease - Math.sin(t * Math.PI) * 65 : 281 +
-        Math.sin(angle) * 69;
-      x.save();
-      x.translate(cx, cy);
-      x.rotate(flight ? Math.sin(t * Math.PI) * .65 : Math.sin(s.time * 3) * .08);
-      const spring = 1 + Math.sin(landed * 22) * Math.exp(-landed * 8) * .2;
-      x.scale(1 / spring, spring);
-      text(x, "🐱", 0, 10, 29);
-      x.restore();
-      x.restore();
-      text(x, flight ? "Есть контакт!" : "Поймай зелёную дугу", 180, 38, 16, "#c5ef78");
-    });
-    s.hint("Тап / пробел · дуга сужается, орбита ускоряется");
-  }
-
-  function evolve(s) {
-    let cells = Array.from({
-        length: 16
-      }, () => Math.random() < .3 ? 1 : 0),
-      selected = -1,
-      turn = 0,
-      config = s.progress(0),
-      left = config.pairSeconds;
-    s.stage.innerHTML =
-      '<div class="evolve-game"><div class="evolve-chain">🪨 → 🌱 → 🍄 → 🐣 → 🐱 → 🦊 → 🐲</div><div class="evolve-time"><progress max="20" value="20"></progress><span></span></div><div class="evolve-grid"></div><p>Два одинаковых → новый зверь</p></div>';
-    const grid = $(".evolve-grid", s.stage),
-      meter = $("progress", s.stage),
-      timeLabel = $(".evolve-time span", s.stage);
-
-    function draw() {
-      grid.innerHTML = cells.map((v, i) =>
-        `<button data-cell="${i}" aria-label="${2**(v+1)}" aria-pressed="${i===selected}" class="${selected===i?"selected":""}"><span>${symbols[v]}</span><small>${2**(v+1)}</small></button>`
-      ).join("");
-    }
-    s.on(grid, "click", e => {
-      if (s.paused) return;
-      const b = e.target.closest("[data-cell]");
-      if (!b) return;
-      const i = +b.dataset.cell;
-      if (selected === i) {
-        selected = -1;
-        draw();
-        return;
-      }
-      if (selected < 0 || cells[selected] !== cells[i]) {
-        selected = i;
-        draw();
-        M.pop(grid.children[i]);
-        return;
-      }
-      const old = selected;
-      cells[i] = Math.min(9, cells[i] + 1);
-      s.add(2 ** (cells[i] + 1));
-      cells[old] = Math.random() < .2 ? 1 : 0;
-      selected = -1;
-      turn++;
-      config = s.progress(turn);
-      left = config.pairSeconds;
-      draw();
-      M.pop(grid.children[i]);
-      M.pop(grid.children[old]);
-    });
-    s.tick(dt => {
-      left -= dt;
-      meter.max = config.pairSeconds;
-      meter.value = Math.max(0, left);
-      timeLabel.textContent = `${Math.max(0,Math.ceil(left))} с на пару`;
-      s.clock(`${turn} слияний`);
-      if (left <= 0) s.end("Время на поиск пары вышло");
-    });
-    draw();
-    s.hint("Каждые 8 слияний времени на пару становится меньше");
-  }
-
-  function bugs(s) {
-    const {
-      c,
-      x,
-      point
-    } = canvas(s);
-    let targets = [],
-      spawn = 0,
-      life = 3,
-      config = s.progress(0);
-    s.on(c, "pointerdown", e => {
-      e.preventDefault();
-      if (s.paused) return;
-      const p = point(e),
-        t = targets.slice().reverse().find(t => Math.hypot(t.x - p.x, t.y - p.y) < 30);
-      if (!t) return;
-      targets = targets.filter(a => a !== t);
-      s.fx(t.x, t.y, t.good ? "#ff879b" : "#c3a2ff", 18);
-      if (t.good) {
-        life--;
-        s.impact(4);
-        if (!life) s.end("Роботы попросили перерыв");
-      } else s.add(1);
-    });
-    s.tick(dt => {
-      config = s.progress(s.score);
-      spawn -= dt;
-      if (spawn <= 0) {
-        spawn = config.bugEvery * random(.85, 1.15);
-        targets.push({
-          x: random(35, 325),
-          y: random(75, 365),
-          vx: random(-1, 1) * config.bugSpeed,
-          vy: random(-.6, .6) * config.bugSpeed,
-          left: config.bugLife,
-          total: config.bugLife,
-          good: Math.random() < config.robotChance,
-          phase: random(0, 6)
+    const actors = window.ALGO_GAME_PLAYERS || [];
+    let selected = localStorage.getItem("arcade-player-v3") || actors[0]?.id,
+        profile = null,
+        tab = "games",
+        filter = "all",
+        period = "week",
+        device = matchMedia("(pointer:coarse)").matches ? "touch" : "keyboard",
+        mode = "ranked",
+        play = null,
+        profileLoad = null,
+        boardCache = new Map(),
+        loadingError = "",
+        uiTimer = 0,
+        scrollTimer = 0,
+        scrollSaved = 0,
+        restoring = false,
+        statsGame = "orbit";
+    const actor = () => actors.find(p => p.id === selected) || actors[0];
+    async function api(path, {
+        method = "GET",
+        body,
+        admin = false,
+        keepalive = false
+    } = {}) {
+        if (!apiRoot || !actor()?.token) throw Error("Локальный сервер игр недоступен. Перезапусти демку.");
+        const token = admin ? window.pizzaPreview?.token : actor().token;
+        const response = await fetch(apiRoot + path, {
+            method,
+            keepalive,
+            headers: {
+                "X-Miniapp-Token": token,
+                "Content-Type": "application/json"
+            },
+            body: body === undefined ? undefined : JSON.stringify(body)
         });
-      }
-      for (const t of targets) {
-        t.left -= dt;
-        t.x += t.vx * dt;
-        t.y += t.vy * dt;
-        if (t.x < 32 || t.x > 328) t.vx *= -1;
-        if (t.y < 68 || t.y > 375) t.vy *= -1;
-      }
-      for (const t of targets.filter(t => t.left <= 0))
-        if (!t.good) {
-          life--;
-          s.impact(2);
+        let value;
+        try {
+            value = await response.json();
+        } catch {
+            throw Error("Не удалось получить ответ сервера. Попробуй ещё раз.");
         }
-      targets = targets.filter(t => t.left > 0);
-      s.clock(`${"♥".repeat(Math.max(0,life))} · ${Math.floor(s.time)} с`);
-      if (life <= 0) s.end("Баги разбежались");
-    });
-    s.paint(() => {
-      bg(x);
-      for (const t of targets) {
-        const age = t.total - t.left,
-          scale = Math.min(1, age * 10) * (1 + Math.sin(age * 13) * Math.exp(-age * 6) * .18);
-        x.save();
-        x.translate(t.x, t.y);
-        x.rotate(Math.sin(s.time * 5 + t.phase) * .15);
-        x.scale(scale, scale);
-        circle(x, 0, 0, 27, t.good ? "#3e6c5d" : "#65538a");
-        x.strokeStyle = t.good ? "#bce98b" : "#c5afff";
-        x.lineWidth = 3;
-        x.beginPath();
-        x.arc(0, 0, 29, -Math.PI / 2, -Math.PI / 2 + t.left / t.total * 2 * Math.PI);
-        x.stroke();
-        text(x, t.good ? "🤖" : "🐛", 0, 10, 29);
-        x.restore();
-      }
-      text(x, "Баги — да. Роботы — нет.", 180, 35, 15, "#b5b1ca");
-    });
-    s.hint("Больше багов, выше скорость · три ошибки заканчивают партию");
-  }
-
-  function tower(s) {
-    const {
-      c,
-      x
-    } = canvas(s);
-    let blocks = [{
-        left: 65,
-        width: 230
-      }],
-      left = 0,
-      width = 230,
-      dir = 1,
-      flashes = 0,
-      debris = [],
-      settle = 1,
-      config = s.progress(0);
-    action(s, c, () => {
-      const prev = blocks.at(-1),
-        a = Math.max(left, prev.left),
-        b = Math.min(left + width, prev.left + prev.width);
-      if (b - a < 5) {
-        s.impact(5);
-        s.end("Башня ушла в свободный полёт");
-        return;
-      }
-      const perfect = Math.abs(left - prev.left) < config.perfectWindow,
-        y = 390 - Math.min(11, blocks.length) * 25;
-      if (!perfect) {
-        const cuts = [
-          [left, a],
-          [b, left + width]
-        ];
-        for (const [from, to] of cuts)
-          if (to - from > 1) debris.push({
-            x: (from + to) / 2,
-            y: y + 10,
-            width: to - from,
-            vx: from < prev.left ? -55 : 55,
-            vy: -55,
-            spin: from < prev.left ? -3 : 3,
-            angle: 0,
-            age: 0,
-            color: "#b396ea"
-          });
-      }
-      width = perfect ? prev.width : b - a;
-      left = perfect ? prev.left : a;
-      blocks.push({
-        left,
-        width
-      });
-      if (blocks.length > 12) blocks.shift();
-      s.add(1);
-      config = s.progress(s.score);
-      flashes = perfect ? .5 : 0;
-      settle = 0;
-      if (perfect) s.fx(left + width / 2, y, "#d3f58b", 20);
-      else s.impact(1.5);
-      left = dir > 0 ? 360 - width : 0;
-      dir *= -1;
-    });
-    s.tick(dt => {
-      const wind = config.level >= 4 ? 1 + Math.sin(s.time * 1.9) * .2 : 1;
-      left += dir * config.towerSpeed * wind * dt;
-      if (left < 0) {
-        left = 0;
-        dir = 1;
-      }
-      if (left + width > 360) {
-        left = 360 - width;
-        dir = -1;
-      }
-      flashes = Math.max(0, flashes - dt);
-      settle += dt;
-      for (const p of debris) M.body(p, dt, 780);
-      debris = debris.filter(p => p.age < 1.8 && p.y < 490);
-      s.clock(`${s.score} этажей`);
-    });
-    s.paint(() => {
-      bg(x);
-      const visible = blocks.slice(-11),
-        base = 390;
-      visible.forEach((b, i) => {
-        x.fillStyle = `hsl(${250+i*9+s.score*8} 65% 73%)`;
-        const bounce = i === visible.length - 1 ? Math.sin(settle * 29) * Math.exp(-settle * 14) *
-          5 : 0;
-        x.fillRect(b.left, base - i * 25 + bounce, b.width, 21);
-      });
-      x.fillStyle = "#c9ed81";
-      x.fillRect(left, base - visible.length * 25, width, 21);
-      for (const p of debris) {
-        x.save();
-        x.globalAlpha = Math.min(1, (1.8 - p.age) * 2);
-        x.translate(p.x, p.y);
-        x.rotate(p.angle);
-        x.fillStyle = p.color;
-        x.fillRect(-p.width / 2, -10, p.width, 21);
-        x.restore();
-      }
-      if (flashes) text(x, "ИДЕАЛЬНО", 180, 57, 19, "#c5ef78");
-    });
-    s.hint("Тап / пробел · блоки быстрее, точное попадание сложнее");
-  }
-
-
-  const typingTexts = [
-    "Космический кот нашёл на орбите пиццу. Теперь его миссия стала гораздо интереснее. ",
-    "Робот умеет считать звёзды, но всё ещё путает сахар и соль. Ошибки помогают ему учиться. ",
-    "Самая высокая башня начинается с одного блока. Самая крутая программа начинается с идеи. "
-  ];
-  const typingLevels = [typingTexts,
-    ["В команде 12 роботов: 7 считают звёзды, а 5 готовят пиццу. Вместе они справляются быстрее! ",
-      "Новый рекорд: 128 очков за 60 секунд. Попробуешь улучшить результат ещё на 25 процентов? "
-    ],
-    ["Задание 3: (12 + 8) * 2 = 40. Проверь порядок действий, затем нажми Enter. ",
-      'Робот сказал: "Старт!" Таймер: 00:45, точность: 98%, скорость: 240 знаков. '
-    ],
-    ['Пароль от шлюза: "Орбита-2048". Координаты: (17, 42), энергия: 75%, запас: 3/8. ',
-      'Проверь: (144 / 12) + 7 = 19; 50% от 80 = 40. Ответ: "Всё верно!" '
-    ]
-  ];
-
-  function typing(s) {
-    let source = pick(typingTexts);
-    let mistakes = 0,
-      typed = 0,
-      previous = "";
-    s.stage.innerHTML =
-      '<div class="typing-game"><div class="typing-stats"><span id="typingAccuracy">Точность 100%</span><span id="typingSpeed">0 зн/мин</span></div><div class="typing-passage" aria-label="Текст для печати"></div><label>Печатай здесь<textarea class="typing-input" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="text" aria-label="Введи текст по образцу"></textarea></label><small>Русская раскладка · 60 секунд</small></div>';
-    const input = $("textarea", s.stage),
-      passage = $(".typing-passage", s.stage);
-    let committed = 0;
-
-    function draw() {
-      while (source.length - committed < 160) {
-        source += pick(typingLevels[E.difficulty("typing", source.length).level - 1]);
-      }
-      passage.innerHTML = [...source.slice(committed, committed + 105)].map((ch, i) =>
-        `<span class="${i<input.value.length?(ch===input.value[i]?"correct":"wrong"):i===input.value.length?"cursor":""}">${esc(ch)}</span>`
-      ).join("");
+        if (!response.ok) throw Error(typeof value.detail === "string" ? value.detail : "Не удалось выполнить действие. Попробуй ещё раз.");
+        return value;
     }
-    s.on(input, "paste", e => e.preventDefault());
-    s.on(input, "drop", e => e.preventDefault());
-    s.on(input, "beforeinput", e => {
-      if (s.paused || e.inputType === "insertFromPaste" || e.inputType === "insertFromDrop") e
-        .preventDefault();
-    });
-    s.on(input, "input", () => {
-      const value = input.value;
-      let correct = 0;
-      for (let i = 0; i < value.length; i++)
-        if (value[i] === source[committed + i]) correct++;
-      if (value.length > previous.length) {
-        for (let i = previous.length; i < value.length; i++) {
-          typed++;
-          if (value[i] !== source[committed + i]) mistakes++;
+
+    function toast(message) {
+        let t = $("#arcadeToast");
+        if (!t) {
+            t = document.createElement("div");
+            t.id = "arcadeToast";
+            t.className = "games-toast";
+            t.setAttribute("role", "status");
+            document.body.append(t);
         }
-      }
-      previous = value;
-      s.details({
-        accuracy: typed ? Math.floor((typed - mistakes) / typed * 100) : 100
-      });
-      s.setScore(committed + correct);
-      s.progress(s.score);
-      if (value.length > 50 && value.endsWith(" ") && correct === value.length) {
-        committed += value.length;
-        input.value = "";
-        previous = "";
-      }
-      draw();
-    });
-    s.tick(() => {
-      s.clock(`${Math.ceil(60-s.time)} с`);
-      $("#typingAccuracy", s.stage).textContent =
-        `Точность ${typed?Math.floor((typed-mistakes)/typed*100):100}%`;
-      $("#typingSpeed", s.stage).textContent = `${Math.round(s.score/Math.max(1,s.time)*60)} зн/мин`;
-      if (s.time >= 60) s.end("Минута пролетела");
-    });
-    draw();
-    input.focus();
-    s.hint("Пробелы тоже считаются · ошибки можно исправлять");
-  }
-
-  function debug(s) {
-    let index = 0,
-      line = -1,
-      answered = false;
-    const tasks = [
-        [0, 1],
-        [6, 2],
-        [3, 5],
-        [4, 7]
-      ].flatMap(pair => Math.random() < .5 ? pair : pair.reverse())
-      .map(i => E.tasks[i]);
-
-    function draw() {
-      s.progress(index);
-      const t = tasks[index];
-      s.stage.innerHTML =
-        `<div class="debug-game"><div class="debug-progress">Задача ${index+1} / ${tasks.length}<span>PYTHON</span></div><h3>${esc(t.intro)}</h3><div class="debug-code" aria-label="Выбери ошибочную строку">${t.lines.map((text,i)=>`<button data-line="${i}" class="${line===i?"selected":""}"><span>${i+1}</span><code>${esc(text)}</code></button>`).join("")}</div><p class="debug-instruction">${line<0?"Нажми на строку с ошибкой":"Чем заменим эту строку?"}</p>${line>=0?`<div class="debug-options">${t.options.map((text,i)=>`<button data-option="${i}"><code>${esc(text.trim())}</code></button>`).join("")}</div>`:""}<div class="debug-feedback" role="status"></div></div>`;
+        t.textContent = message;
+        t.classList.add("visible");
+        setTimeout(() => t.classList.remove("visible"), 3000);
     }
-    s.on(s.stage, "click", e => {
-      if (s.paused) return;
-      const b = e.target.closest("button");
-      if (!b) return;
-      const t = tasks[index];
-      if (b.dataset.line !== undefined && !answered) {
-        line = +b.dataset.line;
+    async function loadProfile({
+        restore = false
+    } = {}) {
+        const who = actor()?.id;
+        if (!who) throw Error("Нет аккаунта для локальной демки.");
+        const value = await api("/profile");
+        if (who !== actor()?.id) return;
+        profile = value;
+        loadingError = "";
+        if (restore) {
+            const ui = value.settings.ui || {};
+            tab = ["games", "leaders", "achievements", "looks", "progress", "rewards"].includes(ui.tab) ? ui.tab : "games";
+            filter = ["all", "fun", "skill", "puzzle"].includes(ui.filter) ? ui.filter : "all";
+            scrollSaved = Number(ui.scroll) || 0;
+            statsGame = E.games.some(g => g.id === ui.statsGame) ? ui.statsGame : "orbit";
+            period = ui.period === "all" ? "all" : "week";
+            if (["keyboard", "touch"].includes(ui.device)) device = ui.device;
+        }
+        return value;
+    }
+
+    const uiState = () => ({
+        tab,
+        filter,
+        scroll: Math.max(0, Math.round(scrollSaved)),
+        statsGame,
+        period,
+        device
+    });
+
+    function saveUi() {
+        clearTimeout(uiTimer);
+        uiTimer = setTimeout(() => {
+            if (!profile || play) return;
+            const ui = uiState();
+            profile.settings.ui = ui;
+            api("/settings", {
+                method: "PATCH",
+                body: {
+                    values: {
+                        ui
+                    }
+                }
+            }).catch(() => {});
+        }, 180);
+    }
+    async function render() {
+        if (!root) return;
+        if (!profile) {
+            root.innerHTML = '<div class="arcade-loading" role="status">Загружаем игры…</div>';
+            if (!profileLoad) profileLoad = loadProfile({
+                restore: true
+            }).catch(e => {
+                loadingError = e.message;
+            }).finally(() => {
+                profileLoad = null;
+                draw();
+            });
+            return profileLoad;
+        }
         draw();
-      }
-      if (b.dataset.option !== undefined && !answered) {
-        answered = true;
-        const ok = line === t.line && +b.dataset.option === t.answer;
-        if (ok) s.add(1);
-        $(".debug-feedback", s.stage).innerHTML =
-          `<b>${ok?"✓ Верно!":"Разберёмся"}</b><p>${esc(t.why)}</p><code>${esc(t.options[t.answer])}</code><button class="games-main" data-next>${index===tasks.length-1?"Результат":"Дальше →"}</button>`;
-        $(".debug-options", s.stage).querySelectorAll("button").forEach(b => b.disabled = true);
-        $("[data-next]", s.stage).focus();
-      }
-      if (b.hasAttribute("data-next")) {
-        index++;
-        if (index >= tasks.length) {
-          s.end("Дело раскрыто");
-          return;
-        }
-        line = -1;
-        answered = false;
-        draw();
-      }
-    });
-    draw();
-    s.tick(() => s.clock(`${index+1} / 8`));
-    s.hint("Найди строку · выбери исправление");
-  }
-
-  function numberGame(s) {
-    let board = Array(16).fill(0),
-      points = 0,
-      config = s.progress(0),
-      movingUntil = 0;
-    s.stage.innerHTML =
-      '<div class="number-game"><div class="number-points">Очки <b>0</b></div><div class="number-grid" role="grid" aria-label="Поле 2048"></div><div class="number-controls"><button data-dir="up" aria-label="Вверх">↑</button><div><button data-dir="left" aria-label="Влево">←</button><button data-dir="down" aria-label="Вниз">↓</button><button data-dir="right" aria-label="Вправо">→</button></div></div></div>';
-    const grid = $(".number-grid", s.stage);
-
-    function add() {
-      const empty = board.map((v, i) => v ? null : i).filter(v => v !== null);
-      if (empty.length) board[pick(empty)] = Math.random() < 1 - config.fourChance ? 2 : 4;
     }
 
-    function draw() {
-      grid.innerHTML = board.map(v =>
-        `<div role="gridcell" class="number-cell n${Math.min(v,2048)}">${v||""}</div>`).join("");
-      $(".number-points b", s.stage).textContent = points;
-    }
-
-    function move(dir) {
-      if (s.paused || s.time < movingUntil) return;
-      const r = E.slide(board, dir);
-      if (!r.changed) return;
-      const oldRects = [...grid.children].map(el => el.getBoundingClientRect());
-      const oldStyles = [...grid.children].map(el => ({
-        background: getComputedStyle(el).backgroundColor,
-        color: getComputedStyle(el).color
-      }));
-      board = r.board;
-      points += r.score;
-      config = s.progress(Math.max(...board));
-      add();
-      s.setScore(Math.max(...board));
-      s.rank(points);
-      draw();
-      if (!M.reduced()) {
-        movingUntil = s.time + .17;
-        const box = grid.getBoundingClientRect(),
-          cells = [...grid.children],
-          animations = [],
-          hidden = new Set();
-        for (const move of r.moves) {
-          if (move.from === move.to && !move.merged) continue;
-          const from = oldRects[move.from],
-            to = cells[move.to].getBoundingClientRect(),
-            ghost = document.createElement("div");
-          ghost.className = `number-moving n${Math.min(move.value,2048)}`;
-          ghost.textContent = move.value;
-          ghost.setAttribute("aria-hidden", "true");
-          Object.assign(ghost.style, {
-            ...oldStyles[move.from],
-            left: (to.left - box.left) + "px",
-            top: (to.top - box.top) + "px",
-            width: to.width + "px",
-            height: to.height + "px"
-          });
-          grid.append(ghost);
-          cells[move.to].style.opacity = "0";
-          hidden.add(move.to);
-          const animation = ghost.animate([{
-            transform: `translate(${from.left-to.left}px,${from.top-to.top}px)`
-          }, {
-            transform: "translate(0,0)"
-          }], {
-            duration: 150,
-            easing: "cubic-bezier(.2,.7,.3,1)"
-          });
-          animations.push(animation.finished.catch(() => {}).then(() => ghost.remove()));
-        }
-        Promise.allSettled(animations).then(() => {
-          for (const i of hidden) {
-            cells[i].style.opacity = "";
-            if (r.moves.some(m => m.to === i && m.merged)) M.pop(cells[i]);
-          }
+    function nextDeadline() {
+        const d = new Date(profile.week + "T00:00:00+03:00");
+        d.setUTCDate(d.getUTCDate() + 7);
+        return d.toLocaleDateString("ru-RU", {
+            timeZone: "Europe/Moscow",
+            day: "numeric",
+            month: "long"
         });
-      }
-      if (!E.canMove(board)) s.end("Ходов больше нет");
     }
-    s.on(document, "keydown", e => {
-      if (s.paused) return;
-      const dir = {
-        ArrowLeft: "left",
-        ArrowRight: "right",
-        ArrowUp: "up",
-        ArrowDown: "down"
-      } [e.key];
-      if (dir) {
-        e.preventDefault();
-        move(dir);
-      }
-    });
-    let touch = null;
-    s.on(grid, "pointerdown", e => {
-      touch = {
-        x: e.clientX,
-        y: e.clientY
-      };
-      grid.setPointerCapture(e.pointerId);
-    });
-    s.on(grid, "pointerup", e => {
-      if (!touch) return;
-      const dx = e.clientX - touch.x,
-        dy = e.clientY - touch.y;
-      touch = null;
-      if (Math.max(Math.abs(dx), Math.abs(dy)) > 15) move(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ?
-        "right" : "left") : (dy > 0 ? "down" : "up"));
-    });
-    s.on(s.stage, "click", e => {
-      const b = e.target.closest("[data-dir]");
-      if (b) move(b.dataset.dir);
-    });
-    add();
-    add();
-    draw();
-    s.setScore(Math.max(...board));
-    s.rank(0);
-    s.hint("Свайп / стрелки — сдвинуть плитки");
-  }
 
-  function drop(s) {
-    const {
-      c,
-      x,
-      point
-    } = canvas(s);
-    let balls = [],
-      aim = 180,
-      next = 0,
-      cool = 0,
-      danger = 0,
-      config = s.progress(0);
-    const radii = [13, 18, 24, 31, 39, 48, 59, 72],
-      colors = ["#b3b0ff", "#bbea7a", "#ffc27a", "#ff8a95", "#9ccfff", "#f2e48a", "#b9a0fc", "#fac27d"];
-
-    function release() {
-      if (s.paused || cool > 0) return;
-      const r = radii[next];
-      balls.push({
-        x: Math.max(r + 12, Math.min(348 - r, aim)),
-        y: 45,
-        r,
-        level: next,
-        vx: 0,
-        vy: 0,
-        age: 0,
-        angle: random(-.2, .2),
-        spin: random(-.7, .7),
-        squash: 0
-      });
-      next = Math.floor(random(0, config.dropKinds));
-      cool = .55;
+    function tabs() {
+        return [
+            ["games", "Игры"],
+            ["leaders", "Общий рейтинг"],
+            ["achievements", "Достижения"],
+            ["looks", "Образы"],
+            ["progress", "Мой прогресс"],
+            ["rewards", "Награды"]
+        ].map(([id, name]) => `<button data-tab="${id}" class="${tab===id?"active":""}" aria-pressed="${tab===id}">${name}</button>`).join("");
     }
-    s.on(c, "pointermove", e => {
-      aim = point(e).x;
-    });
-    s.on(c, "pointerdown", e => {
-      e.preventDefault();
-      aim = point(e).x;
-      release();
-    });
-    s.on(document, "keydown", e => {
-      if (s.paused) return;
-      if (e.code === "ArrowLeft") {
-        e.preventDefault();
-        aim = Math.max(30, aim - 15);
-      }
-      if (e.code === "ArrowRight") {
-        e.preventDefault();
-        aim = Math.min(330, aim + 15);
-      }
-      if (e.code === "Space" && !e.repeat) {
-        e.preventDefault();
-        release();
-      }
-    });
 
-    function physics(dt) {
-      cool = Math.max(0, cool - dt);
-      for (const b of balls) {
-        M.body(b, dt, config.gravity);
-        b.spin *= Math.exp(-.8 * dt);
-        b.squash *= Math.exp(-10 * dt);
-        if (b.x - b.r < 12) {
-          b.x = 12 + b.r;
-          b.vx = Math.abs(b.vx) * .28;
-          b.spin += .15;
+    function draw() {
+        if (!profile) {
+            root.innerHTML = `<div class="games-warning" role="alert">${esc(loadingError||"Нет связи с сервером игр")}<button class="arcade-subtle" data-reload>Попробовать снова</button></div>`;
+            $("[data-reload]", root).onclick = () => render();
+            return;
         }
-        if (b.x + b.r > 348) {
-          b.x = 348 - b.r;
-          b.vx = -Math.abs(b.vx) * .28;
-          b.spin -= .15;
+        const earned = Object.values(profile.goals).filter(g => g.claimed).length;
+        root.innerHTML = `<div class="games-heading"><div><div class="games-wordmark">${art("arcade")}<span class="games-eyebrow">ALGO ARCADE</span></div><h1>Игры</h1></div><div class="arcade-account"><label class="games-player-picker">Игрок демки<select id="gamesPlayer">${actors.map(p=>`<option value="${esc(p.id)}" ${p.id===actor().id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></label><button class="arcade-settings" aria-label="Настройки игр" data-settings>⚙</button></div></div>
+      <section class="games-hero"><div class="games-hero-copy"><span class="games-season">ALGO ARCADE · НЕДЕЛЬНОЕ ИСПЫТАНИЕ</span><h2>Твой навык.<br><em>Твой рекорд.</em></h2><p>Тренируйся, соревнуйся и открывай новые образы.</p><button data-game="orbit" class="games-main">Полетели ↗</button></div><div class="games-hero-art">${art("orbit")}</div></section>
+      <div class="games-weekbar"><div><span class="games-week-icon">✦</span><span><b>Награды недели</b><small>До ${nextDeadline()} · ${profile.cap.used} / ${profile.cap.limit} AC</small></span></div><b>${earned}<span> / 10 целей</span></b><button data-tab="rewards">Награды →</button></div>
+      <nav class="games-tabs" aria-label="Разделы игр">${tabs()}</nav><div id="arcadeTabContent"></div>`;
+        const content = $("#arcadeTabContent", root);
+        if (tab === "games") content.innerHTML = cards();
+        if (tab === "achievements") content.innerHTML = achievements();
+        if (tab === "rewards") content.innerHTML = rewards();
+        if (tab === "looks") content.innerHTML = looks();
+        if (tab === "progress") content.innerHTML = progress();
+        if (tab === "leaders") {
+            content.innerHTML = '<div class="arcade-loading">Загружаем рейтинг…</div>';
+            void drawBoard(content, "overall");
         }
-        if (b.y + b.r > 416) {
-          const speed = Math.abs(b.vy);
-          b.y = 416 - b.r;
-          b.vy = -speed * .12;
-          b.vx *= .98;
-          if (speed > 50) b.squash = Math.min(.2, speed / 1300);
-          if (Math.abs(b.vy) < 9) b.vy = 0;
+        root.onclick = handleRoot;
+        $("#gamesPlayer", root).onchange = async e => {
+            selected = e.target.value;
+            localStorage.setItem("arcade-player-v3", selected);
+            profile = null;
+            boardCache.clear();
+            restoring = true;
+            await render();
+        };
+        $("#arcadeStatsGame", root)?.addEventListener("change", e => {
+            statsGame = e.target.value;
+            saveUi();
+            draw();
+        });
+        if (restoring) {
+            restoring = false;
+            requestAnimationFrame(() => {
+                if (state.view === "games") window.scrollTo({
+                    top: scrollSaved,
+                    behavior: "instant"
+                });
+            });
         }
-      }
-      for (let pass = 0; pass < 5; pass++)
-        for (let i = 0; i < balls.length; i++)
-          for (let j = i + 1; j < balls.length; j++) {
-            const a = balls[i],
-              b = balls[j],
-              dx = b.x - a.x,
-              dy = b.y - a.y,
-              d = Math.hypot(dx, dy),
-              sum = a.r + b.r;
-            if (d >= sum) continue;
-            const ma = a.r * a.r,
-              mb = b.r * b.r;
-            if (a.level === b.level) {
-              const level = Math.min(7, a.level + 1);
-              balls[i] = {
-                x: (a.x + b.x) / 2,
-                y: (a.y + b.y) / 2,
-                r: radii[level],
-                level,
-                vx: (a.vx * ma + b.vx * mb) / (ma + mb),
-                vy: -45,
-                age: 0,
+    }
+
+    function cards() {
+        return `<div class="games-filters">${[["all","Все"],["fun","Залипательные"],["skill","С пользой"],["puzzle","Подумать"]].map(([id,name])=>`<button data-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${name}</button>`).join("")}</div><div class="games-grid">${E.games.filter(g=>filter==="all"||g.kind===filter).map(g=>{
+    const q=profile.goals[g.id];return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><div class="game-card-art">${art(g.id)}<span class="game-reward">${q.claimed?"✓ Получено":q.eligible?"✦ Забрать награду":"✦ 10 AC"}</span></div><div class="game-card-body"><small>${g.tag}</small><h3>${g.name}</h3><div class="game-card-bottom"><span>${profile.best[g.id]?`Рекорд <b>${profile.best[g.id]}</b>`:`Цель: ${goal(g.id)}`}</span><span class="game-play">↗</span></div></div></button><button class="game-card-leader" data-leader="${g.id}">🏆 Лидеры</button></div>`;
+  }).join("")}</div>`;
+    }
+
+    function achievementText(a) {
+        const extra = a.game === "typing" ? ` · точность ${[90,93,95][a.tier]}%` : a.game === "react" ? ` · до ${[450,400,350][a.tier]} мс, ошибок ≤ ${[1,0,0][a.tier]}` : "";
+        return `${a.target} ${E.games.find(g=>g.id===a.game).unit}${extra}`;
+    }
+
+    function achievements() {
+        return `<div class="arcade-tier-key"><span>Бронза · уверенный старт</span><span>Серебро · сильный результат</span><span>Золото · мастерство</span></div><div class="games-achievement-grid">${profile.achievements.map(a=>`<article class="game-achievement ${a.unlocked?"unlocked":""}"><span class="achievement-medal ${E.games.find(g=>g.id===a.game).color}">${art(a.game)}<i>${["I","II","III"][a.tier]}</i></span><div><h3>${title(a.game)} · ${["бронза","серебро","золото"][a.tier]}</h3><p>${achievementText(a)}</p><progress max="${a.target}" value="${a.value}"></progress><small>${a.value} / ${a.target}</small></div><button data-claim="${esc(a.id)}" ${!a.unlocked||a.claimed?"disabled":""}>${a.credited?"✓ Получено":a.claimed?"Ждёт лимита":`+${a.reward} AC`}</button></article>`).join("")}</div>`;
+    }
+
+    function rewards() {
+        const pending = profile.awards.filter(a => a.claimed && a.credited === null);
+        return `<section class="games-reward-summary"><div><small>Тестовые астрокоины</small><strong>${profile.balance} <span>AC</span></strong><p>Отдельный игровой баланс демки</p></div><div><b>Лимит недели: ${profile.cap.limit} AC</b><p>Начислено ${profile.cap.used} AC. Заработанные награды сверх лимита ждут следующей недели.</p></div></section>
+      ${pending.length?`<div class="games-warning"><b>Ожидают лимита: ${pending.reduce((n,a)=>n+a.amount,0)} AC</b><p>Награды сохранены. Начисление продолжится с новой недели.</p></div>`:""}
+      <div class="games-reward-list">${E.games.map(g=>{const q=profile.goals[g.id];return `<div><span class="reward-dot ${g.color}">✦</span><span><b>${g.name}</b><small>${Math.min(q.score,q.target)} / ${q.target}${g.id==="typing"?" · точность от 90%":""}</small></span><button data-claim="${esc(q.id||"")}" ${!q.eligible||q.claimed?"disabled":""}>${q.claimed?"✓ Заявлено":"Забрать 10 AC"}</button></div>`;}).join("")}</div>
+      <h3 class="games-history-title">История начислений</h3><div class="games-reward-list">${profile.credits.length?profile.credits.map(c=>`<div><span><b>${esc(c.label)}</b><small>${new Date(c.created*1000).toLocaleString("ru-RU",{timeZone:"Europe/Moscow"})}</small></span><strong>+${c.amount} AC</strong></div>`).join(""):'<div><span>Пока нет начислений</span></div>'}</div>`;
+    }
+
+    function looks() {
+        const unlocked = Math.max(0, ...profile.achievements.filter(a => a.unlocked).map(a => a.tier + 1));
+        return `<div class="arcade-looks-intro"><h3>Образы за мастерство</h3><p>Бронза открывает мятный набор, серебро — солнечный, золото — туманность. Характеристики персонажей одинаковые.</p></div><div class="arcade-looks">${[["base","space","Космос"],["mint","forest","Мятная орбита"],["sun","sunset","Солнечный рейс"],["nebula","nebula","Туманность"]].map(([skin,theme,name],i)=>`<button class="arcade-look ${skin===profile.settings.skin?"selected":""}" data-skin="${skin}" data-theme="${theme}" ${i>unlocked?"disabled":""}><div style="filter:hue-rotate(${i*52}deg)">${art("orbit")}</div><b>${name}</b><small>${i>unlocked?`${["","Бронза","Серебро","Золото"][i]} в любой игре`:skin===profile.settings.skin?"Выбрано":"Выбрать"}</small></button>`).join("")}</div>`;
+    }
+
+    function progress() {
+        const rows = profile.runs.filter(r => r.game === statsGame).slice(0, 10).reverse(),
+            max = Math.max(1, ...rows.map(r => r.score));
+        const pts = rows.map((r, i) => `${20+i*260/Math.max(1,rows.length-1)},${110-r.score/max*85}`).join(" ");
+        return `<div class="arcade-progress-heading"><h3>Последние 10 партий</h3><select id="arcadeStatsGame">${E.games.map(g=>`<option value="${g.id}" ${statsGame===g.id?"selected":""}>${g.name}</option>`).join("")}</select></div>
+      ${rows.length?`<svg class="arcade-chart" viewBox="0 0 300 135" role="img" aria-label="Результаты от ${rows[0].score} до ${rows.at(-1).score}"><path d="M20 110H280" stroke="#dcd1e9"/><polyline points="${pts}" fill="none" stroke="#9673bc" stroke-width="3" stroke-linejoin="round"/>${rows.map((r,i)=>`<circle cx="${20+i*260/Math.max(1,rows.length-1)}" cy="${110-r.score/max*85}" r="4" fill="#b1cf87"/>`).join("")}<text x="20" y="130" fill="#9b85ac" font-size="9">${rows.length} партий</text></svg>`:'<div class="games-leaders-empty"><h4>Сыграй первую партию</h4><p>Здесь появится твой прогресс.</p></div>'}
+      <div class="games-reward-list">${rows.slice().reverse().map(r=>`<div><span><b>${r.score} ${E.games.find(g=>g.id===r.game).unit}</b><small>${r.mode==="practice"?"Тренировка":r.accepted?"Соревнование":"Незавершённая попытка"} · ${new Date(r.created*1000).toLocaleDateString("ru-RU")} · ${detail(r)}</small></span><button data-replay="${r.id}">Разбор →</button></div>`).join("")}</div>`;
+    }
+
+    function detail(r) {
+        const d = r.report?.details || r.details || {};
+        return r.game === "typing" ? `точность ${d.accuracy}%` : r.game === "react" ? `${d.reactionMs||0} мс · ошибок ${d.mistakes||0}` : r.game === "memory" ? `${d.moves||0} ходов` : `${((r.report?.timeMs||d.timeMs||0)/1000).toFixed(1)} с`;
+    }
+    async function handleRoot(e) {
+        const b = e.target.closest("button");
+        if (!b || b.disabled) return;
+        if (b.dataset.tab) {
+            tab = b.dataset.tab;
+            scrollSaved = window.scrollY;
+            saveUi();
+            draw();
+        }
+        if (b.dataset.filter) {
+            filter = b.dataset.filter;
+            saveUi();
+            draw();
+        }
+        if (b.dataset.game) openGame(b.dataset.game);
+        if (b.dataset.leader) openLeaders(b.dataset.leader);
+        if (b.dataset.claim) {
+            b.disabled = true;
+            try {
+                profile = await api("/claims", {
+                    method: "POST",
+                    body: {
+                        id: b.dataset.claim
+                    }
+                });
+                draw();
+                toast("Награда сохранена");
+            } catch (error) {
+                toast(error.message);
+                b.disabled = false;
+            }
+        }
+        if (b.dataset.skin) {
+            try {
+                profile.settings = await api("/settings", {
+                    method: "PATCH",
+                    body: {
+                        values: {
+                            skin: b.dataset.skin,
+                            theme: b.dataset.theme
+                        }
+                    }
+                });
+                draw();
+            } catch (error) {
+                toast(error.message);
+            }
+        }
+        if (b.hasAttribute("data-settings")) openSettings();
+        if (b.dataset.replay) void replayHistory(b.dataset.replay);
+    }
+    async function boardData(game, chosenPeriod = period, chosenDevice = device) {
+        const key = [game, chosenPeriod, chosenDevice].join(":");
+        if (!boardCache.has(key)) boardCache.set(key, await api(`/boards?game=${game}&period=${chosenPeriod}&device=${chosenDevice}`));
+        return boardCache.get(key);
+    }
+
+    function boardMarkup(data, game) {
+        const combined = game === "overall",
+            rows = data.rows,
+            mine = rows.find(r => r.player === actor().id),
+            shown = rows.slice(0, 20),
+            index = rows.findIndex(r => r.player === actor().id);
+        for (const r of rows.slice(Math.max(0, index - 2), index + 3))
+            if (index >= 0 && !shown.some(s => s.player === r.player)) shown.push(r);
+        const before = index > 0 ? rows[index - 1] : null,
+            gap = before && mine ? before.score - mine.score + 1 : 0;
+        return `<section class="games-leaders ${combined?"games-overall":""}"><div class="games-leaders-top"><div><small>${combined?"ВСЕ 10 ИГР":"ТАБЛИЦА ЛИДЕРОВ"}</small><h3>${combined?"Общий рейтинг":title(game)}</h3></div><span>Сервер демки</span></div>
+      ${combined?`<div class="league-prizes"><div class="league-prize-heading"><b>Награды недели</b><small>Итоги ${nextDeadline()} · 00:00 МСК</small></div><div class="league-prize-podium">${data.prizes.map((n,i)=>`<div><span>${["🥇","🥈","🥉"][i]}</span><small>${i+1}-е место</small><b>${n} <em>AC</em></b></div>`).join("")}</div><p>Призовой зачёт — от 3 игр с выполненной целью. Лимит ${profile.cap.limit} AC в неделю.</p></div>`:""}
+      <div class="games-leader-controls"><div class="games-leader-period">${[["week","Неделя"],["all","Всё время"]].map(([id,name])=>`<button data-period="${id}" aria-pressed="${id===period}">${name}</button>`).join("")}</div>${speed.has(game)?`<div class="games-leader-period">${[["keyboard","Клавиатура / мышь"],["touch","Касания"]].map(([id,name])=>`<button data-board-device="${id}" aria-pressed="${id===device}">${name}</button>`).join("")}</div>`:""}</div>
+      ${mine?`<div class="games-my-rank"><span>Твоё место <b>#${mine.rank}</b></span><span>${mine.score} ${combined?"очков рейтинга":E.rankUnit(game)}<small>${combined?`${mine.games}/3 игр для призов`:"Лучшая партия"}</small></span></div>${before?`<p class="arcade-neighbor">До #${before.rank}: ${Math.max(1,gap)} ${combined?"очков рейтинга":E.rankUnit(game)}</p>`:""}`:""}
+      ${shown.length?`<div class="games-leader-scroll"><table><thead><tr><th>Место</th><th>Игрок</th><th>${combined?"Рейтинг":"Рекорд"}</th></tr></thead><tbody>${shown.map(r=>`<tr class="${r.player===actor().id?"is-me":""}"><td><span class="rank-medal rank-${r.rank}">${r.rank<=3?["🥇","🥈","🥉"][r.rank-1]:r.rank}</span></td><td><b>${esc(r.name)}${r.player===actor().id?" <em>Ты</em>":""}</b><small>${esc(r.group)}</small>${combined?`<details class="league-contributions"><summary>${r.games} игр${r.prizeEligible?" · в призовом зачёте":" · нужно 3"}</summary><ul>${r.contributions.map(c=>`<li><span>${title(c.game)} · #${c.rank}</span><strong>+${c.points}</strong></li>`).join("")}</ul></details>`:""}</td><td><strong>${r.score}</strong><small>${combined?`${r.wins} первых мест`:`Ур. ${r.level}${speed.has(game)?r.device==="touch"?" · сенсор":" · клавиатура":""}`}</small></td></tr>`).join("")}</tbody></table></div>`:'<div class="games-leaders-empty"><span>🏆</span><h4>Первый рекорд может быть твоим</h4><p>Заверши соревновательную партию.</p></div>'}
+      ${combined?'<details class="league-rules"><summary>Как считаются очки</summary><p>За места в каждой игре: 100, 80, 65, 55, 45, 35, 25, 20, 15, 10 и дальше по 5. В зачёт идут только результаты с выполненной целью. Для печати нужна точность от 90%.</p><p>В скоростных играх клавиатура и касания сравниваются отдельно. В общий рейтинг идёт один лучший вклад за игру. Призы — за минимум три разные игры. При равенстве: больше игр, первых мест, затем раньше достигнутый результат.</p></details>':""}
+      ${combined&&data.history.length?`<details class="league-last-week"><summary>Прошлые недели</summary>${data.history.map(w=>`<div><b>${w.week}</b><span>${w.winners.map(r=>`${esc(r.name)} +${r.prize} AC`).join(" · ")||"Нет призового зачёта"}</span></div>`).join("")}</details>`:""}</section>`;
+    }
+    async function drawBoard(host, game) {
+        const key = game + ":" + period + ":" + device;
+        host.dataset.request = key;
+        try {
+            const data = await boardData(game);
+            if (!host.isConnected || host.dataset.request !== key) return;
+            host.innerHTML = boardMarkup(data, game);
+            host.onclick = e => {
+                const b = e.target.closest("button");
+                if (b?.dataset.period) {
+                    period = b.dataset.period;
+                    saveUi();
+                    void drawBoard(host, game);
+                }
+                if (b?.dataset.boardDevice) {
+                    device = b.dataset.boardDevice;
+                    saveUi();
+                    void drawBoard(host, game);
+                }
+            };
+        } catch (error) {
+            host.innerHTML = `<p class="games-warning">${esc(error.message)}</p>`;
+        }
+    }
+    async function openLeaders(game) {
+        if (play?.phase === "playing") await play.pause();
+        $("#gamesLeaderDialog")?.remove();
+        const d = document.createElement("dialog");
+        d.id = "gamesLeaderDialog";
+        d.className = "games-leader-dialog";
+        d.innerHTML = '<button class="games-leader-close" aria-label="Закрыть таблицу">×</button><div class="arcade-board-slot"></div>';
+        document.body.append(d);
+        $(".games-leader-close", d).onclick = () => d.close();
+        d.onclose = () => d.remove();
+        d.showModal();
+        void drawBoard($(".arcade-board-slot", d), game);
+    }
+
+    function openSettings() {
+        const d = document.createElement("dialog");
+        d.className = "games-leader-dialog arcade-preferences";
+        const p = profile.settings,
+            admin = window.pizzaPreview?.role === "partner_director";
+        d.innerHTML = `<button class="games-leader-close" aria-label="Закрыть">×</button><h3>Настройки игр</h3><form><label>Качество эффектов<select name="quality"><option value="auto">Автоматически</option><option value="high">Высокое</option><option value="low">Экономное</option></select></label><label class="arcade-check"><input type="checkbox" name="sound" ${p.sound?"checked":""}> Звуки</label><label class="arcade-check"><input type="checkbox" name="vibration" ${p.vibration?"checked":""}> Вибрация</label><button class="games-main">Сохранить</button><p role="status"></p></form>${admin?`<form class="arcade-policy"><h4>Лимит наград</h4><label>AC за неделю<input type="number" min="50" max="1000" name="cap" value="${profile.nextCap}"></label><small>Изменение действует со следующей недели.</small><button class="arcade-subtle">Применить</button><p role="status"></p></form>`:""}`;
+        document.body.append(d);
+        d.showModal();
+        $("[name=quality]", d).value = p.quality;
+        $(".games-leader-close", d).onclick = () => d.close();
+        d.onclose = () => d.remove();
+        $("form", d).onsubmit = async e => {
+            e.preventDefault();
+            const form = e.target;
+            try {
+                profile.settings = await api("/settings", {
+                    method: "PATCH",
+                    body: {
+                        values: {
+                            quality: form.quality.value,
+                            sound: form.sound.checked,
+                            vibration: form.vibration.checked
+                        }
+                    }
+                });
+                d.close();
+            } catch (error) {
+                $("[role=status]", form).textContent = error.message;
+            }
+        };
+        $(".arcade-policy", d)?.addEventListener("submit", async e => {
+            e.preventDefault();
+            try {
+                const result = await api("/policy", {
+                    method: "PATCH",
+                    body: {
+                        cap: Number(e.target.cap.value)
+                    },
+                    admin: true
+                });
+                $("[role=status]", e.target).textContent = `Сохранено: ${result.cap} AC с ${result.week}`;
+            } catch (error) {
+                $("[role=status]", e.target).textContent = error.message;
+            }
+        });
+    }
+
+    function openGame(id) {
+        if (play) return;
+        const g = E.games.find(g => g.id === id),
+            d = document.createElement("dialog");
+        d.id = "gameDialog";
+        d.className = "game-dialog";
+        d.innerHTML = `<header><div><small>ALGO ARCADE</small><h2>${g.name}</h2></div><button class="game-leaders-button" aria-label="Таблица лидеров">🏆</button><button class="game-close" aria-label="Закрыть игру">×</button></header><div class="game-hud"><span>Счёт <b id="gameScore">0</b></span><span id="gameClock"></span><span class="game-level" id="gameLevel">Ур. 1</span><button class="arcade-pause" aria-label="Пауза" hidden>Ⅱ</button></div><div class="arcade-live-goal"><span></span><progress value="0" max="${g.goal}"></progress></div><div class="game-stage"></div><footer><span id="gameHint"></span><button id="gameFinish" hidden>Завершить</button></footer>`;
+        const run = {
+            g,
+            dialog: d,
+            phase: "intro",
+            abort: new AbortController(),
+            world: null,
+            session: null,
+            events: [],
+            frames: [],
+            raf: 0,
+            view: null,
+            playedMs: 0,
+            anchor: 0,
+            clockPromise: Promise.resolve(),
+            inputQueue: [],
+            level: 1,
+            lastCue: 0,
+            averageFrame: 16,
+            recorded: false
+        };
+        play = run;
+        document.body.append(d);
+        d.showModal();
+        intro(run);
+        $(".game-close", d).onclick = () => {
+            if (["playing", "ready", "paused"].includes(run.phase)) run.pause(true);
+            else close();
+        };
+        $(".game-leaders-button", d).onclick = () => openLeaders(id);
+        $(".arcade-pause", d).onclick = () => run.pause();
+        d.addEventListener("cancel", e => {
+            e.preventDefault();
+            if (run.phase === "playing" || run.phase === "ready") run.pause();
+            else if (run.phase === "paused") run.resume();
+            else close();
+        });
+        run.pause = async exit => {
+            if (run.phase !== "playing" && run.phase !== "ready") return;
+            const wasReady = run.phase === "ready";
+            if (!wasReady) {
+                catchUp(run);
+                run.playedMs += performance.now() - run.anchor;
+            }
+            if (run.world?.ended) return;
+            run.phase = "paused";
+            const cover = document.createElement("div");
+            cover.className = "game-pause";
+            cover.innerHTML = `<span>Ⅱ</span><h3>${exit?"Закончить попытку?":"Пауза"}</h3><button class="games-main" data-resume>Продолжить →</button><button class="game-back" data-exit>Выйти из партии</button>`;
+            $(".game-stage", d).append(cover);
+            if (!wasReady) run.clockPromise = run.clockPromise.then(() => api(`/sessions/${run.session.id}/clock/pause`, {
+                method: "POST"
+            })).catch(e => toast(e.message));
+            run.resume = async () => {
+                const b = $("[data-resume]", cover);
+                b.disabled = true;
+                await run.clockPromise;
+                if (play !== run) return;
+                if (!wasReady) try {
+                    await api(`/sessions/${run.session.id}/clock/resume`, {
+                        method: "POST"
+                    });
+                } catch (error) {
+                    toast(error.message);
+                    b.disabled = false;
+                    return;
+                }
+                cover.remove();
+                run.anchor = performance.now();
+                run.phase = wasReady ? "ready" : "playing";
+            };
+            $("[data-resume]", cover).onclick = run.resume;
+            $("[data-exit]", cover).onclick = () => finish(run, true);
+        };
+        $("#gameFinish", d).onclick = () => finish(run, false);
+
+        window.addEventListener("keydown", e => {
+            if (e.code !== "Escape" || [...document.querySelectorAll("dialog[open]")].at(-1) !== d) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            if (run.phase === "playing" || run.phase === "ready") run.pause();
+            else if (run.phase === "paused") run.resume();
+            else if (!["countdown", "starting", "loading", "finishing"].includes(run.phase)) close();
+        }, {
+            capture: true,
+            signal: run.abort.signal
+        });
+        document.addEventListener("visibilitychange", () => {
+            if (document.hidden) run.pause();
+        }, {
+            signal: run.abort.signal
+        });
+    }
+
+    function intro(run) {
+        const {
+            g,
+            dialog: d
+        } = run, seen = profile.settings.tutorials.includes(g.id);
+        $(".game-stage", d).innerHTML = `<div class="game-intro ${g.color}">${art(g.id)}<h3>${g.tag}</h3><p>${g.hint}</p><div class="arcade-mode">${[["ranked","Соревнование"],["practice","Тренировка"]].map(([id,t])=>`<button data-mode="${id}" aria-pressed="${mode===id}">${t}</button>`).join("")}</div><div class="arcade-input">${[["keyboard","Клавиатура / мышь"],["touch","Касания"]].map(([id,t])=>`<button data-input="${id}" aria-pressed="${device===id}">${t}</button>`).join("")}</div><button class="games-main" id="gameStart">${seen?"Начать игру →":"Пробный шаг →"}</button><button class="game-back" data-skip-guide>${seen?"Как играть":"Сразу играть"}</button><small>${mode==="ranked"?"Рейтинг и награды":"Подсказки и обучение · без рейтинга"}</small></div>`;
+        $("#gameHint", d).textContent = `Цель недели: ${goal(g.id)}`;
+        $(".game-stage", d).onclick = e => {
+            const b = e.target.closest("button");
+            if (b?.dataset.mode) {
+                mode = b.dataset.mode;
+                intro(run);
+            }
+            if (b?.dataset.input) {
+                device = b.dataset.input;
+                intro(run);
+            }
+        };
+        $("#gameStart", d).onclick = () => seen ? begin(run) : tutorial(run);
+        $("[data-skip-guide]", d).onclick = () => seen ? tutorial(run) : begin(run);
+    }
+
+    function mount(run) {
+        run.viewAbort?.abort();
+        run.viewAbort = new AbortController();
+        run.abort.signal.addEventListener("abort", () => run.viewAbort?.abort(), {
+            once: true
+        });
+        const stage = $(".game-stage", run.dialog);
+        stage.innerHTML = "";
+        stage.onclick = null;
+        run.view = V.mount(run.g.id, stage, a => input(run, a), {
+            signal: run.viewAbort.signal,
+            device: run.world.device,
+            mode: run.world.mode,
+            skin: profile.settings.skin,
+            theme: profile.settings.theme,
+            quality: () => run.quality || "high",
+            paused: () => !["playing", "ready", "tutorial"].includes(run.phase)
+        });
+        run.view.update(run.world, 0);
+    }
+    async function tutorial(run) {
+        run.phase = "tutorial";
+        run.world = W.create({
+            game: run.g.id,
+            seed: 41,
+            mode: "practice",
+            device
+        });
+        const w = run.world;
+        if (w.id === "orbit") w.target = w.angle;
+        if (w.id === "bugs") w.targets = [{
+            id: 1,
+            x: 180,
+            y: 220,
+            vx: 0,
+            vy: 0,
+            left: 100,
+            total: 100,
+            good: false,
+            phase: 0
+        }];
+        if (w.id === "tower") w.left = 65;
+        if (w.id === "evolve") w.cells[0] = w.cells[1] = 0;
+        if (w.id === "typing") w.text = "кот на орбите ";
+        if (w.id === "2048") w.board = [2, 2, ...Array(14).fill(0)];
+        if (w.id === "memory") {
+            w.cards = [0, 1, 0, 1];
+            w.left = 100;
+        }
+        if (w.id === "react") {
+            w.signal = "go";
+            w.since = -.2;
+        }
+        if (w.id === "drop") {
+            w.balls = [{
+                id: 1,
+                x: 180,
+                y: 403,
+                r: 13,
+                level: 0,
+                vx: 0,
+                vy: 0,
+                age: 3,
                 angle: 0,
-                spin: (a.spin + b.spin) / 2 + .3,
-                squash: .2
-              };
-              balls.splice(j, 1);
-              s.add(2 ** (level + 1));
-              s.fx(balls[i].x, balls[i].y, colors[level], 14);
-              if (level >= 4) s.impact(2);
-              break;
+                spin: 0,
+                squash: 0
+            }];
+            w.queue[0] = 0;
+        }
+        mount(run);
+        $("#gameHint", run.dialog).textContent = {
+            orbit: "Нажми пробел или на поле — кот прыгнет",
+            evolve: "Выбери две одинаковые фигурки",
+            bugs: "Нажми на фиолетового бага",
+            tower: "Нажми — блок встанет на башню",
+            typing: "Напечатай слово «кот»",
+            debug: "Выбери ошибочную строку, затем исправление",
+            "2048": "Сдвинь плитки влево",
+            drop: "Урони фигурку по центру",
+            memory: "Найди одинаковую пару",
+            react: "Нажми на зелёный"
+        } [w.id];
+        const frame = () => {
+            if (play !== run || run.phase !== "tutorial") return;
+            if (run.tutorialActed && ["orbit", "drop"].includes(w.id)) W.advance(w, 1);
+            run.view.update(w, 1 / 60);
+            if (w.score >= (w.id === "typing" ? 3 : 1)) {
+                run.phase = "intro";
+                const cover = document.createElement("div");
+                cover.className = "game-result";
+                cover.innerHTML = '<span class="result-star">✓</span><h3>Получилось!</h3><p>Теперь можно начать настоящую попытку.</p><button class="games-main">Играть →</button>';
+                $(".game-stage", run.dialog).append(cover);
+                profile.settings.tutorials = [...new Set([...profile.settings.tutorials, w.id])];
+                api("/settings", {
+                    method: "PATCH",
+                    body: {
+                        values: {
+                            tutorials: profile.settings.tutorials
+                        }
+                    }
+                }).catch(() => {});
+                $("button", cover).onclick = () => begin(run);
+                return;
             }
-            const nx = d > .001 ? dx / d : 1,
-              ny = d > .001 ? dy / d : 0,
-              overlap = sum - Math.max(d, .001),
-              ia = 1 / ma,
-              ib = 1 / mb;
-            a.x -= nx * overlap * ia / (ia + ib);
-            a.y -= ny * overlap * ia / (ia + ib);
-            b.x += nx * overlap * ib / (ia + ib);
-            b.y += ny * overlap * ib / (ia + ib);
-            const rel = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-            if (rel < 0) {
-              const impulse = -rel * 1.12 / (ia + ib);
-              a.vx -= impulse * nx * ia;
-              a.vy -= impulse * ny * ia;
-              b.vx += impulse * nx * ib;
-              b.vy += impulse * ny * ib;
-              const tangent = (b.vx - a.vx) * -ny + (b.vy - a.vy) * nx;
-              a.spin += tangent / a.r * .01;
-              b.spin -= tangent / b.r * .01;
-              if (rel < -70) {
-                a.squash = Math.min(.18, -rel / 1500);
-                b.squash = a.squash;
-              }
+            run.raf = requestAnimationFrame(frame);
+        };
+        frame();
+    }
+    async function begin(run) {
+        if (profile.settings.sound) {
+            try {
+                run.audio ||= new(window.AudioContext || window.webkitAudioContext)();
+                void run.audio.resume();
+            } catch {}
+        }
+        cancelAnimationFrame(run.raf);
+        run.viewAbort?.abort();
+        run.phase = "loading";
+        $(".game-stage", run.dialog).innerHTML = '<div class="arcade-loading">Готовим партию…</div>';
+        try {
+            run.session = await api("/sessions", {
+                method: "POST",
+                body: {
+                    game: run.g.id,
+                    mode,
+                    device
+                }
+            });
+        } catch (error) {
+            toast(error.message);
+            intro(run);
+            return;
+        }
+        if (play !== run) return;
+        run.world = W.create(run.session.setup);
+        run.mode = mode;
+        run.device = device;
+        run.events = [];
+        run.frames = [];
+        run.playedMs = 0;
+        run.lastCue = 0;
+        mount(run);
+        $(".arcade-pause", run.dialog).hidden = false;
+        $("#gameFinish", run.dialog).hidden = false;
+        run.oldBest = profile.best[run.g.id] || 0;
+        run.knownAchievements = new Set(profile.achievements.filter(a => a.unlocked).map(a => a.id));
+        try {
+            const board = await boardData(run.g.id, "week", run.device);
+            run.oldRank = board.rows.find(r => r.player === actor().id)?.rank;
+        } catch {}
+        if (run.g.id === "typing") {
+            run.phase = "ready";
+            $("#gameClock", run.dialog).textContent = "Первый символ → старт";
+        } else {
+            run.phase = "countdown";
+            const cover = document.createElement("div");
+            cover.className = "game-pause arcade-countdown";
+            $(".game-stage", run.dialog).append(cover);
+            for (const n of [3, 2, 1]) {
+                cover.innerHTML = `<b>${n}</b>`;
+                await new Promise(resolve => setTimeout(resolve, 650));
+                if (play !== run) return;
             }
-          }
-      for (const b of balls) {
-        b.x = Math.max(12 + b.r, Math.min(348 - b.r, b.x));
-        b.y = Math.min(416 - b.r, b.y);
-      }
-      const high = balls.some(b => b.age > 2 && b.y - b.r < config.dangerLine && Math.abs(b.vy) < 45);
-      danger = high ? danger + dt : Math.max(0, danger - dt * 2);
-      if (danger > 2.5) s.end("Космос закончился");
+            cover.remove();
+            await startClock(run);
+        }
+        if (play !== run) return;
+        run.raf = requestAnimationFrame(now => frame(run, now));
     }
-    s.tick(dt => {
-      config = s.progress(s.score);
-      const steps = Math.max(1, Math.ceil(dt / .008));
-      for (let i = 0; i < steps; i++) physics(dt / steps);
-      s.clock(`Следующий ${symbols[next]}`);
-    });
-    s.paint(() => {
-      bg(x);
-      x.strokeStyle = danger ? "#ff8696" : "#65627c";
-      x.lineWidth = 1;
-      x.setLineDash([4, 5]);
-      x.beginPath();
-      x.moveTo(12, config.dangerLine);
-      x.lineTo(348, config.dangerLine);
-      x.stroke();
-      x.setLineDash([]);
-      x.strokeStyle = "#4b4962";
-      x.lineWidth = 3;
-      x.strokeRect(11, 79, 338, 338);
-      if (cool <= 0) {
-        const a = Math.max(radii[next] + 12, Math.min(348 - radii[next], aim));
-        x.globalAlpha = .7;
-        circle(x, a, 38, radii[next], colors[next]);
-        x.globalAlpha = 1;
-        x.strokeStyle = "#6c658c";
-        x.setLineDash([2, 5]);
-        x.beginPath();
-        x.moveTo(a, 60);
-        x.lineTo(a, 390);
-        x.stroke();
-        x.setLineDash([]);
-      }
-      for (const b of balls) {
-        const grow = 1 - Math.exp(-b.age * 12) * Math.cos(b.age * 20) * .2;
-        x.save();
-        x.translate(b.x, b.y);
-        x.rotate(b.angle);
-        x.scale(grow * (1 + b.squash), grow * (1 - b.squash));
-        circle(x, 0, 0, b.r, colors[b.level]);
-        const shine = x.createRadialGradient(-b.r * .35, -b.r * .4, 0, 0, 0, b.r);
-        shine.addColorStop(0, "#ffffff50");
-        shine.addColorStop(1, "#ffffff00");
-        circle(x, 0, 0, b.r, shine);
-        text(x, symbols[b.level], 0, b.r * .35, Math.max(16, b.r * 1.1));
-        x.restore();
-      }
-      if (danger) text(x, "ОСТОРОЖНО", 180, config.dangerLine + 23, 14, "#ff8696");
-    });
-    s.hint("Выбирай место · выше уровень — сильнее гравитация и больше разных предметов");
-  }
-
-  function memory(s) {
-    const values = ["🐱", "🪐", "🍕", "🐲", "🚀", "🍄", "⚡", "💎", "🦊", "🌵", "🍉", "🐙"];
-    let cards = [],
-      opened = [],
-      matched = new Set(),
-      moves = 0,
-      wait = 0,
-      total = 0,
-      cleared = 0,
-      left = 0,
-      between = false,
-      config = s.progress(0);
-    s.stage.innerHTML =
-      '<div class="memory-game"><div class="memory-top"><span id="memoryRound"></span><b id="memoryMoves">0 ходов</b></div><div class="memory-grid"></div><div class="memory-next"></div></div>';
-    const grid = $(".memory-grid", s.stage),
-      next = $(".memory-next", s.stage);
-
-    function draw() {
-      grid.style.gridTemplateColumns = `repeat(${config.pairs>=10?6:4},minmax(0,1fr))`;
-      grid.innerHTML = cards.map((v, i) =>
-        `<button data-card="${i}" class="${matched.has(i)?"matched":opened.includes(i)?"flipped":""}" ${matched.has(i)?"disabled":""} aria-label="${matched.has(i)||opened.includes(i)?v:`Карточка ${i+1}`}"><span>${matched.has(i)||opened.includes(i)?v:"✦"}</span></button>`
-      ).join("");
-      $("#memoryMoves", s.stage).textContent = `${moves} ходов`;
-      $("#memoryRound", s.stage).textContent = `${config.pairs} пар · уровень ${config.level}`;
+    async function startClock(run) {
+        if (run.phase === "starting") return;
+        run.phase = "starting";
+        try {
+            await api(`/sessions/${run.session.id}/clock/start`, {
+                method: "POST"
+            });
+        } catch (error) {
+            toast(error.message);
+            close();
+            return;
+        }
+        if (play !== run) return;
+        run.phase = "playing";
+        run.anchor = performance.now();
+        run.lastFrame = run.anchor;
+        for (const action of run.inputQueue.splice(0)) apply(run, action);
     }
 
-    function round() {
-      config = s.progress(cleared);
-      cards = [...values.slice(0, config.pairs), ...values.slice(0, config.pairs)];
-      for (let i = cards.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [cards[i], cards[j]] = [cards[j], cards[i]];
-      }
-      matched = new Set();
-      opened = [];
-      wait = 0;
-      between = false;
-      left = config.memorySeconds;
-      next.innerHTML = "";
-      draw();
+    function catchUp(run) {
+        if (run.phase !== "playing") return;
+        const target = Math.floor((run.playedMs + performance.now() - run.anchor) / 1000 * 60);
+        if (target > run.world.tick) W.advance(run.world, Math.min(216000, target - run.world.tick));
     }
-    s.on(grid, "click", e => {
-      if (s.paused || wait > 0 || between) return;
-      const b = e.target.closest("[data-card]");
-      if (!b) return;
-      const i = +b.dataset.card;
-      if (matched.has(i) || opened.includes(i)) return;
-      opened.push(i);
-      let hit = [];
-      if (opened.length === 2) {
-        moves++;
-        s.details({
-          moves
+
+    function apply(run, action) {
+        const event = {
+            ...action,
+            t: run.world.tick
+        };
+        run.events.push(event);
+        W.input(run.world, event);
+        run.view.update(run.world, 0);
+    }
+
+    function input(run, action) {
+        if (play !== run) return;
+        if (run.phase === "tutorial") {
+            W.input(run.world, action);
+            run.tutorialActed = true;
+            run.view.update(run.world, 0);
+            return;
+        }
+        if (run.phase === "ready" && action.type === "text") {
+            run.inputQueue.push(action);
+            void startClock(run);
+            return;
+        }
+        if (run.phase === "starting" && action.type === "text") {
+            if (run.inputQueue.length < 10) run.inputQueue.push(action);
+            return;
+        }
+        if (run.phase !== "playing") return;
+        catchUp(run);
+        if (run.world.ended) {
+            void finish(run, false);
+            return;
+        }
+        apply(run, action);
+        if (run.world.ended) void finish(run, false);
+    }
+
+    function frame(run, now) {
+        if (play !== run || ["done", "finishing", "intro"].includes(run.phase)) return;
+        const delta = Math.max(1, now - (run.lastFrame || now));
+        run.lastFrame = now;
+        run.averageFrame = run.averageFrame * .96 + delta * .04;
+        run.quality = profile.settings.quality === "auto" ? (run.averageFrame > 26 ? "low" : "high") : profile.settings.quality;
+        M.quality = run.quality;
+        if (run.phase === "playing") {
+            catchUp(run);
+            if (run.world.ended) {
+                void finish(run, false);
+                return;
+            }
+            if (now - (run.frameSaved || 0) > 200) {
+                run.frameSaved = now;
+                run.frames.push(JSON.parse(JSON.stringify(run.world)));
+                if (run.frames.length > 26) run.frames.shift();
+            }
+            for (const cue of run.world.cues.filter(c => c.n > run.lastCue)) {
+                run.lastCue = cue.n;
+                if (cue.type === "level") {
+                    M.pop($("#gameLevel", run.dialog));
+                }
+                if (cue.type === "miss") M.shake($(".game-stage", run.dialog), 3);
+                if (["land", "perfect", "pair", "correct", "reaction", "merge"].includes(cue.type)) feedback(run, cue.type);
+            }
+        }
+        run.view.update(run.world, delta / 1000);
+        hud(run);
+        run.raf = requestAnimationFrame(t => frame(run, t));
+    }
+
+    function feedback(run, type) {
+        if (profile.settings.vibration && navigator.vibrate) navigator.vibrate(type === "perfect" ? [15, 20, 15] : 12);
+        if (profile.settings.sound) {
+            try {
+                run.audio ||= new(window.AudioContext || window.webkitAudioContext)();
+                const o = run.audio.createOscillator(),
+                    g = run.audio.createGain();
+                o.connect(g);
+                g.connect(run.audio.destination);
+                o.frequency.value = type === "merge" ? 520 : 660;
+                g.gain.setValueAtTime(.035, run.audio.currentTime);
+                g.gain.exponentialRampToValueAtTime(.001, run.audio.currentTime + .09);
+                o.start();
+                o.stop(run.audio.currentTime + .1);
+            } catch {}
+        }
+    }
+
+    function hud(run) {
+        const w = run.world,
+            d = run.dialog,
+            g = run.g;
+        $("#gameScore", d).textContent = w.score;
+        $("#gameLevel", d).textContent = `Ур. ${w.level}`;
+        if (run.phase !== "ready") $("#gameClock", d).textContent = w.id === "typing" ? `${Math.max(0,Math.ceil(60-w.time))} с` : w.id === "memory" && !w.between ? `${Math.max(0,Math.ceil(w.left))} с` : w.id === "debug" ? `${Math.min(8,w.index+1)} / 8` : `${Math.floor(w.time)} с`;
+        const q = profile.goals[g.id],
+            next = profile.achievements.filter(a => a.game === g.id && !a.unlocked).sort((a, b) => a.tier - b.tier)[0],
+            target = q.claimed && next ? next.target : g.goal;
+        $(".arcade-live-goal progress", d).max = target;
+        $(".arcade-live-goal progress", d).value = Math.min(target, w.score);
+        $(".arcade-live-goal span", d).textContent = w.id === "typing" && w.score >= target && w.details.accuracy < 90 ? `Точность ${w.details.accuracy}% · нужно 90%` : w.score >= target ? "Цель достигнута" : `До ${run.mode==="practice"?"цели":q.claimed?"достижения":"награды"}: ${target-w.score} ${g.unit}`;
+    }
+    async function finish(run, abandoned) {
+        if (play !== run || ["finishing", "done"].includes(run.phase)) return;
+        if (!run.session) {
+            close();
+            return;
+        }
+        if (run.phase === "ready") {
+            close();
+            return;
+        }
+        if (run.phase === "playing") {
+            catchUp(run);
+            run.playedMs += performance.now() - run.anchor;
+        }
+        run.frames.push(JSON.parse(JSON.stringify(run.world)));
+        if (run.frames.length > 26) run.frames.shift();
+        run.phase = "finishing";
+        cancelAnimationFrame(run.raf);
+        $(".arcade-pause", run.dialog).hidden = true;
+        $("#gameFinish", run.dialog).hidden = true;
+        $(".game-pause", run.dialog)?.remove();
+        const stage = $(".game-stage", run.dialog),
+            cover = document.createElement("div");
+        cover.className = "game-result";
+        cover.innerHTML = '<div class="arcade-loading">Проверяем результат партии…</div>';
+        stage.append(cover);
+        try {
+            await run.clockPromise;
+            const result = await api(`/sessions/${run.session.id}/finish`, {
+                method: "POST",
+                body: {
+                    actions: run.events,
+                    ticks: run.world.tick,
+                    abandoned
+                }
+            });
+            run.recorded = true;
+            run.record = result.run;
+            boardCache.clear();
+            await loadProfile();
+            if (play !== run) return;
+            run.phase = "done";
+            const report = result.run.report || W.report(run.world),
+                q = profile.goals[run.g.id],
+                newBadges = profile.achievements.filter(a => a.unlocked && !run.knownAchievements.has(a.id));
+            const record = report.score > run.oldBest,
+                board = await boardData(run.g.id, "week", run.device),
+                rank = board.rows.find(r => r.player === actor().id)?.rank;
+            cover.innerHTML = `<span class="result-star">${result.run.accepted?"✦":"↗"}</span><small>${abandoned?"Попытка завершена":report.reason||"Результат сохранён"}</small><h3>${report.score} <span>${run.g.unit}</span></h3><p>${run.mode==="practice"?"Тренировка сохранена":result.run.accepted?"Результат подтверждён сервером":"Попытка сохранена без рейтинга"}</p>${record&&result.run.accepted?`<div class="game-new-achievement">Новый рекорд · +${report.score-run.oldBest}</div>`:""}${rank&&result.run.accepted?`<div class="arcade-result-rank">Место #${rank}${run.oldRank&&run.oldRank!==rank?` · было #${run.oldRank}`:""}</div>`:""}${newBadges.length?`<div class="game-new-achievement">Открыто достижений: ${newBadges.length}</div>`:""}<button class="games-main" data-again>Ещё раз ↻</button>${q.eligible&&!q.claimed?'<button class="game-claim-result" data-claim-result>Забрать 10 AC</button>':""}<button class="game-result-leaders" data-result-board>🏆 Лидеры</button><button class="game-back" data-analysis>Разбор партии</button><button class="game-back" data-back>К играм</button>`;
+            $("[data-again]", cover).onclick = () => {
+                const g = run.g.id;
+                close();
+                openGame(g);
+            };
+            $("[data-back]", cover).onclick = () => {
+                close();
+                draw();
+            };
+            $("[data-result-board]", cover).onclick = () => openLeaders(run.g.id);
+            $("[data-analysis]", cover).onclick = () => run.frames.length ? showReplay(run.g.id, run.frames, report) : replayHistory(result.run.id);
+            $("[data-claim-result]", cover)?.addEventListener("click", async e => {
+                e.currentTarget.disabled = true;
+                try {
+                    profile = await api("/claims", {
+                        method: "POST",
+                        body: {
+                            id: q.id
+                        }
+                    });
+                    e.target.textContent = "✓ Награда сохранена";
+                } catch (error) {
+                    toast(error.message);
+                    e.target.disabled = false;
+                }
+            });
+        } catch (error) {
+            run.phase = "done";
+            cover.innerHTML = `<h3>Не удалось сохранить</h3><p>${esc(error.message)}</p><button class="games-main" data-retry>Повторить отправку</button><button class="game-back" data-close>К играм</button>`;
+            $("[data-retry]", cover).onclick = () => {
+                cover.remove();
+                run.phase = "paused";
+                finish(run, abandoned);
+            };
+            $("[data-close]", cover).onclick = () => {
+                close();
+                draw();
+            };
+        }
+    }
+    async function replayHistory(id) {
+        try {
+            const saved = await api("/replay/" + id),
+                w = W.create(saved.setup),
+                frames = [];
+            let cursor = 0;
+            while (w.tick < saved.ticks && !w.ended) {
+                while (cursor < saved.actions.length && saved.actions[cursor].t === w.tick) W.input(w, saved.actions[cursor++]);
+                W.advance(w, 1);
+                if (w.tick >= saved.ticks - 300 && w.tick % 12 === 0) frames.push(JSON.parse(JSON.stringify(w)));
+            }
+            while (cursor < saved.actions.length && saved.actions[cursor].t === w.tick && !w.ended) W.input(w, saved.actions[cursor++]);
+            frames.push(JSON.parse(JSON.stringify(w)));
+            showReplay(saved.setup.game, frames, W.report(w));
+        } catch (error) {
+            toast(error.message);
+        }
+    }
+
+    function showReplay(game, frames, report) {
+        const d = document.createElement("dialog");
+        d.className = "game-dialog arcade-replay";
+        d.innerHTML = `<header><div><small>РАЗБОР</small><h2>${title(game)}</h2></div><button class="game-close" aria-label="Закрыть разбор">×</button></header><div class="game-stage"></div><footer><span>${esc(report.reason||"Последние секунды партии")}</span></footer>`;
+        document.body.append(d);
+        d.showModal();
+        const abort = new AbortController();
+        const view = V.mount(game, $(".game-stage", d), () => {}, {
+            signal: abort.signal,
+            mode: "practice",
+            device,
+            readOnly: true,
+            paused: () => true,
+            theme: profile.settings.theme,
+            skin: profile.settings.skin,
+            quality: () => "high"
         });
-        if (cards[opened[0]] === cards[opened[1]]) {
-          hit = opened.slice();
-          opened.forEach(i => matched.add(i));
-          opened = [];
-          total++;
-          s.setScore(total);
-          if (matched.size === cards.length) {
-            cleared = total;
-            between = true;
-            if (config.level === 5) {
-              draw();
-              s.end(`Все пять уровней! ${moves} ходов`);
-              return;
+        let index = 0,
+            last = 0,
+            raf = 0;
+        const frame = now => {
+            if (now - last >= 200) {
+                last = now;
+                view.update(frames[Math.min(index++, frames.length - 1)], .2);
             }
-            next.innerHTML = '<button class="games-main" data-memory-next>Следующий уровень →</button>';
-          }
-        } else wait = Math.max(.4, .8 - config.level * .06);
-      }
-      draw();
-      for (const j of hit) M.pop(grid.children[j]);
-    });
-    s.on(next, "click", e => {
-      if (e.target.closest("[data-memory-next]") && !s.paused) round();
-    });
-    s.tick(dt => {
-      if (between) {
-        s.clock("Уровень пройден");
-        return;
-      }
-      left -= dt;
-      if (wait > 0) {
-        wait -= dt;
-        if (wait <= 0) {
-          opened = [];
-          draw();
+            if (index < frames.length) raf = requestAnimationFrame(frame);
+        };
+        if (frames.length) raf = requestAnimationFrame(frame);
+        $(".game-close", d).onclick = () => d.close();
+        d.onclose = () => {
+            cancelAnimationFrame(raf);
+            abort.abort();
+            d.remove();
+        };
+    }
+
+    function close() {
+        if (play) {
+            cancelAnimationFrame(play.raf);
+            play.abort.abort();
+            play.audio?.close();
+            play.dialog.remove();
+            play = null;
         }
-      }
-      s.clock(`${Math.max(0,Math.ceil(left))} с`);
-      if (left <= 0) s.end("Время вышло");
+        $("#gamesLeaderDialog")?.remove();
+    }
+    window.addEventListener("scroll", () => {
+        if (state.view !== "games" || play) return;
+        clearTimeout(scrollTimer);
+        scrollTimer = setTimeout(() => {
+            scrollSaved = window.scrollY;
+            saveUi();
+        }, 300);
+    }, {
+        passive: true
     });
-    round();
-    s.hint("Пять уровней · больше карточек, меньше времени на каждую пару");
-  }
-
-  function react(s) {
-    let state = "wait",
-      at = random(1.2, 3.5),
-      since = 0,
-      hits = [],
-      misses = 0,
-      feedback = "",
-      config = s.progress(0);
-    s.stage.innerHTML =
-      '<button class="reaction-pad waiting"><span class="reaction-symbol">•••</span><b>Подожди зелёный</b><small>Не нажимай заранее</small></button><div class="reaction-attempts"></div>';
-    const pad = $(".reaction-pad", s.stage),
-      list = $(".reaction-attempts", s.stage);
-
-    function draw() {
-      pad.className = `reaction-pad ${state}`;
-      $(".reaction-symbol", pad).textContent = state === "go" ? "⚡" : state === "feedback" ? (feedback ===
-        "Рановато!" || feedback === "Не успел" ? "↻" : "✓") : "•••";
-      $("b", pad).textContent = state === "go" ? "ЖМИ!" : state === "feedback" ? feedback :
-        "Подожди зелёный";
-      $("small", pad).textContent = state === "go" ?
-        `${Math.round(config.reactionWindow*1000)} мс на ответ` : state === "feedback" ?
-        "Готовься к следующей попытке" : `Ещё ${3-misses} ошибки до конца партии`;
-      const start = Math.floor(Math.min(14, hits.length) / 5) * 5;
-      list.innerHTML = Array.from({
-          length: 5
-        }, (_, i) =>
-        `<span class="${hits[start+i]!==undefined?"done":""}">${hits[start+i]!==undefined?hits[start+i]+" мс":i+1}</span>`
-      ).join("");
-    }
-
-    function miss(label) {
-      misses++;
-      s.details({
-        mistakes: misses
-      });
-      feedback = label;
-      M.shake(pad);
-      if (misses >= 3) {
-        s.end("Три ошибки — попробуем ещё?");
-        return;
-      }
-      state = "feedback";
-      at = s.time + .95;
-      draw();
-    }
-
-    function hit() {
-      if (s.paused || state === "feedback") return;
-      if (state === "wait") {
-        miss("Рановато!");
-        return;
-      }
-      const ms = Math.round((s.time - since) * 1000);
-      hits.push(ms);
-      s.details({
-        mistakes: misses,
-        reactionMs: Math.round(hits.reduce((a, b) => a + b, 0) / hits.length)
-      });
-      s.setScore(hits.length);
-      M.pop(pad);
-      feedback = `${ms} мс`;
-      config = s.progress(hits.length);
-      if (hits.length >= 15) {
-        s.end(`Средняя реакция ${Math.round(hits.reduce((a,b)=>a+b,0)/hits.length)} мс`);
-        return;
-      }
-      state = "feedback";
-      at = s.time + .95;
-      draw();
-    }
-    s.on(pad, "click", hit);
-    s.on(document, "keydown", e => {
-      if (e.code === "Space" && !e.repeat && !s.paused) {
-        e.preventDefault();
-        hit();
-      }
-    });
-    s.tick(() => {
-      s.clock(`${hits.length} / 15 · ${"♥".repeat(Math.max(0,3-misses))}`);
-      if (state === "go" && s.time - since > config.reactionWindow) {
-        miss("Не успел");
-        return;
-      }
-      if (s.time >= at) {
-        if (state === "wait") {
-          state = "go";
-          since = s.time;
-          at = Infinity;
-        } else if (state === "feedback") {
-          state = "wait";
-          at = s.time + random(.8, 3.2);
+    window.addEventListener("pagehide", () => {
+        if (profile) {
+            clearTimeout(uiTimer);
+            api("/settings", {
+                method: "PATCH",
+                keepalive: true,
+                body: {
+                    values: {
+                        ui: uiState()
+                    }
+                }
+            }).catch(() => {});
         }
-        draw();
-      }
+        if (play?.session && !play.recorded && ["playing", "paused"].includes(play.phase)) {
+            if (play.phase === "playing") catchUp(play);
+            api(`/sessions/${play.session.id}/finish`, {
+                method: "POST",
+                keepalive: true,
+                body: {
+                    actions: play.events,
+                    ticks: play.world.tick,
+                    abandoned: true
+                }
+            }).catch(() => {});
+        }
+        close();
     });
-    draw();
-    s.hint("Три раунда · окно ответа сужается с 950 до 510 мс");
-  }
-
-  let visibleWeek = E.weekKey();
-  setInterval(() => {
-    if (visibleWeek !== E.weekKey() && !session) {
-      visibleWeek = E.weekKey();
-      if (state.view === "games") render();
-    }
-  }, 30000);
-  window.algoGames = {
-    render,
-    close
-  };
-  window.addEventListener("pagehide", () => session?.destroy());
-  window.addEventListener("storage", event => {
-    if ((event.key === profile || event.key === boardKey) && !session) {
-      refreshStored();
-      render();
-    }
-  });
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", render, {
-    once: true
-  });
-  else render();
+    setInterval(() => {
+        if (state.view === "games" && !play && profile) loadProfile().then(() => {
+            boardCache.clear();
+            draw();
+        }).catch(() => {});
+    }, 60000);
+    window.algoGames = {
+        render,
+        close
+    };
+    restoring = true;
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => render(), {
+        once: true
+    });
+    else void render();
 })();

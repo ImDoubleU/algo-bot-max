@@ -17,6 +17,7 @@
     }
     burst(x, y, color = "#d3f58b", count = 14) {
       if (reduced()) return;
+      count = Math.ceil(count * (window.AlgoGameMotion?.quality === "low" ? .35 : 1));
       for (let i = 0; i < count; i++) {
         const a = Math.random() * Math.PI * 2,
           speed = 35 + Math.random() * 120;

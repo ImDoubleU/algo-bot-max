@@ -67,6 +67,12 @@ from app.models.tenant import City, Partner, Tenant  # noqa: E402
 from app.schemas.pizza import PizzaCampaignCreate, PizzaOfferCreate  # noqa: E402
 from app.services import pizza  # noqa: E402
 
+arcade_store = None
+if options.games:
+    from app.services.arcade import ArcadeStore
+
+    arcade_store = ArcadeStore(PREVIEW_DB.with_name("arcade-" + options.database_name))
+
 GROUP = "ПС1 · Союзный 45, сб 14:00"
 SLUG = "pizza-preview"
 ROLES = {
@@ -228,16 +234,66 @@ async def expiry_worker():
 @asynccontextmanager
 async def lifespan(app):
     await initialize()
+    arcade_worker = None
+    if arcade_store:
+        from app.services.arcade import maintenance_worker
+        from app.services.arcade_runtime import catalogue
+
+        await asyncio.to_thread(catalogue)
+        async with AsyncSessionLocal() as db:
+            game_students = list(await db.scalars(select(Student)))
+        await asyncio.to_thread(
+            arcade_store.register,
+            [
+                {"id": str(s.id), "name": s.display_name, "group": s.group_name}
+                for s in game_students
+            ],
+        )
+        arcade_worker = asyncio.create_task(maintenance_worker(arcade_store))
     worker = asyncio.create_task(expiry_worker())
     yield
     worker.cancel()
     with suppress(asyncio.CancelledError):
         await worker
+    if arcade_worker:
+        arcade_worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await arcade_worker
     await engine.dispose()
 
 
 preview = FastAPI(lifespan=lifespan)
 preview.include_router(router, prefix="/api/v1/miniapp/pizza")
+if arcade_store:
+    from app.api.routes.arcade_preview import make_router
+    from app.core.miniapp_auth import MiniAppAuthError, verify_miniapp_token
+
+    async def arcade_actor(request: Request):
+        try:
+            identity = verify_miniapp_token(request.headers.get("X-Miniapp-Token", ""))
+        except MiniAppAuthError as error:
+            raise HTTPException(401, "Открой локальную демку заново.") from error
+        if identity.tenant_slug != SLUG:
+            raise HTTPException(403, "Эта ссылка не относится к демке.")
+        async with AsyncSessionLocal() as db:
+            if identity.max_user_id == 900200:
+                pupil = await db.scalar(select(Student).order_by(Student.lms_student_id))
+                return {"player": str(pupil.id), "director": True}
+            pupil = await db.scalar(
+                select(Student)
+                .join(StudentAccessLink, StudentAccessLink.student_id == Student.id)
+                .join(MaxAccount, MaxAccount.id == StudentAccessLink.account_id)
+                .where(
+                    MaxAccount.max_user_id == identity.max_user_id,
+                    StudentAccessLink.role == StudentAccessRole.STUDENT,
+                    StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+                )
+            )
+        if not pupil:
+            raise HTTPException(403, "Аккаунт игрока не найден в демке.")
+        return {"player": str(pupil.id), "director": False}
+
+    preview.include_router(make_router(arcade_store, arcade_actor), prefix="/preview/arcade")
 static = ROOT / "app/web/static/miniapp"
 preview.mount("/miniapp/static", StaticFiles(directory=static), name="static")
 
@@ -251,7 +307,17 @@ async def local_requests(request: Request, call_next):
         return Response(status_code=403)
     # SQLite does not implement SELECT FOR UPDATE. Serialize preview transactions;
     # the production service uses row locks and conditional wallet debits.
-    if request.url.path.startswith(("/api/", "/preview/")):
+    if request.url.path.startswith("/preview/arcade") and (
+        len(request.headers.get("content-length", "0")) > 10
+        or (
+            request.headers.get("content-length", "0").isdigit()
+            and int(request.headers.get("content-length", "0")) > 2000000
+        )
+    ):
+        return Response(status_code=413)
+    if request.url.path.startswith(("/api/", "/preview/")) and not request.url.path.startswith(
+        "/preview/arcade"
+    ):
         async with gate:
             response = await call_next(request)
     else:
@@ -298,6 +364,19 @@ async def bootstrap(role: str = "student"):
             if options.games
             else []
         )
+        if options.games:
+            for player in game_players:
+                pupil = next(s for s in pupils if str(s.id) == player["id"])
+                account_id = await db.scalar(
+                    select(MaxAccount.max_user_id)
+                    .join(StudentAccessLink, StudentAccessLink.account_id == MaxAccount.id)
+                    .where(
+                        StudentAccessLink.student_id == pupil.id,
+                        StudentAccessLink.role == StudentAccessRole.STUDENT,
+                        StudentAccessLink.status == StudentAccessStatus.ACTIVE,
+                    )
+                )
+                player["token"] = issue_miniapp_token(max_user_id=account_id, tenant_slug=SLUG)
         first = pupils[0]
         if role in ("student", "parent"):
             pupils = [first]
@@ -331,6 +410,7 @@ async def bootstrap(role: str = "student"):
     source = f"""window.pizzaPreview={json.dumps(context, ensure_ascii=False)};
 window.ALGO_GAMES_PROTOTYPE={json.dumps(options.games)};
 window.ALGO_GAME_PLAYERS={json.dumps(game_players, ensure_ascii=False)};
+window.ALGO_ARCADE_API={json.dumps("/preview/arcade" if options.games else None)};
 if (window.ALGO_GAMES_PROTOTYPE && queryParam("view") === "games") state.view="games";
 students.splice(0,students.length,...{json.dumps(records, ensure_ascii=False)});
 state.activeStudentId=students[0].id;

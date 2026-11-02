@@ -1,4 +1,4 @@
-"""Local arcade, fictional pupils, browser-only scores and rewards.
+"""Local arcade, fictional pupils, server-verified scores and isolated test rewards.
 
 Run: .venv/Scripts/python.exe -m app.cli.games_preview
 Open: http://127.0.0.1:8772/
@@ -39,6 +39,9 @@ def inject_games(source: str) -> str:
         '<script src="/miniapp/static/games-engine.js?v=1"></script>'
         '<script src="/miniapp/static/games-motion.js?v=1"></script>'
         '<script src="/miniapp/static/games-art.js?v=1"></script>'
+        '<script src="/miniapp/static/games-world.js?v=1"></script>'
+        '<script src="/miniapp/static/games-sprites.js?v=1"></script>'
+        '<script src="/miniapp/static/games-view.js?v=1"></script>'
         '<script src="/miniapp/static/app-games.js?v=1"></script>',
         source,
         count=1,
