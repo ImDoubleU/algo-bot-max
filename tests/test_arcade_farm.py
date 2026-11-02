@@ -76,7 +76,7 @@ def test_old_farm_migrates_without_changing_money_items_or_progress(farm):
     assert upgraded["balance"] == original["balance"] == 30
     assert upgraded["stats"] == original["stats"]
     assert upgraded["version"] == 2 and upgraded["deliveries"] == 0
-    assert len(upgraded["items"]) == 21 and len(upgraded["roadmap"]) == 30
+    assert len(upgraded["items"]) == 29 and len(upgraded["roadmap"]) == 50
     assert farm.board("p1")["me"]["per_hour"] == 210
 
 
@@ -114,11 +114,11 @@ def test_upgrade_projection_matches_actual_purchase_and_income_breakdown(farm):
 def test_manual_tools_grow_with_the_farm_and_breakdown_matches_real_harvest(farm):
     state = farm.get("p1")
     items = {i["id"]: 0 for i in state["items"]}
-    items.update(shovel=10, gloves=5, tractor=4, workshop=2, beds=15, orchard=10)
+    items.update(shovel=10, gloves=5, tractor=4, workshop=2, beds=15, orchard=10, windmill=20)
     seed(farm, balance=10000000, earned=3000000, items=items)
     before = farm.get("p1")
     v = before["stats"]
-    assert v["base_tap"] > 1000
+    assert 300 < v["base_tap"] < 3000
     assert v["tap_flat"] + v["tap_income"] + v["tap_gloves"] + v["tap_workshop"] == v["base_tap"]
     assert act(farm, "tap")["result"]["amount"] == v["base_tap"]
     offer = next(i for i in before["items"] if i["id"] == "irrigation")
@@ -149,7 +149,7 @@ def test_business_income_multipliers_stack_and_seedlab_improves_existing_buildin
     items.update(irrigation=1, market=1, compost=1)
     seed(farm, balance=1000000, earned=3000000, items=items)
     before = farm.get("p1")
-    assert before["stats"]["per_hour"] == 182  # 120 × 1.15 × 1.10 × 1.20, rounded down.
+    assert before["stats"]["per_hour"] == 146  # 120 × 1.07 × 1.05 × 1.09, rounded down.
     act(farm, "buy", "beds")
     act(farm, "buy", "beds")
     before = farm.get("p1")
@@ -177,6 +177,156 @@ def test_logistics_shortens_future_deliveries_with_full_profit_and_keeps_current
     assert upgraded["order"] == new
 
 
+def test_progression_catalogue_has_early_and_late_goals_and_preserves_old_claims(farm):
+    state = farm.get("p1")
+    assert len(state["roadmap"]) == 50 and len(state["items"]) == 29
+    assert len(state["badges"]) == len({b["id"] for b in state["badges"]}) == 100
+    assert len(state["badge_categories"]) == 9
+    assert sum(c["total"] for c in state["badge_categories"]) == 100
+    assert next(i for i in state["items"] if i["id"] == "lighthouse")["locked"]
+    assert "Редкая грядка" in state["roadmap"][2]["unlocks"]
+    seed(farm, badges=["first_harvest"], balance=321, earned=1200)
+    after = FarmStore(ArcadeStore(farm.arcade.path, farm.arcade.clock)).get("p1")
+    assert after["balance"] == 321
+    assert next(b for b in after["badges"] if b["id"] == "first_harvest")["claimed"]
+
+
+def test_rare_plot_level_energy_timer_watering_and_exactly_once_collection(farm):
+    with pytest.raises(ArcadeError):
+        act(farm, "start_plot", "radish")
+    seed(farm, earned=4000, balance=1000)
+    started = act(farm, "start_plot", "radish")["farm"]
+    p = started["activities"]["projects"]["plot"]
+    assert started["balance"] == 900 and started["energy"] == 480
+    with pytest.raises(ArcadeError):
+        act(farm, "claim_project", p["project_id"])
+    watered = act(farm, "water_plot", p["project_id"])["farm"]
+    assert watered["activities"]["projects"]["plot"]["finish_at"] == p["finish_at"] - 120000
+    assert watered["energy"] == 430
+    with pytest.raises(ArcadeError):
+        act(farm, "water_plot", p["project_id"])
+    farm.arcade.clock.advance(479)
+    with pytest.raises(ArcadeError):
+        act(farm, "claim_project", p["project_id"])
+    farm.arcade.clock.advance(1)
+    assert farm.get("p1")["activities"]["resources"]["seeds"] == 0
+    key = str(uuid.uuid4())
+    result = act(farm, "claim_project", p["project_id"], key=key)
+    assert result["farm"]["activities"]["resources"]["seeds"] == 1
+    assert result["farm"]["activities"]["counts"]["plots"] == 1
+    assert result["farm"]["activities"]["projects"]["plot"] is None
+    new = act(farm, "start_plot", "radish")["farm"]["activities"]["projects"]["plot"]
+    assert act(farm, "claim_project", p["project_id"], key=key)["duplicate"]
+    with pytest.raises(ArcadeError):
+        act(farm, "claim_project", p["project_id"])
+    assert farm.get("p1")["activities"]["projects"]["plot"] == new
+
+
+def test_expedition_resources_survive_restart_and_cannot_be_collected_by_another_player(farm):
+    seed(farm, earned=28000, balance=10000)
+    p = act(farm, "start_expedition", "forest")["farm"]["activities"]["projects"]["expedition"]
+    farm.arcade.clock.advance(1200)
+    restarted = FarmStore(ArcadeStore(farm.arcade.path, farm.arcade.clock))
+    with pytest.raises(ArcadeError):
+        act(restarted, "claim_project", p["project_id"], player="p2")
+    result = act(restarted, "claim_project", p["project_id"])["farm"]
+    assert result["activities"]["resources"]["materials"] == 3
+    assert result["activities"]["counts"]["expeditions"] == 1
+    assert farm.get("p2")["activities"]["resources"]["materials"] == 0
+
+
+def test_research_uses_resources_prerequisites_and_advertised_effects(farm):
+    seed(farm, earned=250000, balance=100000, resources={"seeds": 100, "materials": 100})
+    with pytest.raises(ArcadeError):
+        act(farm, "research", "seed_sorting")
+    key = str(uuid.uuid4())
+    first = act(farm, "research", "garden_notes", key=key)["farm"]
+    assert first["activities"]["resources"] == {"seeds": 98, "materials": 97}
+    assert first["stats"]["energy_per_second"] == 1.1
+    assert act(farm, "research", "garden_notes", key=key)["duplicate"]
+    act(farm, "research", "seed_sorting")
+    p = act(farm, "start_plot", "radish")["farm"]["activities"]["projects"]["plot"]
+    assert p["reward_seeds"] == 2
+    for _ in range(2):
+        act(farm, "research", "garden_notes")
+    with pytest.raises(ArcadeError):
+        act(farm, "research", "garden_notes")
+    seed(farm, energy_milli=0, energy_carry=0)
+    farm.arcade.clock.advance(10)
+    assert farm.get("p1")["energy"] == 13
+
+
+def test_late_buildings_need_earned_resources_even_with_unlimited_test_carrots(farm):
+    seed(farm, earned=10000000000, balance=1000000000)
+    before = farm.get("p1")
+    with pytest.raises(ArcadeError):
+        act(farm, "buy", "autoshovel")
+    assert farm.get("p1")["balance"] == before["balance"]
+    seed(farm, resources={"seeds": 2, "materials": 3})
+    key = str(uuid.uuid4())
+    after = act(farm, "buy", "autoshovel", key=key)["farm"]
+    assert after["activities"]["resources"] == {"seeds": 0, "materials": 0}
+    assert act(farm, "buy", "autoshovel", key=key)["duplicate"]
+    with pytest.raises(ArcadeError):
+        act(farm, "buy", "autoshovel")
+    assert next(i for i in farm.get("p1")["items"] if i["id"] == "autoshovel")["level"] == 1
+
+
+def test_trial_counts_only_accepted_inputs_before_deadline_and_rewards_once(farm):
+    seed(farm, earned=4000000, balance=1000, resources={"seeds": 2, "materials": 0})
+    trial = act(farm, "start_trial", "harvest")["farm"]["activities"]["trial"]
+    for _ in range(30):
+        act(farm, "tap", count=8)
+        farm.arcade.clock.advance(1)
+    before = farm.get("p1")
+    assert before["activities"]["trial"]["progress"] == 240
+    farm.arcade.clock.advance(1000)  # A successful attempt stays claimable after its deadline.
+    key = str(uuid.uuid4())
+    after = act(farm, "claim_trial", trial["project_id"], key=key)["farm"]
+    assert after["activities"]["resources"] == {"seeds": 4, "materials": 4}
+    assert after["activities"]["counts"]["trials"] == 1
+    assert act(farm, "claim_trial", trial["project_id"], key=key)["duplicate"]
+    with pytest.raises(ArcadeError):
+        act(farm, "start_trial", "harvest")
+
+
+def test_failed_trial_has_no_reward_and_post_deadline_taps_do_not_rescue_it(farm):
+    seed(farm, earned=4000000, resources={"seeds": 3, "materials": 0})
+    trial = act(farm, "start_trial", "harvest")["farm"]["activities"]["trial"]
+    farm.arcade.clock.advance(121)
+    act(farm, "tap", count=8)
+    assert farm.get("p1")["activities"]["trial"]["progress"] == 0
+    with pytest.raises(ArcadeError):
+        act(farm, "claim_trial", trial["project_id"])
+    after = act(farm, "dismiss_trial", trial["project_id"])["farm"]
+    assert after["activities"]["resources"] == {"seeds": 2, "materials": 0}
+    with pytest.raises(ArcadeError):
+        act(farm, "start_trial", "harvest")
+    farm.arcade.clock.advance(1680)
+    assert act(farm, "start_trial", "harvest")["farm"]["activities"]["trial"]
+
+
+def test_collect_all_claims_finished_projects_and_new_badges_without_duplicate_resources(farm):
+    seed(farm, earned=28000, balance=10000)
+    act(farm, "claim_all")
+    act(farm, "start_plot", "radish")
+    act(farm, "start_expedition", "forest")
+    farm.arcade.clock.advance(1200)
+    before = farm.get("p1")
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results = list(pool.map(lambda _: act(farm, "claim_all"), range(3)))
+    after = farm.get("p1")
+    for resource in ("seeds", "materials"):
+        granted = sum(r.get(resource, 0) for result in results for r in result["result"]["rewards"])
+        assert (
+            after["activities"]["resources"][resource]
+            == before["activities"]["resources"][resource] + granted
+        )
+    assert after["activities"]["counts"]["plots"] == 1
+    assert after["activities"]["counts"]["expeditions"] == 1
+    assert not after["claimable"]["count"]
+
+
 def test_orders_use_server_time_and_one_delivery_slot_and_receipts(farm):
     farm.get("p1")
     with pytest.raises(ArcadeError):
@@ -196,7 +346,7 @@ def test_orders_use_server_time_and_one_delivery_slot_and_receipts(farm):
     restarted = FarmStore(ArcadeStore(farm.arcade.path, farm.arcade.clock))
     key = str(uuid.uuid4())
     result = act(restarted, "claim_order", "basket", key=key)
-    assert result["result"]["amount"] == 180
+    assert result["result"]["amount"] == 120
     assert result["farm"]["deliveries"] == 1 and result["farm"]["order"] is None
     assert act(restarted, "claim_order", "basket", key=key)["duplicate"]
     with pytest.raises(ArcadeError):
@@ -207,8 +357,8 @@ def test_orders_use_server_time_and_one_delivery_slot_and_receipts(farm):
 def test_order_profit_grows_with_income_and_trust_but_started_reward_is_fixed(farm):
     start = farm.get("p1")
     offers = {o["id"]: o for o in start["orders"]}
-    assert offers["basket"]["profit"] == 140
-    assert offers["basket"]["reward"] == offers["basket"]["cost"] + 140
+    assert offers["basket"]["profit"] == 80
+    assert offers["basket"]["reward"] == offers["basket"]["cost"] + 80
     act(farm, "start_order", "basket")
     with farm.arcade.db() as db:
         state = farm._load(db, "p1")
@@ -222,9 +372,9 @@ def test_order_profit_grows_with_income_and_trust_but_started_reward_is_fixed(fa
         old = offers[offer["id"]]
         assert offer["profit"] > old["profit"]
         assert offer["cost"] == old["cost"]  # No hidden increase in the required supplies.
-    assert grown["order"]["reward"] == 180
+    assert grown["order"]["reward"] == 120
     farm.arcade.clock.advance(300)
-    assert act(farm, "claim_order", "basket")["result"]["amount"] == 180
+    assert act(farm, "claim_order", "basket")["result"]["amount"] == 120
 
 
 @pytest.mark.parametrize("elapsed", [0, 600])
@@ -374,7 +524,7 @@ def test_first_farm_starts_production_without_a_purchase_and_uses_no_ac(farm):
     state = farm.get("p1")
     assert state["balance"] == 150 and state["stats"]["per_hour"] == 120
     assert state["stats"]["offline_hours"] == 4 and state["energy"] == 500
-    assert len(state["items"]) == 21 and len(state["quests"]) == 7
+    assert len(state["items"]) == 29 and len(state["quests"]) == 7
     act(farm, "tap", count=8)
     assert farm.arcade.profile("p1")["balance"] == before["balance"] == 0
     assert not farm.arcade.profile("p1")["awards"]

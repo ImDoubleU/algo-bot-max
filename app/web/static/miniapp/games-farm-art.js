@@ -136,7 +136,7 @@
     return wrap(body);
   }
   function item(id){
-    id=({battery:'energy',irrigation:'water',beehives:'bee',orchard:'tree',silo:'barn'})[id]||id;
+    id=({battery:'energy',irrigation:'water',beehives:'bee',orchard:'tree',silo:'barn',vineyard:'tree',autoshovel:'shovel',orangery:'greenhouse',foundry:'workshop'})[id]||id;
     const stroke=`stroke="${p.ink}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"`;
     let body='';
     if(id==='shovel')body=`<g transform="rotate(25 40 40)" ${stroke}><path d="M35 43V17h10v26" fill="#cba573"/><path d="M28 9h24v13q-12 11-24 0Z" fill="#aa8758"/><path d="M34 15h12v4q-6 5-12 0Z" fill="#f4e7c7" stroke-width="2"/><path d="m26 43 27-1-1 17q-3 10-13 15-11-7-14-16Z" fill="#a7bbb3"/><path d="m40 47-1 20" stroke="#dbe4d8"/></g>`;
@@ -161,6 +161,11 @@
     if(id==='workshop')body=`<g ${stroke}><path d="M10 46h60v12H10Zm6 12v17m47-17v17" fill="#b99867"/><path d="M16 46V15h48v31" fill="#ded1a9"/><path d="m21 21 22 21m-3-30 15 15-6 6-15-15Z" stroke="#8a7753" stroke-width="5"/><path d="m30 12-5 10 7 7 10-5-5 13-12-1-7-12Z" fill="#adc2b0"/><path d="M19 62h41v9H19Z" fill="#c7ad7c"/><circle cx="39" cy="66" r="2" fill="#806b4a"/></g>`;
     if(id==='logistics')body=`<g ${stroke}><path d="M15 25h33v32H15Z" fill="#dec28c"/><path d="M48 35h16l9 13v11H48Z" fill="#a3b887"/><path d="M53 38h9l6 9H53Z" fill="#e1ead4"/><circle cx="26" cy="61" r="9" fill="#9e8860"/><circle cx="61" cy="61" r="9" fill="#9e8860"/><path d="M2 32h7m-8 8h8m-5 8h5" stroke="#a5b17d" stroke-width="3"/><path d="m24 35 9 5-9 5" fill="none" stroke="#a78550"/></g>`;
     if(id==='seedlab')body=`<g ${stroke}><path d="M22 8h28v8H22Zm6 8v17L12 59q-5 13 9 13h37q13-1 6-14L44 33V16" fill="#d9e5d0"/><path d="M22 49h32l10 15q1 7-8 7H22q-11 0-7-10Z" fill="#b4c68c"/><path d="M37 59V38m0 9q-19-2-12-14 13 0 12 14Zm1-4q18-2 13-14-13-1-13 14Z" fill="#8fa66b"/><path d="m19 60 4-7" stroke="#f7f3d9" stroke-width="3"/><circle cx="54" cy="57" r="3" fill="#e4d49a"/></g>`;
+    if(id==='backpack')body=`<g ${stroke}><path d="M18 27q0-12 22-12t22 12v43H18Z" fill="#a4b682"/><path d="M31 17V8h18v9" fill="none"/><path d="M13 33h54v12H13Z" fill="#c0cba0"/><path d="M25 48h30v18H25Z" fill="#829a67"/><path d="M30 35v16m20-16v16" stroke="#d6c18a" stroke-width="4"/></g>`;
+    if(id==='balloon')body=`<g ${stroke}><path d="M13 28q0-25 27-25t27 25q0 20-27 38-27-18-27-38Z" fill="#e0b379"/><path d="M31 5q-15 27 9 61Q64 32 49 5" fill="#c9d2a0"/><path d="m30 58 4 11m16-11-4 11"/><path d="M30 67h20v10H30Z" fill="#bc9864"/></g>`;
+    if(id==='highland')body=`<g ${stroke}><path d="m4 65 25-49 14 23 13-32 21 58Z" fill="#b0c1a3"/><path d="m20 34 9-18 11 19-10-5Z" fill="#f1edd8"/><path d="m47 29 9-22 10 27-11-6Z" fill="#f1edd8"/><path d="M5 64h72v10H5Z" fill="#91a573"/><path d="M30 64V48h22v16" fill="#c5a97c"/><path d="m25 49 16-14 17 14" fill="#a98057"/></g>`;
+    if(id==='exosuit')body=`<g ${stroke}><path d="M22 16h36v36H22Z" fill="#a5bdb0"/><path d="m22 25-10 9v25m46-34 10 9v25M29 52l-7 23m29-23 7 23" stroke-width="8"/><circle cx="40" cy="33" r="11" fill="#d8c58b"/><path d="m40 24-5 10h7l-3 9" fill="none"/></g>`;
+    if(id==='lighthouse')body=`<g ${stroke}><path d="m25 24-8 49h47l-9-49Z" fill="#e2d4ab"/><path d="M21 48h39l-3-13H23Z" fill="#c99c74"/><path d="M24 23V11h32v12" fill="#d9deb5"/><path d="m18 12 22-10 23 10Z" fill="#a47c54"/><path d="M37 73V58h10v15" fill="#a18e64"/><path d="M9 17H2m77 0h-7" stroke="#dbc476" stroke-width="4"/></g>`;
     if(id==='gift')body=`<g ${stroke}><rect x="13" y="29" width="54" height="43" rx="4" fill="#e2be72"/><rect x="9" y="24" width="62" height="14" rx="4" fill="#edce88"/><path d="M34 25v47h12V25" fill="#a5b17a"/><path d="M40 24Q13 27 19 10q7-12 21 14Zm0 0Q67 27 61 10q-7-12-21 14Z" fill="#bdc699"/></g>`;
     return wrap(`<ellipse cx="40" cy="74" rx="28" ry="4" fill="#bfb08e25"/>${body}`);
   }

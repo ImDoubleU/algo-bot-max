@@ -1061,7 +1061,8 @@ def test_farm_explains_purchase_and_collects_delivery_and_its_rewards_together(a
     assert page.locator(".farm-collect-bar").is_hidden()
     assert page.locator(".farm-status").is_hidden()
     page.locator('.farm-task-filters [data-task-view="badges"]').click()
-    assert page.locator(".farm-badge").count() == 25
+    page.locator('[data-badge-category="all"]').click()
+    assert page.locator(".farm-badge").count() == 100
     assert not store.profile("p1")["awards"]
 
 
@@ -1084,6 +1085,7 @@ def test_farm_outfit_and_environment_follow_saved_level_and_collected_notices_st
     page.locator('.farm-tabs [data-farm-tab="tasks"]').click()
     page.locator('.farm-task-filters [data-task-view="badges"]').click()
     assert page.locator(".farm-badge.is-ready").count() == 0
+    page.locator('[data-badge-category="all"]').click()
     assert page.locator(".farm-badge.is-claimed").count() > 0
     page.locator("[data-farm-close]").click()
     for lv, stage in ((1, 0), (5, 1), (10, 2), (17, 3), (24, 4)):
@@ -1137,3 +1139,73 @@ def test_farm_cancel_delivery_requires_confirmation_and_lost_ack_refunds_once(ar
     page.wait_for_function("!document.querySelector('.farm-active-order')")
     assert farm.get("p1")["balance"] == 150 and farm.get("p1")["deliveries"] == 0
     assert page.locator(".farm-cancel-confirm").count() == 0
+
+
+def test_farm_progression_plot_and_achievement_categories_work_across_reentry(arcade):
+    from app.services.arcade_farm import FarmStore
+
+    page, store = arcade
+    store.clock = Clock()
+    farm = FarmStore(store)
+    farm.get("p1")
+    with store.db() as db:
+        state = farm._load(db, "p1")
+        state.update(earned=4000, balance=10000)
+        farm._save(db, "p1", state)
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator('.farm-tabs [data-farm-tab="activities"]').click()
+    page.locator('[data-farm-action="start_plot"][data-item="radish"]').click()
+    page.locator(".farm-project").wait_for()
+    page.locator('[data-farm-action="water_plot"]').click()
+    page.wait_for_function(
+        "document.querySelector('[data-farm-action=water_plot]').textContent==='Полито'"
+    )
+    assert page.locator('[data-farm-action="claim_project"]').is_disabled()
+    page.locator("[data-farm-close]").click()
+    store.clock.advance(480)
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator('[data-farm-action="claim_project"]').click()
+    page.wait_for_function("!document.querySelector('.farm-project')")
+    assert farm.get("p1")["activities"]["resources"]["seeds"] == 1
+    page.locator('.farm-tabs [data-farm-tab="tasks"]').click()
+    page.locator('[data-task-view="badges"]').click()
+    assert page.locator(".farm-badge-categories>button").count() == 9
+    page.locator('[data-badge-category="rare"]').click()
+    assert page.locator(".farm-medal-card").count() == 12
+    page.locator('.farm-medal-card.is-ready [data-farm-action="claim_badge"]').first.click()
+    page.wait_for_function("!document.querySelector('.farm-medal-card.is-ready')")
+    assert farm.get("p1")["activities"]["counts"]["plots"] == 1
+    page.locator("[data-farm-close]").click()
+    page.locator('.game-card[data-game="kopatych"]').click()
+    assert page.locator('[data-badge-category="rare"]').get_attribute("aria-pressed") == "true"
+    assert page.locator(".farm-medal-card.is-claimed").count() == 1
+
+
+def test_farm_trial_uses_the_actual_harvest_and_collects_resource_prize(arcade):
+    from app.services.arcade_farm import FarmStore
+
+    page, store = arcade
+    store.clock = Clock()
+    farm = FarmStore(store)
+    farm.get("p1")
+    with store.db() as db:
+        state = farm._load(db, "p1")
+        state.update(earned=4000000, resources={"seeds": 2, "materials": 0})
+        farm._save(db, "p1", state)
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator('.farm-tabs [data-farm-tab="activities"]').click()
+    page.locator('[data-activity-view="trial"]').click()
+    page.locator('[data-farm-action="start_trial"][data-item="harvest"]').click()
+    page.locator("[data-trial-harvest]").click()
+    page.wait_for_function("document.querySelector('[data-trial-progress]').textContent==='1'")
+    for i in range(30):
+        store.clock.advance(1)
+        farm.act("p1", f"trial-ui-input-{i:04}", "tap", count=7 if i == 29 else 8)
+    page.locator("[data-farm-close]").click()
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator('[data-farm-action="claim_trial"]').click()
+    page.wait_for_function("!document.querySelector('.farm-trial')")
+    after = farm.get("p1")
+    assert after["activities"]["counts"]["trials"] == 1
+    assert after["activities"]["resources"] == {"seeds": 4, "materials": 4}
+    assert not store.profile("p1")["awards"]

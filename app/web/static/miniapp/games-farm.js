@@ -12,6 +12,8 @@
     '"': '&quot;',
     "'": '&#39;'
   } [c]));
+  const plural = (n, words) => words[n % 100 >= 11 && n % 100 <= 14 ? 2 : n % 10 === 1 ? 0 : n % 10 >= 2 && n % 10 <= 4 ? 1 : 2];
+  const quantity = (n, kind) => fmt(n) + ' ' + plural(n, kind === 'seeds' ? ['семя', 'семени', 'семян'] : ['материал', 'материала', 'материалов']);
   const fmt = n => Math.max(0, Math.floor(n || 0)).toLocaleString('ru-RU');
   const decimal = n => Number(n || 0).toLocaleString('ru-RU', {
     maximumFractionDigits: 2
@@ -19,7 +21,7 @@
   const compact = n => n >= 1000000000 ? (n / 1000000000).toLocaleString('ru-RU', {
     maximumFractionDigits: 1
   }) + ' млрд' : n >= 1000000 ? (n / 1000000).toLocaleString('ru-RU', {
-    maximumFractionDigits: 1
+    maximumFractionDigits: n >= 100000000 ? 0 : 1
   }) + ' млн' : n >= 100000 ? (n / 1000).toLocaleString('ru-RU', {
     maximumFractionDigits: 1
   }) + ' тыс.' : fmt(n);
@@ -54,7 +56,7 @@
   let current = null;
 
   function structure(s) {
-    return JSON.stringify([s.items.map(i => i.level), s.level, s.daily.day, s.daily.claimed, s.daily.combo_claimed, s.quests.map(q => [q.ready, q.claimed]), s.badges.map(b => [b.ready, b.claimed]), s.chapters.map(c => [c.ready, c.claimed]), s.order, s.claimable]);
+    return JSON.stringify([s.items.map(i => i.level), s.level, s.daily.day, s.daily.claimed, s.daily.combo_claimed, s.quests.map(q => [q.ready, q.claimed]), s.badges.map(b => [b.ready, b.claimed]), s.chapters.map(c => [c.ready, c.claimed]), s.order, s.claimable, s.activities.resources, s.activities.projects, s.activities.research.map(r => r.level), s.activities.trial ? [s.activities.trial.project_id, s.activities.trial.progress >= s.activities.trial.goal, s.server_ms >= s.activities.trial.finish_at] : null]);
   }
 
   function pending(f) {
@@ -88,7 +90,7 @@
     const dialog = document.createElement('dialog');
     dialog.id = 'kopatychFarm';
     dialog.className = 'farm-dialog';
-    dialog.innerHTML = `<header class="farm-header"><div class="farm-brand">${carrot()}<div><small>КОПАТЫЧ</small><h2>Моя ферма</h2></div></div><button class="farm-tournament" data-farm-sprint>${icon('cup')}<span>Турнир · 90 с</span></button><button class="farm-close" data-farm-close aria-label="Закрыть ферму">${icon('close')}</button></header><div class="farm-loading">Готовим огород…</div><div class="farm-app" hidden><div class="farm-wallet"><div class="farm-balance"><span>Морковки в корзинке</span><div class="farm-balance-number">${carrot()}<strong data-farm-bank>0</strong></div></div><div class="farm-income"><span>Растёт само</span><div><strong data-farm-income>0</strong><small>в час</small></div></div><div class="farm-level-chip"><span>Уровень</span><strong data-farm-level>1</strong></div></div><div class="farm-offline" hidden></div><nav class="farm-tabs" aria-label="Разделы фермы">${[['home','leaf','Ферма'],['upgrades','barn','Улучшения'],['tasks','gift','Задания'],['valley','cup','Долина']].map(([tab,i,t])=>`<button data-farm-tab="${tab}">${icon(i)}<span>${t}</span><i></i></button>`).join('')}</nav><div class="farm-collect-bar"><span data-collect-count></span><button class="farm-button" data-farm-action="claim_all">Забрать всё <span data-collect-amount></span></button></div><p class="farm-status" role="status" hidden></p><div class="farm-content"></div></div>`;
+    dialog.innerHTML = `<header class="farm-header"><div class="farm-brand">${carrot()}<div><small>КОПАТЫЧ</small><h2>Моя ферма</h2></div></div><button class="farm-tournament" data-farm-sprint>${icon('cup')}<span>Турнир · 90 с</span></button><button class="farm-close" data-farm-close aria-label="Закрыть ферму">${icon('close')}</button></header><div class="farm-loading">Готовим огород…</div><div class="farm-app" hidden><div class="farm-wallet"><div class="farm-balance"><span>Морковки в корзинке</span><div class="farm-balance-number">${carrot()}<strong data-farm-bank>0</strong></div></div><div class="farm-income"><span>Растёт само</span><div><strong data-farm-income>0</strong><small>в час</small></div></div><div class="farm-level-chip"><span>Уровень</span><strong data-farm-level>1</strong></div></div><div class="farm-offline" hidden></div><nav class="farm-tabs" aria-label="Разделы фермы">${[['home','leaf','Ферма'],['upgrades','barn','Улучшения'],['activities','sun','Дела'],['tasks','gift','Задания'],['valley','cup','Долина']].map(([tab,i,t])=>`<button data-farm-tab="${tab}">${icon(i)}<span>${t}</span><i></i></button>`).join('')}</nav><div class="farm-collect-bar"><span data-collect-count></span><button class="farm-button" data-farm-action="claim_all">Забрать всё <span data-collect-amount></span></button></div><p class="farm-status" role="status" hidden></p><div class="farm-content"></div></div>`;
     document.body.append(dialog);
     dialog.showModal();
     const f = {
@@ -107,6 +109,9 @@
       tab: 'home',
       category: 'garden',
       taskView: 'daily',
+      activityView: 'plot',
+      badgeCategory: 'overview',
+      activityReadyChecked: new Set(),
       abort: new AbortController(),
       timer: 0,
       pollAt: 0,
@@ -119,9 +124,11 @@
     current = f;
     try {
       const saved = JSON.parse(localStorage.getItem('kopatych-ui:' + f.player) || '{}');
-      if (['home', 'upgrades', 'tasks', 'valley'].includes(saved.tab)) f.tab = saved.tab;
+      if (['home', 'upgrades', 'activities', 'tasks', 'valley'].includes(saved.tab)) f.tab = saved.tab;
       if (['garden', 'tools', 'business'].includes(saved.category)) f.category = saved.category;
       if (['daily', 'story', 'orders', 'badges'].includes(saved.taskView)) f.taskView = saved.taskView;
+      if (['plot', 'expedition', 'research', 'trial'].includes(saved.activityView)) f.activityView = saved.activityView;
+      if (typeof saved.badgeCategory === 'string') f.badgeCategory = saved.badgeCategory;
     } catch {}
     const on = (el, type, fn, extra = {}) => el.addEventListener(type, fn, {
       ...extra,
@@ -183,7 +190,9 @@
       localStorage.setItem('kopatych-ui:' + f.player, JSON.stringify({
         tab: f.tab,
         category: f.category,
-        taskView: f.taskView
+        taskView: f.taskView,
+        activityView: f.activityView,
+        badgeCategory: f.badgeCategory
       }));
     } catch {}
   }
@@ -197,7 +206,7 @@
       b.classList.toggle('is-active', yes);
       b.setAttribute('aria-pressed', String(yes));
     }
-    host.innerHTML = f.tab === 'home' ? home(f) : f.tab === 'upgrades' ? shop(f) : f.tab === 'tasks' ? tasks(f) : valley(f);
+    host.innerHTML = f.tab === 'home' ? home(f) : f.tab === 'upgrades' ? shop(f) : f.tab === 'tasks' ? tasks(f) : f.tab === 'activities' ? activities(f) : valley(f);
     const bear = $('.farm-bear', host);
     if (bear) {
       bear.addEventListener('pointerdown', e => {
@@ -249,7 +258,7 @@
         <div class="farm-quick-upgrades">${quick.map(i=>upgrade(f,i,true)).join('')}</div>
         <div class="farm-next-unlock">${icon('leaf')}<span><b>${nextUnlock(s)}</b><small>Всего выращено: <span data-total-earned>${fmt(s.earned)}</span></small></span></div>
       </aside>
-    </div><div class="farm-home-extras">${chapterPreview(s)}${orderPreview(s)}</div>`;
+    </div><div class="farm-home-extras"><button class="farm-adventure-preview" data-farm-tab="activities">${F().item('nursery')}<span><small>Семена · материалы · открытия</small><b>Дела в долине</b><span>${s.level<3?'Редкая грядка с 3 уровня':'Выбрать дело'}</span></span>${icon('arrow')}</button>${chapterPreview(s)}${orderPreview(s)}</div>`;
   }
 
   function nextUnlock(s) {
@@ -265,7 +274,7 @@
       <span class="farm-upgrade-icon">${F().item(i.id)}</span>
       <span class="farm-upgrade-info"><b>${esc(i.name)}<em>${i.level} / ${i.maximum}</em></b><small>${esc(subtitle)}</small>
       ${!small?`<span class="farm-effect"><span>${esc(e.label)}</span><span><b>${decimal(e.current)}</b>${!i.maxed?`<i>→</i><strong>${decimal(e.next)}</strong>`:''} ${esc(e.unit)}</span></span><span class="farm-upgrade-note">${esc(i.text)}${i.manual_gain_from_income?`<span class="farm-extra-effect">Ручной сбор тоже +${fmt(i.manual_gain_from_income)} за нажатие</span>`:''}${i.id==='seedlab'&&i.per_hour_gain?`<span class="farm-extra-effect">Доход фермы +${fmt(i.per_hour_gain)} / ч</span>`:''}${i.payback_hours&&!i.maxed?` · Окупится за ${decimal(i.payback_hours)} ч`:''}</span>`:''}</span>
-      <strong class="farm-upgrade-price">${i.maxed?'Максимум':money(i.cost)}${!small&&!i.maxed&&!i.locked?`<small data-missing="${i.id}"></small>`:''}</strong></button>`;
+      ${!small&&(i.resource_cost.seeds||i.resource_cost.materials)?`<span class="farm-item-resources">${resourceCost(i.resource_cost)}</span>`:''}<strong class="farm-upgrade-price">${i.maxed?'Максимум':money(i.cost)}${!small&&!i.maxed&&!i.locked?`<small data-missing="${i.id}"></small>`:''}</strong></button>`;
   }
 
   function production(s) {
@@ -324,8 +333,60 @@
   function tasks(f) {
     const s = f.snapshot;
     const nav = `<div class="farm-task-filters">${[['daily','На сегодня'],['story','История'],['orders','Заказы'],['badges','Достижения']].map(([key,name])=>`<button data-task-view="${key}" aria-pressed="${f.taskView===key}">${name}</button>`).join('')}</div>`;
-    const badges = `<section class="farm-panel"><div class="farm-panel-title"><h3>Достижения фермы</h3><span>${s.badges.filter(b=>b.claimed).length}/${s.badges.length}</span></div><div class="farm-badges">${s.badges.map(b=>`<div data-badge="${b.id}" class="farm-badge ${b.ready&&!b.claimed?'is-ready':''} ${b.claimed?'is-claimed':''}">${icon(b.claimed?'check':b.ready?'cup':'leaf')}<div><b>${esc(b.name)}</b><small>${esc(b.description)} · ${fmt(Math.min(b.value,b.target))} / ${fmt(b.target)}</small></div><button class="farm-small-button" data-farm-action="claim_badge" data-item="${b.id}" ${b.ready&&!b.claimed?'':'disabled'}>${b.claimed?'✓':money(b.reward)}</button></div>`).join('')}</div></section>`;
-    return nav + (f.taskView === 'daily' ? dailyTasks(f) : f.taskView === 'story' ? story(f) : f.taskView === 'orders' ? orders(f) : badges);
+    return nav + (f.taskView === 'daily' ? dailyTasks(f) : f.taskView === 'story' ? story(f) : f.taskView === 'orders' ? orders(f) : achievements(f));
+  }
+
+  function resourceCost(c) {
+    return [c.seeds ? quantity(c.seeds, 'seeds') : '', c.materials ? quantity(c.materials, 'materials') : ''].filter(Boolean).join(' · ');
+  }
+
+  function canPay(f, c) {
+    const v = live(f),
+      r = f.snapshot.activities.resources;
+    return v.balance >= (c.cost || 0) && r.seeds >= (c.seeds || 0) && r.materials >= (c.materials || 0) && v.energy >= (c.energy || 0);
+  }
+
+  function activityRemaining(f, p) {
+    return Math.max(0, (p.finish_at - f.snapshot.server_ms - (performance.now() - f.received)) / 1000);
+  }
+
+  function projectCard(f, p, kind) {
+    const remaining = activityRemaining(f, p);
+    return `<section class="farm-project"><span class="farm-project-art">${F().item(kind==='plot'?'seedlab':'backpack')}</span><div><small>${kind==='plot'?'РЕДКАЯ ГРЯДКА':'ЭКСПЕДИЦИЯ'}</small><h3>${esc(p.name)}</h3><p data-project-clock="${kind}">${remaining?clock(remaining):'Готово'}</p><span>${resourceCost({seeds:p.reward_seeds,materials:p.reward_materials})}</span></div><div class="farm-project-actions"><button class="farm-button" data-farm-action="claim_project" data-item="${p.project_id}" ${remaining?'disabled':''}>Забрать</button>${kind==='plot'?`<button class="farm-small-button" data-farm-action="water_plot" data-item="${p.project_id}" ${p.watered||remaining===0||f.snapshot.level<5?'disabled':''}>${p.watered?'Полито':f.snapshot.level<5?'Полив с 5 уровня':'Полить · 50 энергии'}</button>`:''}</div></section>`;
+  }
+
+  function activities(f) {
+    const s = f.snapshot,
+      a = s.activities,
+      view = f.activityView;
+    const head = `<div class="farm-resources"><span>${icon('leaf')}<b data-resource="seeds">${fmt(a.resources.seeds)}</b> семена</span><span>${icon('barn')}<b data-resource="materials">${fmt(a.resources.materials)}</b> материалы</span></div><div class="farm-task-filters">${[['plot','Грядка',3],['expedition','Экспедиции',8],['research','Наука',12],['trial','Испытания',18]].map(([key,name,lv])=>`<button data-activity-view="${key}" aria-pressed="${view===key}">${name}${s.level<lv?`<small>${lv} ур.</small>`:''}</button>`).join('')}</div>`;
+    if (view === 'research') return head + `<div class="farm-activity-intro"><h3>Знания остаются навсегда</h3><p>Выбирай исследования и собирай для них семена и материалы.</p></div><div class="farm-research-grid">${a.research.map(r=>`<section class="farm-research ${r.locked?'is-locked':''}"><span>${F().item('seedlab')}</span><div><small>${r.level} / ${r.maximum} · с ${r.unlock} уровня</small><h4>${esc(r.name)}</h4><p>${esc(r.text)}</p>${r.requires?`<small>Нужно: ${esc(a.research.find(x=>x.id===r.requires).name)} · ${r.requires_level}</small>`:''}<b>${resourceCost(r)} · ${fmt(r.cost)} морковок</b></div><button class="farm-button" data-farm-action="research" data-item="${r.id}" ${r.locked||r.maxed||!canPay(f,r)?'disabled':''}>${r.maxed?'Изучено':'Исследовать'}</button></section>`).join('')}</div>`;
+    if (view === 'trial') return head + trialView(f);
+    const kind = view,
+      project = a.projects[kind],
+      choices = kind === 'plot' ? a.crops : a.routes;
+    return head + `<div class="farm-activity-intro"><h3>${kind==='plot'?'Выращивай редкие сорта':'Отправляйся за материалами'}</h3><p>${kind==='plot'?'Семена нужны для исследований и поздних построек. Полив сокращает срок роста на 20%.':'Выбери маршрут. У каждого своя цена, длительность и запас материалов.'}</p></div>${project?projectCard(f,project,kind):''}<div class="farm-activity-options">${choices.map(c=>`<section class="farm-activity-option ${s.level<c.unlock?'is-locked':''}"><span>${F().item(kind==='plot'?'nursery':c.id==='sky'?'balloon':'backpack')}</span><h4>${esc(c.name)}</h4><small>${duration(c.seconds)} · с ${c.unlock} уровня</small><strong>${kind==='plot'?quantity(c.seeds,'seeds'):quantity(c.materials,'materials')}</strong><p>${fmt(c.cost)} морковок · ${c.energy} энергии${kind==='expedition'&&c.seeds?` · ${c.seeds} семян`:''}</p>${c.requires_item?'<small>Нужен аэростат</small>':''}<button class="farm-button" data-farm-action="${kind==='plot'?'start_plot':'start_expedition'}" data-item="${c.id}">${project?'Дело уже идёт':s.level<c.unlock?'С уровня '+c.unlock:kind==='plot'?'Посадить':'В путь'}</button></section>`).join('')}</div>`;
+  }
+
+  function trialView(f) {
+    const a = f.snapshot.activities,
+      t = a.trial;
+    return `<div class="farm-activity-intro"><h3>Проверь своё мастерство</h3><p>Нажимай на сбор, пока идёт время. Засчитываются только подтверждённые нажатия.</p></div>${t?`<section class="farm-trial"><h3>${esc(t.name)}</h3><div class="farm-trial-score"><b data-trial-progress>${t.progress}</b><span>/ ${t.goal}</span><em data-trial-clock>${clock(activityRemaining(f,t))}</em></div><progress data-trial-bar max="${t.goal}" value="${t.progress}"></progress><button class="farm-button farm-trial-harvest" data-trial-harvest>${carrot()}Собрать</button><button class="farm-button" data-farm-action="claim_trial" data-item="${t.project_id}">Забрать награду</button><button class="farm-small-button" data-farm-action="dismiss_trial" data-item="${t.project_id}">Закрыть неудачную попытку</button></section>`:''}<p class="farm-trial-wait" data-trial-wait></p><div class="farm-activity-options">${a.trials.map(c=>`<section class="farm-activity-option"><span>${icon('cup')}</span><h4>${esc(c.name)}</h4><small>С ${c.unlock} уровня</small><strong>${c.goal} нажатий</strong><p>За ${duration(c.seconds)} · вход: ${c.seeds} семян</p><b>${resourceCost({seeds:c.reward_seeds,materials:c.reward_materials})}</b><button class="farm-button" data-farm-action="start_trial" data-item="${c.id}">Начать</button></section>`).join('')}</div>`;
+  }
+
+  function badgeCard(b) {
+    const tiers = ['Росток', 'Бронза', 'Серебро', 'Золото', 'Легенда'];
+    return `<article data-badge="${b.id}" class="farm-badge farm-medal-card tier-${b.tier} ${b.ready&&!b.claimed?'is-ready':''} ${b.claimed?'is-claimed':''}"><span class="farm-medal">${icon(b.claimed?'check':({harvest:'leaf',manual:'shovel',building:'barn',neighbors:'helper',care:'gift',rare:'beds',expeditions:'arrow',research:'sun',trials:'cup'})[b.category])}<em>${tiers[b.tier]}</em></span><div><b>${esc(b.name)}</b><p>${esc(b.description)}</p><small>${fmt(Math.min(b.value,b.target))} / ${fmt(b.target)}</small><progress max="${b.target}" value="${Math.min(b.value,b.target)}"></progress><span>${b.seed_reward||b.material_reward?resourceCost({seeds:b.seed_reward,materials:b.material_reward}):''}</span></div><button class="farm-small-button" data-farm-action="claim_badge" data-item="${b.id}" ${b.ready&&!b.claimed?'':'disabled'}>${b.claimed?'✓':money(b.reward)}</button></article>`;
+  }
+
+  function achievements(f) {
+    const s = f.snapshot,
+      selected = f.badgeCategory;
+    const overview = `<div class="farm-achievement-hero"><span>${icon('cup')}</span><div><h3>Коллекция Копатыча</h3><p>${s.badges.filter(b=>b.claimed).length} / ${s.badges.length} · от первого ростка до легенды долины</p></div></div>`;
+    const cats = `<div class="farm-badge-categories">${s.badge_categories.map(c=>{const rows=s.badges.filter(b=>b.category===c.id),claimed=rows.filter(b=>b.claimed).length,ready=rows.filter(b=>b.ready&&!b.claimed).length;return `<button data-badge-category="${c.id}" aria-pressed="${selected===c.id}"><b>${esc(c.name)}</b><span>${claimed} / ${rows.length}${ready?` · ${ready} ждут`:''}</span><progress max="${rows.length}" value="${claimed}"></progress></button>`}).join('')}</div>`;
+    const rows = selected === 'overview' ? s.badges.filter(b => !b.claimed).sort((a, b) => Number(b.ready) - Number(a.ready) || b.value / b.target - a.value / a.target).slice(0, 6) : s.badges.filter(b => selected === 'all' || b.category === selected);
+    const title = selected === 'overview' ? 'Ближайшие цели' : selected === 'all' ? 'Вся коллекция' : s.badge_categories.find(c => c.id === selected)?.name || 'Достижения';
+    return overview + cats + `<div class="farm-section-title"><h3>${esc(title)}</h3><button data-badge-category="${selected==='all'?'overview':'all'}">${selected==='all'?'Ближайшие':'Все 100'}</button></div><div class="farm-medals-grid">${rows.map(badgeCard).join('')}</div>`;
   }
 
   function valley(f) {
@@ -362,7 +423,7 @@
     $('.farm-scene', d)?.classList.toggle('is-boosted', v.boost > 0);
     for (const b of d.querySelectorAll('[data-farm-action="buy"]')) {
       const i = s.items.find(i => i.id === b.dataset.item);
-      b.disabled = f.busy || f.failed || i.locked || i.maxed || v.balance < i.cost;
+      b.disabled = f.busy || f.failed || i.locked || i.maxed || v.balance < i.cost || !canPay(f, i.resource_cost);
       b.classList.toggle('is-affordable', !b.disabled);
     }
     for (const node of d.querySelectorAll('[data-missing]')) {
@@ -425,8 +486,65 @@
     }
     for (const b of s.badges) {
       const node = d.querySelector('[data-badge="' + b.id + '"]');
-      if (node) $('small', node).textContent = b.description + ' · ' + fmt(Math.min(b.value, b.target)) + ' / ' + fmt(b.target);
+      if (node) {
+        $('small', node).textContent = fmt(Math.min(b.value, b.target)) + ' / ' + fmt(b.target);
+        $('progress', node).value = Math.min(b.value, b.target);
+      }
     }
+    const a = s.activities;
+    for (const kind of ['plot', 'expedition']) {
+      const p = a.projects[kind],
+        node = d.querySelector('[data-project-clock="' + kind + '"]');
+      if (node && p) node.textContent = activityRemaining(f, p) > 0 ? clock(activityRemaining(f, p)) : 'Готово';
+    }
+    for (const button of d.querySelectorAll('[data-farm-action="start_plot"],[data-farm-action="start_expedition"]')) {
+      const kind = button.dataset.farmAction === 'start_plot' ? 'plot' : 'expedition';
+      const c = (kind === 'plot' ? a.crops : a.routes).find(c => c.id === button.dataset.item);
+      button.disabled = f.busy || f.failed || !!a.projects[kind] || s.level < c.unlock || !canPay(f, kind === 'plot' ? {
+        ...c,
+        seeds: 0
+      } : c) || (c.requires_item && !s.items.find(i => i.id === c.requires_item)?.level);
+    }
+    for (const button of d.querySelectorAll('[data-farm-action="research"]')) {
+      const r = a.research.find(r => r.id === button.dataset.item);
+      button.disabled = f.busy || f.failed || r.locked || r.maxed || !canPay(f, r);
+    }
+    const plot = a.projects.plot;
+    for (const button of d.querySelectorAll('[data-farm-action="claim_project"]')) {
+      const p = Object.values(a.projects).find(p => p?.project_id === button.dataset.item);
+      button.disabled = f.busy || f.failed || !p || activityRemaining(f, p) > 0;
+    }
+    const water = $('[data-farm-action="water_plot"]', d);
+    if (water) water.disabled = f.busy || f.failed || s.level < 5 || !plot || plot.watered || activityRemaining(f, plot) === 0 || v.energy < 50;
+    const trial = a.trial,
+      trialDone = trial && trial.progress >= trial.goal,
+      trialLeft = trial ? activityRemaining(f, trial) : 0;
+    const score = $('[data-trial-progress]', d),
+      bar = $('[data-trial-bar]', d),
+      timer = $('[data-trial-clock]', d);
+    if (score) score.textContent = fmt(trial.progress);
+    if (bar) bar.value = trial.progress;
+    if (timer) timer.textContent = trialDone ? 'Пройдено' : trialLeft ? clock(trialLeft) : 'Время вышло';
+    const harvest = $('[data-trial-harvest]', d),
+      claimTrial = $('[data-farm-action="claim_trial"]', d),
+      dismiss = $('[data-farm-action="dismiss_trial"]', d);
+    if (harvest) harvest.disabled = f.busy || f.failed || trialDone || !trialLeft || v.energy < 1;
+    if (claimTrial) {
+      claimTrial.hidden = !trialDone;
+      claimTrial.disabled = f.busy || f.failed || !trialDone;
+    }
+    if (dismiss) {
+      dismiss.hidden = trialDone || trialLeft > 0;
+      dismiss.disabled = f.busy || f.failed || trialDone || trialLeft > 0;
+    }
+    for (const button of d.querySelectorAll('[data-farm-action="start_trial"]')) {
+      const t = a.trials.find(t => t.id === button.dataset.item);
+      button.disabled = f.busy || f.failed || !!trial || s.level < t.unlock || a.trial_wait > age || !canPay(f, {
+        seeds: t.seeds
+      });
+    }
+    const wait = $('[data-trial-wait]', d);
+    if (wait) wait.textContent = a.trial_wait > age ? 'Следующая попытка через ' + clock(a.trial_wait - age) : '';
     const reset = $('[data-farm-reset]', d);
     if (reset) reset.textContent = 'Обновление через ' + clock((s.daily.reset_at - s.server_ms) / 1000 - age);
     for (const b of d.querySelectorAll('[data-farm-tab="tasks"] i')) {
@@ -547,6 +665,21 @@
         } else if (kind === 'cancel_order') status(f, `Доставка отменена. Вернули ${fmt(f.lastResult.amount)} морковок.`);
         else if (kind === 'start_order') status(f, 'Заказ отправлен');
         else if (kind === 'claim_order' || kind === 'claim_chapter') status(f, 'Награда в корзинке');
+        else if (kind === 'claim_project' || kind === 'claim_trial') {
+          const rewards = f.lastResult.rewards || [],
+            seeds = rewards.reduce((n, r) => n + (r.seeds || 0), 0),
+            materials = rewards.reduce((n, r) => n + (r.materials || 0), 0);
+          status(f, 'Получено: ' + resourceCost({
+            seeds,
+            materials
+          }));
+        } else if (['research', 'start_plot', 'start_expedition', 'water_plot', 'start_trial'].includes(kind)) status(f, ({
+          research: 'Исследование завершено',
+          start_plot: 'Редкая грядка посажена',
+          start_expedition: 'Экспедиция отправлена',
+          water_plot: 'Рост ускорен на 20%',
+          start_trial: 'Испытание началось'
+        })[kind]);
         else if (kind === 'buy') status(f, 'Улучшение куплено');
         else if (kind === 'claim_daily' || kind === 'claim_quest' || kind === 'claim_badge') status(f, 'Морковки уже в корзинке');
       }
@@ -603,6 +736,23 @@
       });
       return;
     }
+    if (b.dataset.activityView) {
+      f.activityView = b.dataset.activityView;
+      persistUi(f);
+      render(f);
+      return;
+    }
+    if (b.dataset.badgeCategory) {
+      f.badgeCategory = b.dataset.badgeCategory;
+      persistUi(f);
+      render(f);
+      return;
+    }
+    if (b.hasAttribute('data-trial-harvest')) {
+      tap(f, e);
+      M().pop(b);
+      return;
+    }
     if (b.dataset.farmAction) {
       await action(f, b.dataset.farmAction, b.dataset.item);
       return;
@@ -634,6 +784,12 @@
   function tick(f) {
     if (current !== f || document.hidden || !f.snapshot) return;
     update(f);
+    for (const p of [...Object.values(f.snapshot.activities.projects), f.snapshot.activities.trial]) {
+      if (p && activityRemaining(f, p) === 0 && !f.activityReadyChecked.has(p.project_id + ':' + p.finish_at)) {
+        f.activityReadyChecked.add(p.project_id + ':' + p.finish_at);
+        f.pollAt = 0;
+      }
+    }
     const order = f.snapshot.order;
     if (order && f.orderReadyChecked !== order.finish_at && f.snapshot.server_ms + (performance.now() - f.received) >= order.finish_at) {
       f.orderReadyChecked = order.finish_at;

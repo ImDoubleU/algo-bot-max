@@ -8,6 +8,14 @@ import math
 from datetime import datetime, timedelta
 
 from app.services.arcade import MOSCOW, ArcadeError
+from app.services.farm_progression import (
+    LATE_ITEMS,
+    METRIC_LABELS,
+    PROGRESSION_ACTIONS,
+    UNLOCKS,
+    ProgressionMixin,
+    build_badges,
+)
 
 LEVELS = [
     0,
@@ -41,6 +49,7 @@ LEVELS = [
     650000000,
     1000000000,
 ]
+LEVELS += [math.ceil(1000000000 * 1.6**n) for n in range(1, 21)]
 ITEMS = [
     dict(
         id="shovel",
@@ -62,7 +71,7 @@ ITEMS = [
         growth=1.6,
         unlock=2,
         maximum=15,
-        text="Каждый уровень: +25% к лопате и трактору, минимум +2 морковки",
+        text="Каждый уровень: +12% к лопате и трактору, минимум +1 морковка",
     ),
     dict(
         id="battery",
@@ -155,7 +164,7 @@ ITEMS = [
         growth=1.7,
         unlock=4,
         maximum=15,
-        text="Множитель полива +0,15 за уровень. Усиливает весь урожай",
+        text="Множитель полива +0,07 за уровень. Усиливает весь урожай",
     ),
     dict(
         id="market",
@@ -166,7 +175,7 @@ ITEMS = [
         growth=1.8,
         unlock=6,
         maximum=15,
-        text="Множитель лавки +0,10 за уровень. Перемножается с поливом и компостом",
+        text="Множитель лавки +0,05 за уровень. Перемножается с поливом и компостом",
     ),
     dict(
         id="silo",
@@ -190,7 +199,7 @@ ITEMS += [
         growth=1.75,
         unlock=8,
         maximum=15,
-        text="Множитель компоста +0,20 за уровень. Усиливает весь урожай",
+        text="Множитель компоста +0,09 за уровень. Усиливает весь урожай",
     ),
     dict(
         id="windmill",
@@ -260,7 +269,7 @@ ITEMS += [
         growth=1.7,
         unlock=10,
         maximum=15,
-        text="Каждый уровень: +12% ко всему ручному сбору после усиления перчатками",
+        text="Каждый уровень: +6% ко всему ручному сбору после усиления перчатками",
     ),
     dict(
         id="logistics",
@@ -285,6 +294,7 @@ ITEMS += [
         text="Усиливает прирост за каждый уровень постройки: с 12% до 17%",
     ),
 ]
+ITEMS += LATE_ITEMS
 BY_ID = {item["id"]: item for item in ITEMS}
 DAILY_REWARDS = [100, 150, 200, 300, 400, 600, 1000]
 BADGES = [
@@ -314,6 +324,7 @@ BADGES = [
     ("streak_7", "Неделя на ферме", "best_streak", 7, 1500),
     ("streak_30", "Месяц заботы", "best_streak", 30, 10000),
 ]
+BADGES, BADGE_META, BADGE_CATEGORIES = build_badges(BADGES)
 CHAPTERS = [
     ("start", "Первый росток", "Вырастить первые 80 морковок", "earned", 80, 80),
     ("build", "Дом для урожая", "Купить 3 уровня улучшений", "upgrades", 3, 180),
@@ -336,8 +347,8 @@ ORDERS = [
         portrait="hedgehog",
         request="Собираю друзей на чай. Привезёшь морковку для пирога?",
         cost=40,
-        profit=140,
-        factor=3.6,
+        profit=80,
+        factor=1.2,
         seconds=300,
         unlock=1,
     ),
@@ -348,8 +359,8 @@ ORDERS = [
         portrait="rabbit",
         request="Нужен запас на целую компанию. Устроим пикник у озера!",
         cost=200,
-        profit=900,
-        factor=3,
+        profit=450,
+        factor=1.1,
         seconds=1800,
         unlock=5,
     ),
@@ -360,8 +371,8 @@ ORDERS = [
         portrait="owl",
         request="Вся долина ждёт твой урожай. Готовлю самое большое место на ярмарке.",
         cost=1000,
-        profit=5000,
-        factor=2.5,
+        profit=2400,
+        factor=1.05,
         seconds=7200,
         unlock=9,
     ),
@@ -387,9 +398,9 @@ def production_sources(upgrades):
 
 def income_factor(upgrades):
     return (
-        (100 + 15 * upgrades.get("irrigation", 0))
-        * (100 + 10 * upgrades.get("market", 0))
-        * (100 + 20 * upgrades.get("compost", 0))
+        (100 + 7 * upgrades.get("irrigation", 0))
+        * (100 + 5 * upgrades.get("market", 0))
+        * (100 + 9 * upgrades.get("compost", 0))
     )
 
 
@@ -401,11 +412,18 @@ def stats(state, now_ms):
         // 1000000
     )
     shovel, tractor = upgrades["shovel"], upgrades["tractor"]
-    flat = 1 + 4 * shovel + 2 * shovel**2 + int(150 * tractor * 1.15 ** max(0, tractor - 1))
-    scaled = production * shovel // 100000 + production * tractor // 20000
+    flat = (
+        1
+        + 3 * shovel
+        + shovel**2 // 2
+        + int(50 * tractor * 1.08 ** max(0, tractor - 1))
+        + 120 * upgrades["autoshovel"]
+        + 350 * upgrades["exosuit"]
+    )
+    scaled = production * shovel // 400000 + production * tractor // 160000
     raw_tap = flat + scaled
-    gloves = max(2 * upgrades["gloves"], raw_tap * 25 * upgrades["gloves"] // 100)
-    tap = (raw_tap + gloves) * (100 + 12 * upgrades["workshop"]) // 100
+    gloves = max(upgrades["gloves"], raw_tap * 12 * upgrades["gloves"] // 100)
+    tap = (raw_tap + gloves) * (100 + 6 * upgrades["workshop"]) // 100
     boost = state["boost_until"] > now_ms
     return dict(
         per_hour=production,
@@ -416,11 +434,19 @@ def stats(state, now_ms):
         tap_gloves=gloves,
         tap_workshop=tap - raw_tap - gloves,
         energy_max=500 + 750 * upgrades["battery"],
-        energy_regen_milli=1000 + 500 * upgrades["well"],
-        energy_per_second=1 + 0.5 * upgrades["well"],
-        offline_hours=4 + 4 * upgrades["silo"],
+        energy_regen_milli=1000
+        + 500 * upgrades["well"]
+        + 100 * state.get("research", {}).get("garden_notes", 0),
+        energy_per_second=1
+        + 0.5 * upgrades["well"]
+        + 0.1 * state.get("research", {}).get("garden_notes", 0),
+        offline_hours=4
+        + 4 * upgrades["silo"]
+        + 2 * state.get("research", {}).get("soil_calendar", 0),
         delivery_speed=4 * upgrades["logistics"],
         growth_percent=12 + 0.5 * upgrades["seedlab"],
+        trial_material_bonus=upgrades["foundry"],
+        expedition_material_bonus=upgrades["lighthouse"],
         boost=boost,
         boost_seconds=max(0, math.ceil((state["boost_until"] - now_ms) / 1000)),
     )
@@ -451,7 +477,7 @@ def league(earned):
     )
 
 
-class FarmStore:
+class FarmStore(ProgressionMixin):
     def __init__(self, arcade):
         self.arcade = arcade
         with arcade.db() as db:
@@ -500,7 +526,7 @@ class FarmStore:
             if state["daily"]:
                 state["daily"].setdefault("deliveries", 0)
             state["version"] = 2
-            return state
+            return self._progress_defaults(state)
         now = self._now()
         state = dict(
             version=2,
@@ -528,7 +554,7 @@ class FarmStore:
             created=now,
         )
         self._event(db, player, "welcome", 150, "На первые улучшения")
-        return state
+        return self._progress_defaults(state)
 
     def _save(self, db, player, state):
         db.execute(
@@ -694,6 +720,7 @@ class FarmStore:
             "deliveries": state["deliveries"],
             "best_streak": state["best_streak"],
             "income": stats(state, state["last_ms"])["per_hour"],
+            **state["activity_counts"],
             **{key: state["items"][key] for key in ("pond", "railway")},
         }
 
@@ -783,8 +810,20 @@ class FarmStore:
             rewards.append(dict(kind="quest", id="combo", amount=600))
         metrics = self._metrics(state)
         for key, _name, metric, target, reward in BADGES:
-            if key not in state["badges"] and metrics[metric] >= target:
-                rewards.append(dict(kind="badge", id=key, amount=reward))
+            if (
+                key not in state["badges"]
+                and metrics[metric] >= target
+                and level(state["earned"]) >= BADGE_META[key]["unlock"]
+            ):
+                rewards.append(
+                    dict(
+                        kind="badge",
+                        id=key,
+                        amount=reward,
+                        seeds=BADGE_META[key]["seed_reward"],
+                        materials=BADGE_META[key]["material_reward"],
+                    )
+                )
         for key, _name, _text, metric, goal, reward in CHAPTERS:
             if key in state["chapters"]:
                 continue
@@ -794,6 +833,7 @@ class FarmStore:
         order = state["order"]
         if order and state["last_ms"] >= order["finish_at"]:
             rewards.append(dict(kind="order", id=order["id"], amount=order["reward"]))
+        rewards.extend(self._progress_rewards(state))
         return rewards
 
     def _collect(self, db, player, state, rewards):
@@ -813,6 +853,7 @@ class FarmStore:
                 state["order"] = None
                 state["deliveries"] += 1
                 state["daily"]["deliveries"] += 1
+            self._progress_collect(state, reward)
             state["balance"] += reward["amount"]
             if db is not None:
                 self._event(db, player, kind, reward["amount"], key)
@@ -857,8 +898,17 @@ class FarmStore:
                     if item["id"] == "logistics"
                     else ("growth_percent", "Прирост за уровень постройки", "%")
                     if item["id"] == "seedlab"
+                    else ("trial_material_bonus", "Бонус материалов за испытание", "/ испытание")
+                    if item["id"] == "foundry"
+                    else (
+                        "expedition_material_bonus",
+                        "Бонус материалов экспедиции",
+                        "/ экспедицию",
+                    )
+                    if item["id"] == "lighthouse"
                     else ("base_tap", "Ручной сбор без усиления", "/ нажатие")
-                    if item["id"] in ("shovel", "gloves", "tractor", "workshop")
+                    if item["id"]
+                    in ("shovel", "gloves", "tractor", "workshop", "autoshovel", "exosuit")
                     else ("per_hour", "Доход всей фермы", "/ ч")
                 )
                 effect = dict(label=label, unit=unit, current=values[field], next=upgraded[field])
@@ -868,11 +918,18 @@ class FarmStore:
                     **item,
                     "level": count,
                     "cost": price(item, count),
+                    "resource_cost": {
+                        key: item.get(key, 0) * (count + 1) for key in ("seeds", "materials")
+                    },
                     "locked": lv < item["unlock"],
                     "maxed": count >= item["maximum"],
                     "per_hour_gain": upgraded["per_hour"] - values["per_hour"],
                     "per_tap_gain": upgraded["base_tap"] - values["base_tap"],
-                    "affordable": state["balance"] >= price(item, count),
+                    "affordable": state["balance"] >= price(item, count)
+                    and all(
+                        state["resources"][key] >= item.get(key, 0) * (count + 1)
+                        for key in ("seeds", "materials")
+                    ),
                     "effect": effect,
                     "manual_gain_from_income": upgraded["base_tap"] - values["base_tap"]
                     if upgraded["per_hour"] > values["per_hour"]
@@ -901,17 +958,12 @@ class FarmStore:
                     value=metrics[metric],
                     target=target,
                     reward=reward,
-                    ready=metrics[metric] >= target and key not in state["badges"],
+                    ready=metrics[metric] >= target
+                    and key not in state["badges"]
+                    and lv >= BADGE_META[key]["unlock"],
                     claimed=key in state["badges"],
-                    description={
-                        "earned": "Выращено морковок",
-                        "taps": "Нажатия",
-                        "upgrades": "Уровни улучшений",
-                        "passive": "Выросло само",
-                        "variety": "Разных улучшений",
-                        "deliveries": "Заказы соседей",
-                        "best_streak": "Дней подряд",
-                    }[metric],
+                    description=METRIC_LABELS[metric],
+                    **BADGE_META[key],
                 )
             )
         next_day = datetime.fromisoformat(daily["day"]).replace(tzinfo=MOSCOW) + timedelta(days=1)
@@ -941,7 +993,8 @@ class FarmStore:
                 dict(
                     level=n + 1,
                     earned=threshold,
-                    unlocks=[i["name"] for i in ITEMS if i["unlock"] == n + 1],
+                    unlocks=[i["name"] for i in ITEMS if i["unlock"] == n + 1]
+                    + UNLOCKS.get(n + 1, []),
                 )
                 for n, threshold in enumerate(LEVELS)
             ],
@@ -951,6 +1004,8 @@ class FarmStore:
             items=items,
             quests=quests,
             badges=badges,
+            badge_categories=BADGE_CATEGORIES,
+            activities=self._progress_snapshot(state, lv),
             chapters=self._chapters(state),
             orders=self._offers(state),
             neighbors=self._neighbors(state),
@@ -965,9 +1020,9 @@ class FarmStore:
                 total=values["per_hour"],
                 percent=round(income_factor(state["items"]) / 10000 - 100, 2),
                 multipliers=dict(
-                    irrigation=1 + 0.15 * state["items"]["irrigation"],
-                    market=1 + 0.1 * state["items"]["market"],
-                    compost=1 + 0.2 * state["items"]["compost"],
+                    irrigation=1 + 0.07 * state["items"]["irrigation"],
+                    market=1 + 0.05 * state["items"]["market"],
+                    compost=1 + 0.09 * state["items"]["compost"],
                 ),
             ),
             events=events,
@@ -1001,7 +1056,7 @@ class FarmStore:
             return result
 
     def act(self, player, action_id, action, item=None, count=1):
-        if action not in (
+        if action not in PROGRESSION_ACTIONS and action not in (
             "tap",
             "buy",
             "claim_daily",
@@ -1040,14 +1095,29 @@ class FarmStore:
                 }
             now, daily = state["last_ms"], state["daily"]
             result = {"action": action, "amount": 0}
-            if action in ("claim_all", "claim_chapter", "claim_order"):
+            if action in (
+                "claim_all",
+                "claim_chapter",
+                "claim_order",
+                "claim_project",
+                "claim_trial",
+            ):
                 collected = []
                 # A completed order can finish a daily quest or chapter. Collect those too.
                 while True:
                     rewards = self._available(state)
                     if action != "claim_all":
-                        kind = "chapter" if action == "claim_chapter" else "order"
-                        rewards = [r for r in rewards if r["kind"] == kind][:1]
+                        kinds = {
+                            "claim_chapter": ("chapter",),
+                            "claim_order": ("order",),
+                            "claim_project": ("plot", "expedition"),
+                            "claim_trial": ("trial",),
+                        }[action]
+                        rewards = [
+                            r
+                            for r in rewards
+                            if r["kind"] in kinds and (not item or r["id"] == item)
+                        ][:1]
                         if item and rewards and rewards[0]["id"] != item:
                             rewards = []
                     if not rewards:
@@ -1062,6 +1132,11 @@ class FarmStore:
                     amount=sum(r["amount"] for r in collected),
                     rewards=collected,
                     count=len(collected),
+                )
+            elif action in PROGRESSION_ACTIONS:
+                token = hashlib.sha256(f"{player}:{action_id}".encode()).hexdigest()[:32]
+                self._progress_act(
+                    db, player, state, action, item, token, level(state["earned"]), result
                 )
             elif action == "start_order":
                 definition = next((o for o in self._offers(state) if o["id"] == item), None)
@@ -1100,6 +1175,9 @@ class FarmStore:
                 state["earned"] += amount
                 state["manual"] += amount
                 state["taps"] += accepted
+                trial = state["trial"]
+                if trial and now <= trial["finish_at"]:
+                    trial["progress"] = min(trial["goal"], trial["progress"] + accepted)
                 daily["taps"] += accepted
                 daily["manual"] += amount
                 result.update(accepted=accepted, amount=amount)
@@ -1117,7 +1195,16 @@ class FarmStore:
                 cost = price(definition, old_level)
                 if state["balance"] < cost:
                     raise ArcadeError("Пока не хватает морковок.")
-                state["balance"] -= cost
+                self._pay_resources(
+                    state,
+                    {
+                        "cost": cost,
+                        **{
+                            key: definition.get(key, 0) * (old_level + 1)
+                            for key in ("seeds", "materials")
+                        },
+                    },
+                )
                 state["items"][item] += 1
                 daily["upgrades"] += 1
                 if item not in daily["bought"]:
@@ -1158,6 +1245,14 @@ class FarmStore:
                 if not badge or not badge["ready"] or item in state["badges"]:
                     raise ArcadeError("Достижение ещё не открыто или награда уже получена.")
                 state["badges"].append(item)
+                self._progress_collect(
+                    state,
+                    {
+                        "kind": "badge",
+                        "seeds": badge["seed_reward"],
+                        "materials": badge["material_reward"],
+                    },
+                )
                 state["balance"] += badge["reward"]
                 result["amount"] = badge["reward"]
                 self._event(db, player, "badge", badge["reward"], badge["name"])
