@@ -120,10 +120,10 @@ def test_every_game_has_a_playable_route_on_mobile_and_desktop(arcade, width):
     page.set_viewport_size(dict(width=width, height=900))
     for game in arcade_journey.catalogue():
         page.locator(f'.game-card[data-game="{game}"]').click()
+        page.locator("[data-menu-levels]").click()
         hub = page.locator(".journey-hub")
         assert hub.is_visible()
-        assert page.locator(".journey-stop").count() == 4
-        assert page.locator(".journey-chapters button").count() == 6
+        assert page.locator(".journey-stop").count() == 24
         assert page.locator(".journey-stop:not(:disabled)").count() == 1
         assert hub.evaluate("(n)=>n.scrollWidth<=n.clientWidth"), game
         assert page.locator("#gameDialog").evaluate("(n)=>n.scrollWidth<=n.clientWidth"), game
@@ -135,8 +135,9 @@ def test_adventure_starts_real_game_and_saves_result_across_reentry(arcade):
     page, store = arcade
     store.clock = Clock()
     page.locator('.game-card[data-game="debug"]').click()
+    page.locator("[data-menu-levels]").click()
     page.locator('[data-journey-play="1"]').click()
-    page.wait_for_function("document.querySelector('#gameLevel')?.textContent==='Задание 1'")
+    page.wait_for_function("document.querySelector('#gameLevel')?.textContent==='Уровень 1'")
     page.locator(".arcade-countdown").wait_for(state="detached")
     assert page.locator(".journey-tools").is_visible()
     # Read the stored trusted setup to drive correct, actual UI answers.
@@ -167,6 +168,7 @@ def test_adventure_starts_real_game_and_saves_result_across_reentry(arcade):
     page.locator(".game-close").click()
     assert "1/24" in page.locator('.game-card[data-game="debug"]').inner_text()
     page.locator('.game-card[data-game="debug"]').click()
+    page.locator("[data-menu-levels]").click()
     assert page.locator('[data-journey-play="2"]').is_visible()
     assert page.locator(".journey-stop.is-complete").count() == 1
 
@@ -213,6 +215,7 @@ def test_active_tools_have_finite_charges_and_do_not_create_idle_progress(game):
 def test_2048_exchange_is_a_real_two_cell_choice_and_spends_only_after_selection(arcade):
     page, store = arcade
     page.locator('.game-card[data-game="2048"]').click()
+    page.locator("[data-menu-levels]").click()
     page.locator('[data-journey-play="1"]').click()
     page.locator(".arcade-countdown").wait_for(state="detached")
     with store.db() as db:
@@ -285,6 +288,7 @@ def test_adventure_result_can_claim_weekly_ac_through_the_real_interface(arcade)
             )
     page.reload()
     page.locator('.game-card[data-game="debug"]').click()
+    page.locator("[data-menu-levels]").click()
     page.locator('[data-journey-play="10"]').click()
     page.locator(".arcade-countdown").wait_for(state="detached")
     with store.db() as db:

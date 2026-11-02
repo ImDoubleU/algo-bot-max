@@ -132,8 +132,8 @@ def test_mastery_and_arena_controls_fit_and_start_selected_arena(arcade, width):
     page.locator('[data-mode="practice"]').click()
     page.locator('[data-arena="pins"]').click()
     assert page.locator('[data-arena="pins"]').get_attribute("aria-pressed") == "true"
-    assert page.locator(".drop-arena-picker").evaluate("e=>e.scrollWidth<=e.clientWidth")
-    page.locator("[data-skip-guide]").click()
+    assert page.locator(".arcade-arena-grid").evaluate("e=>e.scrollWidth<=e.clientWidth")
+    page.locator("[data-practice-start]").click()
     page.locator(".arcade-countdown").wait_for(state="detached")
     page.locator(".game-stage canvas").wait_for()
     with store.db() as db:

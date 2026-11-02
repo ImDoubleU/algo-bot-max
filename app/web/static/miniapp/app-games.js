@@ -429,21 +429,14 @@
         });
     }
 
-    function openGame(id, tournament = false) {
+    function openGame(id) {
         if (play || window.KopatychFarm?.isOpen) return;
-        if (id === "kopatych" && !tournament && window.KopatychFarm) {
-            void KopatychFarm.open(api, {
-                player: actor().id,
-                settings: profile.settings,
-                onSprint: () => openGame(id, true)
-            });
-            return;
-        }
+        device = matchMedia('(pointer:coarse)').matches ? 'touch' : 'keyboard';
         const g = E.games.find(g => g.id === id),
             d = document.createElement("dialog");
         d.id = "gameDialog";
         d.className = "game-dialog";
-        d.innerHTML = `<header><div><small>ALGO ARCADE</small><h2>${g.name}</h2></div><button class="game-leaders-button" aria-label="Таблица лидеров">🏆</button><button class="game-close" aria-label="Закрыть игру">×</button></header><div class="game-hud"><span>Счёт <b id="gameScore">0</b></span><span id="gameClock"></span><span class="game-level" id="gameLevel">Сложность 1</span><button class="arcade-pause" aria-label="Пауза" hidden>Ⅱ</button></div><div class="arcade-live-goal"><span></span><progress value="0" max="${g.goal}"></progress></div><div class="journey-tools" hidden><div><b></b><small></small></div><button></button></div><div class="game-stage"></div><footer><span id="gameHint"></span><button id="gameFinish" hidden>Завершить</button></footer>`;
+        d.innerHTML = `<header><button class="game-menu-back" aria-label="Меню игры" hidden>←</button><div><h2>${g.name}</h2></div><button class="game-leaders-button" aria-label="Таблица лидеров">🏆</button><button class="game-close" aria-label="Закрыть игру">×</button></header><div class="game-hud"><span>Счёт <b id="gameScore">0</b></span><span id="gameClock"></span><span class="game-level" id="gameLevel">Сложность 1</span><button class="arcade-pause" aria-label="Пауза" hidden>Ⅱ</button></div><div class="arcade-live-goal"><span></span><progress value="0" max="${g.goal}"></progress></div><div class="arcade-learning-tip" role="status" hidden></div><div class="journey-tools" hidden><div><b></b><small></small></div><button></button></div><div class="game-stage"></div><footer><span id="gameHint"></span><button id="gameFinish" hidden>Завершить</button></footer>`;
         const run = {
             g,
             dialog: d,
@@ -463,12 +456,18 @@
             lastCue: 0,
             averageFrame: 16,
             recorded: false,
+            menuScreen: 'menu',
             selectedJourney: profile.journeys?.[id]?.unlocked || 1
         };
         play = run;
         document.body.append(d);
         d.showModal();
         intro(run);
+        $('.game-menu-back', d).onclick = () => {
+            run.menuScreen = 'menu';
+            run.world = null;
+            intro(run);
+        };
         $('.journey-tools button', d).onclick = () => input(run, {
             type: 'power',
             source: run.device
@@ -550,64 +549,62 @@
     }
 
     function intro(run) {
+        cancelAnimationFrame(run.raf);
+        run.viewAbort?.abort();
+        run.phase = 'intro';
         const {
             g,
             dialog: d
-        } = run, seen = profile.settings.tutorials.includes(g.id);
-        $(".game-stage", d).innerHTML = `<div class="game-intro ${g.color}">${art(g.id)}<h3>${g.tag}</h3><p>${g.hint}</p><div class="arcade-mode">${[["ranked","Соревнование"],["practice","Тренировка"]].map(([id,t])=>`<button data-mode="${id}" aria-pressed="${mode===id}">${t}</button>`).join("")}</div><div class="arcade-input">${[["keyboard","Клавиатура / мышь"],["touch","Касания"]].map(([id,t])=>`<button data-input="${id}" aria-pressed="${device===id}">${t}</button>`).join("")}</div><button class="games-main" id="gameStart">${seen?"Начать игру →":"Пробный шаг →"}</button><button class="game-back" data-skip-guide>${seen?"Как играть":"Сразу играть"}</button><small>${mode==="ranked"?"Рейтинг и награды":"Подсказки и обучение · без рейтинга"}</small></div>`;
-        if (ArcadeJourney.specs[g.id]) {
-            const original = $('.game-intro', d);
-            original.classList.add('journey-free-play');
-            original.querySelector('svg')?.remove();
-            original.querySelector('h3').textContent = 'Свободная партия';
-            original.querySelector('p').textContent = g.hint;
-            original.insertAdjacentHTML('beforebegin', ArcadeJourneyView.hub(g.id, profile.journeys?.[g.id], run.selectedJourney));
-        }
-        if (g.id === 'drop') {
-            const chosen = mode === 'ranked' ? 'classic' : (run.arena || 'classic');
-            $('#gameStart', d).insertAdjacentHTML('beforebegin', `<fieldset class="drop-arena-picker"><legend>Арена${mode==='ranked'?' соревнования':''}</legend><div>${ArcadeDrop.arenas.map(a=>`<button data-arena="${a.id}" aria-pressed="${chosen===a.id}" ${mode==='ranked'&&a.id!=='classic'?'disabled':''}><svg viewBox="0 0 100 76" aria-hidden="true"><path d="M5 5V71H95V5"/>${a.lines.map(([ax,ay,bx,by])=>`<path d="M${(ax-12)/336*90+5} ${(ay-79)/337*66+5}L${(bx-12)/336*90+5} ${(by-79)/337*66+5}"/>`).join('')}${a.pins.map(([x,y,r])=>`<circle cx="${(x-12)/336*90+5}" cy="${(y-79)/337*66+5}" r="${r/336*90}"/>`).join('')}</svg><b>${a.name}</b></button>`).join('')}</div><p>${ArcadeDrop.get(chosen).hint}</p>${mode==='ranked'?'<small>Остальные арены — в тренировке и заданиях.</small>':''}</fieldset>`);
-        }
+        } = run, screen = run.menuScreen || 'menu';
+        d.classList.add('is-browsing');
+        d.classList.remove('is-learning');
         $('.game-hud', d).hidden = true;
         $('.arcade-live-goal', d).hidden = true;
-        const chapterNav = $('.journey-chapters', d),
-            selectedChapter = chapterNav?.querySelector('[aria-pressed="true"]');
-        if (selectedChapter) chapterNav.scrollLeft = Math.max(0, selectedChapter.offsetLeft - chapterNav.offsetLeft - (chapterNav.clientWidth - selectedChapter.clientWidth) / 2);
-        $('#gameScore', d).textContent = '0';
-        $('#gameClock', d).textContent = '';
-        $('#gameLevel', d).textContent = 'Сложность 1';
-        $("#gameHint", d).textContent = `Цель недели: ${goal(g.id)}`;
-        $(".game-stage", d).onclick = e => {
-            const b = e.target.closest("button");
-            if (b?.dataset.journeyPlay) {
-                void begin(run, +b.dataset.journeyPlay);
-                return;
-            }
-            if (b?.dataset.journeyStage) {
-                run.selectedJourney = +b.dataset.journeyStage;
+        $('.journey-tools', d).hidden = true;
+        $('.arcade-learning-tip', d).hidden = true;
+        $('footer', d).hidden = true;
+        $('.game-leaders-button', d).hidden = true;
+        $('.game-menu-back', d).hidden = screen === 'menu';
+        const host = $('.game-stage', d);
+        host.innerHTML = screen === 'levels' ? ArcadeMenu.levels(g.id, profile.journeys[g.id], run.selectedJourney) :
+            screen === 'arenas' ? ArcadeMenu.arenas(run.arena || 'classic') : ArcadeMenu.home(g);
+        host.scrollTop = 0;
+        host.onclick = e => {
+            const button = e.target.closest('button');
+            if (!button || button.disabled) return;
+            if (button.hasAttribute('data-menu-levels')) {
+                if (g.id === 'kopatych' && window.KopatychFarm) {
+                    close();
+                    void KopatychFarm.open(api, {
+                        player: actor().id,
+                        settings: profile.settings,
+                        onSprint: () => openGame(g.id)
+                    });
+                } else {
+                    run.menuScreen = 'levels';
+                    intro(run);
+                }
+            } else if (button.hasAttribute('data-menu-learning')) {
+                void tutorial(run);
+            } else if (button.dataset.mode) {
+                mode = button.dataset.mode;
+                if (g.id === 'drop' && mode === 'practice') {
+                    run.menuScreen = 'arenas';
+                    intro(run);
+                } else void begin(run);
+            } else if (button.dataset.journeyPlay) {
+                void begin(run, +button.dataset.journeyPlay);
+            } else if (button.dataset.journeyStage) {
+                run.selectedJourney = +button.dataset.journeyStage;
                 intro(run);
-                return;
-            }
-            if (b?.dataset.journeyChapter !== undefined) {
-                run.selectedJourney = +b.dataset.journeyChapter * 4 + 1;
+            } else if (button.dataset.arena) {
+                run.arena = button.dataset.arena;
                 intro(run);
-                return;
-            }
-            if (b?.dataset.arena) {
-                run.arena = b.dataset.arena;
-                intro(run);
-                return;
-            }
-            if (b?.dataset.mode) {
-                mode = b.dataset.mode;
-                intro(run);
-            }
-            if (b?.dataset.input) {
-                device = b.dataset.input;
-                intro(run);
+            } else if (button.hasAttribute('data-practice-start')) {
+                mode = 'practice';
+                void begin(run);
             }
         };
-        $("#gameStart", d).onclick = () => seen ? begin(run) : tutorial(run);
-        $("[data-skip-guide]", d).onclick = () => seen ? tutorial(run) : begin(run);
     }
 
     function mount(run) {
@@ -632,7 +629,13 @@
         ArcadeJourneyView.tools(run);
     }
     async function tutorial(run) {
+        cancelAnimationFrame(run.raf);
+        run.tutorialActed = false;
         run.phase = "tutorial";
+        run.dialog.classList.remove('is-browsing');
+        run.dialog.classList.add('is-learning');
+        $('.game-menu-back', run.dialog).hidden = false;
+        $('.game-leaders-button', run.dialog).hidden = true;
         run.world = W.create({
             game: run.g.id,
             seed: 41,
@@ -686,7 +689,7 @@
         }
         if (window.ArcadeExtras?.has(w.id)) ArcadeExtras.tutorial(w);
         mount(run);
-        $("#gameHint", run.dialog).textContent = {
+        const instruction = {
             orbit: "Нажми пробел или на поле — кот прыгнет",
             evolve: "Выбери две одинаковые фигурки",
             bugs: "Нажми на фиолетового бага",
@@ -698,6 +701,8 @@
             memory: "Найди одинаковую пару",
             react: "Нажми на зелёный"
         } [w.id] || run.g.tutorial;
+        $('.arcade-learning-tip', run.dialog).hidden = false;
+        $('.arcade-learning-tip', run.dialog).textContent = instruction;
         const frame = () => {
             if (play !== run || run.phase !== "tutorial") return;
             if (run.tutorialActed && ["orbit", "drop", "bubbles"].includes(w.id)) W.advance(w, 1);
@@ -706,7 +711,7 @@
                 run.phase = "intro";
                 const cover = document.createElement("div");
                 cover.className = "game-result";
-                cover.innerHTML = '<span class="result-star">✓</span><h3>Получилось!</h3><p>Теперь можно начать настоящую попытку.</p><button class="games-main">Играть →</button>';
+                cover.innerHTML = '<span class="result-star">✓</span><h3>Получилось!</h3><button class="games-main" data-learning-play>Соревнование</button><button class="game-back" data-learning-menu>В меню</button>';
                 $(".game-stage", run.dialog).append(cover);
                 profile.settings.tutorials = [...new Set([...profile.settings.tutorials, w.id])];
                 api("/settings", {
@@ -717,7 +722,14 @@
                         }
                     }
                 }).catch(() => {});
-                $("button", cover).onclick = () => begin(run);
+                $('[data-learning-play]', cover).onclick = () => {
+                    mode = 'ranked';
+                    void begin(run);
+                };
+                $('[data-learning-menu]', cover).onclick = () => {
+                    run.menuScreen = 'menu';
+                    intro(run);
+                };
                 return;
             }
             run.raf = requestAnimationFrame(frame);
@@ -734,6 +746,12 @@
         cancelAnimationFrame(run.raf);
         run.viewAbort?.abort();
         run.phase = "loading";
+        run.dialog.classList.remove('is-browsing', 'is-learning');
+        $('.arcade-learning-tip', run.dialog).hidden = true;
+        $('.game-menu-back', run.dialog).hidden = true;
+        $('.game-leaders-button', run.dialog).hidden = false;
+        $('footer', run.dialog).hidden = false;
+        $("#gameHint", run.dialog).textContent = `Цель: ${goal(run.g.id)}`;
         $(".game-stage", run.dialog).innerHTML = '<div class="arcade-loading">Готовим партию…</div>';
         const selectedMode = journeyStage ? 'journey' : mode;
         run.oldMastery = profile.mastery;
@@ -923,7 +941,7 @@
         if (run.phase !== "ready") $("#gameClock", d).textContent = (g.seconds || w.id === "typing") ? `${Math.max(0,Math.ceil((g.seconds||60)-w.time))} с` : w.id === "memory" && !w.between ? `${Math.max(0,Math.ceil(w.left))} с` : w.id === "debug" ? `${Math.min(8,w.index+1)} / 8` : `${Math.floor(w.time)} с`;
         if (w.journey) {
             const j = w.journey;
-            $('#gameLevel', d).textContent = 'Задание ' + j.stage;
+            $('#gameLevel', d).textContent = 'Уровень ' + j.stage;
             if (run.phase !== 'ready') {
                 const left = Math.max(0, Math.ceil(j.seconds - w.time));
                 $('#gameClock', d).textContent = left >= 60 ? Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') : left + ' с';
@@ -1014,6 +1032,7 @@
                     run.selectedJourney = report.journey.success ? Math.min(24, report.journey.stage + 1) : report.journey.stage;
                     run.phase = 'intro';
                     run.world = null;
+                    run.menuScreen = 'levels';
                     intro(run);
                 };
                 $('[data-journey-next]', cover).onclick = () => !report.journey.success ? begin(run, report.journey.stage) : report.journey.stage < 24 ? begin(run, report.journey.stage + 1) : map();
