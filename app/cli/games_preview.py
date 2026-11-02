@@ -47,6 +47,7 @@ def inject_games(source: str) -> str:
         '<script src="/miniapp/static/games-sprites.js?v=1"></script>'
         '<script src="/miniapp/static/games-view.js?v=1"></script>'
         '<script src="/miniapp/static/games-extra-view.js?v=1"></script>'
+        '<script src="/miniapp/static/games-farm-art.js?v=1"></script>'
         '<script src="/miniapp/static/games-farm.js?v=1"></script>'
         '<script src="/miniapp/static/app-games.js?v=1"></script>',
         source,
