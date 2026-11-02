@@ -110,7 +110,8 @@
       signature: '',
       returning: null,
       board: null,
-      orderReadyChecked: null
+      orderReadyChecked: null,
+      cancelOrderId: null
     };
     current = f;
     try {
@@ -154,6 +155,7 @@
   function accept(f, s, showOffline = false) {
     if (s.player !== f.player) throw Error('Открой ферму заново под своим аккаунтом.');
     f.snapshot = s;
+    if (f.cancelOrderId !== s.order?.delivery_id) f.cancelOrderId = null;
     f.received = performance.now();
     f.failed = false;
     f.pollAt = performance.now() + 15000;
@@ -291,7 +293,7 @@
       n = s.neighbors;
     return `<div class="farm-orders-heading"><span>${F().item('cart')}</span><div><h3>Соседи ждут урожай</h3><p>Чем сильнее ферма, тем щедрее заказы.</p></div><b>${s.deliveries} выполнено</b></div>
       <div class="farm-neighbor-trust"><span>${icon('leaf')}</span><div><b>${esc(n.name)}</b><small>${n.next?`${n.deliveries} / ${n.next} доставок до следующего ранга`:'Высший ранг доверия'}</small><progress max="${n.next?n.next-n.start:1}" value="${n.next?n.deliveries-n.start:1}"></progress></div><strong>+${n.bonus||5}%<small>${n.bonus?'к прибыли':'за 5 доставок'}</small></strong></div>
-      ${o?`<section class="farm-active-order"><span>${F().item('cart')}</span><div><small data-order-label>В ПУТИ</small><h3>${esc(o.name)}</h3><progress data-order-progress max="${o.seconds}" value="0"></progress><p data-order-clock></p></div><button class="farm-button" data-farm-action="claim_order" data-item="${o.id}">Забрать ${fmt(o.reward)}</button></section>`:''}
+      ${o?`<section class="farm-active-order"><span>${F().item('cart')}</span><div><small data-order-label>В ПУТИ</small><h3>${esc(o.name)}</h3><progress data-order-progress max="${o.seconds}" value="0"></progress><p data-order-clock></p></div><div class="farm-order-actions"><button class="farm-button" data-farm-action="claim_order" data-item="${o.id}">Забрать ${fmt(o.reward)}</button><button class="farm-cancel-order" data-farm-cancel-delivery="${o.delivery_id}">Отменить доставку</button></div>${f.cancelOrderId===o.delivery_id?`<div class="farm-cancel-confirm" role="alertdialog" aria-label="Отменить доставку?"><b>Отменить доставку?</b><p>Вернём ${fmt(o.cost)} морковок. Прибыли и прогресса за заказ не будет.</p><div><button class="farm-small-button" data-farm-keep-delivery>Оставить доставку</button><button class="farm-button" data-farm-action="cancel_order" data-item="${o.delivery_id}">Отменить и вернуть ${fmt(o.cost)}</button></div></div>`:''}</section>`:''}
       <div class="farm-order-options">${s.orders.map(o=>`<section class="farm-order-option farm-contract ${o.portrait} ${s.level<o.unlock?'is-locked':''}"><div class="farm-contract-person"><span>${F().neighbor(o.portrait)}</span><div><small>${esc(o.person)}</small><h4>${esc(o.name)}</h4></div></div><p class="farm-order-request">«${esc(o.request)}»</p><span class="farm-contract-time">${icon('sun')}${o.seconds/60} минут${s.level<o.unlock?' · с уровня '+o.unlock:''}</span><div class="farm-contract-profit"><small>Чистая прибыль</small>${money(o.profit)}<span>Как ${fmt(o.income_minutes)} минут работы фермы${o.bonus?` · бонус +${o.bonus}%`:''}</span></div><div class="farm-order-economy"><div><small>Отправишь</small>${money(o.cost)}</div>${icon('arrow')}<div><small>Получишь</small>${money(o.reward)}</div></div><button class="farm-button" data-farm-action="start_order" data-item="${o.id}" ${s.level<o.unlock||s.order||s.balance<o.cost?'disabled':''}>${s.level<o.unlock?'С уровня '+o.unlock:s.order?'Доставка занята':'Отправить заказ'}</button></section>`).join('')}</div>`;
   }
 
@@ -373,6 +375,7 @@
     $('.farm-active-order', d)?.classList.toggle('is-ready', remaining === 0);
     const orderProgress = $('[data-order-progress]', d);
     if (orderProgress) orderProgress.value = order.seconds - remaining;
+    for (const button of d.querySelectorAll('[data-farm-cancel-delivery], [data-farm-keep-delivery]')) button.disabled = f.busy || f.failed;
     const orderClaim = $('[data-farm-action="claim_order"]', d);
     if (orderClaim) orderClaim.disabled = f.busy || f.failed || remaining > 0;
     const boost = $('[data-farm-action="boost"]', d),
@@ -530,7 +533,8 @@
         if (kind === 'claim_all') {
           f.returning = null;
           status(f, '');
-        } else if (kind === 'start_order') status(f, 'Заказ отправлен');
+        } else if (kind === 'cancel_order') status(f, `Доставка отменена. Вернули ${fmt(f.lastResult.amount)} морковок.`);
+        else if (kind === 'start_order') status(f, 'Заказ отправлен');
         else if (kind === 'claim_order' || kind === 'claim_chapter') status(f, 'Награда в корзинке');
         else if (kind === 'buy') status(f, 'Улучшение куплено');
         else if (kind === 'claim_daily' || kind === 'claim_quest' || kind === 'claim_badge') status(f, 'Морковки уже в корзинке');
@@ -569,6 +573,23 @@
       f.category = b.dataset.farmCategory;
       persistUi(f);
       render(f);
+      return;
+    }
+    if (b.dataset.farmCancelDelivery) {
+      if (f.busy || f.failed) return;
+      f.cancelOrderId = b.dataset.farmCancelDelivery;
+      render(f);
+      $('[data-farm-keep-delivery]', f.dialog)?.focus({
+        preventScroll: true
+      });
+      return;
+    }
+    if (b.hasAttribute('data-farm-keep-delivery')) {
+      f.cancelOrderId = null;
+      render(f);
+      $('[data-farm-cancel-delivery]', f.dialog)?.focus({
+        preventScroll: true
+      });
       return;
     }
     if (b.dataset.farmAction) {

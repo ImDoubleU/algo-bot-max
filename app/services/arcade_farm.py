@@ -429,6 +429,14 @@ class FarmStore:
             state.setdefault("deliveries", 0)
             state.setdefault("order", None)
             state.setdefault("best_streak", state["streak"])
+            if state["order"]:
+                order = state["order"]
+                order.setdefault(
+                    "delivery_id",
+                    hashlib.sha256(
+                        f"{player}:{order['started_at']}:{order['id']}".encode()
+                    ).hexdigest()[:32],
+                )
             if state["daily"]:
                 state["daily"].setdefault("deliveries", 0)
             state["version"] = 2
@@ -942,6 +950,7 @@ class FarmStore:
             "claim_chapter",
             "claim_order",
             "start_order",
+            "cancel_order",
         ):
             raise ArcadeError("Неизвестное действие на ферме.")
         if not isinstance(count, int) or isinstance(count, bool) or not 1 <= count <= 20:
@@ -1002,11 +1011,23 @@ class FarmStore:
                 state["balance"] -= definition["cost"]
                 state["order"] = {
                     **definition,
+                    "delivery_id": hashlib.sha256(f"{player}:{action_id}".encode()).hexdigest()[
+                        :32
+                    ],
                     "started_at": now,
                     "finish_at": now + definition["seconds"] * 1000,
                 }
                 result["amount"] = -definition["cost"]
                 self._event(db, player, "order_start", -definition["cost"], definition["name"])
+            elif action == "cancel_order":
+                order = state["order"]
+                if not order or item != order["delivery_id"]:
+                    raise ArcadeError("Эта доставка уже завершена или отменена. Обнови заказы.")
+                refund = order["cost"]
+                state["balance"] += refund
+                state["order"] = None
+                result.update(amount=refund, delivery_id=item)
+                self._event(db, player, "order_cancel", refund, order["name"])
             elif action == "tap":
                 accepted = min(count, state["tokens_milli"] // 1000, state["energy_milli"] // 1000)
                 amount = accepted * stats(state, now)["per_tap"]

@@ -139,6 +139,74 @@ def test_order_profit_grows_with_income_and_trust_but_started_reward_is_fixed(fa
     assert act(farm, "claim_order", "basket")["result"]["amount"] == 180
 
 
+@pytest.mark.parametrize("elapsed", [0, 600])
+def test_cancel_delivery_refunds_supplies_once_without_profit_or_delivery_progress(farm, elapsed):
+    order = act(farm, "start_order", "basket")["farm"]["order"]
+    farm.arcade.clock.advance(elapsed)
+    before = farm.get("p1")
+    key = str(uuid.uuid4())
+    result = act(farm, "cancel_order", order["delivery_id"], key=key)
+    after = result["farm"]
+    assert result["result"]["amount"] == order["cost"] == 40
+    assert after["balance"] == before["balance"] + 40
+    assert after["earned"] == before["earned"] and after["deliveries"] == 0
+    assert not next(q for q in after["quests"] if q["id"] == "delivery")["ready"]
+    assert not next(b for b in after["badges"] if b["id"] == "orders_1")["ready"]
+    assert after["order"] is None
+    assert act(farm, "cancel_order", order["delivery_id"], key=key)["duplicate"]
+    with pytest.raises(ArcadeError):
+        act(farm, "cancel_order", order["delivery_id"])
+    new = act(farm, "start_order", "basket")["farm"]
+    assert new["order"]["delivery_id"] != order["delivery_id"]
+    # A late acknowledgement or an old confirmation must never cancel the next delivery.
+    duplicate = act(farm, "cancel_order", order["delivery_id"], key=key)
+    assert duplicate["farm"]["order"] == new["order"]
+    assert duplicate["farm"]["balance"] == new["balance"]
+    with pytest.raises(ArcadeError):
+        act(farm, "cancel_order", order["delivery_id"])
+    assert farm.get("p1")["order"] == new["order"]
+    assert farm.arcade.profile("p1")["balance"] == 0
+
+
+def test_existing_delivery_can_be_cancelled_after_restart_at_its_original_cost(farm):
+    order = act(farm, "start_order", "basket")["farm"]["order"]
+    del order["delivery_id"]
+    order["cost"] = 27
+    seed(farm, balance=123, order=order)
+    restarted = FarmStore(ArcadeStore(farm.arcade.path, farm.arcade.clock))
+    token = restarted.get("p1")["order"]["delivery_id"]
+    assert token == restarted.get("p1")["order"]["delivery_id"]
+    other = act(farm, "start_order", "basket", player="p2")["farm"]
+    with pytest.raises(ArcadeError):
+        act(restarted, "cancel_order", token, player="p2")
+    assert farm.get("p2")["balance"] == other["balance"]
+    result = act(restarted, "cancel_order", token)
+    assert result["result"]["amount"] == 27 and result["farm"]["balance"] == 150
+
+
+def test_delivery_collection_and_cancellation_race_can_pay_only_one_result(farm):
+    order = act(farm, "start_order", "basket")["farm"]["order"]
+    farm.arcade.clock.advance(300)
+    before = farm.get("p1")
+
+    def attempt(action):
+        try:
+            return act(farm, action, order["delivery_id"] if action == "cancel_order" else "basket")
+        except ArcadeError:
+            return None
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(attempt, ["cancel_order", "claim_order"] * 2))
+    successes = [r for r in results if r]
+    assert len(successes) == 1
+    amount = successes[0]["result"]["amount"]
+    assert amount in (order["cost"], order["reward"])
+    after = farm.get("p1")
+    assert after["balance"] == before["balance"] + amount
+    assert after["deliveries"] == (1 if amount == order["reward"] else 0)
+    assert after["order"] is None
+
+
 def test_collect_all_clears_ready_badges_and_keeps_them_in_the_collection(farm):
     seed(farm, earned=1200)
     assert next(b for b in farm.get("p1")["badges"] if b["id"] == "first_harvest")["ready"]

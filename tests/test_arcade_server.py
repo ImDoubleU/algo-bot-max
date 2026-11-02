@@ -1098,3 +1098,42 @@ def test_farm_outfit_and_environment_follow_saved_level_and_collected_notices_st
         assert page.locator(".farm-landscape svg").count() == 1
         assert page.locator(".farm-bear svg").count() == 1
         page.locator("[data-farm-close]").click()
+
+
+def test_farm_cancel_delivery_requires_confirmation_and_lost_ack_refunds_once(arcade):
+    from app.services.arcade_farm import FarmStore
+
+    page, store = arcade
+    store.clock = Clock()
+    farm = FarmStore(store)
+    lost = [False]
+
+    def interrupt(r):
+        payload = json.loads(r.request.post_data)
+        if payload["action"] == "cancel_order" and not lost[0]:
+            lost[0] = True
+            farm.act("p1", payload["id"], payload["action"], payload["item"])
+            r.abort("failed")
+        else:
+            r.fallback()
+
+    page.route("http://127.0.0.1:8779/preview/arcade/farm/actions", interrupt)
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator('.farm-tabs [data-farm-tab="tasks"]').click()
+    page.locator('.farm-task-filters [data-task-view="orders"]').click()
+    page.locator('[data-farm-action="start_order"][data-item="basket"]').click()
+    page.locator(".farm-active-order").wait_for()
+    page.locator("[data-farm-cancel-delivery]").click()
+    confirmation = page.get_by_role("alertdialog", name="Отменить доставку?")
+    assert "Вернём 40 морковок" in confirmation.inner_text()
+    page.locator("[data-farm-keep-delivery]").click()
+    assert confirmation.count() == 0 and farm.get("p1")["balance"] == 110
+    assert not lost[0]
+    page.locator("[data-farm-cancel-delivery]").click()
+    page.locator('[data-farm-action="cancel_order"]').click()
+    page.locator(".farm-retry").wait_for()
+    assert farm.get("p1")["balance"] == 150
+    page.locator(".farm-retry").click()
+    page.wait_for_function("!document.querySelector('.farm-active-order')")
+    assert farm.get("p1")["balance"] == 150 and farm.get("p1")["deliveries"] == 0
+    assert page.locator(".farm-cancel-confirm").count() == 0
