@@ -104,7 +104,8 @@
             });
             paint = (w, dt = 0) => {
                 background(c, options.theme);
-                const config = E.difficulty(game, game === "2048" ? Math.max(...w.board) : w.score);
+                const raw = E.difficulty(game, game === "2048" ? Math.max(...w.board) : w.score),
+                    config = w.journey ? ArcadeJourney.difficulty(w, raw) : raw;
                 for (const cue of w.cues.filter(q => q.n > lastCue)) {
                     if (["land", "hit", "merge", "perfect"].includes(cue.type)) sparks.burst(cue.x || 180, cue.y || 300, colors[cue.level || 1], options.quality() === "low" ? 5 : 16);
                     lastCue = cue.n;
@@ -215,10 +216,44 @@
                     for (const b of w.balls) {
                         c.save();
                         c.translate(b.x, b.y);
-                        c.rotate(b.angle);
-                        const grow = 1 - Math.exp(-b.age * 12) * Math.cos(b.age * 20) * .2;
-                        c.scale(grow * (1 + b.squash), grow * (1 - b.squash));
-                        circle(c, 0, 0, b.r, colors[b.level]);
+                        const grow = 1 - Math.exp(-b.age * 12) * Math.cos(b.age * 20) * .14;
+                        if (w.softDrop) {
+                            const q = Math.max(-.10, Math.min(.24, b.squash)),
+                                axis = b.squashAxis ?? Math.PI / 2;
+                            c.rotate(axis);
+                            c.scale(grow * (1 - q), grow / (1 - q));
+                            c.rotate(b.angle - axis);
+                            const gradient = c.createRadialGradient(-b.r * .35, -b.r * .4, 1, 0, 0, b.r * 1.25);
+                            gradient.addColorStop(0, '#fff7ed');
+                            gradient.addColorStop(.32, colors[b.level]);
+                            gradient.addColorStop(1, colors[b.level]);
+                            c.beginPath();
+                            const points = Array.from({
+                                length: 12
+                            }, (_, i) => {
+                                const a = i * Math.PI / 6,
+                                    wiggle = Math.min(.025, Math.abs(b.squashV || 0) * .012) * Math.sin(a * 3 + b.age * 13);
+                                return {
+                                    x: Math.cos(a) * b.r * (1 + wiggle),
+                                    y: Math.sin(a) * b.r * (1 + wiggle)
+                                };
+                            });
+                            c.moveTo((points[11].x + points[0].x) / 2, (points[11].y + points[0].y) / 2);
+                            points.forEach((p, i) => {
+                                const n = points[(i + 1) % 12];
+                                c.quadraticCurveTo(p.x, p.y, (p.x + n.x) / 2, (p.y + n.y) / 2);
+                            });
+                            c.closePath();
+                            c.fillStyle = gradient;
+                            c.fill();
+                            c.strokeStyle = '#ffffff77';
+                            c.lineWidth = 1.4;
+                            c.stroke();
+                        } else {
+                            c.rotate(b.angle);
+                            c.scale(grow * (1 + b.squash), grow * (1 - b.squash));
+                            circle(c, 0, 0, b.r, colors[b.level]);
+                        }
                         S.draw(c, b.level, 0, 0, b.r * 1.4, {
                             ...options,
                             quality: options.quality()
@@ -257,7 +292,8 @@
                         lastCue = cue.n;
                     }
                 }
-                const c = E.difficulty(game, w.merges);
+                const raw = E.difficulty(game, w.merges),
+                    c = w.journey ? ArcadeJourney.difficulty(w, raw) : raw;
                 $("progress", stage).max = c.pairSeconds;
                 $("progress", stage).value = Math.max(0, w.left);
                 $(".evolve-time span", stage).textContent = `${Math.max(0,Math.ceil(w.left))} с`;
@@ -308,6 +344,8 @@
                     field.value = current;
                     field.setSelectionRange(current.length, current.length);
                 }
+                if (w.journey) $('.typing-game>small', stage).textContent = w.journey.chapter >= 4 ? 'Код · английская раскладка' : 'Сообщение · русская раскладка';
+                $('.typing-game', stage).classList.toggle('journey-highlight', !!w.journey && w.journey.powerUntil > w.time);
                 $("#typingAccuracy", stage).textContent = `Точность ${w.details.accuracy}%`;
                 $("#typingSpeed", stage).textContent = `${Math.round(w.score/Math.max(1,w.time)*60)} зн/мин`;
             };
@@ -340,7 +378,7 @@
                 signature = key;
                 const t = w.tasks[w.index],
                     last = w.answers.at(-1);
-                stage.innerHTML = `<div class="debug-game"><div class="debug-progress">Задача ${w.index+1} / 8<span>PYTHON</span></div><h3>${esc(t.intro)}</h3><div class="debug-code">${t.lines.map((line,i)=>`<button data-line="${i}" class="${w.line===i?"selected":""} ${w.mode==="practice"&&w.hintAt===w.index&&i===t.line?"is-hint":""}" ${w.answered?"disabled":""}><span>${i+1}</span><code>${esc(line)}</code></button>`).join("")}</div><p class="debug-instruction">${w.line<0?"Нажми на строку с ошибкой":"Чем заменим строку?"}</p>${w.line>=0?`<div class="debug-options">${t.options.map((option,i)=>`<button data-option="${i}" ${w.answered?"disabled":""}><code>${esc(option)}</code></button>`).join("")}</div>`:""}${w.mode==="practice"&&!w.answered?'<button class="arcade-subtle" data-hint>Подсказка</button>':""}<div class="debug-feedback" role="status">${w.answered?`<b>${last?.ok?"Верно!":"Разберём ошибку"}</b><p>${esc(t.why)}</p><code>${esc(t.options[t.answer])}</code><button class="games-main" data-next>${w.index===7?"Результат":"Дальше →"}</button>`:""}</div></div>`;
+                stage.innerHTML = `<div class="debug-game"><div class="debug-progress">Задача ${w.index+1} / 8<span>PYTHON</span></div><h3>${esc(t.intro)}</h3><div class="debug-code">${t.lines.map((line,i)=>`<button data-line="${i}" class="${w.line===i?"selected":""} ${w.mode==="practice"&&w.hintAt===w.index&&i===t.line?"is-hint":""}" ${w.answered?"disabled":""}><span>${i+1}</span><code>${esc(line)}</code></button>`).join("")}</div><p class="debug-instruction">${w.line<0?"Нажми на строку с ошибкой":"Чем заменим строку?"}</p>${w.line>=0?`<div class="debug-options">${t.options.map((option,i)=>`<button data-option="${i}" ${w.answered||(w.journey?.hintAt===w.index&&w.journey?.hintOption===i)?"disabled":""}><code>${esc(option)}</code></button>`).join("")}</div>`:""}${w.mode==="practice"&&!w.answered?'<button class="arcade-subtle" data-hint>Подсказка</button>':""}<div class="debug-feedback" role="status">${w.answered?`<b>${last?.ok?"Верно!":"Разберём ошибку"}</b><p>${esc(t.why)}</p><code>${esc(t.options[t.answer])}</code><button class="games-main" data-next>${w.index===7?"Результат":"Дальше →"}</button>`:""}</div></div>`;
             };
         }
         if (game === "2048") {
@@ -364,6 +402,10 @@
                 }
             });
             on(grid, "pointerdown", e => {
+                if (grid.querySelector('.can-swap')) {
+                    start = null;
+                    return;
+                }
                 start = {
                     x: e.clientX,
                     y: e.clientY
@@ -382,6 +424,10 @@
             });
             on(stage, "click", e => {
                 const b = e.target.closest("button");
+                if (b?.dataset.numberCell !== undefined) input({
+                    type: 'swap_cell',
+                    i: +b.dataset.numberCell
+                }, e);
                 if (b?.dataset.dir) input({
                     type: "move",
                     dir: b.dataset.dir
@@ -391,7 +437,7 @@
                 }, e);
             });
             update = w => {
-                const key = w.board.join();
+                const key = w.board.join() + ":" + !!w.journey?.swapSelecting + ":" + w.journey?.swapFrom;
                 if (key === signature) return;
                 const old = [...grid.children].slice(0, 16).map(c => ({
                     rect: c.getBoundingClientRect(),
@@ -399,7 +445,7 @@
                     color: getComputedStyle(c).color
                 }));
                 signature = key;
-                grid.innerHTML = w.board.map(v => `<div role="gridcell" class="number-cell n${Math.min(v,2048)}">${v||""}</div>`).join("");
+                grid.innerHTML = w.board.map((v, i) => w.journey ? `<button type="button" data-number-cell="${i}" aria-label="Клетка ${i+1}: ${v||'пусто'}" class="number-cell n${Math.min(v,2048)} ${w.journey.swapSelecting?'can-swap':''} ${w.journey.swapFrom===i?'swap-selected':''}">${v||""}</button>` : `<div role="gridcell" class="number-cell n${Math.min(v,2048)}">${v||""}</div>`).join("");
                 $(".number-points b", stage).textContent = w.points || 0;
                 const cue = w.cues.filter(c => c.type === "slide").at(-1);
                 if (cue && cue.n !== lastCue) {
@@ -458,14 +504,15 @@
                 }, e);
             });
             update = w => {
-                const key = w.cards.join() + ":" + w.opened.join() + ":" + w.matched.join();
+                const peek = !!w.journey && w.journey.revealUntil > w.time;
+                const key = w.cards.join() + ":" + w.opened.join() + ":" + w.matched.join() + ":" + peek;
                 if (key !== signature) {
                     signature = key;
                     const grid = $(".memory-grid", stage);
                     grid.style.gridTemplateColumns = `repeat(${w.cards.length>=20?6:4},minmax(0,1fr))`;
-                    grid.innerHTML = w.cards.map((v, i) => `<button data-card="${i}" class="${w.matched.includes(i)?"matched":w.opened.includes(i)?"flipped":""}" ${w.matched.includes(i)?"disabled":""} aria-label="Карточка ${i+1}">${w.matched.includes(i)||w.opened.includes(i)?"":"✦"}</button>`).join("");
+                    grid.innerHTML = w.cards.map((v, i) => `<button data-card="${i}" class="${w.matched.includes(i)?"matched":(w.opened.includes(i)||peek)?"flipped":""}" ${w.matched.includes(i)?"disabled":""} aria-label="Карточка ${i+1}">${w.matched.includes(i)||w.opened.includes(i)||peek?"":"✦"}</button>`).join("");
                     [...grid.children].forEach((b, i) => {
-                        if (w.matched.includes(i) || w.opened.includes(i)) S.buttonCanvas(b, S.memory[w.cards[i]], options);
+                        if (w.matched.includes(i) || w.opened.includes(i) || peek) S.buttonCanvas(b, S.memory[w.cards[i]], options);
                     });
                 }
                 $(".memory-top span", stage).textContent = `${w.cards.length/2} пар`;
@@ -492,12 +539,13 @@
                 }
             });
             update = w => {
-                const key = w.signal + ":" + w.feedback + ":" + w.hits.length;
+                const decoy = w.journey?.decoy;
+                const key = w.signal + ":" + w.feedback + ":" + w.hits.length + ":" + decoy;
                 if (key === signature) return;
                 signature = key;
-                pad.className = "reaction-pad " + w.signal;
+                pad.className = "reaction-pad " + (decoy ? 'decoy' : w.signal);
                 $(".reaction-symbol", pad).textContent = w.signal === "go" ? "!" : w.signal === "feedback" ? "✓" : "•••";
-                $("b", pad).textContent = w.signal === "go" ? "ЖМИ!" : w.signal === "feedback" ? w.feedback : "Подожди зелёный";
+                $("b", pad).textContent = w.signal === "go" ? "ЖМИ!" : w.signal === "feedback" ? w.feedback : decoy ? 'Пропусти синий' : "Подожди зелёный";
                 $("small", pad).textContent = w.signal === "go" ? `${Math.round(E.difficulty(game,w.score).reactionWindow*1000)} мс на ответ` : `Осталось ошибок: ${3-w.misses}`;
                 const from = Math.floor(Math.min(14, w.hits.length) / 5) * 5;
                 $(".reaction-attempts", stage).innerHTML = Array.from({

@@ -192,7 +192,7 @@
   }
 
   function dealBlocks(w, H) {
-    const choices = shapes.slice(0, Math.min(shapes.length, 8 + w.level));
+    const choices = shapes.slice(0, Math.min(shapes.length, 8 + w.level + (w.journey?.variant===3?3:0)));
     w.pieces = Array.from({
       length: 3
     }, () => H.pick(w, choices).map(a => a.slice()));
@@ -207,9 +207,17 @@
   }
 
   function blocksAvailable(w) {
-    return w.pieces.some(p => p && Array.from({
-      length: 64
-    }, (_, i) => fitsBlock(w, p, i % 8, Math.floor(i / 8))).some(Boolean));
+    return w.pieces.some(piece=>{
+      if(!piece)return false;
+      let p=piece;
+      const turns=w.journey?Math.min(3,w.journey.charges-w.journey.used):0;
+      for(let turn=0;turn<=turns;turn++){
+        if(Array.from({length:64},(_,i)=>fitsBlock(w,p,i%8,Math.floor(i/8))).some(Boolean))return true;
+        const rotated=p.map(([x,y])=>[-y,x]),minX=Math.min(...rotated.map(v=>v[0])),minY=Math.min(...rotated.map(v=>v[1]));
+        p=rotated.map(([x,y])=>[x-minX,y-minY]);
+      }
+      return false;
+    });
   }
 
   function tubeDone(t) {
@@ -229,7 +237,7 @@
   }
 
   function sortRound(w, H) {
-    const count = Math.min(7, 3 + w.score);
+    const count = Math.min(7, 3 + w.score + (w.journey ? Math.floor(w.journey.chapter/2)+(w.journey.variant===2?1:0) : 0));
     w.tubes = Array.from({
       length: count
     }, (_, i) => [i, i, i, i]).concat([
@@ -311,9 +319,9 @@
 
   function bubbleRound(w, H) {
     w.bubbleBoard = Array(88).fill(-1);
-    const rows = Math.min(7, 4 + Math.floor(w.waves / 2));
+    const rows = Math.min(7, 4 + Math.floor(w.waves / 2) + (w.journey?Math.floor(w.journey.chapter/3):0));
     for (let r = 0; r < rows; r++)
-      for (let c = 0; c < 8; c++) w.bubbleBoard[r * 8 + c] = Math.floor(H.random(w) * Math.min(6, 3 + Math.floor(w.waves / 2)));
+      for (let c = 0; c < 8; c++) w.bubbleBoard[r * 8 + c] = Math.floor(H.random(w) * Math.min(6, 3 + Math.floor(w.waves / 2) + (w.journey?.variant===3?1:0)));
     w.currentBubble = bubbleColor(w, H);
     w.nextBubble = bubbleColor(w, H);
     w.bubbleMisses = 0;
@@ -397,7 +405,7 @@
       }
       w.bubbleBoard = Array.from({
         length: 8
-      }, () => Math.floor(H.random(w) * Math.min(6, 3 + Math.floor(w.waves / 2)))).concat(w.bubbleBoard.slice(0, 80));
+      }, () => Math.floor(H.random(w) * Math.min(6, 3 + Math.floor(w.waves / 2) + (w.journey?.variant===3?1:0)))).concat(w.bubbleBoard.slice(0, 80));
       w.bubbleMisses = 0;
       H.emit(w, "ceiling");
     }
@@ -469,10 +477,10 @@
       if (w.time >= 90) H.end(w, "Урожай собран!");
     }
     if (w.id === "runner") {
-      const speed = 155 + Math.min(160, w.score * 4.5);
+      const speed = (155 + Math.min(160, w.score * 4.5)) * (w.journey && w.journey.variant===2 ? 1 + .1*Math.sin(w.time*1.4) : 1);
       w.distance += speed * H.DT;
       if (w.time >= w.spawnAt) {
-        const wide = H.random(w) < Math.min(.45, w.score / 60);
+        const wide = w.journey?.variant===1 || H.random(w) < Math.min(.45, w.score / 60);
         w.obstacles.push({
           id: ++w.runnerNextId,
           x: 390,
@@ -501,7 +509,7 @@
           H.emit(w, "land");
         }
         // Tight triangle hit boxes keep near misses fair.
-        if (o.x + o.width - 5 > 69 && o.x + 5 < 91 && w.runnerY + 22 > 380 - o.height + 8) {
+        if ((!w.journey || w.journey.powerUntil<=w.time) && o.x + o.width - 5 > 69 && o.x + 5 < 91 && w.runnerY + 22 > 380 - o.height + 8) {
           H.emit(w, "miss", {
             x: o.x,
             y: 370
@@ -675,7 +683,7 @@
         H.emit(w, "wordFound", {
           word
         });
-        if (w.roundWords.length >= 8) {
+        if (w.roundWords.length >= Math.min(8,w.wordPack.answers.filter(a=>a.length>=(w.journey?.minimumWord||3)).length)) {
           w.wordRound++;
           if (w.wordRound >= 5) H.end(w, "Пять подборок пройдены!");
           else {
@@ -757,6 +765,7 @@
   }
   window.ArcadeExtras = {
     games,
+    blocksAvailable,
     has: id => ids.has(id),
     difficulty,
     create,

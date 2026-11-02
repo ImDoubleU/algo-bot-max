@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
-from app.services import arcade_runtime
+from app.services import arcade_journey, arcade_runtime
 
 MOSCOW = timezone(timedelta(hours=3))
 SPEED = {"orbit", "bugs", "tower", "typing", "react", "kopatych", "runner", "words"}
@@ -81,6 +81,11 @@ class ArcadeStore:
         self.clock = clock
         with self.db() as db:
             db.executescript("""
+              CREATE TABLE IF NOT EXISTS arcade_journeys(
+                player TEXT NOT NULL REFERENCES arcade_players(id), game TEXT NOT NULL,
+                stage INTEGER NOT NULL, stars INTEGER NOT NULL, score INTEGER NOT NULL,
+                completed REAL NOT NULL, details TEXT NOT NULL,
+                PRIMARY KEY(player,game,stage));
               CREATE TABLE IF NOT EXISTS arcade_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
               CREATE TABLE IF NOT EXISTS arcade_players(id TEXT PRIMARY KEY,name TEXT NOT NULL,
                 group_name TEXT NOT NULL,settings TEXT NOT NULL);
@@ -210,15 +215,23 @@ class ArcadeStore:
             )
         return True
 
-    def session(self, player, game, mode, device):
+    def session(self, player, game, mode, device, stage=None):
         if (
             game not in GAMES
-            or mode not in ("ranked", "practice")
+            or mode not in ("ranked", "practice", "journey")
             or device not in ("keyboard", "touch")
         ):
             raise ArcadeError("Выбери игру и режим заново.")
         with self.db() as db:
             self._player(db, player)
+            if mode != "journey" and stage is not None:
+                raise ArcadeError("Номер задания доступен только в приключении.")
+            try:
+                journey = (
+                    arcade_journey.prepare(db, player, game, stage) if mode == "journey" else None
+                )
+            except ValueError as error:
+                raise ArcadeError(str(error)) from error
             count = db.execute(
                 "SELECT COUNT(*) FROM arcade_sessions WHERE player=? AND created>?",
                 (player, self.clock() - 60),
@@ -251,6 +264,19 @@ class ArcadeStore:
                 if mode == "practice"
                 else "",
             }
+            if game == "drop":
+                setup["dropPhysics"] = 2
+            if journey:
+                setup["journey"] = journey
+                seed = int.from_bytes(
+                    hmac.new(
+                        secret.encode(),
+                        f"journey-v1:{game}:{journey['stage']}".encode(),
+                        hashlib.sha256,
+                    ).digest()[:4],
+                    "big",
+                )
+                setup["seed"] = seed
             session = secrets.token_urlsafe(24)
             db.execute(
                 """INSERT INTO arcade_sessions(id,player,game,mode,device,seed,created,setup)
@@ -382,6 +408,25 @@ class ArcadeStore:
                 ),
             )
             db.execute("UPDATE arcade_sessions SET status='finished' WHERE id=?", (session,))
+            if row["mode"] == "journey" and report.get("journey", {}).get("success"):
+                arcade_journey.record(db, player, row["game"], report, now)
+                if (
+                    report.get("journey", {}).get("success")
+                    and self._qualifies(report)
+                    and week_key(row["created"]) == week_key(now)
+                ):
+                    title = next(
+                        g["name"] for g in arcade_runtime.catalogue() if g["id"] == row["game"]
+                    )
+                    self._award(
+                        db,
+                        player,
+                        "weekly",
+                        week_key(now),
+                        f"weekly:{week_key(now)}:{player}:{row['game']}",
+                        10,
+                        f"{title} · цель недели",
+                    )
             if accepted:
                 game = row["game"]
                 title = next(g["name"] for g in arcade_runtime.catalogue() if g["id"] == game)
@@ -661,17 +706,26 @@ class ArcadeStore:
                             "credited": bool(award and award["credited"] is not None),
                         }
                     )
+            weekly_results = verified + [
+                r
+                for r in rows
+                if r["mode"] == "journey" and r["report"].get("journey", {}).get("success")
+            ]
             goals = {}
             for game, (goal, _) in GAMES.items():
                 award = next(
                     (r for r in awards if r["id"] == f"weekly:{current}:{player}:{game}"), None
                 )
                 score = max(
-                    (r["score"] for r in verified if r["game"] == game and r["week"] == current),
+                    (
+                        r["score"]
+                        for r in weekly_results
+                        if r["game"] == game and r["week"] == current
+                    ),
                     default=0,
                 )
                 goals[game] = {
-                    "score": score,
+                    "score": max(score, goal if award else 0),
                     "target": goal,
                     "eligible": bool(award),
                     "claimed": bool(award and award["claimed"]),
@@ -684,6 +738,7 @@ class ArcadeStore:
                 "nextCap": self._cap(db, next_period),
                 "settings": json.loads(person["settings"]),
                 "best": best,
+                "journeys": arcade_journey.progress(db, player),
                 "goals": goals,
                 "achievements": badges,
                 "awards": awards,

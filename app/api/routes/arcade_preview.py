@@ -16,8 +16,9 @@ class StrictPayload(BaseModel):
 
 
 class NewSession(StrictPayload):
+    stage: int | None = Field(default=None, ge=1, le=24, strict=True)
     game: str = Field(max_length=20)
-    mode: str = Field(pattern="^(ranked|practice)$")
+    mode: str = Field(pattern="^(ranked|practice|journey)$")
     device: str = Field(pattern="^(keyboard|touch)$")
 
 
@@ -95,7 +96,12 @@ def make_router(store: ArcadeStore, authenticate: Callable[[Request], Awaitable[
     async def create(request: Request, payload: NewSession):
         actor = await authenticate(request)
         return await call(
-            store.session, actor["player"], payload.game, payload.mode, payload.device
+            store.session,
+            actor["player"],
+            payload.game,
+            payload.mode,
+            payload.device,
+            payload.stage,
         )
 
     @router.post("/sessions/{session}/clock/{action}")

@@ -218,7 +218,7 @@
 
     function cards() {
         return `<div class="games-filters">${[["all","Все"],["fun","Залипательные"],["skill","С пользой"],["puzzle","Подумать"]].map(([id,name])=>`<button data-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${name}</button>`).join("")}</div><div class="games-grid">${E.games.slice().sort((a,b)=>Number(!!b.fresh)-Number(!!a.fresh)).filter(g=>filter==="all"||g.kind===filter).map(g=>{
-    const q=profile.goals[g.id];return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><div class="game-card-art">${art(g.id)}${g.fresh?'<span class="arcade-new">НОВОЕ</span>':""}<span class="game-reward">${q.claimed?"✓ Получено":q.eligible?"✦ Забрать награду":"✦ 10 AC"}</span></div><div class="game-card-body"><small>${g.tag}</small><h3>${g.name}</h3><div class="game-card-bottom"><span>${g.persistent?"Ферма · свой прогресс":profile.best[g.id]?`Рекорд <b>${profile.best[g.id]}</b>`:`Цель: ${goal(g.id)}`}</span><span class="game-play">↗</span></div></div></button><button class="game-card-leader" data-leader="${g.id}">🏆 ${g.persistent?"Лидеры турнира":"Лидеры"}</button></div>`;
+    const q=profile.goals[g.id];return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><div class="game-card-art">${art(g.id)}${g.fresh?'<span class="arcade-new">НОВОЕ</span>':""}<span class="game-reward">${q.claimed?"✓ Получено":q.eligible?"✦ Забрать награду":"✦ 10 AC"}</span></div><div class="game-card-body"><small>${g.tag}</small><h3>${g.name}</h3><div class="game-card-bottom"><span>${g.persistent?"Ферма · свой прогресс":ArcadeJourney.specs[g.id]?`${profile.journeys[g.id].cleared}/24 заданий · ${profile.journeys[g.id].stars} ★`:profile.best[g.id]?`Рекорд <b>${profile.best[g.id]}</b>`:`Цель: ${goal(g.id)}`}</span><span class="game-play">↗</span></div></div></button><button class="game-card-leader" data-leader="${g.id}">🏆 ${g.persistent?"Лидеры турнира":"Лидеры"}</button></div>`;
   }).join("")}</div>`;
     }
 
@@ -228,7 +228,7 @@
     }
 
     function achievements() {
-        return `<div class="arcade-tier-key"><span>Бронза · уверенный старт</span><span>Серебро · сильный результат</span><span>Золото · мастерство</span></div><div class="games-achievement-grid">${profile.achievements.map(a=>`<article class="game-achievement ${a.unlocked?"unlocked":""}"><span class="achievement-medal ${E.games.find(g=>g.id===a.game).color}">${art(a.game)}<i>${["I","II","III"][a.tier]}</i></span><div><h3>${title(a.game)} · ${["бронза","серебро","золото"][a.tier]}</h3><p>${achievementText(a)}</p><progress max="${a.target}" value="${a.value}"></progress><small>${a.value} / ${a.target}</small></div><button data-claim="${esc(a.id)}" ${!a.unlocked||a.claimed?"disabled":""}>${a.credited?"✓ Получено":a.claimed?"Ждёт лимита":`+${a.reward} AC`}</button></article>`).join("")}</div>`;
+        return ArcadeJourneyView.collection(profile.journeys) + `<div class="arcade-tier-key"><span>Бронза · уверенный старт</span><span>Серебро · сильный результат</span><span>Золото · мастерство</span></div><div class="games-achievement-grid">${profile.achievements.map(a=>`<article class="game-achievement ${a.unlocked?"unlocked":""}"><span class="achievement-medal ${E.games.find(g=>g.id===a.game).color}">${art(a.game)}<i>${["I","II","III"][a.tier]}</i></span><div><h3>${title(a.game)} · ${["бронза","серебро","золото"][a.tier]}</h3><p>${achievementText(a)}</p><progress max="${a.target}" value="${a.value}"></progress><small>${a.value} / ${a.target}</small></div><button data-claim="${esc(a.id)}" ${!a.unlocked||a.claimed?"disabled":""}>${a.credited?"✓ Получено":a.claimed?"Ждёт лимита":`+${a.reward} AC`}</button></article>`).join("")}</div>`;
     }
 
     function rewards() {
@@ -250,7 +250,7 @@
         const pts = rows.map((r, i) => `${20+i*260/Math.max(1,rows.length-1)},${110-r.score/max*85}`).join(" ");
         return `<div class="arcade-progress-heading"><h3>Последние 10 партий</h3><select id="arcadeStatsGame">${E.games.map(g=>`<option value="${g.id}" ${statsGame===g.id?"selected":""}>${g.name}</option>`).join("")}</select></div>
       ${rows.length?`<svg class="arcade-chart" viewBox="0 0 300 135" role="img" aria-label="Результаты от ${rows[0].score} до ${rows.at(-1).score}"><path d="M20 110H280" stroke="#dcd1e9"/><polyline points="${pts}" fill="none" stroke="#9673bc" stroke-width="3" stroke-linejoin="round"/>${rows.map((r,i)=>`<circle cx="${20+i*260/Math.max(1,rows.length-1)}" cy="${110-r.score/max*85}" r="4" fill="#b1cf87"/>`).join("")}<text x="20" y="130" fill="#9b85ac" font-size="9">${rows.length} партий</text></svg>`:'<div class="games-leaders-empty"><h4>Сыграй первую партию</h4><p>Здесь появится твой прогресс.</p></div>'}
-      <div class="games-reward-list">${rows.slice().reverse().map(r=>`<div><span><b>${r.score} ${E.games.find(g=>g.id===r.game).unit}</b><small>${r.mode==="practice"?"Тренировка":r.accepted?"Соревнование":"Незавершённая попытка"} · ${new Date(r.created*1000).toLocaleDateString("ru-RU")} · ${detail(r)}</small></span><button data-replay="${r.id}">Разбор →</button></div>`).join("")}</div>`;
+      <div class="games-reward-list">${rows.slice().reverse().map(r=>`<div><span><b>${r.score} ${E.games.find(g=>g.id===r.game).unit}</b><small>${r.mode==="journey"?`Задание ${r.report.journey.stage} · ${r.report.journey.stars} ★`:r.mode==="practice"?"Тренировка":r.accepted?"Соревнование":"Незавершённая попытка"} · ${new Date(r.created*1000).toLocaleDateString("ru-RU")} · ${detail(r)}</small></span><button data-replay="${r.id}">Разбор →</button></div>`).join("")}</div>`;
     }
 
     function detail(r) {
@@ -420,15 +420,18 @@
     function openGame(id, tournament = false) {
         if (play || window.KopatychFarm?.isOpen) return;
         if (id === "kopatych" && !tournament && window.KopatychFarm) {
-            void KopatychFarm.open(api, {player: actor().id, settings: profile.settings,
-                                        onSprint: () => openGame(id, true)});
+            void KopatychFarm.open(api, {
+                player: actor().id,
+                settings: profile.settings,
+                onSprint: () => openGame(id, true)
+            });
             return;
         }
         const g = E.games.find(g => g.id === id),
             d = document.createElement("dialog");
         d.id = "gameDialog";
         d.className = "game-dialog";
-        d.innerHTML = `<header><div><small>ALGO ARCADE</small><h2>${g.name}</h2></div><button class="game-leaders-button" aria-label="Таблица лидеров">🏆</button><button class="game-close" aria-label="Закрыть игру">×</button></header><div class="game-hud"><span>Счёт <b id="gameScore">0</b></span><span id="gameClock"></span><span class="game-level" id="gameLevel">Ур. 1</span><button class="arcade-pause" aria-label="Пауза" hidden>Ⅱ</button></div><div class="arcade-live-goal"><span></span><progress value="0" max="${g.goal}"></progress></div><div class="game-stage"></div><footer><span id="gameHint"></span><button id="gameFinish" hidden>Завершить</button></footer>`;
+        d.innerHTML = `<header><div><small>ALGO ARCADE</small><h2>${g.name}</h2></div><button class="game-leaders-button" aria-label="Таблица лидеров">🏆</button><button class="game-close" aria-label="Закрыть игру">×</button></header><div class="game-hud"><span>Счёт <b id="gameScore">0</b></span><span id="gameClock"></span><span class="game-level" id="gameLevel">Ур. 1</span><button class="arcade-pause" aria-label="Пауза" hidden>Ⅱ</button></div><div class="arcade-live-goal"><span></span><progress value="0" max="${g.goal}"></progress></div><div class="journey-tools" hidden><div><b></b><small></small></div><button></button></div><div class="game-stage"></div><footer><span id="gameHint"></span><button id="gameFinish" hidden>Завершить</button></footer>`;
         const run = {
             g,
             dialog: d,
@@ -447,12 +450,17 @@
             level: 1,
             lastCue: 0,
             averageFrame: 16,
-            recorded: false
+            recorded: false,
+            selectedJourney: profile.journeys?.[id]?.unlocked || 1
         };
         play = run;
         document.body.append(d);
         d.showModal();
         intro(run);
+        $('.journey-tools button', d).onclick = () => input(run, {
+            type: 'power',
+            source: run.device
+        });
         $(".game-close", d).onclick = () => {
             if (["playing", "ready", "paused"].includes(run.phase)) run.pause(true);
             else close();
@@ -528,9 +536,39 @@
             dialog: d
         } = run, seen = profile.settings.tutorials.includes(g.id);
         $(".game-stage", d).innerHTML = `<div class="game-intro ${g.color}">${art(g.id)}<h3>${g.tag}</h3><p>${g.hint}</p><div class="arcade-mode">${[["ranked","Соревнование"],["practice","Тренировка"]].map(([id,t])=>`<button data-mode="${id}" aria-pressed="${mode===id}">${t}</button>`).join("")}</div><div class="arcade-input">${[["keyboard","Клавиатура / мышь"],["touch","Касания"]].map(([id,t])=>`<button data-input="${id}" aria-pressed="${device===id}">${t}</button>`).join("")}</div><button class="games-main" id="gameStart">${seen?"Начать игру →":"Пробный шаг →"}</button><button class="game-back" data-skip-guide>${seen?"Как играть":"Сразу играть"}</button><small>${mode==="ranked"?"Рейтинг и награды":"Подсказки и обучение · без рейтинга"}</small></div>`;
+        if (ArcadeJourney.specs[g.id]) {
+            const original = $('.game-intro', d);
+            original.classList.add('journey-free-play');
+            original.querySelector('svg')?.remove();
+            original.querySelector('h3').textContent = 'Свободная партия';
+            original.querySelector('p').textContent = g.hint;
+            original.insertAdjacentHTML('beforebegin', ArcadeJourneyView.hub(g.id, profile.journeys?.[g.id], run.selectedJourney));
+        }
+        $('.game-hud', d).hidden = true;
+        $('.arcade-live-goal', d).hidden = true;
+        const chapterNav = $('.journey-chapters', d),
+            selectedChapter = chapterNav?.querySelector('[aria-pressed="true"]');
+        if (selectedChapter) chapterNav.scrollLeft = Math.max(0, selectedChapter.offsetLeft - chapterNav.offsetLeft - (chapterNav.clientWidth - selectedChapter.clientWidth) / 2);
+        $('#gameScore', d).textContent = '0';
+        $('#gameClock', d).textContent = '';
+        $('#gameLevel', d).textContent = 'Ур. 1';
         $("#gameHint", d).textContent = `Цель недели: ${goal(g.id)}`;
         $(".game-stage", d).onclick = e => {
             const b = e.target.closest("button");
+            if (b?.dataset.journeyPlay) {
+                void begin(run, +b.dataset.journeyPlay);
+                return;
+            }
+            if (b?.dataset.journeyStage) {
+                run.selectedJourney = +b.dataset.journeyStage;
+                intro(run);
+                return;
+            }
+            if (b?.dataset.journeyChapter !== undefined) {
+                run.selectedJourney = +b.dataset.journeyChapter * 4 + 1;
+                intro(run);
+                return;
+            }
             if (b?.dataset.mode) {
                 mode = b.dataset.mode;
                 intro(run);
@@ -557,12 +595,13 @@
             signal: run.viewAbort.signal,
             device: run.world.device,
             mode: run.world.mode,
-            skin: profile.settings.skin,
-            theme: profile.settings.theme,
+            skin: run.world.journey ? ['base', 'mint', 'sun', 'nebula', 'mint', 'nebula'][run.world.journey.chapter] : profile.settings.skin,
+            theme: run.world.journey ? ['space', 'forest', 'sunset', 'nebula', 'forest', 'nebula'][run.world.journey.chapter] : profile.settings.theme,
             quality: () => run.quality || "high",
             paused: () => !["playing", "ready", "tutorial"].includes(run.phase)
         });
         run.view.update(run.world, 0);
+        ArcadeJourneyView.tools(run);
     }
     async function tutorial(run) {
         run.phase = "tutorial";
@@ -653,7 +692,7 @@
         };
         frame();
     }
-    async function begin(run) {
+    async function begin(run, journeyStage = null) {
         if (profile.settings.sound) {
             try {
                 run.audio ||= new(window.AudioContext || window.webkitAudioContext)();
@@ -664,13 +703,18 @@
         run.viewAbort?.abort();
         run.phase = "loading";
         $(".game-stage", run.dialog).innerHTML = '<div class="arcade-loading">Готовим партию…</div>';
+        const selectedMode = journeyStage ? 'journey' : mode;
+        if (journeyStage) run.selectedJourney = journeyStage;
         try {
             run.session = await api("/sessions", {
                 method: "POST",
                 body: {
                     game: run.g.id,
-                    mode,
-                    device
+                    mode: selectedMode,
+                    device,
+                    ...(journeyStage ? {
+                        stage: journeyStage
+                    } : {})
                 }
             });
         } catch (error) {
@@ -680,13 +724,20 @@
         }
         if (play !== run) return;
         run.world = W.create(run.session.setup);
-        run.mode = mode;
+        run.mode = selectedMode;
+        run.recorded = false;
+        run.record = null;
+        run.inputQueue = [];
+        run.clockPromise = Promise.resolve();
         run.device = device;
         run.events = [];
         run.frames = [];
         run.playedMs = 0;
         run.lastCue = 0;
         mount(run);
+        $('.game-hud', run.dialog).hidden = false;
+        $('.arcade-live-goal', run.dialog).hidden = false;
+        run.dialog.scrollTop = 0;
         $(".arcade-pause", run.dialog).hidden = false;
         $("#gameFinish", run.dialog).hidden = false;
         run.oldBest = profile.best[run.g.id] || 0;
@@ -747,6 +798,7 @@
         run.events.push(event);
         W.input(run.world, event);
         run.view.update(run.world, 0);
+        hud(run);
     }
 
     function input(run, action) {
@@ -833,6 +885,19 @@
         $("#gameScore", d).textContent = w.score;
         $("#gameLevel", d).textContent = `Ур. ${w.level}`;
         if (run.phase !== "ready") $("#gameClock", d).textContent = (g.seconds || w.id === "typing") ? `${Math.max(0,Math.ceil((g.seconds||60)-w.time))} с` : w.id === "memory" && !w.between ? `${Math.max(0,Math.ceil(w.left))} с` : w.id === "debug" ? `${Math.min(8,w.index+1)} / 8` : `${Math.floor(w.time)} с`;
+        if (w.journey) {
+            const j = w.journey;
+            $('#gameLevel', d).textContent = 'Задание ' + j.stage;
+            if (run.phase !== 'ready') {
+                const left = Math.max(0, Math.ceil(j.seconds - w.time));
+                $('#gameClock', d).textContent = left >= 60 ? Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') : left + ' с';
+            }
+            $('.arcade-live-goal progress', d).max = j.goal;
+            $('.arcade-live-goal progress', d).value = Math.min(j.goal, w.score);
+            $('.arcade-live-goal span', d).textContent = ArcadeJourneyView.labels(j) + (j.moves ? ' · осталось ' + Math.max(0, Math.ceil(j.moves - j.movesUsed)) + ' ходов' : '');
+            ArcadeJourneyView.tools(run);
+            return;
+        }
         const q = profile.goals[g.id],
             next = profile.achievements.filter(a => a.game === g.id && !a.unlocked).sort((a, b) => a.tier - b.tier)[0],
             target = q.claimed && next ? next.target : g.goal;
@@ -885,6 +950,40 @@
             const report = result.run.report || W.report(run.world),
                 q = profile.goals[run.g.id],
                 newBadges = profile.achievements.filter(a => a.unlocked && !run.knownAchievements.has(a.id));
+            if (report.journey) {
+                cover.classList.add('journey-result');
+                cover.innerHTML = ArcadeJourneyView.result(run, report, profile.journeys[run.g.id]);
+                if (q.eligible && !q.claimed) {
+                    $('[data-journey-next]', cover).insertAdjacentHTML('beforebegin', '<button class="game-claim-result" data-journey-claim>Забрать 10 AC</button>');
+                    $('[data-journey-claim]', cover).onclick = async e => {
+                        const button = e.currentTarget;
+                        button.disabled = true;
+                        try {
+                            profile = await api('/claims', {
+                                method: 'POST',
+                                body: {
+                                    id: q.id
+                                }
+                            });
+                            button.textContent = '✓ Награда сохранена';
+                        } catch (error) {
+                            toast(error.message);
+                            button.disabled = false;
+                        }
+                    };
+                }
+                $('.journey-tools', run.dialog).hidden = true;
+                const map = () => {
+                    run.selectedJourney = report.journey.success ? Math.min(24, report.journey.stage + 1) : report.journey.stage;
+                    run.phase = 'intro';
+                    run.world = null;
+                    intro(run);
+                };
+                $('[data-journey-next]', cover).onclick = () => !report.journey.success ? begin(run, report.journey.stage) : report.journey.stage < 24 ? begin(run, report.journey.stage + 1) : map();
+                $('[data-journey-retry]', cover)?.addEventListener('click', () => begin(run, report.journey.stage));
+                $('[data-journey-map]', cover)?.addEventListener('click', map);
+                return;
+            }
             const record = report.score > run.oldBest,
                 board = await boardData(run.g.id, "week", run.device),
                 rank = board.rows.find(r => r.player === actor().id)?.rank;
@@ -985,6 +1084,7 @@
     }
 
     function close() {
+        const refreshCards=!!play?.recorded;
         window.KopatychFarm?.close();
         if (play) {
             cancelAnimationFrame(play.raf);
@@ -994,6 +1094,7 @@
             play = null;
         }
         $("#gamesLeaderDialog")?.remove();
+        if(refreshCards&&profile&&state.view==='games'&&!document.hidden)draw();
     }
     window.addEventListener("scroll", () => {
         if (state.view !== "games" || play) return;

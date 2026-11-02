@@ -154,6 +154,7 @@
             weak: String(setup.weak || "").slice(0, 10),
             badKeys: {}
         };
+        if (w.mode === "journey") w.journey = ArcadeJourney.config(setup);
         if (w.id === "orbit") Object.assign(w, {
             angle: -Math.PI / 2,
             flight: 0,
@@ -216,6 +217,7 @@
         }
         if (w.id === "drop") Object.assign(w, {
             balls: [],
+            softDrop: setup.dropPhysics === 2 || w.mode === 'journey',
             aim: 180,
             queue: [0, Math.floor(range(w, 0, 3)), Math.floor(range(w, 0, 3))],
             cool: 0,
@@ -244,12 +246,14 @@
         });
         ensureText(w);
         if (window.ArcadeExtras?.has(w.id)) ArcadeExtras.create(w, helpers());
+        if (w.journey) ArcadeJourney.create(w, helpers());
         return w;
     }
 
     function progress(w) {
         const p = w.id === "evolve" ? w.merges : w.id === "debug" ? w.index : w.id === "2048" ? Math.max(...w.board) : w.id === "memory" ? w.cleared : w.score;
-        const c = E.difficulty(w.id, p);
+        const base = E.difficulty(w.id, p),
+            c = w.journey ? ArcadeJourney.difficulty(w, base) : base;
         if (c.level > w.level) {
             w.level = c.level;
             emit(w, "level", {
@@ -299,6 +303,7 @@
     const rad = [13, 18, 24, 31, 39, 48, 59, 72];
 
     function dropPhysics(w, dt, c) {
+        if (w.softDrop) return softDropPhysics(w, dt, c);
         w.cool = Math.max(0, w.cool - dt);
         for (const b of w.balls) {
             b.age += dt;
@@ -389,6 +394,146 @@
         const high = w.balls.some(b => b.age > 2 && b.y - b.r < c.dangerLine && Math.abs(b.vy) < 45);
         w.danger = high ? w.danger + dt : Math.max(0, w.danger - dt * 2);
         if (w.danger > 2.5) end(w, "Поле заполнено выше линии");
+    }
+
+    function softRadius(b, nx, ny) {
+        const q = Math.max(-.10, Math.min(.24, b.squash || 0)),
+            axis = b.squashAxis ?? Math.PI / 2,
+            along = nx * Math.cos(axis) + ny * Math.sin(axis),
+            cross = -nx * Math.sin(axis) + ny * Math.cos(axis),
+            parallel = 1 - q,
+            perpendicular = 1 / parallel;
+        return b.r / Math.sqrt(along * along / (parallel * parallel) + cross * cross / (perpendicular * perpendicular));
+    }
+
+    function pressSoft(b, load, axis) {
+        b.softLoad = Math.max(b.softLoad || 0, Math.min(.23, load));
+        const old = b.squashAxis ?? axis,
+            delta = Math.atan2(Math.sin(2 * (axis - old)), Math.cos(2 * (axis - old))) / 2;
+        b.squashAxis = old + delta * .22;
+    }
+
+    function softDropPhysics(w, dt, c) {
+        w.cool = Math.max(0, w.cool - dt);
+        for (const b of w.balls) {
+            b.age += dt;
+            b.softLoad = 0;
+            b.squashAxis ??= Math.PI / 2;
+            b.squashV ??= 0;
+            b.vy += c.gravity * dt;
+            b.vx *= Math.exp(-.7 * dt);
+            b.x += b.vx * dt;
+            b.y += b.vy * dt;
+            b.angle += b.spin * dt;
+            b.spin *= Math.exp(-1.1 * dt);
+            const rx = softRadius(b, 1, 0),
+                ry = softRadius(b, 0, 1);
+            if (b.x - rx < 12) {
+                const speed = Math.abs(b.vx);
+                b.x = 12 + rx;
+                b.vx = speed * .22;
+                pressSoft(b, .025 + speed / 1900, 0);
+            }
+            if (b.x + rx > 348) {
+                const speed = Math.abs(b.vx);
+                b.x = 348 - rx;
+                b.vx = -speed * .22;
+                pressSoft(b, .025 + speed / 1900, 0);
+            }
+            if (b.y + ry > 416) {
+                const speed = Math.abs(b.vy);
+                b.y = 416 - ry;
+                b.vy = -speed * .19;
+                b.vx *= .975;
+                if (Math.abs(b.vy) < 11) b.vy = 0;
+                pressSoft(b, .045 + speed / 1700, Math.PI / 2);
+                if (speed > 80) b.squashV += Math.min(5, speed / 150);
+            }
+        }
+        for (let pass = 0; pass < 5; pass++)
+            for (let i = 0; i < w.balls.length; i++)
+                for (let j = i + 1; j < w.balls.length; j++) {
+                    const a = w.balls[i],
+                        b = w.balls[j],
+                        dx = b.x - a.x,
+                        dy = b.y - a.y,
+                        d = Math.hypot(dx, dy),
+                        nx = d > .001 ? dx / d : 1,
+                        ny = d > .001 ? dy / d : 0,
+                        sum = softRadius(a, nx, ny) + softRadius(b, nx, ny);
+                    if (d >= sum) continue;
+                    if (a.level === b.level) {
+                        const next = Math.min(7, a.level + 1);
+                        w.balls[i] = {
+                            id: ++w.nextId,
+                            x: (a.x + b.x) / 2,
+                            y: (a.y + b.y) / 2,
+                            r: rad[next],
+                            level: next,
+                            vx: (a.vx + b.vx) / 2,
+                            vy: -45,
+                            age: 0,
+                            angle: 0,
+                            spin: (a.spin + b.spin) / 2 + .3,
+                            squash: .16,
+                            squashV: -.5,
+                            squashAxis: Math.PI / 2,
+                            softLoad: 0
+                        };
+                        w.balls.splice(j, 1);
+                        w.score += 2 ** (next + 1);
+                        emit(w, 'merge', {
+                            x: w.balls[i].x,
+                            y: w.balls[i].y,
+                            level: next
+                        });
+                        break;
+                    }
+                    const overlap = sum - Math.max(d, .001),
+                        ia = 1 / (a.r * a.r),
+                        ib = 1 / (b.r * b.r),
+                        inv = ia + ib,
+                        correction = Math.max(0, overlap - sum * .025) * .68,
+                        rel = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+                    a.x -= nx * correction * ia / inv;
+                    a.y -= ny * correction * ia / inv;
+                    b.x += nx * correction * ib / inv;
+                    b.y += ny * correction * ib / inv;
+                    const axis = Math.atan2(ny, nx),
+                        load = .025 + overlap / sum * .6 + Math.max(0, -rel) / 2300;
+                    pressSoft(a, load * ib / inv * 1.6, axis);
+                    pressSoft(b, load * ia / inv * 1.6, axis);
+                    if (rel < 0) {
+                        const impulse = -rel * 1.17 / inv;
+                        a.vx -= impulse * nx * ia;
+                        a.vy -= impulse * ny * ia;
+                        b.vx += impulse * nx * ib;
+                        b.vy += impulse * ny * ib;
+                        const tangent = (b.vx - a.vx) * -ny + (b.vy - a.vy) * nx;
+                        a.spin += tangent / a.r * .012;
+                        b.spin -= tangent / b.r * .012;
+                        if (rel < -60) {
+                            a.squashV += Math.min(2.5, -rel / 280);
+                            b.squashV += Math.min(2.5, -rel / 280);
+                        }
+                    }
+                }
+        for (const b of w.balls) {
+            const target = Math.min(.22, b.softLoad || 0);
+            b.squashV += ((target - b.squash) * 190 - b.squashV * 13) * dt;
+            b.squash += b.squashV * dt;
+            if (b.squash < -.10 || b.squash > .24) {
+                b.squash = Math.max(-.10, Math.min(.24, b.squash));
+                b.squashV *= .3;
+            }
+            const rx = softRadius(b, 1, 0),
+                ry = softRadius(b, 0, 1);
+            b.x = Math.max(12 + rx, Math.min(348 - rx, b.x));
+            b.y = Math.min(416 - ry, b.y);
+        }
+        const high = w.balls.some(b => b.age > 2 && b.y - softRadius(b, 0, 1) < c.dangerLine && Math.abs(b.vy) < 45);
+        w.danger = high ? w.danger + dt : Math.max(0, w.danger - dt * 2);
+        if (w.danger > 2.5) end(w, 'Поле заполнено выше линии');
     }
 
     function step(w) {
@@ -497,10 +642,32 @@
         }
         if (window.ArcadeExtras?.has(w.id)) ArcadeExtras.step(w, helpers());
         w.rankScore = w.id === "2048" ? w.points || 0 : w.score;
+        if (w.journey) ArcadeJourney.step(w, helpers());
         if (w.tick >= MAX_TICKS) end(w, "Партия завершена");
     }
 
     function input(w, a) {
+        if (w.ended) return false;
+        if (!w.journey) return baseInput(w, a);
+        if (a.type === "power") return ArcadeJourney.power(w, helpers());
+        if (a.type === "swap_cell") return ArcadeJourney.swap(w, a.i, helpers());
+        if (w.id === "2048" && w.journey.swapSelecting && a.type === "move") return false;
+        if (w.id === "tower" && a.type === "tap" && w.journey.magnet) {
+            w.left = w.blocks.at(-1).left;
+            w.journey.magnet = false;
+        }
+        if (w.id === "words" && a.type === "word" && typeof a.value === "string" && a.value.trim().length < w.journey.minimumWord) {
+            w.wordFeedback = "В этом задании нужны слова от " + w.journey.minimumWord + " букв";
+            w.journey.mistakes++;
+            return false;
+        }
+        const before = ArcadeJourney.measure(w),
+            accepted = baseInput(w, a);
+        ArcadeJourney.after(w, a, before, accepted, helpers());
+        return accepted;
+    }
+
+    function baseInput(w, a) {
         if (w.ended) return false;
         const c = progress(w);
         if (window.ArcadeExtras?.has(w.id)) return ArcadeExtras.input(w, a, helpers());
@@ -717,7 +884,12 @@
                 age: 0,
                 angle: range(w, -.2, .2),
                 spin: range(w, -.7, .7),
-                squash: 0
+                squash: 0,
+                ...(w.softDrop ? {
+                    squashV: 0,
+                    squashAxis: Math.PI / 2,
+                    softLoad: 0
+                } : {})
             });
             w.cool = .55;
             return true;
@@ -790,9 +962,15 @@
                 ...w.details,
                 result: w.score,
                 timeMs: Math.round(w.time * 1000),
-                bestCombo: w.bestCombo || 0
+                bestCombo: w.bestCombo || 0,
+                ...(w.id === 'drop' && w.softDrop ? {
+                    physics: 'soft2'
+                } : {})
             },
-            badKeys: w.badKeys
+            badKeys: w.badKeys,
+            ...(w.journey ? {
+                journey: ArcadeJourney.summary(w)
+            } : {})
         };
     }
 
@@ -810,8 +988,18 @@
         advance(w, Math.max(0, finalTick - w.tick));
         return report(w);
     }
+
     function helpers() {
-        return {random, range, pick, shuffled, emit, end, progress, DT};
+        return {
+            random,
+            range,
+            pick,
+            shuffled,
+            emit,
+            end,
+            progress,
+            DT
+        };
     }
     window.ArcadeWorld = {
         create,
