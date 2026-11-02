@@ -14,7 +14,8 @@ def inject_games(source: str) -> str:
         '<link rel="stylesheet" href="/miniapp/static/games.css?v=1" />'
         '<link rel="stylesheet" href="/miniapp/static/games-extra.css?v=1" />'
         '<link rel="stylesheet" href="/miniapp/static/games-farm.css?v=2" />'
-        '<link rel="stylesheet" href="/miniapp/static/games-journey.css?v=2" />'
+        '<link rel="stylesheet" href="/miniapp/static/games-journey.css?v=3" />'
+        '<link rel="stylesheet" href="/miniapp/static/games-mastery.css?v=2" />'
         '<link rel="stylesheet" href="/miniapp/static/games-farm-journal.css?v=4" /></head>',
     )
     source = source.replace(
@@ -46,14 +47,15 @@ def inject_games(source: str) -> str:
         '<script src="/miniapp/static/games-motion.js?v=1"></script>'
         '<script src="/miniapp/static/games-art.js?v=1"></script>'
         '<script src="/miniapp/static/games-journey.js?v=2"></script>'
-        '<script src="/miniapp/static/games-world.js?v=4"></script>'
+        '<script src="/miniapp/static/games-drop.js?v=1"></script>'
+        '<script src="/miniapp/static/games-world.js?v=5"></script>'
         '<script src="/miniapp/static/games-sprites.js?v=1"></script>'
-        '<script src="/miniapp/static/games-view.js?v=3"></script>'
+        '<script src="/miniapp/static/games-view.js?v=4"></script>'
         '<script src="/miniapp/static/games-extra-view.js?v=1"></script>'
         '<script src="/miniapp/static/games-farm-art.js?v=2"></script>'
         '<script src="/miniapp/static/games-farm.js?v=4"></script>'
-        '<script src="/miniapp/static/games-journey-view.js?v=2"></script>'
-        '<script src="/miniapp/static/app-games.js?v=3"></script>',
+        '<script src="/miniapp/static/games-journey-view.js?v=3"></script>'
+        '<script src="/miniapp/static/app-games.js?v=5"></script>',
         source,
         count=1,
     )

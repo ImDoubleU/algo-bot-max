@@ -158,6 +158,9 @@ def test_adventure_starts_real_game_and_saves_result_across_reentry(arcade):
             page.locator("[data-next]").click()
     page.locator(".journey-result").wait_for()
     assert "Готово!" in page.locator(".journey-result").inner_text()
+    xp = store.profile("p1")["mastery"]["xp"]
+    assert xp >= 100
+    assert f"+{xp} XP" in page.locator(".arcade-mastery-gain").inner_text()
     assert store.profile("p1")["journeys"]["debug"]["unlocked"] == 2
     page.locator("[data-journey-map]").click()
     assert page.locator('[data-journey-play="2"]').is_visible()
@@ -233,8 +236,8 @@ def test_2048_exchange_is_a_real_two_cell_choice_and_spends_only_after_selection
 
 def test_soft_drop_is_selected_by_server_and_bad_session_parameters_are_rejected(store):
     session = store.session("p1", "drop", "ranked", "keyboard")
-    assert session["setup"]["dropPhysics"] == 2
-    assert arcade_runtime.verify(session["setup"], [], 1)["details"]["physics"] == "soft2"
+    assert session["setup"]["dropPhysics"] == 3
+    assert arcade_runtime.verify(session["setup"], [], 1)["details"]["physics"] == "soft3"
     for stage in (True, 0, 25, -1):
         with pytest.raises(ArcadeError):
             store.session("p1", "debug", "journey", "keyboard", stage)

@@ -16,6 +16,7 @@ class StrictPayload(BaseModel):
 
 
 class NewSession(StrictPayload):
+    arena: str | None = Field(default=None, max_length=20)
     stage: int | None = Field(default=None, ge=1, le=24, strict=True)
     game: str = Field(max_length=20)
     mode: str = Field(pattern="^(ranked|practice|journey)$")
@@ -102,6 +103,7 @@ def make_router(store: ArcadeStore, authenticate: Callable[[Request], Awaitable[
             payload.mode,
             payload.device,
             payload.stage,
+            payload.arena,
         )
 
     @router.post("/sessions/{session}/clock/{action}")

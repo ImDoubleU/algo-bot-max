@@ -217,7 +217,9 @@
         }
         if (w.id === "drop") Object.assign(w, {
             balls: [],
-            softDrop: setup.dropPhysics === 2 || w.mode === 'journey',
+            softDrop: setup.dropPhysics >= 2 || w.mode === 'journey',
+            dropPhysics: setup.dropPhysics || (w.mode === 'journey' ? 2 : 1),
+            arena: setup.dropPhysics === 3 ? (w.mode === 'journey' ? ArcadeDrop.chapter(setup.journey.stage) : ArcadeDrop.get(setup.arena).id) : 'classic',
             aim: 180,
             queue: [0, Math.floor(range(w, 0, 3)), Math.floor(range(w, 0, 3))],
             cool: 0,
@@ -414,6 +416,7 @@
     }
 
     function softDropPhysics(w, dt, c) {
+        const rolling = w.dropPhysics === 3;
         w.cool = Math.max(0, w.cool - dt);
         for (const b of w.balls) {
             b.age += dt;
@@ -445,10 +448,12 @@
                 b.y = 416 - ry;
                 b.vy = -speed * .19;
                 b.vx *= .975;
+                if (rolling) ArcadeDrop.friction(b, 0, -1, speed * 1.19 + c.gravity * dt);
                 if (Math.abs(b.vy) < 11) b.vy = 0;
                 pressSoft(b, .045 + speed / 1700, Math.PI / 2);
                 if (speed > 80) b.squashV += Math.min(5, speed / 150);
             }
+            if (rolling) ArcadeDrop.collide(w, b, softRadius, pressSoft);
         }
         for (let pass = 0; pass < 5; pass++)
             for (let i = 0; i < w.balls.length; i++)
@@ -510,8 +515,19 @@
                         b.vx += impulse * nx * ib;
                         b.vy += impulse * ny * ib;
                         const tangent = (b.vx - a.vx) * -ny + (b.vy - a.vy) * nx;
-                        a.spin += tangent / a.r * .012;
-                        b.spin -= tangent / b.r * .012;
+                        if (rolling) {
+                            const slip = tangent - a.spin * a.r - b.spin * b.r;
+                            const friction = Math.max(-impulse * .22, Math.min(impulse * .22, -slip / (inv * 3)));
+                            a.vx -= friction * -ny * ia;
+                            a.vy -= friction * nx * ia;
+                            b.vx += friction * -ny * ib;
+                            b.vy += friction * nx * ib;
+                            a.spin -= 2 * friction * ia / a.r;
+                            b.spin -= 2 * friction * ib / b.r;
+                        } else {
+                            a.spin += tangent / a.r * .012;
+                            b.spin -= tangent / b.r * .012;
+                        }
                         if (rel < -60) {
                             a.squashV += Math.min(2.5, -rel / 280);
                             b.squashV += Math.min(2.5, -rel / 280);
@@ -530,6 +546,10 @@
                 ry = softRadius(b, 0, 1);
             b.x = Math.max(12 + rx, Math.min(348 - rx, b.x));
             b.y = Math.min(416 - ry, b.y);
+            if (rolling) {
+                ArcadeDrop.collide(w, b, softRadius, pressSoft);
+                b.spin = Math.max(-18, Math.min(18, b.spin));
+            }
         }
         const high = w.balls.some(b => b.age > 2 && b.y - softRadius(b, 0, 1) < c.dangerLine && Math.abs(b.vy) < 45);
         w.danger = high ? w.danger + dt : Math.max(0, w.danger - dt * 2);
@@ -879,7 +899,7 @@
                 y: 45,
                 r,
                 level,
-                vx: 0,
+                vx: w.dropPhysics === 3 ? range(w, -5, 5) : 0,
                 vy: 0,
                 age: 0,
                 angle: range(w, -.2, .2),
@@ -964,7 +984,10 @@
                 timeMs: Math.round(w.time * 1000),
                 bestCombo: w.bestCombo || 0,
                 ...(w.id === 'drop' && w.softDrop ? {
-                    physics: 'soft2'
+                    physics: w.dropPhysics === 3 ? 'soft3' : 'soft2',
+                    ...(w.dropPhysics === 3 ? {
+                        arena: w.arena
+                    } : {})
                 } : {})
             },
             badKeys: w.badKeys,

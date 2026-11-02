@@ -193,6 +193,7 @@
                             sum = b.r + r;
                         if (Math.abs(dx) < sum) y = Math.min(y, b.y - Math.sqrt(sum * sum - dx * dx));
                     }
+                    if (w.dropPhysics === 3) y = ArcadeDrop.preview(w, x, r);
                     c.globalAlpha = .18;
                     circle(c, x, Math.max(45, y), r, colors[w.queue[0]]);
                     c.globalAlpha = 1;
@@ -207,6 +208,7 @@
                     c.strokeStyle = "#5c4e72";
                     c.lineWidth = 3;
                     c.strokeRect(11, 79, 338, 338);
+                    if (w.dropPhysics === 3) ArcadeDrop.draw(c, w.arena);
                     S.draw(c, w.queue[0], x, 38, r * 1.7, {
                         ...options,
                         quality: options.quality()

@@ -149,6 +149,17 @@
         draw();
     }
 
+    function masteryMarkup(detailed = false) {
+        const m = profile.mastery,
+            c = profile.competition;
+        if (!m || !c) return '';
+        const progress = m.next ? m.xp - m.floor : 1,
+            total = m.next ? m.next - m.floor : 1;
+        const tier = c.league,
+            next = m.nextTitle;
+        return `${detailed?'':`<section class="arcade-passport"><div class="arcade-passport-skill"><span class="arcade-level-seal"><b>${m.level}</b><small>УРОВЕНЬ</small></span><div><small class="arcade-passport-label">ТВОЁ МАСТЕРСТВО</small><h2>${esc(m.title)}</h2><div class="arcade-xp-line"><progress aria-label="Опыт до следующего уровня" value="${progress}" max="${total}"></progress><span>${m.next?`${progress} / ${total} XP`:'Максимальный уровень'}</span></div><small>${m.next?`${m.next-m.xp} XP до уровня ${m.level+1}`:'Все 50 уровней открыты'}</small></div></div><div class="arcade-passport-league"><small class="arcade-passport-label">РАНГ НЕДЕЛИ</small><h3>${esc(tier.name)} <span>${c.rank?'#'+c.rank:''}</span></h3><p>${c.score} очков · ${c.games} игр</p><small>${tier.remainingGames?`Ещё ${tier.remainingGames} игры до ранга`:tier.next?`${Math.max(0,tier.next-c.score)} очков до следующего ранга`:'Высшая лига'}</small><button data-tab="leaders">К рейтингу →</button></div></section>`}${detailed?`<section class="arcade-mastery-rules"><h3>Как растёт мастерство</h3><div><p><b>+100 XP</b> за первое прохождение задания</p><p><b>+25 XP</b> за каждую дополнительную звезду</p><p><b>+100 / 200 / 300 XP</b> за бронзовую, серебряную и золотую медали</p></div><p>${next?`Следующее звание: <b>${esc(next.name)}</b> — уровень ${next.level} и первая глава или медаль в ${next.games} играх. Сейчас освоено: ${m.breadth}.`:'Звание «Легенда» открыто.'}</p><small>Повторы без улучшения звёзд не добавляют опыт. Мастерство сохраняется, ранг пересчитывается каждую неделю. Уровень не даёт преимуществ в соревнованиях.</small></section>`:''}`;
+    }
+
     function nextDeadline() {
         const d = new Date(profile.week + "T00:00:00+03:00");
         d.setUTCDate(d.getUTCDate() + 7);
@@ -178,7 +189,7 @@
         }
         const earned = Object.values(profile.goals).filter(g => g.claimed).length;
         root.innerHTML = `<div class="games-heading"><div><div class="games-wordmark">${art("arcade")}<span class="games-eyebrow">ALGO ARCADE</span></div><h1>Игры</h1></div><div class="arcade-account"><label class="games-player-picker">Игрок демки<select id="gamesPlayer">${actors.map(p=>`<option value="${esc(p.id)}" ${p.id===actor().id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></label><button class="arcade-settings" aria-label="Настройки игр" data-settings>⚙</button></div></div>
-      <section class="games-hero"><div class="games-hero-copy"><span class="games-season">ALGO ARCADE · НЕДЕЛЬНОЕ ИСПЫТАНИЕ</span><h2>Твой навык.<br><em>Твой рекорд.</em></h2><p>Тренируйся, соревнуйся и открывай новые образы.</p><button data-game="orbit" class="games-main">Полетели ↗</button></div><div class="games-hero-art">${art("orbit")}</div></section>
+      ${masteryMarkup()}
       <div class="games-weekbar"><div><span class="games-week-icon">✦</span><span><b>Награды недели</b><small>До ${nextDeadline()} · ${profile.cap.used} / ${profile.cap.limit} AC</small></span></div><b>${earned}<span> / ${E.games.length} целей</span></b><button data-tab="rewards">Награды →</button></div>
       <nav class="games-tabs" aria-label="Разделы игр">${tabs()}</nav><div id="arcadeTabContent"></div>`;
         const content = $("#arcadeTabContent", root);
@@ -248,7 +259,7 @@
         const rows = profile.runs.filter(r => r.game === statsGame).slice(0, 10).reverse(),
             max = Math.max(1, ...rows.map(r => r.score));
         const pts = rows.map((r, i) => `${20+i*260/Math.max(1,rows.length-1)},${110-r.score/max*85}`).join(" ");
-        return `<div class="arcade-progress-heading"><h3>Последние 10 партий</h3><select id="arcadeStatsGame">${E.games.map(g=>`<option value="${g.id}" ${statsGame===g.id?"selected":""}>${g.name}</option>`).join("")}</select></div>
+        return masteryMarkup(true) + `<div class="arcade-progress-heading"><h3>Последние 10 партий</h3><select id="arcadeStatsGame">${E.games.map(g=>`<option value="${g.id}" ${statsGame===g.id?"selected":""}>${g.name}</option>`).join("")}</select></div>
       ${rows.length?`<svg class="arcade-chart" viewBox="0 0 300 135" role="img" aria-label="Результаты от ${rows[0].score} до ${rows.at(-1).score}"><path d="M20 110H280" stroke="#dcd1e9"/><polyline points="${pts}" fill="none" stroke="#9673bc" stroke-width="3" stroke-linejoin="round"/>${rows.map((r,i)=>`<circle cx="${20+i*260/Math.max(1,rows.length-1)}" cy="${110-r.score/max*85}" r="4" fill="#b1cf87"/>`).join("")}<text x="20" y="130" fill="#9b85ac" font-size="9">${rows.length} партий</text></svg>`:'<div class="games-leaders-empty"><h4>Сыграй первую партию</h4><p>Здесь появится твой прогресс.</p></div>'}
       <div class="games-reward-list">${rows.slice().reverse().map(r=>`<div><span><b>${r.score} ${E.games.find(g=>g.id===r.game).unit}</b><small>${r.mode==="journey"?`Задание ${r.report.journey.stage} · ${r.report.journey.stars} ★`:r.mode==="practice"?"Тренировка":r.accepted?"Соревнование":"Незавершённая попытка"} · ${new Date(r.created*1000).toLocaleDateString("ru-RU")} · ${detail(r)}</small></span><button data-replay="${r.id}">Разбор →</button></div>`).join("")}</div>`;
     }
@@ -325,11 +336,12 @@
         const before = index > 0 ? rows[index - 1] : null,
             gap = before && mine ? before.score - mine.score + 1 : 0;
         return `<section class="games-leaders ${combined?"games-overall":""}"><div class="games-leaders-top"><div><small>${combined?`ВСЕ ${E.games.length} ИГР`:"ТАБЛИЦА ЛИДЕРОВ"}</small><h3>${combined?"Общий рейтинг":title(game)}</h3></div><span>Сервер демки</span></div>
+      ${game==='drop'?'<p class="arcade-board-note">Космопорт · новая физика. Прежние партии сохранены в истории.</p>':''}
       ${combined?`<div class="league-prizes"><div class="league-prize-heading"><b>Награды недели</b><small>Итоги ${nextDeadline()} · 00:00 МСК</small></div><div class="league-prize-podium">${data.prizes.map((n,i)=>`<div><span>${["🥇","🥈","🥉"][i]}</span><small>${i+1}-е место</small><b>${n} <em>AC</em></b></div>`).join("")}</div><p>Призовой зачёт — от 3 игр с выполненной целью. Лимит ${profile.cap.limit} AC в неделю.</p></div>`:""}
       <div class="games-leader-controls"><div class="games-leader-period">${[["week","Неделя"],["all","Всё время"]].map(([id,name])=>`<button data-period="${id}" aria-pressed="${id===period}">${name}</button>`).join("")}</div>${speed.has(game)?`<div class="games-leader-period">${[["keyboard","Клавиатура / мышь"],["touch","Касания"]].map(([id,name])=>`<button data-board-device="${id}" aria-pressed="${id===device}">${name}</button>`).join("")}</div>`:""}</div>
       ${mine?`<div class="games-my-rank"><span>Твоё место <b>#${mine.rank}</b></span><span>${mine.score} ${combined?"очков рейтинга":E.rankUnit(game)}<small>${combined?`${mine.games}/3 игр для призов`:"Лучшая партия"}</small></span></div>${before?`<p class="arcade-neighbor">До #${before.rank}: ${Math.max(1,gap)} ${combined?"очков рейтинга":E.rankUnit(game)}</p>`:""}`:""}
-      ${shown.length?`<div class="games-leader-scroll"><table><thead><tr><th>Место</th><th>Игрок</th><th>${combined?"Рейтинг":"Рекорд"}</th></tr></thead><tbody>${shown.map(r=>`<tr class="${r.player===actor().id?"is-me":""}"><td><span class="rank-medal rank-${r.rank}">${r.rank<=3?["🥇","🥈","🥉"][r.rank-1]:r.rank}</span></td><td><b>${esc(r.name)}${r.player===actor().id?" <em>Ты</em>":""}</b><small>${esc(r.group)}</small>${combined?`<details class="league-contributions"><summary>${r.games} игр${r.prizeEligible?" · в призовом зачёте":" · нужно 3"}</summary><ul>${r.contributions.map(c=>`<li><span>${title(c.game)} · #${c.rank}</span><strong>+${c.points}</strong></li>`).join("")}</ul></details>`:""}</td><td><strong>${r.score}</strong><small>${combined?`${r.wins} первых мест`:`Ур. ${r.level}${speed.has(game)?r.device==="touch"?" · сенсор":" · клавиатура":""}`}</small></td></tr>`).join("")}</tbody></table></div>`:'<div class="games-leaders-empty"><span>🏆</span><h4>Первый рекорд может быть твоим</h4><p>Заверши соревновательную партию.</p></div>'}
-      ${combined?'<details class="league-rules"><summary>Как считаются очки</summary><p>За места в каждой игре: 100, 80, 65, 55, 45, 35, 25, 20, 15, 10 и дальше по 5. В зачёт идут только результаты с выполненной целью. Для печати нужна точность от 90%.</p><p>В скоростных играх клавиатура и касания сравниваются отдельно. В общий рейтинг идёт один лучший вклад за игру. Призы — за минимум три разные игры. При равенстве: больше игр, первых мест, затем раньше достигнутый результат.</p></details>':""}
+      ${shown.length?`<div class="games-leader-scroll"><table><thead><tr><th>Место</th><th>Игрок</th><th>${combined?"Рейтинг":"Рекорд"}</th></tr></thead><tbody>${shown.map(r=>`<tr class="${r.player===actor().id?"is-me":""}"><td><span class="rank-medal rank-${r.rank}">${r.rank<=3?["🥇","🥈","🥉"][r.rank-1]:r.rank}</span></td><td><b>${esc(r.name)}${r.player===actor().id?" <em>Ты</em>":""}</b><small>${esc(r.group)}</small>${combined?`<details class="league-contributions"><summary>${r.games} игр${r.prizeEligible?" · в призовом зачёте":" · нужно 3"}</summary><ul>${r.contributions.map(c=>`<li><span>${title(c.game)} · #${c.rank}</span><strong>+${c.points}</strong></li>`).join("")}</ul></details>`:""}</td><td><strong>${r.score}</strong><small>${combined?`${period==="week"?esc(r.league?.name||"Квалификация"):"Все недели"} · ${r.wins} первых мест`:`Сложность ${r.level}${speed.has(game)?r.device==="touch"?" · сенсор":" · клавиатура":""}`}</small></td></tr>`).join("")}</tbody></table></div>`:'<div class="games-leaders-empty"><span>🏆</span><h4>Первый рекорд может быть твоим</h4><p>Заверши соревновательную партию.</p></div>'}
+      ${combined?'<details class="league-rules"><summary>Очки и ранги</summary><p>Ранги недели: Бронза — от 0, Серебро — от 200, Золото — от 450, Алмаз — от 800, Космос — от 1200 очков. Для ранга нужны цели в трёх разных играх. Уровень мастерства считается отдельно и не сбрасывается.</p><p>За места в каждой игре: 100, 80, 65, 55, 45, 35, 25, 20, 15, 10 и дальше по 5. В зачёт идут только результаты с выполненной целью. Для печати нужна точность от 90%.</p><p>В скоростных играх клавиатура и касания сравниваются отдельно. В общий рейтинг идёт один лучший вклад за игру. Призы — за минимум три разные игры. При равенстве: больше игр, первых мест, затем раньше достигнутый результат.</p></details>':""}
       ${combined&&data.history.length?`<details class="league-last-week"><summary>Прошлые недели</summary>${data.history.map(w=>`<div><b>${w.week}</b><span>${w.winners.map(r=>`${esc(r.name)} +${r.prize} AC`).join(" · ")||"Нет призового зачёта"}</span></div>`).join("")}</details>`:""}</section>`;
     }
     async function drawBoard(host, game) {
@@ -431,7 +443,7 @@
             d = document.createElement("dialog");
         d.id = "gameDialog";
         d.className = "game-dialog";
-        d.innerHTML = `<header><div><small>ALGO ARCADE</small><h2>${g.name}</h2></div><button class="game-leaders-button" aria-label="Таблица лидеров">🏆</button><button class="game-close" aria-label="Закрыть игру">×</button></header><div class="game-hud"><span>Счёт <b id="gameScore">0</b></span><span id="gameClock"></span><span class="game-level" id="gameLevel">Ур. 1</span><button class="arcade-pause" aria-label="Пауза" hidden>Ⅱ</button></div><div class="arcade-live-goal"><span></span><progress value="0" max="${g.goal}"></progress></div><div class="journey-tools" hidden><div><b></b><small></small></div><button></button></div><div class="game-stage"></div><footer><span id="gameHint"></span><button id="gameFinish" hidden>Завершить</button></footer>`;
+        d.innerHTML = `<header><div><small>ALGO ARCADE</small><h2>${g.name}</h2></div><button class="game-leaders-button" aria-label="Таблица лидеров">🏆</button><button class="game-close" aria-label="Закрыть игру">×</button></header><div class="game-hud"><span>Счёт <b id="gameScore">0</b></span><span id="gameClock"></span><span class="game-level" id="gameLevel">Сложность 1</span><button class="arcade-pause" aria-label="Пауза" hidden>Ⅱ</button></div><div class="arcade-live-goal"><span></span><progress value="0" max="${g.goal}"></progress></div><div class="journey-tools" hidden><div><b></b><small></small></div><button></button></div><div class="game-stage"></div><footer><span id="gameHint"></span><button id="gameFinish" hidden>Завершить</button></footer>`;
         const run = {
             g,
             dialog: d,
@@ -530,6 +542,13 @@
         });
     }
 
+    function masteryGain(run, cover) {
+        const before = run.oldMastery,
+            after = profile.mastery;
+        if (!before || !after || after.xp <= before.xp) return;
+        cover.insertAdjacentHTML('afterbegin', `<div class="arcade-mastery-gain">+${after.xp-before.xp} XP${after.level>before.level?` · Уровень ${after.level}`:''}${after.title!==before.title?` · ${esc(after.title)}`:''}</div>`);
+    }
+
     function intro(run) {
         const {
             g,
@@ -544,6 +563,10 @@
             original.querySelector('p').textContent = g.hint;
             original.insertAdjacentHTML('beforebegin', ArcadeJourneyView.hub(g.id, profile.journeys?.[g.id], run.selectedJourney));
         }
+        if (g.id === 'drop') {
+            const chosen = mode === 'ranked' ? 'classic' : (run.arena || 'classic');
+            $('#gameStart', d).insertAdjacentHTML('beforebegin', `<fieldset class="drop-arena-picker"><legend>Арена${mode==='ranked'?' соревнования':''}</legend><div>${ArcadeDrop.arenas.map(a=>`<button data-arena="${a.id}" aria-pressed="${chosen===a.id}" ${mode==='ranked'&&a.id!=='classic'?'disabled':''}><svg viewBox="0 0 100 76" aria-hidden="true"><path d="M5 5V71H95V5"/>${a.lines.map(([ax,ay,bx,by])=>`<path d="M${(ax-12)/336*90+5} ${(ay-79)/337*66+5}L${(bx-12)/336*90+5} ${(by-79)/337*66+5}"/>`).join('')}${a.pins.map(([x,y,r])=>`<circle cx="${(x-12)/336*90+5}" cy="${(y-79)/337*66+5}" r="${r/336*90}"/>`).join('')}</svg><b>${a.name}</b></button>`).join('')}</div><p>${ArcadeDrop.get(chosen).hint}</p>${mode==='ranked'?'<small>Остальные арены — в тренировке и заданиях.</small>':''}</fieldset>`);
+        }
         $('.game-hud', d).hidden = true;
         $('.arcade-live-goal', d).hidden = true;
         const chapterNav = $('.journey-chapters', d),
@@ -551,7 +574,7 @@
         if (selectedChapter) chapterNav.scrollLeft = Math.max(0, selectedChapter.offsetLeft - chapterNav.offsetLeft - (chapterNav.clientWidth - selectedChapter.clientWidth) / 2);
         $('#gameScore', d).textContent = '0';
         $('#gameClock', d).textContent = '';
-        $('#gameLevel', d).textContent = 'Ур. 1';
+        $('#gameLevel', d).textContent = 'Сложность 1';
         $("#gameHint", d).textContent = `Цель недели: ${goal(g.id)}`;
         $(".game-stage", d).onclick = e => {
             const b = e.target.closest("button");
@@ -566,6 +589,11 @@
             }
             if (b?.dataset.journeyChapter !== undefined) {
                 run.selectedJourney = +b.dataset.journeyChapter * 4 + 1;
+                intro(run);
+                return;
+            }
+            if (b?.dataset.arena) {
+                run.arena = b.dataset.arena;
                 intro(run);
                 return;
             }
@@ -608,6 +636,10 @@
         run.world = W.create({
             game: run.g.id,
             seed: 41,
+            ...(run.g.id === 'drop' ? {
+                dropPhysics: 3,
+                arena: run.arena || 'classic'
+            } : {}),
             mode: "practice",
             device
         });
@@ -704,6 +736,7 @@
         run.phase = "loading";
         $(".game-stage", run.dialog).innerHTML = '<div class="arcade-loading">Готовим партию…</div>';
         const selectedMode = journeyStage ? 'journey' : mode;
+        run.oldMastery = profile.mastery;
         if (journeyStage) run.selectedJourney = journeyStage;
         try {
             run.session = await api("/sessions", {
@@ -712,6 +745,9 @@
                     game: run.g.id,
                     mode: selectedMode,
                     device,
+                    ...(run.g.id === 'drop' && selectedMode === 'practice' ? {
+                        arena: run.arena || 'classic'
+                    } : {}),
                     ...(journeyStage ? {
                         stage: journeyStage
                     } : {})
@@ -883,7 +919,7 @@
             d = run.dialog,
             g = run.g;
         $("#gameScore", d).textContent = w.score;
-        $("#gameLevel", d).textContent = `Ур. ${w.level}`;
+        $("#gameLevel", d).textContent = `Сложность ${w.level}`;
         if (run.phase !== "ready") $("#gameClock", d).textContent = (g.seconds || w.id === "typing") ? `${Math.max(0,Math.ceil((g.seconds||60)-w.time))} с` : w.id === "memory" && !w.between ? `${Math.max(0,Math.ceil(w.left))} с` : w.id === "debug" ? `${Math.min(8,w.index+1)} / 8` : `${Math.floor(w.time)} с`;
         if (w.journey) {
             const j = w.journey;
@@ -953,6 +989,7 @@
             if (report.journey) {
                 cover.classList.add('journey-result');
                 cover.innerHTML = ArcadeJourneyView.result(run, report, profile.journeys[run.g.id]);
+                masteryGain(run, cover);
                 if (q.eligible && !q.claimed) {
                     $('[data-journey-next]', cover).insertAdjacentHTML('beforebegin', '<button class="game-claim-result" data-journey-claim>Забрать 10 AC</button>');
                     $('[data-journey-claim]', cover).onclick = async e => {
@@ -988,6 +1025,7 @@
                 board = await boardData(run.g.id, "week", run.device),
                 rank = board.rows.find(r => r.player === actor().id)?.rank;
             cover.innerHTML = `<span class="result-star">${result.run.accepted?"✦":"↗"}</span><small>${abandoned?"Попытка завершена":report.reason||"Результат сохранён"}</small><h3>${report.score} <span>${run.g.unit}</span></h3><p>${run.mode==="practice"?"Тренировка сохранена":result.run.accepted?"Результат подтверждён сервером":"Попытка сохранена без рейтинга"}</p>${record&&result.run.accepted?`<div class="game-new-achievement">Новый рекорд · +${report.score-run.oldBest}</div>`:""}${rank&&result.run.accepted?`<div class="arcade-result-rank">Место #${rank}${run.oldRank&&run.oldRank!==rank?` · было #${run.oldRank}`:""}</div>`:""}${newBadges.length?`<div class="game-new-achievement">Открыто достижений: ${newBadges.length}</div>`:""}<button class="games-main" data-again>Ещё раз ↻</button>${q.eligible&&!q.claimed?'<button class="game-claim-result" data-claim-result>Забрать 10 AC</button>':""}<button class="game-result-leaders" data-result-board>🏆 Лидеры</button><button class="game-back" data-analysis>Разбор партии</button><button class="game-back" data-back>К играм</button>`;
+            masteryGain(run, cover);
             $("[data-again]", cover).onclick = () => {
                 const g = run.g.id;
                 close();
@@ -1084,7 +1122,7 @@
     }
 
     function close() {
-        const refreshCards=!!play?.recorded;
+        const refreshCards = !!play?.recorded;
         window.KopatychFarm?.close();
         if (play) {
             cancelAnimationFrame(play.raf);
@@ -1094,7 +1132,7 @@
             play = null;
         }
         $("#gamesLeaderDialog")?.remove();
-        if(refreshCards&&profile&&state.view==='games'&&!document.hidden)draw();
+        if (refreshCards && profile && state.view === 'games' && !document.hidden) draw();
     }
     window.addEventListener("scroll", () => {
         if (state.view !== "games" || play) return;

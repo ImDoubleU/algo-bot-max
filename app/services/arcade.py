@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 from app.services import arcade_journey, arcade_runtime
+from app.services.arcade_mastery import league, mastery
 
 MOSCOW = timezone(timedelta(hours=3))
 SPEED = {"orbit", "bugs", "tower", "typing", "react", "kopatych", "runner", "words"}
@@ -215,13 +216,19 @@ class ArcadeStore:
             )
         return True
 
-    def session(self, player, game, mode, device, stage=None):
+    def session(self, player, game, mode, device, stage=None, arena=None):
         if (
             game not in GAMES
             or mode not in ("ranked", "practice", "journey")
             or device not in ("keyboard", "touch")
         ):
             raise ArcadeError("Выбери игру и режим заново.")
+        if arena is not None and (
+            game != "drop"
+            or mode != "practice"
+            or arena not in ("classic", "bowl", "slopes", "pins")
+        ):
+            raise ArcadeError("Выбор арены доступен в тренировке Космодропа.")
         with self.db() as db:
             self._player(db, player)
             if mode != "journey" and stage is not None:
@@ -265,7 +272,8 @@ class ArcadeStore:
                 else "",
             }
             if game == "drop":
-                setup["dropPhysics"] = 2
+                setup["dropPhysics"] = 3
+                setup["arena"] = arena or "classic"
             if journey:
                 setup["journey"] = journey
                 seed = int.from_bytes(
@@ -489,6 +497,9 @@ class ArcadeStore:
             if qualified and not self._qualifies(report):
                 continue
             details = report["details"]
+            # Preserve old replays and earned awards, but don't mix different physics in a board.
+            if game == "drop" and details.get("physics") != "soft3":
+                continue
             key = (
                 -row["rank_score"],
                 -details.get("accuracy", 0) if game == "typing" else 0,
@@ -559,6 +570,7 @@ class ArcadeStore:
         for i, row in enumerate(items):
             row["rank"] = i + 1
             row["prizeEligible"] = row["games"] >= 3
+            row["league"] = league(row["score"], row["games"])
         return items
 
     def maintain(self):
@@ -731,14 +743,23 @@ class ArcadeStore:
                     "claimed": bool(award and award["claimed"]),
                     "id": award["id"] if award else None,
                 }
+            journeys = arcade_journey.progress(db, player)
+            standing = next((r for r in self._overall(db, current) if r["player"] == player), None)
             return {
+                "mastery": mastery(journeys, badges),
+                "competition": {
+                    "score": standing["score"] if standing else 0,
+                    "rank": standing["rank"] if standing else None,
+                    "games": standing["games"] if standing else 0,
+                    "league": standing["league"] if standing else league(0, 0),
+                },
                 "player": {"id": player, "name": person["name"], "group": person["group_name"]},
                 "balance": sum(r["amount"] for r in credits),
                 "cap": {"limit": self._cap(db, current), "used": used},
                 "nextCap": self._cap(db, next_period),
                 "settings": json.loads(person["settings"]),
                 "best": best,
-                "journeys": arcade_journey.progress(db, player),
+                "journeys": journeys,
                 "goals": goals,
                 "achievements": badges,
                 "awards": awards,

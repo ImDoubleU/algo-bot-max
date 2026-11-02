@@ -1,0 +1,57 @@
+.arcade-passport{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(220px,1fr);margin:24px 0;background:#faf7ef;border:1px solid #ded6c8;border-radius:16px;overflow:hidden;color:#41443c}
+.arcade-passport-skill{display:flex;align-items:center;gap:24px;padding:30px;min-width:0}
+.arcade-passport-skill>div{flex:1;min-width:0}
+.arcade-level-seal{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:0 0 100px;width:100px;height:100px;border:1px solid #a39b76;border-radius:50%;outline:1px solid #ddd4bd;outline-offset:5px;color:#757b53}
+.arcade-level-seal>b{font:48px/1 Georgia,serif}
+.arcade-level-seal>small{font-size:8px;letter-spacing:.12em;margin-top:8px}
+.arcade-passport-label{font-size:9px;letter-spacing:.13em;color:#898575;font-weight:650}
+.arcade-passport h2{font:500 30px/1.1 Georgia,serif;margin:9px 0 18px;color:#424b3b}
+.arcade-passport h3{font:500 24px/1.1 Georgia,serif;margin:12px 0 10px;color:#5b536c}
+.arcade-passport h3>span{float:right;font:14px system-ui;color:#969082}
+.arcade-xp-line{display:flex;gap:12px;align-items:center;margin-bottom:7px}
+.arcade-xp-line progress{height:6px;flex:1;width:0;accent-color:#8c9b70;border:0;border-radius:4px;overflow:hidden}
+.arcade-xp-line progress::-webkit-progress-bar{background:#e6dfd0}
+.arcade-xp-line progress::-webkit-progress-value{background:#8c9b70}
+.arcade-xp-line>span{font-size:10px;white-space:nowrap;color:#7a8069;font-variant-numeric:tabular-nums}
+.arcade-passport-skill>div>small:last-child,.arcade-passport-league>small:last-of-type{font-size:11px;color:#96917f;display:block}
+.arcade-passport-league{border-left:1px solid #ded6c8;padding:27px;background:#f2eee7}
+.arcade-passport-league p{font-size:12px;margin:0 0 8px;color:#6c6971}
+.arcade-passport-league button{padding:0;margin:18px 0 0;background:none;border:0;color:#76658c;font:600 12px system-ui;cursor:pointer}
+.arcade-mastery-rules{padding:22px;border:1px solid #e2dacc;border-radius:12px;background:#faf7ef;margin:0 0 25px;color:#777566}
+.arcade-mastery-rules h3{margin:0 0 15px;color:#464c40;font:23px Georgia,serif}
+.arcade-mastery-rules>div{display:flex;flex-wrap:wrap;gap:8px 28px;border-bottom:1px solid #e3ddcf;margin-bottom:16px;padding-bottom:12px}
+.arcade-mastery-rules p{font-size:12px;line-height:1.6}
+.arcade-mastery-rules b{color:#64734d}
+.arcade-mastery-rules small{font-size:11px;line-height:1.6;display:block}
+.arcade-mastery-gain{padding:9px 16px;border:1px solid #c5d0ac;border-radius:6px;background:#edf1e4;color:#62754f;font-size:12px;margin:4px 0 15px}
+.drop-arena-picker{padding:18px 0 8px;margin:8px 0 12px;border:0;width:100%;min-width:0;text-align:left}
+.drop-arena-picker legend{font-size:12px;color:#6f6980;font-weight:600}
+.drop-arena-picker>div{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.drop-arena-picker button{display:grid;gap:8px;justify-items:center;padding:10px 4px;border:1px solid #dad3e2;background:#faf7ef;border-radius:8px;color:#8e8498;cursor:pointer;min-width:0}
+.drop-arena-picker button[aria-pressed=true]{border-color:#8b78a5;background:#ece6f3;color:#67517d}
+.drop-arena-picker button:disabled{opacity:.4;cursor:default}
+.drop-arena-picker svg{width:100%;max-width:80px;height:54px;fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round}
+.drop-arena-picker b{font:600 10px system-ui}
+.drop-arena-picker p{font-size:11px!important;line-height:1.5!important;margin:10px 0 2px!important}
+.drop-arena-picker>small{font-size:10px;color:#9b91a4}
+.arcade-board-note{font:11px/1.5 system-ui;color:#8c8099;margin:10px 0 18px}
+@media(max-width:600px){
+ .arcade-passport{grid-template-columns:1fr;margin:18px 0}
+ .arcade-passport-skill{padding:24px 20px;gap:20px}
+ .arcade-level-seal{width:70px;height:70px;flex-basis:70px}
+ .arcade-level-seal>b{font-size:35px}
+ .arcade-level-seal>small{font-size:7px;margin-top:5px}
+ .arcade-passport h2{font-size:clamp(20px,5.3vw,25px);letter-spacing:-.4px;overflow-wrap:anywhere;margin-bottom:14px}
+ .arcade-passport-league{border-left:0;border-top:1px solid #ded6c8;padding:18px 20px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 14px;align-items:center}
+ .arcade-passport-league>.arcade-passport-label{grid-column:1/-1}
+ .arcade-passport-league h3{grid-column:1/-1;grid-row:2;margin:2px 0 4px;font-size:23px}
+ .arcade-passport-league p{grid-column:1;grid-row:3;text-align:left;margin:0;font-size:11px}
+ .arcade-passport-league>small:last-of-type{grid-column:1;grid-row:4}
+ .arcade-passport-league button{grid-column:2;grid-row:3/5;margin:0;white-space:nowrap;align-self:center}
+ .arcade-passport h3>span{float:right;margin-left:6px;font-size:11px}
+ .arcade-xp-line{gap:7px}
+ .arcade-xp-line>span{font-size:9px}
+ .drop-arena-picker>div{gap:5px}
+ .drop-arena-picker b{font-size:9px}
+ .drop-arena-picker button{padding:8px 2px}
+}

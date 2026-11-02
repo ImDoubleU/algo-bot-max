@@ -15,7 +15,13 @@ class InvalidArcadeRun(ValueError):
 def sources() -> str:
     return "var window=globalThis;\n" + "\n".join(
         (STATIC / name).read_text(encoding="utf-8")
-        for name in ("games-extra.js", "games-engine.js", "games-journey.js", "games-world.js")
+        for name in (
+            "games-extra.js",
+            "games-engine.js",
+            "games-journey.js",
+            "games-drop.js",
+            "games-world.js",
+        )
     )
 
 
