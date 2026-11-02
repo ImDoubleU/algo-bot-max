@@ -83,3 +83,8 @@
 
 #kopatychFarm .farm-resource-links>.farm-small-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
 #kopatychFarm .farm-medal-card:not(.is-claimed) .farm-small-button:disabled .farm-money{color:#8a774d}
+
+#kopatychFarm .farm-day>b{text-align:center;overflow-wrap:anywhere;line-height:1.3}
+#kopatychFarm .farm-quest>div{min-width:0}
+#kopatychFarm .farm-quest small{overflow-wrap:anywhere}
+#kopatychFarm .farm-total-stats>div{min-width:0}

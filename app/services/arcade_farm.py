@@ -15,6 +15,7 @@ from app.services.farm_progression import (
     UNLOCKS,
     ProgressionMixin,
     build_badges,
+    energy_regen_milli,
 )
 
 LEVELS = [
@@ -325,6 +326,7 @@ BADGES = [
     ("streak_30", "Месяц заботы", "best_streak", 30, 10000),
 ]
 BADGES, BADGE_META, BADGE_CATEGORIES = build_badges(BADGES)
+BADGE_TARGETS = {b[0]: b[3] for b in BADGES}
 CHAPTERS = [
     ("start", "Первый росток", "Вырастить первые 80 морковок", "earned", 80, 80),
     ("build", "Дом для урожая", "Купить 3 уровня улучшений", "upgrades", 3, 180),
@@ -434,12 +436,8 @@ def stats(state, now_ms):
         tap_gloves=gloves,
         tap_workshop=tap - raw_tap - gloves,
         energy_max=500 + 750 * upgrades["battery"],
-        energy_regen_milli=1000
-        + 500 * upgrades["well"]
-        + 100 * state.get("research", {}).get("garden_notes", 0),
-        energy_per_second=1
-        + 0.5 * upgrades["well"]
-        + 0.1 * state.get("research", {}).get("garden_notes", 0),
+        energy_regen_milli=energy_regen_milli(state),
+        energy_per_second=energy_regen_milli(state) / 1000,
         offline_hours=4
         + 4 * upgrades["silo"]
         + 2 * state.get("research", {}).get("soil_calendar", 0),
@@ -573,6 +571,10 @@ class FarmStore(ProgressionMixin):
             for item in ITEMS
             if item["unlock"] <= level(state["earned"])
             and state["items"][item["id"]] < item["maximum"]
+            and all(
+                state["resources"][key] >= item.get(key, 0) * (state["items"][item["id"]] + 1)
+                for key in ("seeds", "materials")
+            )
         ]
         eligible.sort(
             key=lambda key: hmac.new(
@@ -598,6 +600,7 @@ class FarmStore(ProgressionMixin):
         elapsed = now - state["last_ms"]
         values = stats(state, now)
         self._day(db, player, state, now)
+        self._daily_terms(state)
         cap = values["offline_hours"] * 3600000
         effective = min(cap, elapsed)
         numerator = state["production_carry"] + effective * values["per_hour"]
@@ -623,10 +626,42 @@ class FarmStore(ProgressionMixin):
             limit_hours=values["offline_hours"],
         )
 
+    def _daily_terms(self, state):
+        daily = state["daily"]
+        if "terms" not in daily:
+            values = stats(state, state["last_ms"])
+            eligible = [
+                i
+                for i in ITEMS
+                if i["unlock"] <= level(state["earned"])
+                and state["items"][i["id"]] < i["maximum"]
+                and all(
+                    state["resources"][k] >= i.get(k, 0) * (state["items"][i["id"]] + 1)
+                    for k in ("seeds", "materials")
+                )
+            ]
+            daily["terms"] = dict(
+                income=values["per_hour"],
+                manual_goal=max(600, values["base_tap"] * 180),
+                passive_goal=max(100, values["per_hour"] // 4),
+                upgrade_goal=min(2, sum(i["maximum"] - state["items"][i["id"]] for i in eligible)),
+                variety_goal=min(3, len(eligible)),
+            )
+        return daily["terms"]
+
+    def _daily_reward(self, state, streak):
+        return max(
+            DAILY_REWARDS[(streak - 1) % 7],
+            self._daily_terms(state)["income"] * (3, 4, 5, 6, 8, 10, 15)[(streak - 1) % 7] // 60,
+        )
+
+    def _combo_reward(self, state):
+        return max(600, self._daily_terms(state)["income"] // 6)
+
     def _quests(self, state):
         daily = state["daily"]
-        available = sum(item["maximum"] - state["items"][item["id"]] for item in ITEMS)
-        upgrade_goal = min(2, available)
+        terms = self._daily_terms(state)
+        upgrade_goal = terms["upgrade_goal"]
         quests = [
             dict(
                 id="tap",
@@ -639,7 +674,7 @@ class FarmStore(ProgressionMixin):
             dict(
                 id="passive",
                 name="Ферма работает",
-                goal=100,
+                goal=terms["passive_goal"],
                 value=daily["passive"],
                 reward=180,
                 unit="морковок без нажатий",
@@ -660,21 +695,19 @@ class FarmStore(ProgressionMixin):
         q = quests[2]
         fixed_goal = daily["upgrade_goal"]
         q.update(
-            goal=fixed_goal or 750,
+            goal=fixed_goal or max(750, terms["manual_goal"]),
             value=daily["upgrades"] if fixed_goal else daily["manual"],
             name="Растём дальше" if fixed_goal else "Ручной урожай",
             unit="улучшения" if fixed_goal else "морковок вручную",
         )
-        daily.setdefault(
-            "variety_goal", min(3, sum(state["items"][i["id"]] < i["maximum"] for i in ITEMS))
-        )
+        daily.setdefault("variety_goal", terms["variety_goal"])
         variety_goal = daily["variety_goal"]
         quests.extend(
             [
                 dict(
                     id="manual",
                     name="Личная забота",
-                    goal=600,
+                    goal=terms["manual_goal"],
                     value=daily["manual"],
                     reward=180,
                     unit="морковок вручную",
@@ -682,7 +715,7 @@ class FarmStore(ProgressionMixin):
                 dict(
                     id="variety",
                     name="Мастер на все руки" if variety_goal else "Запас на зиму",
-                    goal=variety_goal or 1000,
+                    goal=variety_goal or max(1000, terms["passive_goal"] * 2),
                     value=len(daily["bought"]) if variety_goal else daily["passive"],
                     reward=240,
                     unit="разных улучшений" if variety_goal else "морковок без нажатий",
@@ -705,7 +738,9 @@ class FarmStore(ProgressionMixin):
                 ),
             ]
         )
+        minutes = dict(tap=2, passive=3, upgrade=4, manual=3, variety=4, sun=1, delivery=2)
         for quest in quests:
+            quest["reward"] = max(quest["reward"], terms["income"] * minutes[quest["id"]] // 60)
             quest["claimed"] = quest["id"] in daily["claimed"]
             quest["ready"] = quest["value"] >= quest["goal"] and not quest["claimed"]
         return quests
@@ -823,7 +858,10 @@ class FarmStore(ProgressionMixin):
             streak = state["streak"] + 1 if state["daily_last"] == yesterday else 1
             rewards.append(
                 dict(
-                    kind="daily", id="daily", amount=DAILY_REWARDS[(streak - 1) % 7], streak=streak
+                    kind="daily",
+                    id="daily",
+                    amount=self._daily_reward(state, streak),
+                    streak=streak,
                 )
             )
         for q in self._quests(state):
@@ -834,7 +872,7 @@ class FarmStore(ProgressionMixin):
             and "combo" not in daily["claimed"]
             and all(key in daily["bought"] for key in daily["combo"])
         ):
-            rewards.append(dict(kind="quest", id="combo", amount=600))
+            rewards.append(dict(kind="quest", id="combo", amount=self._combo_reward(state)))
         metrics = self._metrics(state)
         for key, _name, metric, target, reward in BADGES:
             if (
@@ -872,6 +910,7 @@ class FarmStore(ProgressionMixin):
                 state["daily"]["claimed"].append(key)
             elif kind == "badge":
                 state["badges"].append(key)
+                state["badge_targets"][key] = BADGE_TARGETS[key]
             elif kind == "chapter":
                 state["chapters"].append(key)
             elif kind == "order":
@@ -983,7 +1022,7 @@ class FarmStore(ProgressionMixin):
                     id=key,
                     name=name,
                     value=metrics[metric],
-                    target=target,
+                    target=state["badge_targets"].get(key, target),
                     reward=prize["amount"],
                     ready=ready and key not in state["badges"],
                     claimed=key in state["badges"],
@@ -1058,16 +1097,16 @@ class FarmStore(ProgressionMixin):
             daily=dict(
                 day=daily["day"],
                 streak=streak,
-                reward=DAILY_REWARDS[(streak - 1) % 7],
+                reward=self._daily_reward(state, streak),
                 claimed=bonus_claimed,
-                rewards=DAILY_REWARDS,
+                rewards=[self._daily_reward(state, n) for n in range(1, 8)],
                 reset_at=int(next_day.timestamp() * 1000),
                 combo=daily["combo"],
                 bought=daily["bought"],
                 combo_claimed="combo" in daily["claimed"],
                 combo_ready=bool(daily["combo"])
                 and all(key in daily["bought"] for key in daily["combo"]),
-                combo_reward=600,
+                combo_reward=self._combo_reward(state),
                 boosts_left=2 - daily["boosts"],
                 refills_left=2 - daily["refills"],
                 refill_seconds=max(0, math.ceil((state["refill_after"] - now) / 1000)),
@@ -1257,7 +1296,7 @@ class FarmStore(ProgressionMixin):
                     ready = bool(daily["combo"]) and all(
                         key in daily["bought"] for key in daily["combo"]
                     )
-                    reward = 600
+                    reward = self._combo_reward(state)
                 else:
                     quest = next((q for q in self._quests(state) if q["id"] == item), None)
                     ready, reward = bool(quest and quest["ready"]), quest["reward"] if quest else 0
@@ -1275,6 +1314,7 @@ class FarmStore(ProgressionMixin):
                 if not badge or not badge["ready"] or item in state["badges"]:
                     raise ArcadeError("Достижение ещё не открыто или награда уже получена.")
                 state["badges"].append(item)
+                state["badge_targets"][item] = BADGE_TARGETS[item]
                 self._progress_collect(
                     state,
                     {

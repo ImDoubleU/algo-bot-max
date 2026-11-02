@@ -180,9 +180,9 @@ def test_logistics_shortens_future_deliveries_with_full_profit_and_keeps_current
 def test_progression_catalogue_has_early_and_late_goals_and_preserves_old_claims(farm):
     state = farm.get("p1")
     assert len(state["roadmap"]) == 50 and len(state["items"]) == 29
-    assert len(state["badges"]) == len({b["id"] for b in state["badges"]}) == 100
+    assert len(state["badges"]) == len({b["id"] for b in state["badges"]}) == 105
     assert len(state["badge_categories"]) == 9
-    assert sum(c["total"] for c in state["badge_categories"]) == 100
+    assert sum(c["total"] for c in state["badge_categories"]) == 105
     assert next(i for i in state["items"] if i["id"] == "lighthouse")["locked"]
     assert "Редкая грядка" in state["roadmap"][2]["unlocks"]
     seed(farm, badges=["first_harvest"], balance=321, earned=1200)
@@ -848,3 +848,91 @@ def test_achievement_resource_prizes_follow_difficulty_and_are_paid_once(farm):
     assert repeated["farm"]["activities"]["resources"] == result["farm"]["activities"]["resources"]
     with pytest.raises(ArcadeError):
         act(farm, "claim_badge", prize["id"])
+
+
+def test_daily_goals_and_prizes_are_useful_late_game_and_fixed_for_the_day(farm):
+    from app.services.arcade_farm import BY_ID
+
+    initial = farm.get("p1")
+    items = {i["id"]: 0 for i in initial["items"]}
+    items.update(beds=25, greenhouse=20, nursery=20)
+    seed(farm, earned=10**12, balance=10**10, items=items, daily=None)
+    before = farm.get("p1")
+    manual = next(q for q in before["quests"] if q["id"] == "manual")
+    passive = next(q for q in before["quests"] if q["id"] == "passive")
+    assert manual["goal"] == max(600, before["stats"]["base_tap"] * 180)
+    assert passive["goal"] == before["stats"]["per_hour"] // 4
+    assert manual["reward"] == before["stats"]["per_hour"] * 3 // 60
+    assert before["daily"]["reward"] == before["stats"]["per_hour"] * 3 // 60
+    act(farm, "buy", "irrigation")
+    after = farm.get("p1")
+    assert after["stats"]["per_hour"] > before["stats"]["per_hour"]
+    assert after["daily"]["reward"] == before["daily"]["reward"]
+    assert next(q for q in after["quests"] if q["id"] == "manual") == manual
+    # If only inaccessible or resource-blocked upgrades remain, use playable alternatives.
+    items = {key: item["maximum"] for key, item in BY_ID.items()}
+    items["lighthouse"] -= 1
+    seed(farm, items=items, resources=dict(seeds=0, materials=0), daily=None)
+    end = farm.get("p1")
+    assert not end["daily"]["combo"]
+    assert next(q for q in end["quests"] if q["id"] == "upgrade")["unit"] == "морковок вручную"
+    assert next(q for q in end["quests"] if q["id"] == "variety")["unit"] == "морковок без нажатий"
+
+
+def test_trial_energy_check_does_not_spend_seeds_and_cooldown_uses_start_time(farm):
+    seed(farm, earned=4000000, resources=dict(seeds=3, materials=0), energy_milli=0)
+    before = farm.get("p1")
+    with pytest.raises(ArcadeError, match="энергии"):
+        act(farm, "start_trial", "harvest")
+    assert farm.get("p1")["activities"]["resources"] == before["activities"]["resources"]
+    farm.arcade.clock.advance(500)
+    trial = act(farm, "start_trial", "harvest")["farm"]["activities"]["trial"]
+    for _ in range(30):
+        act(farm, "tap", count=8)
+        farm.arcade.clock.advance(1)
+    # Delayed reward collection should not shift the next attempt by another day.
+    farm.arcade.clock.advance(3600)
+    act(farm, "claim_trial", trial["project_id"])
+    left = (trial["started_at"] + 86400000 - farm._now()) / 1000
+    assert farm.get("p1")["activities"]["trial_wait"] == left
+    farm.arcade.clock.advance(left)
+    assert act(farm, "start_trial", "harvest")["farm"]["activities"]["trial"]
+
+
+def test_late_harvest_collection_reaches_final_level_and_existing_tapping_medal_is_kept(farm):
+    from app.services.arcade_farm import LEVELS
+
+    seed(farm, earned=LEVELS[-1], badges=["manual_milestone_500000"], taps=500000)
+    after = farm.get("p1")
+    summit = [b for b in after["badges"] if b["id"].startswith("harvest_summit_")]
+    assert len(summit) == 5 and max(b["target"] for b in summit) == LEVELS[-1]
+    assert all(b["ready"] for b in summit)
+    medal = next(b for b in after["badges"] if b["id"] == "manual_milestone_500000")
+    assert medal["claimed"] and medal["target"] == 500000
+    with pytest.raises(ArcadeError):
+        act(farm, "claim_badge", medal["id"])
+    # New awards record the revised goal, including across restart/migration.
+    seed(farm, badges=[], badge_targets={}, taps=150000)
+    first = act(farm, "claim_badge", "manual_milestone_500000")["farm"]
+    assert next(b for b in first["badges"] if b["id"] == medal["id"])["target"] == 150000
+    restarted = FarmStore(ArcadeStore(farm.arcade.path, farm.arcade.clock))
+    assert (
+        next(b for b in restarted.get("p1")["badges"] if b["id"] == medal["id"])["target"] == 150000
+    )
+
+
+def test_leaderboard_accepts_older_unopened_farms_without_research_fields(farm):
+    farm.get("p1")
+    with farm.arcade.db() as db:
+        state = farm._load(db, "p1")
+        del state["research"]
+        del state["badge_targets"]
+        farm._save(db, "p1", state)
+    board = farm.board("p2")
+    assert board["rows"][0]["per_hour"] == 120
+    # A read-only leaderboard must not rewrite the older player's saved farm.
+    with farm.arcade.db() as db:
+        state = json.loads(
+            db.execute("SELECT state FROM kopatych_farms WHERE player='p1'").fetchone()[0]
+        )
+        assert "research" not in state and "badge_targets" not in state

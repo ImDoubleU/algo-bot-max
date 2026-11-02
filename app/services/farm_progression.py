@@ -510,6 +510,31 @@ def build_badges(legacy):
             )
         categories.append(dict(id=category, name=name, total=total))
     assert len(badges) == 100
+    # Extend the harvest collection to the actual final level without changing old IDs/goals.
+    for target, title in [
+        (50_000_000, "Большой урожай"),
+        (100_000_000_000, "Морковный материк"),
+        (1_000_000_000_000, "Триллион в долине"),
+        (5_000_000_000_000, "Пять больших урожаев"),
+        (math.ceil(1_000_000_000 * 1.6**20), "Вершина долины"),
+    ]:
+        key = f"harvest_summit_{target}"
+        tier = 3 if target < 100_000_000 else 4
+        badges.append((key, title, "earned", target, 0))
+        meta[key] = dict(
+            category="harvest",
+            tier=tier,
+            unlock=1,
+            income_minutes=30 if tier == 4 else 20,
+            seed_reward=12 if tier == 4 else 7,
+            material_reward=18 if tier == 4 else 8,
+        )
+    categories[0]["total"] += 5
+    # The final tapping goal should fit the same season as the other collections.
+    badges = [
+        (key, name, metric, 150_000 if key == "manual_milestone_500000" else target, reward)
+        for key, name, metric, target, reward in badges
+    ]
     # Milestone floors complement the income-based prize, including early farms.
     badges = [
         (
@@ -528,8 +553,19 @@ def build_badges(legacy):
     return badges, meta, categories
 
 
+def energy_regen_milli(state):
+    return (
+        1000
+        + 500 * state["items"].get("well", 0)
+        + 100 * state.get("research", {}).get("garden_notes", 0)
+    )
+
+
 class ProgressionMixin:
     def _progress_defaults(self, state):
+        state.setdefault("badge_targets", {})
+        if "manual_milestone_500000" in state["badges"]:
+            state["badge_targets"].setdefault("manual_milestone_500000", 500000)
         state.setdefault("resources", dict(seeds=0, materials=0))
         state.setdefault("projects", dict(plot=None, expedition=None))
         state.setdefault("research", {r["id"]: 0 for r in RESEARCH})
@@ -623,9 +659,10 @@ class ProgressionMixin:
             state["projects"][kind] = None
             state["activity_counts"]["plots" if kind == "plot" else "expeditions"] += 1
         elif kind == "trial":
+            t = state["trial"]
             state["trial"] = None
             state["activity_counts"]["trials"] += 1
-            state["trial_after"] = max(state["trial_after"], state["last_ms"] + 86400000)
+            state["trial_after"] = max(state["trial_after"], t["started_at"] + 86400000)
         for key in ("seeds", "materials"):
             state["resources"][key] += reward.get(key, 0)
 
@@ -686,6 +723,12 @@ class ProgressionMixin:
                 raise ArcadeError("Это испытание пока не открыто.")
             if state["trial"] or now < state["trial_after"]:
                 raise ArcadeError("Заверши текущее испытание или дождись следующей попытки.")
+            energy_budget = state["energy_milli"] + t["seconds"] * energy_regen_milli(state)
+            if energy_budget < t["goal"] * 1000:
+                raise ArcadeError(
+                    "Сейчас не хватит энергии на испытание. "
+                    "Дождись восстановления или улучши колодец."
+                )
             self._pay_resources(state, dict(seeds=t["seeds"]))
             state["trial"] = {
                 **t,

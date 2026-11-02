@@ -1062,7 +1062,7 @@ def test_farm_explains_purchase_and_collects_delivery_and_its_rewards_together(a
     assert page.locator(".farm-status").is_hidden()
     page.locator('.farm-task-filters [data-task-view="badges"]').click()
     page.locator('[data-badge-category="all"]').click()
-    assert page.locator(".farm-badge").count() == 100
+    assert page.locator(".farm-badge").count() == 105
     assert not store.profile("p1")["awards"]
 
 
@@ -1340,3 +1340,64 @@ def test_farm_research_routes_both_resources_then_allows_purchase_after_harvest(
     research.click()
     page.wait_for_function("document.querySelector('[data-resource=seeds]').textContent==='0'")
     assert farm.get("p1")["activities"]["resources"] == dict(seeds=0, materials=0)
+
+
+@pytest.mark.parametrize("width", [320, 390, 768, 1440])
+def test_farm_endgame_large_balances_rewards_and_completed_collection_fit_all_tabs(arcade, width):
+    from app.services.arcade_farm import BY_ID, LEVELS, FarmStore
+
+    page, store = arcade
+    store.clock = Clock()
+    farm = FarmStore(store)
+    farm.get("p1")
+    with store.db() as db:
+        state = farm._load(db, "p1")
+        state.update(
+            earned=LEVELS[-1],
+            balance=100_000_000_000_000,
+            items={k: i["maximum"] for k, i in BY_ID.items()},
+            daily=None,
+        )
+        farm._save(db, "p1", state)
+    page.set_viewport_size(dict(width=width, height=900))
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator(".farm-bear").wait_for()
+    assert "трлн" in page.locator("[data-farm-bank]").inner_text()
+    for tab in ("home", "upgrades", "activities", "tasks", "valley"):
+        page.locator(f'.farm-tabs [data-farm-tab="{tab}"]').click()
+        assert page.locator(".farm-content").evaluate("(n)=>n.scrollWidth<=n.clientWidth"), tab
+        assert page.locator(".farm-wallet").evaluate("(n)=>n.scrollWidth<=n.clientWidth"), tab
+    page.locator('.farm-tabs [data-farm-tab="tasks"]').click()
+    page.locator('[data-task-view="daily"]').click()
+    assert page.locator(".farm-days").evaluate("(n)=>n.scrollWidth<=n.clientWidth")
+    assert page.locator(".farm-content").evaluate("(n)=>n.scrollWidth<=n.clientWidth")
+    assert page.locator(".farm-combo").inner_text() == "Сегодня без комбо."
+    page.locator('[data-task-view="badges"]').click()
+    assert page.locator('.farm-section-title [data-badge-category="all"]').inner_text() == "Все 105"
+    page.locator('[data-badge-category="all"]').click()
+    assert page.locator(".farm-medal-card").count() == 105
+    assert page.locator(".farm-content").evaluate("(n)=>n.scrollWidth<=n.clientWidth")
+    page.locator(".farm-medal-card").last.scroll_into_view_if_needed()
+    assert page.locator(".farm-content").evaluate("n=>n.scrollTop") > 0
+    page.locator('.farm-tabs [data-farm-tab="home"]').click()
+    assert page.locator(".farm-content").evaluate("n=>n.scrollTop") == 0
+    assert page.locator(".farm-bear").is_visible()
+
+
+def test_farm_trial_warns_about_energy_before_spending_the_entry_fee(arcade):
+    from app.services.arcade_farm import FarmStore
+
+    page, store = arcade
+    store.clock = Clock()
+    farm = FarmStore(store)
+    farm.get("p1")
+    with store.db() as db:
+        state = farm._load(db, "p1")
+        state.update(earned=4000000, resources=dict(seeds=1, materials=0), energy_milli=0)
+        farm._save(db, "p1", state)
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator('.farm-tabs [data-farm-tab="activities"]').click()
+    page.locator('[data-activity-view="trial"]').click()
+    button = page.locator('[data-farm-action="start_trial"][data-item="harvest"]')
+    assert button.is_disabled() and button.inner_text() == "Нужно больше энергии"
+    assert farm.get("p1")["activities"]["resources"]["seeds"] == 1
