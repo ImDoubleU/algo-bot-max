@@ -414,6 +414,8 @@ def test_all_ten_games_start_pause_finish_and_fit(arcade, width):
     assert page.locator(".game-card").count() == len(GAMES)
     for game in GAMES:
         page.locator(f'.game-card[data-game="{game}"]').click()
+        if game == "kopatych":
+            page.locator("[data-farm-sprint]").first.click()
         page.locator("[data-skip-guide]").click()
         try:
             page.locator(".arcade-pause").wait_for(state="visible")
@@ -498,6 +500,8 @@ def test_sections_mastery_and_server_saved_selection_survive_reload(arcade):
 def test_first_time_tutorial_requires_a_successful_action(arcade, game):
     page, store = arcade
     page.locator(f'.game-card[data-game="{game}"]').click()
+    if game == "kopatych":
+        page.locator("[data-farm-sprint]").first.click()
     page.locator("#gameStart").click()
     if game in ("orbit", "tower", "react", "runner"):
         page.keyboard.press("Space")
@@ -848,6 +852,7 @@ def test_sort_and_words_render_real_controls_and_accept_actions(arcade):
 def test_expansion_accepts_real_touch_input_and_onscreen_letters(arcade):
     page, store = arcade
     page.locator('.game-card[data-game="kopatych"]').tap()
+    page.locator("[data-farm-sprint]").first.tap()
     page.locator("[data-skip-guide]").tap()
     page.wait_for_function("document.querySelector('#gameClock')?.textContent==='90 с'")
     for _ in range(3):
@@ -874,3 +879,140 @@ def test_expansion_accepts_real_touch_input_and_onscreen_letters(arcade):
     assert page.locator("#arcadeWordInput").input_value() == "сом"
     page.get_by_role("button", name="Проверить", exact=True).tap()
     page.get_by_role("button", name="Играть →", exact=True).wait_for()
+
+
+@pytest.mark.parametrize("width", [320, 390, 768, 1440])
+def test_persistent_farm_tabs_fit_mobile_and_desktop(arcade, width):
+    page, store = arcade
+    page.set_viewport_size({"width": width, "height": 900})
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator(".farm-bear").wait_for()
+    assert page.locator("#gameDialog").count() == 0
+    for tab in ("home", "upgrades", "tasks", "valley"):
+        page.locator(f'.farm-tabs [data-farm-tab="{tab}"]').click()
+        assert page.locator("#kopatychFarm").evaluate("(d)=>d.scrollWidth<=d.clientWidth")
+        assert page.locator(".farm-content").evaluate("(d)=>d.scrollWidth<=d.clientWidth")
+    assert not store.profile("p1")["awards"]
+
+
+def test_farm_gifts_purchases_and_keyboard_taps_survive_reentry(arcade):
+    from app.services.arcade_farm import FarmStore
+
+    page, store = arcade
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator(".farm-bear").wait_for()
+    for _ in range(5):
+        page.keyboard.press("Space")
+        page.wait_for_timeout(160)
+    page.wait_for_function("document.querySelector('[data-save-label]')?.textContent==='Сохранено'")
+    assert FarmStore(store).get("p1")["taps"] == 5
+    page.locator('.farm-tabs [data-farm-tab="tasks"]').click()
+    page.locator('[data-farm-action="claim_daily"]').click()
+    page.wait_for_function("document.querySelector('[data-farm-action=claim_daily]')?.disabled")
+    page.locator('.farm-tabs [data-farm-tab="upgrades"]').click()
+    page.locator('[data-farm-action="buy"][data-item="beds"]').click()
+    page.wait_for_function("document.querySelector('[data-farm-income]')?.textContent==='+210'")
+    page.locator("[data-farm-close]").click()
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator(".farm-shop-grid").wait_for()
+    assert (
+        page.locator('.farm-tabs [data-farm-tab="upgrades"]').get_attribute("aria-pressed")
+        == "true"
+    )
+    state = FarmStore(store).get("p1")
+    assert state["balance"] == 135 and state["daily"]["claimed"]
+    assert next(i for i in state["items"] if i["id"] == "beds")["level"] == 1
+    page.locator("[data-farm-close]").click()
+    page.select_option("#gamesPlayer", "p2")
+    page.locator(".game-card").first.wait_for()
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator(".farm-bear").wait_for()
+    assert page.locator("[data-farm-bank]").inner_text() == "150"
+    assert FarmStore(store).get("p2")["taps"] == 0
+
+
+def test_farm_return_shows_one_offline_receipt_without_manual_claim(arcade):
+    from app.services.arcade_farm import FarmStore
+
+    page, store = arcade
+    store.clock = Clock()
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator(".farm-bear").wait_for()
+    page.locator("[data-farm-close]").click()
+    store.clock.advance(7200)
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator(".farm-offline").wait_for()
+    assert "+240" in page.locator(".farm-offline").inner_text()
+    assert FarmStore(store).get("p1")["balance"] == 390
+    page.locator("[data-dismiss-offline]").click()
+    assert page.locator(".farm-offline").is_hidden()
+    page.locator("[data-farm-close]").click()
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator(".farm-bear").wait_for()
+    assert page.locator(".farm-offline").is_hidden()
+    assert page.locator("[data-farm-bank]").inner_text() == "390"
+
+
+def test_lost_farm_purchase_ack_retries_same_receipt_without_second_debit(arcade):
+    from app.services.arcade_farm import FarmStore
+
+    page, store = arcade
+    farm = FarmStore(store)
+    lost = [False]
+
+    def interrupt(r):
+        payload = json.loads(r.request.post_data)
+        if payload["action"] == "buy" and not lost[0]:
+            lost[0] = True
+            farm.act(
+                "p1", payload["id"], payload["action"], payload.get("item"), payload.get("count", 1)
+            )
+            r.abort("failed")
+        else:
+            r.fallback()
+
+    page.route("http://127.0.0.1:8779/preview/arcade/farm/actions", interrupt)
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator(".farm-bear").wait_for()
+    page.locator('.farm-tabs [data-farm-tab="upgrades"]').click()
+    page.locator('[data-item="beds"]').click()
+    page.locator(".farm-retry").wait_for()
+    assert farm.get("p1")["balance"] == 30
+    page.locator(".farm-retry").click()
+    page.wait_for_function("document.querySelector('[data-save-label]')?.textContent==='Сохранено'")
+    state = farm.get("p1")
+    assert (
+        state["balance"] == 30
+        and next(i for i in state["items"] if i["id"] == "beds")["level"] == 1
+    )
+
+
+def test_farm_tournament_remains_separate_from_passive_carrots(arcade):
+    page, store = arcade
+    page.locator('.game-card[data-game="kopatych"]').click()
+    page.locator(".farm-bear").wait_for()
+    page.locator("[data-farm-sprint]").first.click()
+    assert page.locator("#kopatychFarm").count() == 0
+    page.locator("[data-skip-guide]").click()
+    page.wait_for_function("document.querySelector('#gameClock')?.textContent==='90 с'")
+    page.locator("#gameFinish").click()
+    page.locator("[data-back]").click()
+    assert not store.profile("p1")["goals"]["kopatych"]["eligible"]
+
+
+@pytest.mark.parametrize("arcade", ["touch"], indirect=True)
+def test_persistent_farm_accepts_touch_taps_and_closing_flushes_pending_input(arcade):
+    from app.services.arcade_farm import FarmStore
+
+    page, store = arcade
+    page.locator('.game-card[data-game="kopatych"]').tap()
+    page.locator(".farm-bear").wait_for()
+    for _ in range(3):
+        page.locator(".farm-bear").tap()
+        page.wait_for_timeout(150)
+    page.locator("[data-farm-close]").tap()
+    page.wait_for_timeout(350)
+    assert FarmStore(store).get("p1")["taps"] == 3
+    page.locator('.game-card[data-game="kopatych"]').tap()
+    page.locator(".farm-bear").wait_for()
+    assert page.locator("[data-farm-bank]").inner_text() == "153"

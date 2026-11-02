@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.services.arcade import GAMES, ArcadeError, ArcadeStore
+from app.services.arcade_farm import FarmStore
 
 
 class StrictPayload(BaseModel):
@@ -38,8 +39,16 @@ class Policy(StrictPayload):
     cap: int = Field(ge=50, le=1000, strict=True)
 
 
+class FarmAction(StrictPayload):
+    id: str = Field(min_length=12, max_length=80)
+    action: str = Field(max_length=20)
+    item: str | None = Field(default=None, max_length=40)
+    count: int = Field(default=1, ge=1, le=20, strict=True)
+
+
 def make_router(store: ArcadeStore, authenticate: Callable[[Request], Awaitable[dict]]):
     router = APIRouter()
+    farm = FarmStore(store)
 
     async def call(method, *args):
         try:
@@ -51,6 +60,23 @@ def make_router(store: ArcadeStore, authenticate: Callable[[Request], Awaitable[
     async def profile(request: Request):
         actor = await authenticate(request)
         return await call(store.profile, actor["player"])
+
+    @router.get("/farm")
+    async def get_farm(request: Request):
+        actor = await authenticate(request)
+        return await call(farm.get, actor["player"])
+
+    @router.post("/farm/actions")
+    async def farm_action(request: Request, payload: FarmAction):
+        actor = await authenticate(request)
+        return await call(
+            farm.act, actor["player"], payload.id, payload.action, payload.item, payload.count
+        )
+
+    @router.get("/farm/board")
+    async def farm_board(request: Request):
+        actor = await authenticate(request)
+        return await call(farm.board, actor["player"])
 
     @router.get("/boards")
     async def boards(

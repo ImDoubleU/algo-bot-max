@@ -17,7 +17,7 @@
         '"': "&quot;",
         "'": "&#39;"
     } [c]));
-    const title = id => E.games.find(g => g.id === id)?.name || id,
+    const title = id => id === "kopatych" ? "Копатыч · турнир" : E.games.find(g => g.id === id)?.name || id,
         art = id => A.render(id),
         speed = new Set(["orbit", "bugs", "tower", "typing", "react", "kopatych", "runner", "words"]);
     const goal = id => {
@@ -65,7 +65,11 @@
         } catch {
             throw Error("Не удалось получить ответ сервера. Попробуй ещё раз.");
         }
-        if (!response.ok) throw Error(typeof value.detail === "string" ? value.detail : "Не удалось выполнить действие. Попробуй ещё раз.");
+        if (!response.ok) {
+            const error = Error(typeof value.detail === "string" ? value.detail : "Не удалось выполнить действие. Попробуй ещё раз.");
+            error.status = response.status;
+            throw error;
+        }
         return value;
     }
 
@@ -214,7 +218,7 @@
 
     function cards() {
         return `<div class="games-filters">${[["all","Все"],["fun","Залипательные"],["skill","С пользой"],["puzzle","Подумать"]].map(([id,name])=>`<button data-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${name}</button>`).join("")}</div><div class="games-grid">${E.games.slice().sort((a,b)=>Number(!!b.fresh)-Number(!!a.fresh)).filter(g=>filter==="all"||g.kind===filter).map(g=>{
-    const q=profile.goals[g.id];return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><div class="game-card-art">${art(g.id)}${g.fresh?'<span class="arcade-new">НОВОЕ</span>':""}<span class="game-reward">${q.claimed?"✓ Получено":q.eligible?"✦ Забрать награду":"✦ 10 AC"}</span></div><div class="game-card-body"><small>${g.tag}</small><h3>${g.name}</h3><div class="game-card-bottom"><span>${profile.best[g.id]?`Рекорд <b>${profile.best[g.id]}</b>`:`Цель: ${goal(g.id)}`}</span><span class="game-play">↗</span></div></div></button><button class="game-card-leader" data-leader="${g.id}">🏆 Лидеры</button></div>`;
+    const q=profile.goals[g.id];return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><div class="game-card-art">${art(g.id)}${g.fresh?'<span class="arcade-new">НОВОЕ</span>':""}<span class="game-reward">${q.claimed?"✓ Получено":q.eligible?"✦ Забрать награду":"✦ 10 AC"}</span></div><div class="game-card-body"><small>${g.tag}</small><h3>${g.name}</h3><div class="game-card-bottom"><span>${g.persistent?"Ферма · свой прогресс":profile.best[g.id]?`Рекорд <b>${profile.best[g.id]}</b>`:`Цель: ${goal(g.id)}`}</span><span class="game-play">↗</span></div></div></button><button class="game-card-leader" data-leader="${g.id}">🏆 ${g.persistent?"Лидеры турнира":"Лидеры"}</button></div>`;
   }).join("")}</div>`;
     }
 
@@ -413,8 +417,13 @@
         });
     }
 
-    function openGame(id) {
-        if (play) return;
+    function openGame(id, tournament = false) {
+        if (play || window.KopatychFarm?.isOpen) return;
+        if (id === "kopatych" && !tournament && window.KopatychFarm) {
+            void KopatychFarm.open(api, {player: actor().id, settings: profile.settings,
+                                        onSprint: () => openGame(id, true)});
+            return;
+        }
         const g = E.games.find(g => g.id === id),
             d = document.createElement("dialog");
         d.id = "gameDialog";
@@ -976,6 +985,7 @@
     }
 
     function close() {
+        window.KopatychFarm?.close();
         if (play) {
             cancelAnimationFrame(play.raf);
             play.abort.abort();

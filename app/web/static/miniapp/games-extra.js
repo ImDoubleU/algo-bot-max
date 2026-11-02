@@ -3,8 +3,9 @@
   "use strict";
   const games = [{
     id: "kopatych",
+    persistent: true,
     name: "Кликер Копатыча",
-    tag: "Вот это урожай!",
+    tag: "Морковки растут сами",
     kind: "fun",
     icon: "kopatych",
     color: "yellow",
