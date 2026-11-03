@@ -50,27 +50,39 @@
     } = {}) {
         if (!apiRoot || !actor()?.token) throw Error("Локальный сервер игр недоступен. Перезапусти демку.");
         const token = admin ? window.pizzaPreview?.token : actor().token;
-        const response = await fetch(apiRoot + path, {
-            method,
-            keepalive,
-            headers: {
-                "X-Miniapp-Token": token,
-                "Content-Type": "application/json"
-            },
-            body: body === undefined ? undefined : JSON.stringify(body)
-        });
-        let value;
+        const controller = new AbortController(),
+            timeout = keepalive ? null : setTimeout(() => controller.abort(), 15000);
         try {
-            value = await response.json();
-        } catch {
-            throw Error("Не удалось получить ответ сервера. Попробуй ещё раз.");
-        }
-        if (!response.ok) {
-            const error = Error(typeof value.detail === "string" ? value.detail : "Не удалось выполнить действие. Попробуй ещё раз.");
-            error.status = response.status;
+            const response = await fetch(apiRoot + path, {
+                method,
+                keepalive,
+                signal: controller.signal,
+                headers: {
+                    "X-Miniapp-Token": token,
+                    "Content-Type": "application/json"
+                },
+                body: body === undefined ? undefined : JSON.stringify(body)
+            });
+            let value;
+            try {
+                value = await response.json();
+            } catch (error) {
+                if (error.name === 'AbortError') throw error;
+                throw Error("Не удалось получить ответ сервера. Попробуй ещё раз.");
+            }
+            if (!response.ok) {
+                const error = Error(typeof value.detail === "string" ? value.detail : "Не удалось выполнить действие. Попробуй ещё раз.");
+                error.status = response.status;
+                throw error;
+            }
+            return value;
+        } catch (error) {
+            if (error.name === 'AbortError') throw Error('Сервер долго не отвечает. Попробуй ещё раз.');
+            if (error instanceof TypeError) throw Error('Не удалось связаться с сервером. Проверь подключение и попробуй ещё раз.');
             throw error;
+        } finally {
+            if (timeout !== null) clearTimeout(timeout);
         }
-        return value;
     }
 
     function toast(message) {
@@ -242,14 +254,18 @@
         });
     }
 
-    function openGarage() {
+    function openGarage(tab = 'routes', stage = null, route = null) {
         if (ArcadeHillGarage.isOpen) return;
         close();
         void ArcadeHillGarage.open(api, {
+            tab,
+            stage,
+            route,
             journey: profile.journeys.hill,
             onDrive: (route, stage) => {
                 openGame('hill');
                 play.arena = route;
+                play.fromGarage = true;
                 mode = 'practice';
                 void begin(play, stage);
             }
@@ -582,7 +598,7 @@
             $('.arcade-live-goal', d).hidden = true;
             const cover = document.createElement("div");
             cover.className = "game-pause";
-            cover.innerHTML = `<span class="arcade-pause-symbol" aria-hidden="true">Ⅱ</span><h3>${exit?"Завершить игру?":"Пауза"}</h3><button class="games-main" data-resume>Продолжить</button><button class="game-back" data-exit>Завершить игру</button>`;
+            cover.innerHTML = `<span class="arcade-pause-symbol" aria-hidden="true">Ⅱ</span><h3>${exit?(run.g.id==='hill'?'Закончить заезд?':'Завершить игру?'):'Пауза'}</h3><button class="games-main" data-resume>Продолжить</button><button class="game-back" data-exit>${run.g.id==='hill'?'Закончить заезд':'Завершить игру'}</button>`;
             $(".game-stage", d).append(cover);
             if (!wasReady) run.clockPromise = run.clockPromise.then(() => api(`/sessions/${run.session.id}/clock/pause`, {
                 method: "POST"
@@ -890,6 +906,7 @@
         run.world = W.create(run.session.setup);
         run.mode = selectedMode;
         run.recorded = false;
+        run.finishResult = null;
         run.record = null;
         run.inputQueue = [];
         run.pauseQueued = false;
@@ -1105,7 +1122,7 @@
         stage.replaceChildren(cover);
         try {
             await run.clockPromise;
-            const result = await api(`/sessions/${run.session.id}/finish`, {
+            const result = run.finishResult || await api(`/sessions/${run.session.id}/finish`, {
                 method: "POST",
                 body: {
                     actions: run.events,
@@ -1113,6 +1130,7 @@
                     abandoned
                 }
             });
+            run.finishResult = result;
             run.recorded = true;
             run.record = result.run;
             boardCache.clear();
@@ -1126,12 +1144,16 @@
                 if (run.g.id === 'hill') {
                     if (result.garage_coins) $('.arcade-level-result', cover).insertAdjacentHTML('beforeend', `<p class="hill-run-coins">+${result.garage_coins} монет в гараж</p>`);
                     $('.arcade-result-actions', cover).insertAdjacentHTML('beforeend', '<button class="game-back" data-back-garage>В гараж</button>');
-                    $('[data-back-garage]', cover).onclick = openGarage;
+                    $('[data-back-garage]', cover).onclick = () => openGarage('missions', report.journey.stage);
                 }
                 masteryGain(run, cover);
                 $('.journey-tools', run.dialog).hidden = true;
                 const map = () => {
                     run.selectedJourney = report.journey.success ? Math.min(24, report.journey.stage + 1) : report.journey.stage;
+                    if (run.g.id === 'hill') {
+                        openGarage('missions', run.selectedJourney);
+                        return;
+                    }
                     run.phase = 'intro';
                     run.world = null;
                     run.menuScreen = 'levels';
@@ -1153,9 +1175,9 @@
             if (play !== run) return;
             cover.innerHTML = ArcadeResults.normal(run, result, rank);
             if (run.g.id === 'hill') {
-                $('.arcade-score-result', cover).insertAdjacentHTML('beforeend', `<p class="hill-run-reason">${esc(report.reason||'Заезд завершён')}</p>${result.garage_coins?`<p class="hill-run-coins">+${result.garage_coins} монет в гараж</p>`:''}`);
+                $('.arcade-score-result', cover).insertAdjacentHTML('beforeend', `${report.reason?`<p class="hill-run-reason">${esc(report.reason)}</p>`:''}${result.garage_coins?`<p class="hill-run-coins">+${result.garage_coins} монет в гараж</p>`:''}`);
                 $('.arcade-result-actions', cover).insertAdjacentHTML('beforeend', '<button class="game-back" data-back-garage>В гараж</button>');
-                $('[data-back-garage]', cover).onclick = openGarage;
+                $('[data-back-garage]', cover).onclick = () => openGarage('routes', null, run.world.hill.route);
             }
             masteryGain(run, cover);
             $("[data-again]", cover).onclick = () => {
@@ -1170,7 +1192,7 @@
             $("[data-analysis]", cover).onclick = () => run.frames.length ? showReplay(run.g.id, run.frames, report) : replayHistory(result.run.id);
         } catch (error) {
             run.phase = "done";
-            cover.innerHTML = `<h3>Не удалось сохранить</h3><p>${esc(error.message)}</p><button class="games-main" data-retry>Повторить отправку</button><button class="game-back" data-close>К играм</button>`;
+            cover.innerHTML = `<h3>${run.recorded?'Результат сохранён':'Не удалось сохранить'}</h3><p>${esc(run.recorded?'Не удалось обновить экран. Попробуй ещё раз.':error.message)}</p><button class="games-main" data-retry>${run.recorded?'Обновить результат':'Повторить отправку'}</button><button class="game-back" data-close>К играм</button>`;
             $("[data-retry]", cover).onclick = () => {
                 cover.remove();
                 run.phase = "paused";

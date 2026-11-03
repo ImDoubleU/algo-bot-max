@@ -4,6 +4,16 @@
     const H = ArcadeHill,
         art = (...args) => ArcadeHillView.carSvg(...args),
         fmt = n => Math.floor(n).toLocaleString('ru-RU');
+    const shortNumber = n => {
+        const unit = [
+            [1e12, 'трлн'],
+            [1e9, 'млрд'],
+            [1e6, 'млн']
+        ].find(([value]) => n >= value);
+        return unit ? (n / unit[0]).toLocaleString('ru-RU', {
+            maximumFractionDigits: 1
+        }) + ' ' + unit[1] : fmt(n);
+    };
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({
         '&': '&amp;',
         '<': '&lt;',
@@ -12,6 +22,8 @@
         "'": '&#39;'
     } [c]));
     let current = null;
+
+    const header = () => '<header class="hill-garage-header"><div><span>ХОЛМЫ И МОТОРЫ</span><h2 id="hillGarageTitle">Мой гараж</h2></div><button data-close aria-label="Закрыть гараж">×</button></header>';
 
     function landscape(route) {
         const r = H.getRoute(route);
@@ -38,36 +50,58 @@
     function tasks(s, g) {
         const categories = [...new Set(s.tasks.map(t => t.category))],
             shown = s.tasks.filter(t => t.category === g.category);
-        return `<div class="hill-task-categories">${categories.map(c=>`<button data-category="${c}" aria-pressed="${c===g.category}">${c}</button>`).join('')}</div><div class="hill-task-list">${shown.map(t=>`<article class="${t.claimed?'is-claimed':''}"><div><h3>${t.route?H.getRoute(t.route).name+' · ':''}${t.name}</h3><progress value="${t.value}" max="${t.target}" aria-label="Прогресс задания"></progress><span>${fmt(t.value)} / ${fmt(t.target)}</span></div><b>${t.claimed?'✓':t.ready?'Готово':`+${fmt(t.reward)}`}${!t.claimed?'<small>монет</small>':''}</b></article>`).join('')}</div>`;
+        return `<div class="hill-task-categories">${categories.map(c=>`<button data-category="${c}" aria-pressed="${c===g.category}">${c}</button>`).join('')}</div><div class="hill-task-list">${shown.map(t=>`<article class="${t.claimed?'is-claimed':t.ready?'is-ready':''}"><div><h3>${t.route?H.getRoute(t.route).name+' · ':''}${t.name}</h3><progress value="${t.value}" max="${t.target}" aria-label="Прогресс задания"></progress><span>${fmt(t.value)} / ${fmt(t.target)}</span></div><b aria-label="${t.claimed?'Награда получена':t.ready?'Готово к получению':'Награда'}">${t.claimed?'✓':`+${fmt(t.reward)}`}${!t.claimed?'<small>монет</small>':''}</b></article>`).join('')}</div>`;
     }
 
     function missions(g) {
-        const saved = g.options.journey,
+        const saved = g.snapshot.journey || g.options.journey,
             stage = g.stage || saved.unlocked,
-            m = ArcadeJourney.mission('hill', stage);
-        return `<div class="hill-mission-current"><span>Экспедиция · ${saved.cleared} / 24</span><h3>${m.title}</h3><p>Проедь ${m.goal} м</p><button class="hill-primary" data-mission="${stage}">Заезд ${stage} →</button></div><div class="hill-missions">${Array.from({length:24},(_,i)=>{const n=i+1,r=saved.records.find(r=>r.stage===n);return `<button data-stage="${n}" aria-pressed="${stage===n}" ${n>saved.unlocked?'disabled':''}><b>${n}</b><span>${r?'★'.repeat(r.stars)+'☆'.repeat(3-r.stars):n>saved.unlocked?'—':'•'}</span></button>`;}).join('')}</div>`;
+            m = ArcadeJourney.mission('hill', stage),
+            route = H.routes[[0, 0, 1, 2, 3, 4][m.chapter]];
+        return `<div class="hill-mission-current"><span>Экспедиция · ${saved.cleared} / 24</span><h3>${m.title}</h3><p>${route.name} · ${H.getCar(g.snapshot.car).name}</p><p>Проедь ${m.goal} м</p><button class="hill-primary" data-mission="${stage}">Заезд ${stage} →</button></div><details class="hill-mission-rules"><summary>Как получить три звезды</summary><ul>${ArcadeJourneyView.starGoals(m).map(goal=>`<li>${esc(goal)}</li>`).join('')}</ul></details><div class="hill-missions">${Array.from({length:24},(_,i)=>{const n=i+1,r=saved.records.find(r=>r.stage===n);return `<button data-stage="${n}" aria-label="Заезд ${n}${n>saved.unlocked?', закрыт':r?', звёзд: '+r.stars:''}" aria-pressed="${stage===n}" ${n>saved.unlocked?'disabled':''}><b>${n}</b><span>${r?'★'.repeat(r.stars)+'☆'.repeat(3-r.stars):n>saved.unlocked?'—':'•'}</span></button>`;}).join('')}</div>`;
     }
 
     function render(g) {
+        const scroll = g.dialog.scrollTop;
+        if (!g.snapshot) {
+            g.dialog.innerHTML = header() + `<main class="hill-garage-loading"><p role="status">${g.loading?'Открываем гараж…':esc(g.error)}</p>${g.loading?'':'<button class="hill-primary" data-reload>Повторить</button>'}</main>`;
+            return;
+        }
         const s = g.snapshot,
             ready = s.tasks.filter(t => t.ready && !t.claimed);
-        g.dialog.innerHTML = `<header class="hill-garage-header"><div><span>ХОЛМЫ И МОТОРЫ</span><h2>Мой гараж</h2></div><button data-close aria-label="Закрыть гараж">×</button></header><div class="hill-garage-wallet"><div><span>Уровень водителя</span><b>${s.level}</b></div><div><span>Монеты гаража</span><b>${fmt(s.balance)}</b></div><div><span>До уровня ${Math.min(25,s.level+1)}</span><b>${s.next_xp?fmt(s.next_xp-s.xp)+' XP':'Максимум'}</b></div></div><nav class="hill-garage-tabs" aria-label="Гараж">${[['routes','Трассы'],['cars','Машины'],['upgrades','Улучшения'],['tasks','Задания'],['missions','Экспедиция']].map(([id,label])=>`<button data-garage-tab="${id}" aria-pressed="${g.tab===id}">${label}${id==='tasks'&&ready.length?` <i>${ready.length}</i>`:''}</button>`).join('')}</nav><p class="hill-garage-error" role="status" ${g.error?'':'hidden'}>${esc(g.error)}</p>${ready.length?`<div class="hill-claim-line"><span>Готово заданий: ${ready.length}</span><button class="hill-primary" data-action="claim_all">Забрать всё · ${fmt(ready.reduce((n,t)=>n+t.reward,0))}</button></div>`:''}<main class="hill-garage-content">${g.tab==='routes'?routes(s,g):g.tab==='cars'?cars(s):g.tab==='upgrades'?upgrades(s):g.tab==='tasks'?tasks(s,g):missions(g)}</main>`;
+        g.dialog.innerHTML = `${header()}<div class="hill-garage-wallet"><div><span>Уровень водителя</span><b>${s.level}</b></div><div><span>Монеты гаража</span><b title="${fmt(s.balance)} монет">${shortNumber(s.balance)}</b></div><div><span>${s.next_xp?'До уровня '+(s.level+1):'Всего пройдено'}</span><b>${s.next_xp?fmt(s.next_xp-s.xp)+' XP':shortNumber(s.distance)+' м'}</b></div></div><nav class="hill-garage-tabs" aria-label="Гараж">${[['routes','Трассы'],['cars','Машины'],['upgrades','Улучшения'],['tasks','Задания'],['missions','Экспедиция']].map(([id,label])=>`<button data-garage-tab="${id}" aria-pressed="${g.tab===id}">${label}${id==='tasks'&&ready.length?` <i>${ready.length}</i>`:''}</button>`).join('')}</nav><p class="hill-garage-error" role="status" ${g.error?'':'hidden'}>${esc(g.error)}</p>${ready.length?`<div class="hill-claim-line"><span>Готово заданий: ${ready.length}</span><button class="hill-primary" data-action="claim_all">Забрать всё · ${fmt(ready.reduce((n,t)=>n+t.reward,0))} монет</button></div>`:''}<main class="hill-garage-content">${g.tab==='routes'?routes(s,g):g.tab==='cars'?cars(s):g.tab==='upgrades'?upgrades(s):g.tab==='tasks'?tasks(s,g):missions(g)}</main>`;
+        g.dialog.scrollTop = scroll;
+    }
+    async function load(g) {
+        g.loading = true;
+        g.error = '';
+        render(g);
+        try {
+            g.snapshot = await g.api('/garage');
+        } catch (error) {
+            g.error = error.message;
+        } finally {
+            g.loading = false;
+            if (current === g) render(g);
+        }
     }
     async function open(api, options) {
         if (current) return;
         const dialog = document.createElement('dialog');
         dialog.className = 'hill-garage-dialog';
-        dialog.innerHTML = '<p class="hill-garage-loading">Открываем гараж…</p>';
+        dialog.setAttribute('aria-labelledby', 'hillGarageTitle');
         document.body.append(dialog);
         dialog.showModal();
         const g = {
             api,
             options,
             dialog,
-            tab: 'routes',
-            route: 'meadow',
+            tab: options.tab || 'routes',
+            stage: options.stage || null,
+            route: options.route || 'meadow',
             category: 'Сегодня',
             snapshot: null,
+            loading: true,
             busy: false,
             error: ''
         };
@@ -79,13 +113,18 @@
         };
         dialog.addEventListener('cancel', e => {
             e.preventDefault();
-            if (!g.busy) close();
+            close();
         });
         dialog.onclick = async e => {
             const b = e.target.closest('button');
-            if (!b || b.disabled || g.busy) return;
+            if (!b || b.disabled) return;
             if (b.hasAttribute('data-close')) {
                 close();
+                return;
+            }
+            if (g.busy || g.loading) return;
+            if (b.hasAttribute('data-reload')) {
+                await load(g);
                 return;
             }
             if (b.dataset.garageTab) {
@@ -115,7 +154,9 @@
             }
             if (b.dataset.action) {
                 g.busy = true;
-                b.disabled = true;
+                dialog.setAttribute('aria-busy', 'true');
+                for (const button of dialog.querySelectorAll('button:not([data-close])')) button.disabled = true;
+                if (b.dataset.action !== 'paint') b.textContent = 'Сохраняем…';
                 g.error = '';
                 const body = {
                     id: crypto.randomUUID(),
@@ -129,6 +170,8 @@
                             body
                         });
                     } catch (error) {
+                        if (current !== g) throw error;
+                        if (error.status && error.status < 500) throw error;
                         g.snapshot = await api('/garage/actions', {
                             method: 'POST',
                             body
@@ -136,23 +179,17 @@
                     }
                 } catch (error) {
                     g.error = error.message;
-                    try {
+                    if (current === g) try {
                         g.snapshot = await api('/garage');
                     } catch {}
                 } finally {
                     g.busy = false;
+                    dialog.removeAttribute('aria-busy');
                     if (current === g) render(g);
                 }
             }
         };
-        try {
-            g.snapshot = await api('/garage');
-            if (current === g) render(g);
-        } catch (error) {
-            if (current === g) {
-                dialog.innerHTML = `<p class="hill-garage-loading">${esc(error.message)}</p><button data-close>Закрыть</button>`;
-            }
-        }
+        await load(g);
     }
     window.ArcadeHillGarage = {
         open,

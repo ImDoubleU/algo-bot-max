@@ -4,6 +4,8 @@ import json
 import math
 from datetime import datetime, timedelta, timezone
 
+from app.services import arcade_journey
+
 ROUTES = (("meadow", 1), ("dunes", 3), ("snow", 6), ("moon", 10), ("volcano", 15))
 CARS = {
     "scout": (1, 0),
@@ -182,12 +184,7 @@ def daily(state, now):
 
 def record(db, player, session, report, now):
     d = report["details"]
-    if (
-        d.get("physics") != "hill1"
-        or d.get("inputs", 0) < 1
-        or report["ticks"] < 180
-        or report["score"] < 20
-    ):
+    if d.get("physics") != "hill1" or d.get("inputs", 0) < 1 or report["score"] <= 0:
         return 0
     reward = d["coins"] + report["score"] // 15
     if not db.execute(
@@ -215,6 +212,11 @@ def record(db, player, session, report, now):
     state["route_best"][d["route"]] = max(state["route_best"].get(d["route"], 0), report["score"])
     save(db, player, state)
     return reward
+
+
+def reward_for(db, session):
+    row = db.execute("SELECT reward FROM hill_results WHERE session=?", (session,)).fetchone()
+    return row[0] if row else 0
 
 
 class HillStore:
@@ -252,6 +254,7 @@ class HillStore:
             ],
             tasks=daily(state, self.arcade.clock()) + contracts(db, player, state),
             paints=list(PAINTS),
+            journey=arcade_journey.progress(db, player)["hill"],
         )
 
     def get(self, player):

@@ -95,18 +95,23 @@ def test_verified_finish_pays_garage_once_and_never_touches_other_player_or_farm
     with ThreadPoolExecutor(max_workers=3) as pool:
         results = list(pool.map(lambda _: store.finish("p1", session["id"], [], 0), range(3)))
     assert all(r["duplicate"] for r in results)
+    assert all(r["garage_coins"] == reward for r in results)
     assert garage.get("p1") == saved
     assert garage.get("p2") == other
     assert store.profile("p1")["balance"] == 0
     assert HillStore(ArcadeStore(store.path, store.clock)).get("p1") == saved
 
 
-def test_abandon_and_fake_input_do_not_pay_garage(store):
+def test_leaving_keeps_verified_driving_rewards_but_fake_input_does_not_pay(store):
     garage = HillStore(store)
     session = store.session("p1", "hill", "practice", "keyboard")
     run = drive(session["setup"], 5)
-    assert finish(store, session, run, abandoned=True)["garage_coins"] == 0
-    assert garage.get("p1")["balance"] == 250
+    reward = run["report"]["details"]["coins"] + run["report"]["score"] // 15
+    result = finish(store, session, run, abandoned=True)
+    assert result["garage_coins"] == reward > 0
+    assert garage.get("p1")["balance"] == 250 + reward
+    assert not result["run"]["accepted"]
+    assert store.profile("p1")["balance"] == 0
     session = store.session("p1", "hill", "practice", "keyboard")
     report = arcade_runtime.verify(session["setup"], [dict(type="score", score=100000, t=0)], 3600)
     assert report["score"] == 0

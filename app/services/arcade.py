@@ -410,6 +410,7 @@ class ArcadeStore:
                     },
                     "duplicate": True,
                     "rewards": {"awards": [], "credited": 0, "pending": 0},
+                    "garage_coins": arcade_hill.reward_for(db, session),
                 }
             row = db.execute(
                 "SELECT * FROM arcade_sessions WHERE id=? AND player=?", (session, player)
@@ -473,6 +474,7 @@ class ArcadeStore:
                     },
                     "duplicate": True,
                     "rewards": {"awards": [], "credited": 0, "pending": 0},
+                    "garage_coins": arcade_hill.reward_for(db, session),
                 }
             db.execute(
                 "INSERT INTO arcade_runs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -547,9 +549,7 @@ class ArcadeStore:
                             f"{title} · {['бронза', 'серебро', 'золото'][tier]}",
                         )
             garage_coins = 0
-            if row["game"] == "hill" and (
-                not abandoned or report.get("journey", {}).get("success")
-            ):
+            if row["game"] == "hill":
                 garage_coins = arcade_hill.record(db, player, session, report, now)
             self._credit(db, player)
             rewards = {"awards": [], "credited": 0, "pending": 0}
