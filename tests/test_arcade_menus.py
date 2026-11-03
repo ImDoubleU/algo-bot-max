@@ -18,7 +18,7 @@ def test_all_sixteen_games_have_four_large_visible_mode_buttons(arcade, size):
             "Соревнование›",
             "Тренировка›",
             "Обучение›",
-            "Уровни›",
+            "Мой огород›" if game == "kopatych" else "Уровни›",
         ]
         for button in buttons.all():
             rect = button.bounding_box()

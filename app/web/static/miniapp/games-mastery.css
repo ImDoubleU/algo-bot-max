@@ -55,3 +55,145 @@
  .drop-arena-picker b{font-size:9px}
  .drop-arena-picker button{padding:8px 2px}
 }
+/* Standings: readable names and scores, compact prizes, explicit qualification. */
+.arcade-ranking.games-leaders{--ranking-ink:#352d43;--ranking-muted:#75677f;width:100%;max-width:1060px;margin:0 auto 28px;padding:26px;border:1px solid #e1d8eb;border-radius:22px;background:#fff;color:var(--ranking-ink);box-sizing:border-box;font:16px/1.45 "Segoe UI",sans-serif}
+.arcade-ranking *{box-sizing:border-box}
+.arcade-ranking .ranking-heading{display:block;padding:0;margin:0 0 20px;background:none;border:0}
+.arcade-ranking .ranking-heading h3{margin:0 0 8px;font:750 30px/1.2 "Segoe UI",sans-serif;letter-spacing:-.6px;color:#352d43}
+.arcade-ranking .ranking-heading p{margin:0;font-size:16px;color:#75677f}
+.arcade-ranking .games-leader-controls{margin:0 0 22px;padding:0;display:flex;flex-wrap:wrap;gap:12px}
+.arcade-ranking .games-leader-period{display:flex;gap:4px;padding:4px;border-radius:12px;background:#f1ecf7}
+.arcade-ranking .games-leader-period button{min-height:46px;padding:10px 18px;border:0;border-radius:9px;background:none;color:#8a769e;font:650 17px/1.3 "Segoe UI",sans-serif;cursor:pointer}
+.arcade-ranking .games-leader-period button[aria-pressed=true]{background:#fff;color:#754c9c;box-shadow:0 1px 3px #5c3d7812}
+.arcade-ranking .ranking-prizes{margin:0 0 22px;padding:18px;border:1px solid #ead8ac;border-radius:16px;background:#fffcf4}
+.arcade-ranking .ranking-section-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 14px}
+.arcade-ranking .ranking-section-heading h4{font-size:21px;color:#927038;margin:0;font-weight:700}
+.arcade-ranking .ranking-section-heading p{font-size:15px;color:#8f7958;margin:0}
+.arcade-ranking .ranking-prize-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.arcade-ranking .ranking-prize{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:80px;padding:15px 18px;background:#fff;border:1px solid #e8dfce;border-radius:12px}
+.arcade-ranking .ranking-prize>span{font-size:17px;font-weight:600;color:#947346;white-space:nowrap}
+.arcade-ranking .ranking-prize>strong{font-size:30px;line-height:1;color:#8b662a;white-space:nowrap;font-variant-numeric:tabular-nums}
+.arcade-ranking .ranking-prize small{font-size:16px;font-weight:650}
+.arcade-ranking .ranking-prize.prize-1{background:#fff0bd;border-color:#edcf7d}
+.arcade-ranking .ranking-prize.prize-2{background:#f6f4f8;border-color:#ded7e5}
+.arcade-ranking .ranking-prize.prize-3{background:#f9ece0;border-color:#e4c8ad}
+.arcade-ranking .ranking-prize-condition{margin:13px 0 0;font-size:15px;line-height:1.5;color:#8c7553}
+.arcade-ranking .ranking-mine.games-my-rank{display:block;margin:0 0 24px;padding:20px;border:1px solid #dacee9;border-radius:16px;background:#f4effa}
+.arcade-ranking .ranking-mine-numbers{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.arcade-ranking .ranking-mine-numbers>div{display:flex;align-items:center;gap:18px}
+.arcade-ranking .ranking-mine-numbers>div:last-child{justify-content:flex-end}
+.arcade-ranking .ranking-mine-numbers span{font-size:17px;color:#7a628d}
+.arcade-ranking .ranking-mine-numbers strong{font-size:34px;font-weight:750;line-height:1.2;color:#715090;font-variant-numeric:tabular-nums}
+.arcade-ranking .ranking-mine-numbers small{font-size:17px;color:#8b6d9f}
+.arcade-ranking .ranking-qualification{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:17px;padding-top:16px;border-top:1px solid #e0d4eb}
+.arcade-ranking .ranking-qualification b{display:block;font-size:18px;font-weight:700;color:#886738}
+.arcade-ranking .ranking-qualification span{display:block;margin-top:4px;font-size:15px;color:#7a668a}
+.arcade-ranking .ranking-qualification.is-qualified b{color:#668046}
+.arcade-ranking .ranking-game-steps{display:flex;gap:7px;flex-shrink:0}
+.arcade-ranking .ranking-game-steps i{width:32px;height:32px;display:grid;place-items:center;font-size:17px;font-style:normal;border:1px solid #cdbedc;border-radius:9px;background:#fff;color:#a18ab3}
+.arcade-ranking .ranking-game-steps i.is-complete{background:#dfeccc;border-color:#b6c99d;color:#68834d;font-weight:750}
+.arcade-ranking .ranking-next-place{margin:14px 0 0;font-size:16px;line-height:1.4;color:#8c719f}
+.arcade-ranking .ranking-next-place b{color:#75518f}
+.arcade-ranking .ranking-first-step{margin:0 0 24px;padding:20px;background:#f4effa;border:1px solid #e1d6ec;border-radius:15px}
+.arcade-ranking .ranking-first-step>b{font-size:21px;color:#7f6198}
+.arcade-ranking .ranking-first-step p{font-size:16px;color:#7d658d;margin:8px 0 0}
+.arcade-ranking .ranking-list-heading{display:flex;justify-content:space-between;align-items:baseline;gap:15px;padding:0 0 12px;border-bottom:1px solid #e7e0ed}
+.arcade-ranking .ranking-list-heading h4{font-size:22px;color:#5a466b;margin:0}
+.arcade-ranking .ranking-list-heading>span{font-size:16px;color:#8c789d}
+.arcade-ranking .ranking-list{list-style:none;padding:0;margin:0 0 18px;display:grid;gap:0}
+.arcade-ranking .ranking-player{padding:18px 12px;border-bottom:1px solid #e8e1ee;border-radius:0}
+.arcade-ranking .ranking-player.is-me{background:#f5effb;border-radius:12px;border-color:#e2d5ed}
+.arcade-ranking .ranking-player-line{display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:16px;align-items:start}
+.arcade-ranking .ranking-place{display:grid;place-items:center;width:44px;height:44px;background:#eee8f5;border:1px solid #dcd0e7;border-radius:50%;font-size:22px;font-weight:750;color:#8c6b9f;font-variant-numeric:tabular-nums}
+.arcade-ranking .ranking-place.place-1{background:#fff0bf;border-color:#e6c772;color:#99722b}
+.arcade-ranking .ranking-place.place-2{background:#eeebf4;border-color:#cec5df;color:#887999}
+.arcade-ranking .ranking-place.place-3{background:#f5e5d8;border-color:#dbbda4;color:#aa7952}
+.arcade-ranking .ranking-person{min-width:0}
+.arcade-ranking .ranking-person h4{margin:0;font-size:21px;font-weight:750;line-height:1.35;color:#4d3e5a;overflow-wrap:anywhere}
+.arcade-ranking .ranking-person h4>em{display:inline-block;padding:2px 7px;margin-left:5px;border-radius:6px;background:#e8ddf3;color:#7b548f;font-size:14px;font-weight:650;font-style:normal;vertical-align:middle}
+.arcade-ranking .ranking-person p{margin:5px 0 0;font-size:15px;line-height:1.45;color:#76637f;overflow-wrap:anywhere}
+.arcade-ranking .ranking-player-status{display:inline-block;font-size:15px;color:#936e2f;margin-top:7px}
+.arcade-ranking .ranking-player-status.is-qualified{color:#5c743b}
+.arcade-ranking .ranking-points{min-width:70px;max-width:150px;align-self:center;text-align:right;font-variant-numeric:tabular-nums}
+.arcade-ranking .ranking-points strong{display:block;font-size:30px;font-weight:750;line-height:1.2;color:#625071;overflow-wrap:anywhere}
+.arcade-ranking .ranking-points>span{display:block;margin-top:4px;font-size:15px;color:#7d648d}
+.arcade-ranking .ranking-breakdown{margin:8px 0 0 64px;padding:0;background:none;border:0}
+.arcade-ranking .ranking-breakdown summary{padding:10px 0;min-height:44px;font-size:16px;line-height:1.4;color:#86619b;cursor:pointer}
+.arcade-ranking .ranking-breakdown ul{list-style:none;padding:4px 0 0;margin:0;display:grid;gap:0}
+.arcade-ranking .ranking-breakdown li{display:flex;justify-content:space-between;gap:15px;align-items:center;border-top:1px solid #e9e1ef;padding:12px 0}
+.arcade-ranking .ranking-breakdown li b{display:block;font-size:16px;color:#79628b;font-weight:650}
+.arcade-ranking .ranking-breakdown li span{display:block;font-size:14px;color:#9882a7;margin-top:3px}
+.arcade-ranking .ranking-breakdown li strong{font-size:20px;white-space:nowrap;color:#91a36e}
+.arcade-ranking .ranking-rules,.arcade-ranking .ranking-history{margin:12px 0 0;padding:0;border:1px solid #e2d8eb;border-radius:12px;background:#fbf9fd}
+.arcade-ranking .ranking-rules>summary,.arcade-ranking .ranking-history>summary{min-height:52px;padding:15px 18px;font-size:17px;line-height:1.4;color:#87659e;font-weight:650;cursor:pointer}
+.arcade-ranking .ranking-rules-content{padding:4px 18px 18px}
+.arcade-ranking .ranking-rules-content h4{font-size:19px;color:#745784;margin:16px 0 12px}
+.arcade-ranking .ranking-rules-content p{font-size:16px;line-height:1.6;color:#867092;margin:14px 0 0}
+.arcade-ranking .ranking-point-key{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.arcade-ranking .ranking-point-key>div{display:grid;gap:5px;padding:11px;background:#fff;border:1px solid #e7dded;border-radius:8px;text-align:center}
+.arcade-ranking .ranking-point-key span{font-size:15px;color:#80658f}
+.arcade-ranking .ranking-point-key strong{font-size:21px;color:#7b588f}
+.arcade-ranking .ranking-league-key{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.arcade-ranking .ranking-league-key li{padding:12px;background:#eee8f5;border-radius:9px}
+.arcade-ranking .ranking-league-key b{display:block;font-size:16px;color:#8b6ba1}
+.arcade-ranking .ranking-league-key span{display:block;font-size:14px;color:#7d658b;margin-top:4px}
+.arcade-ranking .ranking-history>section{padding:0 18px 15px}
+.arcade-ranking .ranking-history h4{font-size:18px;color:#89709b;margin:10px 0 8px}
+.arcade-ranking .ranking-history section>div{display:flex;justify-content:space-between;gap:12px;padding:9px 0;font-size:17px;color:#7d668d}
+.arcade-ranking .ranking-history strong{font-size:17px;white-space:nowrap;color:#8d9e6b}
+.arcade-ranking .ranking-note{font-size:15px;line-height:1.5;color:#806c8d;margin:10px 0 18px}
+.arcade-ranking .ranking-empty{padding:32px 15px;border-bottom:1px solid #e6dfed;background:#fcfafd}
+.arcade-ranking .ranking-empty h4{font-size:22px;color:#8b709e;margin:0 0 12px}
+.arcade-ranking .ranking-empty p{font-size:17px;line-height:1.5;color:#80698f;margin:0}
+.arcade-ranking button:focus-visible,.arcade-ranking summary:focus-visible{outline:3px solid #a184be;outline-offset:3px}
+.games-leader-dialog .arcade-ranking{border:0;border-radius:0;padding:24px}
+.games-leader-dialog .ranking-heading{padding-right:48px}
+.games-leader-dialog .ranking-heading h3{font-size:26px}
+.game-dialog[data-game=kopatych] .arcade-menu-action.levels{--mode-ink:#758b4d;--mode-wash:#e7efd8}
+@media(max-width:700px){
+ .arcade-ranking.games-leaders{padding:20px;border-radius:17px}
+ .arcade-ranking .ranking-prize{flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:13px 8px}
+ .arcade-ranking .ranking-prize>strong{font-size:28px}
+ .arcade-ranking .ranking-league-key{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .arcade-ranking .ranking-mine-numbers>div{display:grid;gap:5px}
+ .arcade-ranking .ranking-mine-numbers>div:last-child{justify-items:end}
+ .arcade-ranking .ranking-mine-numbers strong{font-size:31px}
+}
+@media(max-width:520px){
+ .arcade-ranking.games-leaders{padding:16px}
+ .arcade-ranking .ranking-heading h3{font-size:27px}
+ .arcade-ranking .ranking-heading p{font-size:16px;line-height:1.5}
+ .arcade-ranking .games-leader-controls{gap:10px}
+ .arcade-ranking .games-leader-period{width:100%}
+ .arcade-ranking .games-leader-period button{flex:1;font-size:16px;padding:11px 9px}
+ .arcade-ranking .ranking-prizes{padding:14px}
+ .arcade-ranking .ranking-section-heading{display:grid;gap:5px}
+ .arcade-ranking .ranking-section-heading h4{font-size:20px}
+ .arcade-ranking .ranking-section-heading p{font-size:15px}
+ .arcade-ranking .ranking-prize-strip{gap:8px}
+ .arcade-ranking .ranking-prize>span{font-size:16px}
+ .arcade-ranking .ranking-prize>strong{font-size:26px}
+ .arcade-ranking .ranking-prize small{font-size:15px}
+ .arcade-ranking .ranking-mine.games-my-rank{padding:16px}
+ .arcade-ranking .ranking-mine-numbers span{font-size:16px}
+ .arcade-ranking .ranking-mine-numbers strong{font-size:30px}
+ .arcade-ranking .ranking-qualification{display:grid;gap:12px}
+ .arcade-ranking .ranking-game-steps{width:100%}
+ .arcade-ranking .ranking-game-steps i{flex:1;height:30px}
+ .arcade-ranking .ranking-qualification b{font-size:17px}
+ .arcade-ranking .ranking-player{padding:17px 7px}
+ .arcade-ranking .ranking-player-line{grid-template-columns:40px minmax(0,1fr) auto;gap:10px}
+ .arcade-ranking .ranking-place{width:36px;height:36px;font-size:20px}
+ .arcade-ranking .ranking-person h4{font-size:19px}
+ .arcade-ranking .ranking-person p{font-size:15px}
+ .arcade-ranking .ranking-points{min-width:48px;max-width:92px}
+ .arcade-ranking .ranking-points strong{font-size:26px}
+ .arcade-ranking .ranking-breakdown{margin-left:50px}
+ .arcade-ranking .ranking-breakdown summary{font-size:16px}
+ .arcade-ranking .ranking-point-key{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .arcade-ranking .ranking-rules>summary,.arcade-ranking .ranking-history>summary{font-size:16px;padding:14px}
+ .games-leader-dialog .arcade-ranking{padding:20px 16px}
+}
+@media(max-width:360px){
+ .arcade-ranking .ranking-prize small{display:block;margin-top:5px;text-align:center}
+}
