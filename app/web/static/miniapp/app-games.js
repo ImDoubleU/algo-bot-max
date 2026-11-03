@@ -157,7 +157,10 @@
             total = m.next ? m.next - m.floor : 1;
         const tier = c.league,
             next = m.nextTitle;
-        return `${detailed?'':`<section class="arcade-passport"><div class="arcade-passport-skill"><span class="arcade-level-seal"><b>${m.level}</b><small>УРОВЕНЬ</small></span><div><small class="arcade-passport-label">ТВОЁ МАСТЕРСТВО</small><h2>${esc(m.title)}</h2><div class="arcade-xp-line"><progress aria-label="Опыт до следующего уровня" value="${progress}" max="${total}"></progress><span>${m.next?`${progress} / ${total} XP`:'Максимальный уровень'}</span></div><small>${m.next?`${m.next-m.xp} XP до уровня ${m.level+1}`:'Все 50 уровней открыты'}</small></div></div><div class="arcade-passport-league"><small class="arcade-passport-label">РАНГ СЕЗОНА</small><h3>${esc(tier.name)} <span>${c.rank?'#'+c.rank:''}</span></h3><p>${c.score} очков · ${c.games} игр</p><small>${tier.remainingGames?`Ещё ${tier.remainingGames} игры до ранга`:tier.next?`${Math.max(0,tier.next-c.score)} очков до следующего ранга`:'Высшая лига'}</small><button data-tab="leaders">К рейтингу →</button></div></section>`}${detailed?`<section class="arcade-mastery-rules"><h3>Как растёт мастерство</h3><div><p><b>+100 XP</b> за первое прохождение задания</p><p><b>+25 XP</b> за каждую дополнительную звезду</p><p><b>+100 / 200 / 300 XP</b> за бронзовую, серебряную и золотую медали</p></div><p>${next?`Следующее звание: <b>${esc(next.name)}</b> — уровень ${next.level} и первая глава или медаль в ${next.games} играх. Сейчас освоено: ${m.breadth}.`:'Звание «Легенда» открыто.'}</p><small>Повторы без улучшения звёзд не добавляют опыт. Мастерство сохраняется, ранг пересчитывается каждые две недели. Уровень не даёт преимуществ в соревнованиях.</small></section>`:''}`;
+        const remaining = tier.remainingGames,
+            leagueName = remaining ? 'Без ранга' : esc(tier.name),
+            leagueHint = remaining ? `Ещё ${remaining} ${remaining===1?'игра':'игры'} с выполненной целью` : tier.next ? `До следующего ранга — ${Math.max(0,tier.next-c.score)} очков` : 'Высшая лига открыта';
+        return `${detailed?'':`<section class="arcade-passport" aria-label="Твой игровой прогресс"><div class="arcade-passport-skill"><span class="arcade-level-seal"><b>${m.level}</b><span>уровень</span></span><div><p class="arcade-passport-label">Мастерство</p><h2>${esc(m.title)}</h2><div class="arcade-xp-line"><progress aria-label="Опыт до следующего уровня" value="${progress}" max="${total}"></progress></div><p class="arcade-next-level">${m.next?`До уровня ${m.level+1} — <b>${m.next-m.xp} XP</b>`:'Все 50 уровней открыты'}</p></div></div><div class="arcade-passport-league"><div class="arcade-season-heading"><p class="arcade-passport-label">Рейтинг сезона</p>${c.rank?`<span class="arcade-season-place">${c.rank} место</span>`:''}</div><div class="arcade-season-result"><h3>${leagueName}</h3><p><b>${c.score}</b> очков</p></div><p class="arcade-season-hint">${leagueHint}</p><button data-tab="leaders" aria-label="Открыть общий рейтинг"><span class="arcade-season-action-label">К рейтингу</span><span aria-hidden="true">→</span></button></div></section>`}${detailed?`<section class="arcade-mastery-rules"><h3>Как растёт мастерство</h3><div><p><b>+100 XP</b> за первое прохождение задания</p><p><b>+25 XP</b> за каждую дополнительную звезду</p><p><b>+100 / 200 / 300 XP</b> за бронзовую, серебряную и золотую медали</p></div><p>${next?`Следующее звание: <b>${esc(next.name)}</b> — уровень ${next.level} и первая глава или медаль в ${next.games} играх. Сейчас освоено: ${m.breadth}.`:'Звание «Легенда» открыто.'}</p><small>Повторы без улучшения звёзд не добавляют опыт. Мастерство сохраняется, ранг пересчитывается каждые две недели. Уровень не даёт преимуществ в соревнованиях.</small></section>`:''}`;
     }
 
     function nextDeadline(end) {
@@ -172,10 +175,10 @@
     function tabs() {
         return [
             ["games", "Игры"],
-            ["leaders", "Общий рейтинг"],
+            ["leaders", "Рейтинг"],
             ["achievements", "Достижения"],
             ["looks", "Образы"],
-            ["progress", "Мой прогресс"],
+            ["progress", "Прогресс"],
             ["rewards", "Награды"]
         ].map(([id, name]) => `<button data-tab="${id}" class="${tab===id?"active":""}" aria-pressed="${tab===id}">${name}</button>`).join("");
     }
@@ -187,9 +190,9 @@
             return;
         }
         const earned = Object.values(profile.goals).filter(g => g.claimed).length;
-        root.innerHTML = `<div class="games-heading"><div><div class="games-wordmark">${art("arcade")}<span class="games-eyebrow">ALGO ARCADE</span></div><h1>Игры</h1></div><div class="arcade-account"><label class="games-player-picker">Игрок демки<select id="gamesPlayer">${actors.map(p=>`<option value="${esc(p.id)}" ${p.id===actor().id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></label><button class="arcade-settings" aria-label="Настройки игр" data-settings>⚙</button></div></div>
+        root.innerHTML = `<div class="games-heading"><div class="games-lobby-title">${art("arcade")}<h1>Игры</h1></div><div class="arcade-account"><label class="games-player-picker"><span class="games-player-label">Игрок</span><select id="gamesPlayer" aria-label="Игрок">${actors.map(p=>`<option value="${esc(p.id)}" ${p.id===actor().id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></label><button class="arcade-settings" aria-label="Настройки игр" data-settings>⚙</button></div></div>
       ${masteryMarkup()}
-      <div class="games-weekbar"><div><span class="games-week-icon">✦</span><span><b>Награды игр</b><small>На этой неделе: ${profile.cap.used} / ${profile.cap.limit} AC</small></span></div><b>${earned}<span> / ${E.games.length} целей</span></b><button data-tab="rewards">Награды →</button></div>
+      <button class="arcade-reward-overview" data-tab="rewards"><span class="arcade-reward-balance"><span>Награды</span><strong>${profile.balance} <span>AC</span></strong></span><span class="arcade-reward-goals"><b>${earned} из ${E.games.length}</b><span>Цели игр</span></span><span class="arcade-reward-arrow" aria-hidden="true">→</span></button>
       <nav class="games-tabs" aria-label="Разделы игр">${tabs()}</nav><div id="arcadeTabContent"></div>`;
         const content = $("#arcadeTabContent", root);
         if (tab === "games") content.innerHTML = cards();
@@ -227,9 +230,13 @@
     }
 
     function cards() {
-        return `<div class="games-filters">${[["all","Все"],["fun","Залипательные"],["skill","С пользой"],["puzzle","Подумать"]].map(([id,name])=>`<button data-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${name}</button>`).join("")}</div><div class="games-grid">${E.games.slice().sort((a,b)=>Number(!!b.fresh)-Number(!!a.fresh)).filter(g=>filter==="all"||g.kind===filter).map(g=>{
-    const q=profile.goals[g.id];return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><div class="game-card-art">${art(g.id)}${g.fresh?'<span class="arcade-new">НОВОЕ</span>':""}<span class="game-reward">${q.claimed?q.credited?"✓ Получено":"В очереди":q.eligible?"✦ Забрать награду":`✦ ${q.reward} AC`}</span></div><div class="game-card-body"><small>${g.tag}</small><h3>${g.name}</h3><div class="game-card-bottom"><span>${g.persistent?"Ферма · свой прогресс":ArcadeJourney.specs[g.id]?`${profile.journeys[g.id].cleared}/24 заданий · ${profile.journeys[g.id].stars} ★`:profile.best[g.id]?`Рекорд <b>${profile.best[g.id]}</b>`:`Цель: ${goal(g.id)}`}</span><span class="game-play">↗</span></div></div></button><button class="game-card-leader" data-leader="${g.id}">🏆 ${g.persistent?"Лидеры турнира":"Лидеры"}</button></div>`;
-  }).join("")}</div>`;
+        const trophy = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4h8v6a4 4 0 0 1-8 0Z"/><path d="M8 6H4v2a4 4 0 0 0 4 4m8-6h4v2a4 4 0 0 1-4 4m-4 2v5m-4 1h8"/></svg>';
+        return `<div class="games-filters" aria-label="Категории игр">${[["all","Все"],["fun","Залипательные"],["skill","С пользой"],["puzzle","Подумать"]].map(([id,name])=>`<button data-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${name}</button>`).join("")}</div><div class="games-grid">${E.games.slice().sort((a,b)=>Number(!!b.fresh)-Number(!!a.fresh)).filter(g=>filter==="all"||g.kind===filter).map(g=>{
+            const q = profile.goals[g.id], journey = profile.journeys[g.id],
+                cleared = journey?.cleared || 0,
+                progressText = g.persistent ? 'Огород и турнир' : journey ? cleared===24 ? 'Все уровни пройдены' : cleared ? `${cleared} из 24 пройдено` : '24 уровня' : `Цель: ${goal(g.id)}`;
+            return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><div class="game-card-art">${art(g.id)}<span class="game-reward ${q.claimed&&q.credited?'claimed':''}">${q.claimed?q.credited?'✓ Получено':'В очереди':q.eligible?'Награда готова':`+${q.reward} AC`}</span></div><div class="game-card-body"><h3>${g.name}</h3><div class="game-card-bottom"><span>${progressText}</span><span class="game-play" aria-hidden="true">→</span></div>${journey&&cleared?`<progress class="game-card-progress" aria-label="Пройденные уровни: ${cleared} из 24" value="${cleared}" max="24"></progress>`:''}</div></button><button class="game-card-leader" data-leader="${g.id}">${trophy}<span>${g.persistent?'Лидеры турнира':'Лидеры'}</span><span aria-hidden="true">↗</span></button></div>`;
+        }).join("")}</div>`;
     }
 
     function achievementText(a) {
