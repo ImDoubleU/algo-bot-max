@@ -72,7 +72,7 @@ def test_each_game_board_remains_readable_inside_the_cup_and_filters_work(arcade
 def test_garden_label_opens_the_saved_farm_and_other_games_keep_levels(arcade):
     page, _ = arcade
     page.locator('.game-card[data-game="kopatych"]').click()
-    page.get_by_role("button", name="Мой огород", exact=True).click()
+    page.locator("#gameDialog").get_by_role("button", name="Мой огород", exact=True).click()
     page.locator(".farm-bear").wait_for()
     page.locator("[data-farm-close]").click()
     page.locator('.game-card[data-game="2048"]').click()

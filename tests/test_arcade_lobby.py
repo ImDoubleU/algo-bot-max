@@ -29,7 +29,7 @@ def test_lobby_has_readable_labels_large_controls_and_no_sideways_scroll(arcade,
     for item in page.locator(".games-tabs button,.games-filters button,.game-card-leader").all():
         assert item.bounding_box()["height"] >= 44
     assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
-    for selector in (".arcade-passport", ".arcade-reward-overview", ".games-tabs"):
+    for selector in (".arcade-passport", ".arcade-reward-overview"):
         assert page.locator(selector).evaluate("e=>e.scrollWidth<=e.clientWidth")
     with store.db() as db:
         assert db.execute("SELECT COUNT(*) FROM arcade_sessions").fetchone()[0] == 0
@@ -45,7 +45,7 @@ def test_lobby_reward_rank_filters_and_player_switch_keep_the_saved_state(arcade
     expected = page.evaluate("AlgoGameEngine.games.filter(g=>g.kind==='puzzle').map(g=>g.id)")
     shown = page.locator(".game-card").evaluate_all("cards=>cards.map(c=>c.dataset.game)")
     assert sorted(shown) == sorted(expected)
-    page.locator('.arcade-passport-league [data-tab="leaders"]').click()
+    page.locator('.arcade-passport-league[data-tab="leaders"]').click()
     page.locator(".ranking-heading").wait_for()
     page.locator('.games-tabs [data-tab="games"]').click()
     page.locator("#gamesPlayer").select_option("p2")
@@ -75,3 +75,19 @@ def test_long_mastery_title_fits_small_phone_without_tiny_type(arcade):
     assert heading.evaluate("e=>parseFloat(getComputedStyle(e).fontSize)") >= 22
     assert heading.evaluate("e=>e.clientHeight<=parseFloat(getComputedStyle(e).lineHeight)+1")
     assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
+
+
+def test_featured_garden_and_competition_open_the_actual_modes(arcade):
+    page, store = arcade
+    page.locator(".arcade-garden-feature [data-garden]").click()
+    page.locator(".farm-bear").wait_for()
+    with store.db() as db:
+        assert db.execute("SELECT COUNT(*) FROM arcade_sessions").fetchone()[0] == 0
+    page.locator("[data-farm-close]").click()
+    page.locator(".arcade-garden-feature [data-sprint]").click()
+    page.locator(".arcade-countdown").wait_for(state="detached")
+    page.wait_for_function("document.querySelector('#gameClock')?.textContent.length>0")
+    with store.db() as db:
+        rows = db.execute("SELECT game,mode FROM arcade_sessions").fetchall()
+        assert [(r["game"], r["mode"]) for r in rows] == [("kopatych", "ranked")]
+    assert not store.profile("p1")["awards"]

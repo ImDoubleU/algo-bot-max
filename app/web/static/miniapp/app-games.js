@@ -160,7 +160,7 @@
         const remaining = tier.remainingGames,
             leagueName = remaining ? 'Без ранга' : esc(tier.name),
             leagueHint = remaining ? `Ещё ${remaining} ${remaining===1?'игра':'игры'} с выполненной целью` : tier.next ? `До следующего ранга — ${Math.max(0,tier.next-c.score)} очков` : 'Высшая лига открыта';
-        return `${detailed?'':`<section class="arcade-passport" aria-label="Твой игровой прогресс"><div class="arcade-passport-skill"><span class="arcade-level-seal"><b>${m.level}</b><span>уровень</span></span><div><p class="arcade-passport-label">Мастерство</p><h2>${esc(m.title)}</h2><div class="arcade-xp-line"><progress aria-label="Опыт до следующего уровня" value="${progress}" max="${total}"></progress></div><p class="arcade-next-level">${m.next?`До уровня ${m.level+1} — <b>${m.next-m.xp} XP</b>`:'Все 50 уровней открыты'}</p></div></div><div class="arcade-passport-league"><div class="arcade-season-heading"><p class="arcade-passport-label">Рейтинг сезона</p>${c.rank?`<span class="arcade-season-place">${c.rank} место</span>`:''}</div><div class="arcade-season-result"><h3>${leagueName}</h3><p><b>${c.score}</b> очков</p></div><p class="arcade-season-hint">${leagueHint}</p><button data-tab="leaders" aria-label="Открыть общий рейтинг"><span class="arcade-season-action-label">К рейтингу</span><span aria-hidden="true">→</span></button></div></section>`}${detailed?`<section class="arcade-mastery-rules"><h3>Как растёт мастерство</h3><div><p><b>+100 XP</b> за первое прохождение задания</p><p><b>+25 XP</b> за каждую дополнительную звезду</p><p><b>+100 / 200 / 300 XP</b> за бронзовую, серебряную и золотую медали</p></div><p>${next?`Следующее звание: <b>${esc(next.name)}</b> — уровень ${next.level} и первая глава или медаль в ${next.games} играх. Сейчас освоено: ${m.breadth}.`:'Звание «Легенда» открыто.'}</p><small>Повторы без улучшения звёзд не добавляют опыт. Мастерство сохраняется, ранг пересчитывается каждые две недели. Уровень не даёт преимуществ в соревнованиях.</small></section>`:''}`;
+        return `${detailed?'':`<section class="arcade-passport" aria-label="Твой игровой прогресс"><div class="arcade-passport-skill"><span class="arcade-level-seal"><b>${m.level}</b><span>уровень</span></span><div><h2>${esc(m.title)}</h2><div class="arcade-xp-line"><progress aria-label="Опыт до следующего уровня" value="${progress}" max="${total}"></progress></div><p class="arcade-next-level">${m.next?`До уровня ${m.level+1} — <b>${m.next-m.xp} XP</b>`:'Все 50 уровней открыты'}</p></div></div><button class="arcade-passport-league" data-tab="leaders" aria-label="Открыть общий рейтинг"><span class="arcade-passport-label">Сезон до ${nextDeadline(profile.season.end)}</span><span class="arcade-season-result"><strong>${leagueName}</strong><span>${c.rank?'#'+c.rank+' · ':''}${c.score} очков</span></span><span class="arcade-season-hint">${leagueHint}</span></button></section>`}${detailed?`<section class="arcade-mastery-rules"><h3>Как растёт мастерство</h3><div><p><b>+100 XP</b> за первое прохождение задания</p><p><b>+25 XP</b> за каждую дополнительную звезду</p><p><b>+100 / 200 / 300 XP</b> за бронзовую, серебряную и золотую медали</p></div><p>${next?`Следующее звание: <b>${esc(next.name)}</b> — уровень ${next.level} и первая глава или медаль в ${next.games} играх. Сейчас освоено: ${m.breadth}.`:'Звание «Легенда» открыто.'}</p><small>Повторы без улучшения звёзд не добавляют опыт. Мастерство сохраняется, ранг пересчитывается каждые две недели. Уровень не даёт преимуществ в соревнованиях.</small></section>`:''}`;
     }
 
     function nextDeadline(end) {
@@ -189,10 +189,8 @@
             $("[data-reload]", root).onclick = () => render();
             return;
         }
-        const earned = Object.values(profile.goals).filter(g => g.claimed).length;
-        root.innerHTML = `<div class="games-heading"><div class="games-lobby-title">${art("arcade")}<h1>Игры</h1></div><div class="arcade-account"><label class="games-player-picker"><span class="games-player-label">Игрок</span><select id="gamesPlayer" aria-label="Игрок">${actors.map(p=>`<option value="${esc(p.id)}" ${p.id===actor().id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></label><button class="arcade-settings" aria-label="Настройки игр" data-settings>⚙</button></div></div>
-      ${masteryMarkup()}
-      <button class="arcade-reward-overview" data-tab="rewards"><span class="arcade-reward-balance"><span>Награды</span><strong>${profile.balance} <span>AC</span></strong></span><span class="arcade-reward-goals"><b>${earned} из ${E.games.length}</b><span>Цели игр</span></span><span class="arcade-reward-arrow" aria-hidden="true">→</span></button>
+        root.innerHTML = `<div class="games-heading"><div class="games-lobby-title"><h1>Игры</h1></div><div class="arcade-account"><label class="games-player-picker"><span class="games-player-label">Игрок</span><select id="gamesPlayer" aria-label="Игрок">${actors.map(p=>`<option value="${esc(p.id)}" ${p.id===actor().id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></label><button class="arcade-settings" aria-label="Настройки игр" data-settings>⚙</button></div></div>
+      <div class="arcade-lobby-status">${masteryMarkup()}<button class="arcade-reward-overview" data-tab="rewards"><span class="arcade-reward-balance"><span>Награды</span><strong>${profile.balance} <span>AC</span></strong></span></button></div>
       <nav class="games-tabs" aria-label="Разделы игр">${tabs()}</nav><div id="arcadeTabContent"></div>`;
         const content = $("#arcadeTabContent", root);
         if (tab === "games") content.innerHTML = cards();
@@ -229,13 +227,28 @@
         }
     }
 
+    function gardenFeature() {
+        const bear = window.KopatychArt?.character(false, 1) || art('kopatych');
+        return `<section class="arcade-garden-feature" aria-label="Копатыч"><div class="arcade-feature-copy"><p>Твой огород</p><h2>Копатыч</h2><div class="arcade-feature-actions"><button data-garden>Мой огород</button><button data-sprint>Соревнование</button></div></div><div class="arcade-feature-art" aria-hidden="true">${bear}</div></section>`;
+    }
+
+    function openGarden() {
+        if (!window.KopatychFarm || KopatychFarm.isOpen) return;
+        close();
+        void KopatychFarm.open(api, {
+            player: actor().id,
+            settings: profile.settings,
+            onSprint: () => openGame('kopatych')
+        });
+    }
+
     function cards() {
         const trophy = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4h8v6a4 4 0 0 1-8 0Z"/><path d="M8 6H4v2a4 4 0 0 0 4 4m8-6h4v2a4 4 0 0 1-4 4m-4 2v5m-4 1h8"/></svg>';
-        return `<div class="games-filters" aria-label="Категории игр">${[["all","Все"],["fun","Залипательные"],["skill","С пользой"],["puzzle","Подумать"]].map(([id,name])=>`<button data-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${name}</button>`).join("")}</div><div class="games-grid">${E.games.slice().sort((a,b)=>Number(!!b.fresh)-Number(!!a.fresh)).filter(g=>filter==="all"||g.kind===filter).map(g=>{
+        return `${filter==='all'?gardenFeature():''}<div class="arcade-library-heading"><h2>Библиотека</h2><div class="games-filters" aria-label="Категории игр">${[["all","Все"],["fun","Аркады"],["skill","Навыки"],["puzzle","Логика"]].map(([id,name])=>`<button data-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${name}</button>`).join("")}</div></div><div class="games-grid">${E.games.slice().sort((a,b)=>Number(!!b.fresh)-Number(!!a.fresh)).filter(g=>filter==="all"||g.kind===filter).map(g=>{
             const q = profile.goals[g.id], journey = profile.journeys[g.id],
                 cleared = journey?.cleared || 0,
                 progressText = g.persistent ? 'Огород и турнир' : journey ? cleared===24 ? 'Все уровни пройдены' : cleared ? `${cleared} из 24 пройдено` : '24 уровня' : `Цель: ${goal(g.id)}`;
-            return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><div class="game-card-art">${art(g.id)}<span class="game-reward ${q.claimed&&q.credited?'claimed':''}">${q.claimed?q.credited?'✓ Получено':'В очереди':q.eligible?'Награда готова':`+${q.reward} AC`}</span></div><div class="game-card-body"><h3>${g.name}</h3><div class="game-card-bottom"><span>${progressText}</span><span class="game-play" aria-hidden="true">→</span></div>${journey&&cleared?`<progress class="game-card-progress" aria-label="Пройденные уровни: ${cleared} из 24" value="${cleared}" max="24"></progress>`:''}</div></button><button class="game-card-leader" data-leader="${g.id}">${trophy}<span>${g.persistent?'Лидеры турнира':'Лидеры'}</span><span aria-hidden="true">↗</span></button></div>`;
+            return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><span class="game-card-art">${art(g.id)}</span><span class="game-card-body"><h3>${g.name}</h3><span class="game-card-bottom"><span>${progressText}</span>${!q.claimed||!q.credited?`<span class="game-reward">${q.claimed?'В очереди':`+${q.reward} AC`}</span>`:''}</span>${journey&&cleared?`<progress class="game-card-progress" aria-label="Пройденные уровни: ${cleared} из 24" value="${cleared}" max="24"></progress>`:''}</span></button><button class="game-card-leader" data-leader="${g.id}" aria-label="Лидеры: ${g.name}" title="Лидеры">${trophy}</button></div>`;
         }).join("")}</div>`;
     }
 
@@ -286,6 +299,12 @@
             filter = b.dataset.filter;
             saveUi();
             draw();
+        }
+        if (b.hasAttribute("data-garden")) openGarden();
+        if (b.hasAttribute("data-sprint")) {
+            mode = 'ranked';
+            openGame('kopatych');
+            if (play?.g.id === 'kopatych' && play.phase === 'intro') void begin(play);
         }
         if (b.dataset.game) openGame(b.dataset.game);
         if (b.dataset.leader) openLeaders(b.dataset.leader);
@@ -609,12 +628,7 @@
             if (!button || button.disabled) return;
             if (button.hasAttribute('data-menu-levels')) {
                 if (g.id === 'kopatych' && window.KopatychFarm) {
-                    close();
-                    void KopatychFarm.open(api, {
-                        player: actor().id,
-                        settings: profile.settings,
-                        onSprint: () => openGame(g.id)
-                    });
+                    openGarden();
                 } else {
                     run.menuScreen = 'levels';
                     intro(run);
