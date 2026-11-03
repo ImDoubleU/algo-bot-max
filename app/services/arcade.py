@@ -16,11 +16,11 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
-from app.services import arcade_journey, arcade_runtime
+from app.services import arcade_hill, arcade_journey, arcade_runtime
 from app.services.arcade_mastery import league, mastery
 
 MOSCOW = timezone(timedelta(hours=3))
-SPEED = {"orbit", "bugs", "tower", "typing", "react", "kopatych", "runner", "words"}
+SPEED = {"orbit", "bugs", "tower", "typing", "react", "kopatych", "words"}
 FINITE = {"typing", "debug", "memory", "react", "kopatych", "words"}
 GAMES = {
     "orbit": (8, [25, 40, 60]),
@@ -35,7 +35,7 @@ GAMES = {
     "react": (5, [15, 15, 15]),
     "kopatych": (300, [12000, 30000, 60000]),
     "blocks": (300, [2000, 4000, 7000]),
-    "runner": (15, [40, 70, 100]),
+    "hill": (500, [1500, 3000, 6000]),
     "bubbles": (200, [1500, 3000, 5000]),
     "sort": (3, [10, 15, 20]),
     "words": (10, [24, 32, 40]),
@@ -133,6 +133,7 @@ class ArcadeStore:
                 created REAL NOT NULL,player TEXT,session TEXT,event TEXT NOT NULL,detail
                 TEXT NOT NULL);
             """)
+            arcade_hill.install(db)
             db.execute(
                 "INSERT OR IGNORE INTO arcade_meta VALUES('secret',?)", (secrets.token_hex(32),)
             )
@@ -227,8 +228,10 @@ class ArcadeStore:
             used += row["amount"]
 
     def _qualifies(self, report):
-        return report["score"] >= GAMES[report["game"]][0] and (
-            report["game"] != "typing" or report["details"].get("accuracy", 0) >= 90
+        return (
+            report["game"] in GAMES
+            and report["score"] >= GAMES[report["game"]][0]
+            and (report["game"] != "typing" or report["details"].get("accuracy", 0) >= 90)
         )
 
     def _goal_award(self, db, player, game):
@@ -242,7 +245,7 @@ class ArcadeStore:
         ).fetchone()
 
     def _master(self, game, score, details, tier):
-        if score < GAMES[game][1][tier]:
+        if game not in GAMES or score < GAMES[game][1][tier]:
             return False
         return self._quality(game, details, tier)
 
@@ -282,12 +285,20 @@ class ArcadeStore:
             or device not in ("keyboard", "touch")
         ):
             raise ArcadeError("Выбери игру и режим заново.")
-        if arena is not None and (
-            game != "drop"
-            or mode != "practice"
-            or arena not in ("classic", "bowl", "slopes", "pins")
+        if arena is not None and not (
+            mode == "practice"
+            and (
+                game == "drop"
+                and arena in ("classic", "bowl", "slopes", "pins")
+                or game == "hill"
+                and arena in dict(arcade_hill.ROUTES)
+            )
         ):
-            raise ArcadeError("Выбор арены доступен в тренировке Космодропа.")
+            raise ArcadeError(
+                "Выбери доступную трассу в свободном заезде."
+                if game == "hill"
+                else "Выбор арены доступен в тренировке Космодропа."
+            )
         with self.db() as db:
             self._player(db, player)
             if mode != "journey" and stage is not None:
@@ -305,7 +316,8 @@ class ArcadeStore:
             if count >= 30:
                 raise ArcadeError("Слишком много новых попыток. Подожди минуту.")
             secret = db.execute("SELECT value FROM arcade_meta WHERE key='secret'").fetchone()[0]
-            challenge = f"v3:{season_key(self.clock())}:{game}:{device}".encode()
+            controls = "pedals" if game == "hill" else device
+            challenge = f"v3:{season_key(self.clock())}:{game}:{controls}".encode()
             seed = int.from_bytes(
                 hmac.new(secret.encode(), challenge, hashlib.sha256).digest()[:4], "big"
             )
@@ -344,6 +356,10 @@ class ArcadeStore:
                     "big",
                 )
                 setup["seed"] = seed
+            if game == "hill":
+                setup["hill"] = arcade_hill.setup(
+                    db, player, mode, arena, journey["stage"] if journey else None
+                )
             session = secrets.token_urlsafe(24)
             db.execute(
                 """INSERT INTO arcade_sessions(id,player,game,mode,device,seed,created,setup)
@@ -436,6 +452,7 @@ class ArcadeStore:
             raise ArcadeError("Время реакции не прошло проверку. Начни новую попытку.")
         accepted = (
             row["mode"] == "ranked"
+            and row["game"] in GAMES
             and (report["complete"] or row["game"] not in FINITE)
             and not abandoned
             and season_key(row["created"]) == season_key(self.clock())
@@ -506,7 +523,11 @@ class ArcadeStore:
                         f"{title} · первое выполнение цели",
                     )
 
-            if row["mode"] == "journey" and report.get("journey", {}).get("success"):
+            if (
+                row["game"] in GAMES
+                and row["mode"] == "journey"
+                and report.get("journey", {}).get("success")
+            ):
                 arcade_journey.record(db, player, row["game"], report, now)
                 if self._qualifies(report):
                     grant_first_goal(row["game"])
@@ -525,6 +546,11 @@ class ArcadeStore:
                             amount,
                             f"{title} · {['бронза', 'серебро', 'золото'][tier]}",
                         )
+            garage_coins = 0
+            if row["game"] == "hill" and (
+                not abandoned or report.get("journey", {}).get("success")
+            ):
+                garage_coins = arcade_hill.record(db, player, session, report, now)
             self._credit(db, player)
             rewards = {"awards": [], "credited": 0, "pending": 0}
             for award_key in reward_keys:
@@ -557,6 +583,7 @@ class ArcadeStore:
             "run": {"id": key, "score": report["score"], "accepted": accepted, "report": report},
             "duplicate": False,
             "rewards": rewards,
+            "garage_coins": garage_coins,
         }
 
     def _rows(self, db, period, game=None):
@@ -837,12 +864,26 @@ class ArcadeStore:
                     "reward": award["amount"] if award else FIRST_GOAL_REWARD,
                 }
             journeys = arcade_journey.progress(db, player)
+            # Retired games keep earned permanent mastery and their full ledger.
+            mastery_journeys = dict(journeys)
+            legacy = db.execute(
+                "SELECT COUNT(*),COALESCE(SUM(stars),0) FROM arcade_journeys "
+                "WHERE player=? AND game='runner'",
+                (player,),
+            ).fetchone()
+            if legacy[0]:
+                mastery_journeys["runner"] = dict(cleared=legacy[0], stars=legacy[1])
+            legacy_badges = [
+                dict(game="runner", tier=int(a["id"].rsplit(":", 1)[1]), unlocked=True)
+                for a in awards
+                if a["id"].startswith(f"master3:{player}:runner:")
+            ]
             standing = next(
                 (r for r in self._overall(db, season_key(self.clock())) if r["player"] == player),
                 None,
             )
             return {
-                "mastery": mastery(journeys, badges),
+                "mastery": mastery(mastery_journeys, badges + legacy_badges),
                 "competition": {
                     "score": standing["score"] if standing else 0,
                     "rank": standing["rank"] if standing else None,

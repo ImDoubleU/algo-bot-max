@@ -85,6 +85,7 @@ def test_shared_world_replays_exactly_independent_of_frame_batches(game):
         "kopatych": "send({type:'tap'})",
         "blocks": "send({type:'piece',i:0});send({type:'place',piece:0,x:0,y:0})",
         "runner": "send({type:'tap'})",
+        "hill": "send({type:'pedal',pedal:'gas',value:1})",
         "bubbles": "send({type:'shoot',x:180,y:50})",
         "sort": "send(w.sortSolution[0])",
         "words": "send({type:'word',value:w.wordPack.answers[0]})",
@@ -542,7 +543,16 @@ def test_first_time_tutorial_requires_a_successful_action(arcade, game):
     elif game == "words":
         page.locator("#arcadeWordInput").fill("сом")
         page.get_by_role("button", name="Проверить", exact=True).click()
+    elif game == "hill":
+        page.keyboard.down("ArrowRight")
+        page.wait_for_function(
+            'document.querySelector(".arcade-learning-tip").textContent.startsWith("Отпусти")'
+        )
+        page.keyboard.up("ArrowRight")
+        page.keyboard.down("ArrowLeft")
     page.locator("[data-learning-play]").wait_for()
+    if game == "hill":
+        page.keyboard.up("ArrowLeft")
     assert not store.profile("p1")["awards"]
     assert not store.profile("p1")["runs"]
     page.wait_for_timeout(150)
@@ -722,10 +732,10 @@ def test_blocks_clear_crossing_lines_once_and_reject_overlap():
         }
 
 
-def test_runner_real_jumps_clear_progressively_faster_obstacles(store):
-    result, run = play_extra(
-        store,
-        "runner",
+def test_retired_runner_replays_still_clear_their_original_obstacles():
+    setup = dict(game="runner", seed=17, mode="ranked", device="keyboard")
+    run = trace(
+        setup,
         """
       while(!w.ended&&w.score<28&&w.tick<18000){
         const next=w.obstacles.find(o=>!o.passed);
@@ -734,10 +744,10 @@ def test_runner_real_jumps_clear_progressively_faster_obstacles(store):
       }
     """,
     )
-    assert result["run"]["accepted"] and result["run"]["score"] >= 25
+    assert arcade_runtime.verify(setup, run["events"], run["ticks"]) == run["report"]
+    assert run["report"]["score"] >= 25
     assert run["report"]["level"] >= 4
     assert run["report"]["details"]["jumps"] >= 25
-    assert store.profile("p1")["goals"]["runner"]["eligible"]
 
 
 def test_bubble_shooter_physics_pops_groups_and_server_accepts_goal(store):
@@ -830,7 +840,7 @@ def test_words_dictionary_rounds_duplicates_and_timed_reward(store):
 def test_added_game_boards_are_visible_and_practice_still_has_no_rewards(store):
     client = make_client(store)
     headers = {"x-miniapp-token": "p1"}
-    for game in ("kopatych", "blocks", "runner", "bubbles", "sort", "words"):
+    for game in ("kopatych", "blocks", "hill", "bubbles", "sort", "words"):
         response = client.get("/preview/arcade/boards", params={"game": game}, headers=headers)
         assert response.status_code == 200
     result, _ = play_extra(

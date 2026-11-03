@@ -17,6 +17,7 @@ def sources() -> str:
         (STATIC / name).read_text(encoding="utf-8")
         for name in (
             "games-extra.js",
+            "games-hill.js",
             "games-engine.js",
             "games-journey.js",
             "games-drop.js",

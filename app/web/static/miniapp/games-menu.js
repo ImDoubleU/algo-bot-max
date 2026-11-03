@@ -22,7 +22,7 @@
             ['ranked', 'Соревнование', 'data-mode="ranked"'],
             ['practice', 'Тренировка', 'data-mode="practice"'],
             ['learning', 'Обучение', 'data-menu-learning'],
-            ['levels', game.id === 'kopatych' ? 'Мой огород' : 'Уровни', 'data-menu-levels']
+            ['levels', game.id === 'kopatych' ? 'Мой огород' : game.id === 'hill' ? 'Мой гараж' : 'Уровни', 'data-menu-levels']
         ].map(([id, title, attr]) => `<button class="arcade-menu-action ${id}" ${attr}><span class="arcade-mode-icon">${icon(id==='levels'&&game.id==='kopatych'?'garden':id)}</span><span>${title}</span><span class="arcade-menu-arrow" aria-hidden="true">›</span></button>`).join('')}</div></section>`;
     }
 

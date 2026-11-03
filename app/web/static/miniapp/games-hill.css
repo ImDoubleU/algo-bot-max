@@ -1,0 +1,87 @@
+/* A rally workshop: painted steel, cream paper, large instruments. */
+.game-dialog[data-game=hill]{--play-accent:#3c6958;--play-wash:#e0e9d9;--play-paper:#f6f2e7;width:min(960px,calc(100% - 24px));max-width:960px;background:#f6f2e7;color:#2b4137}
+.game-dialog[data-game=hill].is-browsing{width:min(520px,calc(100% - 24px));max-width:520px}
+.game-dialog[data-game=hill] .game-stage{padding:0;min-height:0;background:#f6f2e7}
+.game-dialog[data-game=hill] .game-hud{background:#263f36;color:#dce6ce;border:0}
+.game-dialog[data-game=hill] .game-hud b,.game-dialog[data-game=hill] #gameClock{color:#fff0c4}
+.game-dialog[data-game=hill] #gameClock{opacity:1;font-size:18px}.game-dialog[data-game=hill]>header h2{font:750 22px/1.25 "Segoe UI",sans-serif}.game-dialog[data-game=hill] .game-hud{font:17px/1.4 "Segoe UI",sans-serif}.game-dialog[data-game=hill] .game-hud b{font-size:26px}
+.game-dialog[data-game=hill] .game-hud #gameClock{color:#fff0c4;opacity:1;font-size:18px}
+.game-dialog[data-game=hill] .game-hud{display:grid;grid-template-columns:minmax(0,1fr) auto 44px;align-items:center;gap:12px}
+.game-dialog[data-game=hill] .game-hud>span:first-child{grid-column:1;grid-row:1;font-size:16px}.game-dialog[data-game=hill] .game-hud #gameClock{grid-column:2;grid-row:1}.game-dialog[data-game=hill] .game-hud .arcade-pause{grid-column:3;grid-row:1}
+.game-dialog[data-game=hill] .game-level{display:none}.game-dialog[data-game=hill][data-play-mode=journey] .game-level{display:block;grid-column:1/3;grid-row:2}
+.game-dialog[data-game=hill] .arcade-pause,.game-dialog[data-game=hill] .game-close,.game-dialog[data-game=hill] .game-leaders-button{background:#e9e7d4;color:#52694b;border-color:#bcc9aa;border-radius:5px}
+.game-dialog[data-game=hill] footer{justify-content:flex-end;background:#f5f0e2;border-color:#d2d9c6;padding:10px 18px}.game-dialog[data-game=hill] #gameHint{display:none}.game-dialog[data-game=hill] #gameFinish{min-height:44px;padding:9px 16px;border-color:#7d9470;color:#486241;font-size:17px;background:transparent;border-radius:4px}
+.game-dialog[data-game=hill] .arcade-live-goal{background:#e9eedf;color:#667d54}.game-dialog[data-game=hill] .arcade-live-goal span{font-size:16px}.game-dialog[data-game=hill] .arcade-live-goal progress{accent-color:#718d57}
+.game-dialog[data-game=hill] .game-level{background:none;border-color:#7e9b7a;color:#d9e5c8}
+.game-dialog .frame-hill{border:0;border-radius:0;box-shadow:none;background:none;max-width:none;width:100%;padding:0}
+.hill-drive{width:100%;background:#f5f0e2;color:#344d3e}
+.hill-instruments{display:grid;grid-template-columns:1fr 1.2fr 1fr;align-items:center;gap:24px;padding:15px 24px;border-bottom:1px solid #d3d9c8}
+.hill-instruments>div{min-width:0}.hill-instruments>div:last-child{text-align:right}
+.hill-instruments span{display:block;font:16px/1.4 "Segoe UI",sans-serif;color:#66745e}
+.hill-instruments b{display:block;font:750 27px/1.2 "Segoe UI",sans-serif;color:#334e38;font-variant-numeric:tabular-nums}
+.hill-instruments b small{font-size:16px;font-weight:500}
+.hill-instruments .hill-fuel span{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.hill-instruments .hill-fuel b{font-size:18px}
+.hill-fuel progress{display:block;width:100%;height:8px;accent-color:#5e8050;border:0;border-radius:0}
+.hill-fuel progress.is-low{accent-color:#ba6a41}
+.game-dialog .hill-canvas{display:block;width:100%;height:min(42dvh,370px);max-width:none;max-height:none;object-fit:fill;touch-action:none}
+.hill-pedals{display:grid;grid-template-columns:155px 1fr 155px;gap:18px;align-items:center;padding:16px 24px}
+.hill-pedals button{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:3px 12px;min-height:72px;padding:10px 16px;border:2px solid #536b51;border-radius:6px;background:#e6e7d9;color:#3b543c;font:700 21px/1.2 "Segoe UI",sans-serif;touch-action:none;user-select:none;cursor:pointer;box-shadow:0 4px 0 #bdc8af}
+.hill-pedals [data-pedal=gas]{background:#ecd39b;border-color:#9c814f;color:#4e472e;box-shadow:0 4px 0 #c0a26b}
+.hill-pedals button>span{grid-row:1/3;font-size:32px}.hill-pedals kbd{font:15px "Segoe UI",sans-serif;opacity:.75}
+.hill-pedals button.is-pressed{transform:translateY(3px);box-shadow:0 1px 0 #a6b19b;background:#cbd8b9}
+.hill-route-label{text-align:center;font:17px/1.4 "Segoe UI",sans-serif;color:#68745e}
+.prop-hill svg{opacity:1}.prop-hill h3{color:#365340}
+.hill-distance-result>span{font:19px "Segoe UI",sans-serif;color:#768067}.hill-distance-result h3{margin:10px 0;font:750 60px/1.1 "Segoe UI",sans-serif;color:#3e603e}.hill-distance-result small{font-size:27px}.game-dialog .hill-run-reason{margin:12px auto;color:#788169;font-size:17px;max-width:400px}.game-dialog .hill-run-coins{font-size:22px;color:#8a713e;font-weight:700}
+.hill-garage-dialog{width:min(970px,calc(100% - 24px));max-height:calc(100dvh - 24px);padding:0;border:0;border-radius:8px;background:#f5f2e8;color:#304437;overflow:auto;font:17px/1.45 "Segoe UI",sans-serif}
+.hill-garage-dialog::backdrop{background:#172d27aa;backdrop-filter:blur(3px)}
+.hill-garage-dialog *{box-sizing:border-box}.hill-garage-dialog button{font:600 17px/1.3 "Segoe UI",sans-serif;cursor:pointer}.hill-garage-dialog button:disabled{cursor:default;opacity:.5}
+.hill-garage-dialog button:focus-visible,.hill-pedals button:focus-visible{outline:3px solid #9aab72;outline-offset:3px}
+.hill-garage-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:22px 28px;background:#284738;color:#fff0c8;border-bottom:5px solid #d7b97d}
+.hill-garage-header span{font-size:14px;letter-spacing:2px;color:#c5d0b3}.hill-garage-header h2{margin:2px 0 0;font-size:30px;line-height:1.2;font-weight:750}
+.hill-garage-header button{width:44px;height:44px;border:1px solid #7b9374;border-radius:4px;background:none;color:#f9e8bd;font-size:32px}
+.hill-garage-wallet{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;padding:20px 28px;border-bottom:1px solid #d2d7c7}
+.hill-garage-wallet span{display:block;color:#6b755f;font-size:16px}.hill-garage-wallet b{display:block;font-size:27px;color:#375337;font-variant-numeric:tabular-nums}
+.hill-garage-tabs{display:flex;gap:24px;margin:0 28px;overflow:auto;border-bottom:1px solid #cdd4c0;scrollbar-width:thin}
+.hill-garage-tabs button{flex:0 0 auto;padding:14px 0;border:0;border-bottom:3px solid transparent;background:none;color:#747b66;min-height:52px}
+.hill-garage-tabs button[aria-pressed=true]{color:#35573b;border-bottom-color:#35573b}
+.hill-garage-tabs i{display:inline-grid;place-items:center;width:22px;height:22px;margin-left:4px;background:#dfc38a;border-radius:50%;font-size:14px;color:#5c4e2d;font-style:normal}
+.hill-garage-content{padding:24px 28px 30px}.hill-garage-error{margin:16px 28px;color:#9f4a3d;font-size:17px}
+.hill-primary,.hill-secondary{min-height:46px;padding:12px 18px;border:1px solid #3e6548;border-radius:4px;background:#3e6548;color:#fff4d8}
+.hill-secondary{background:transparent;color:#3e6548}
+.hill-route-hero{position:relative;min-height:190px;overflow:hidden;border-radius:5px;background:#d0dec1}
+.hill-route-hero>svg{position:absolute;inset:0;width:100%;height:100%}.hill-route-hero>div{position:relative;padding:22px 24px;max-width:75%;text-shadow:0 1px #ffffff44}
+.hill-route-hero span{font-size:16px;color:#456047}.hill-route-hero h3{margin:8px 0 12px;font-size:30px;line-height:1.15;color:#2d4b37}.hill-route-hero p{margin:0;font-size:18px;color:#3c583d}
+.hill-garage-content:has([data-route=moon][aria-pressed=true]) .hill-route-hero :is(h3,p,span){color:#fff0cd;text-shadow:0 1px 2px #252c46}
+.hill-start-line{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:18px 0 24px}.hill-start-line>span{font-size:17px;color:#727b64}
+.hill-route-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.hill-route-grid button{padding:0 0 12px;border:1px solid #cdd3bf;border-radius:4px;overflow:hidden;text-align:left;background:none;color:#3f5742}
+.hill-route-grid button[aria-pressed=true]{border:2px solid #4f724d}.hill-route-grid svg{display:block;width:100%;height:84px;object-fit:cover}.hill-route-grid b,.hill-route-grid span{display:block;margin:8px 12px 0}.hill-route-grid span{font-size:16px;color:#727c65}
+.hill-garage-car{position:relative;display:grid;place-items:center;padding:20px;background:repeating-linear-gradient(0deg,#dce2d5 0 1px,transparent 1px 40px),#e9eddf;border-bottom:4px solid #bdc9ad}
+.hill-garage-car>svg{width:min(360px,100%);height:220px}.hill-number-plate{justify-self:start;padding:5px 10px;border:1px solid #99a78d;color:#536448;font-size:16px;letter-spacing:1px}
+.hill-car-colors{display:flex;gap:10px}.hill-car-colors button{width:32px;height:32px;border-radius:50%;border:3px solid #f5f2e8;background:var(--paint)}.hill-car-colors button[aria-pressed=true]{outline:2px solid #4c6547}
+.hill-car-stats{display:flex;justify-content:space-between;gap:16px;margin:16px 0 25px;font-size:17px}.hill-car-stats b{display:block;font-size:25px;color:#41603d}
+.hill-car-list article{display:grid;grid-template-columns:140px minmax(0,1fr) auto;align-items:center;gap:18px;padding:18px 0;border-top:1px solid #cdd5c0}
+.hill-car-list svg{width:140px;height:98px}.hill-car-list h3{margin:0 0 7px;font-size:22px}.hill-car-list p{margin:0;font-size:17px;color:#727d65}.hill-car-list .is-selected{border-left:3px solid #5b7a50;padding-left:12px;background:#e9eedf}
+.hill-section-title{display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin:0 0 18px}.hill-section-title h3{margin:0;font-size:26px}.hill-section-title span{font-size:17px;color:#737b64}
+.hill-upgrades{display:grid;grid-template-columns:1fr 1fr;gap:24px}.hill-upgrades article{border-top:2px solid #9caa8c;padding-top:18px}.hill-upgrade-heading{display:flex;justify-content:space-between;align-items:baseline}.hill-upgrade-heading h3{margin:0;font-size:23px}.hill-upgrade-heading>span{color:#6d795e;font-size:17px}
+.hill-upgrade-steps{display:flex;gap:4px;margin:12px 0 16px}.hill-upgrade-steps i{height:5px;flex:1;background:#d9dfcf}.hill-upgrade-steps .is-filled{background:#648151}
+.hill-upgrades p{min-height:48px;margin:0 0 18px;color:#727c65;font-size:17px}.hill-upgrade-effect>span{display:block;font-size:16px;color:#7c806b}.hill-upgrade-effect strong{display:block;font-size:26px;margin:5px 0 18px;color:#45613e}.hill-upgrade-effect strong>span{font-weight:400;color:#989e85}.hill-upgrades .hill-primary{width:100%}
+.hill-task-categories{display:flex;gap:12px;overflow:auto;scrollbar-width:thin;margin:0 0 20px}.hill-task-categories button{flex:0 0 auto;min-height:44px;padding:8px 12px;border:1px solid #c2cdb5;border-radius:4px;background:none;color:#6d7b60}.hill-task-categories button[aria-pressed=true]{background:#dfe7d2;color:#3b5d3c;border-color:#7a9567}
+.hill-task-list article{display:flex;justify-content:space-between;gap:24px;align-items:center;padding:18px 0;border-top:1px solid #cdd5c0}.hill-task-list article>div{flex:1;min-width:0}.hill-task-list h3{margin:0 0 12px;font-size:20px;line-height:1.4}.hill-task-list progress{display:block;width:100%;max-width:400px;height:5px;accent-color:#729051}.hill-task-list div>span{display:block;margin-top:7px;color:#7c856c;font-size:16px}.hill-task-list article>b{font-size:25px;text-align:right;color:#8b713d}.hill-task-list small{display:block;font-size:16px;font-weight:500}.hill-task-list .is-claimed{opacity:.6}.hill-task-list .is-claimed>b{color:#5b7f4c}
+.hill-claim-line{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px 28px;background:#e6ecd9;font-size:17px;color:#627b48}
+.hill-mission-current{padding:22px 24px;background:#e4ead9;border-left:4px solid #63834e;margin-bottom:24px}.hill-mission-current>span{font-size:17px;color:#758166}.hill-mission-current h3{font-size:26px;margin:8px 0}.hill-mission-current p{font-size:19px;margin:0 0 18px}
+.hill-missions{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:10px}.hill-missions button{display:grid;justify-items:center;gap:7px;min-height:70px;padding:9px 5px;border:1px solid #bdcbb0;border-radius:4px;background:none;color:#596f49}.hill-missions b{font-size:23px}.hill-missions span{font-size:15px;color:#9a7e3e}.hill-missions button[aria-pressed=true]{background:#e1e9d4;border-color:#66884e}
+.hill-garage-loading{padding:30px;font-size:20px}
+@media(max-width:600px){
+ .game-dialog[data-game=hill]{width:calc(100% - 12px);max-height:calc(100dvh - 12px)}
+ .hill-instruments{gap:15px;padding:12px 14px}.hill-instruments b{font-size:23px}.hill-instruments span{font-size:16px}.hill-instruments b small{font-size:14px}
+ .game-dialog .hill-canvas{height:clamp(140px,calc(100dvh - 430px),370px)}.game-dialog[data-game=hill][data-play-mode=journey] .hill-canvas{height:clamp(120px,calc(100dvh - 510px),330px)}.hill-pedals{grid-template-columns:1fr 1fr;gap:18px;padding:13px 15px 18px}.hill-pedals button{min-height:66px;font-size:20px;padding:9px 12px}.hill-route-label{display:none}.hill-pedals kbd{font-size:14px}
+ .hill-garage-dialog{width:calc(100% - 12px);max-height:calc(100dvh - 12px)}.hill-garage-header{padding:18px}.hill-garage-header h2{font-size:27px}.hill-garage-header span{font-size:12px}
+ .hill-garage-wallet{padding:17px 18px;gap:14px;grid-template-columns:1fr 1fr}.hill-garage-wallet>div:last-child{grid-column:1/-1;display:flex;gap:14px;align-items:baseline}.hill-garage-wallet>div:last-child b{font-size:17px}.hill-garage-wallet b{font-size:26px}
+ .hill-garage-tabs{margin:0 18px;gap:23px}.hill-garage-tabs button{font-size:17px}.hill-garage-content{padding:20px 18px}.hill-route-hero h3{font-size:26px}.hill-route-hero>div{max-width:100%;padding:18px}.hill-route-hero{min-height:175px}
+ .hill-start-line{align-items:stretch;flex-direction:column}.hill-route-grid{grid-template-columns:1fr 1fr;gap:12px}.hill-route-grid b{font-size:17px;line-height:1.4}.hill-route-grid svg{height:65px}
+ .hill-car-list article{grid-template-columns:100px minmax(0,1fr);gap:12px}.hill-car-list svg{width:100px;height:85px}.hill-car-list button{grid-column:1/-1}.hill-car-list h3{font-size:21px}.hill-car-list p{font-size:16px}.hill-car-stats{gap:10px;font-size:16px}.hill-car-stats b{font-size:23px}
+ .hill-upgrades{grid-template-columns:1fr;gap:28px}.hill-upgrades p{min-height:0}.hill-claim-line{padding:14px 18px;align-items:stretch;flex-direction:column}.hill-missions{grid-template-columns:repeat(4,minmax(0,1fr))}.hill-garage-error{margin:14px 18px}
+}
+@media(max-height:520px) and (orientation:landscape){.game-dialog .hill-canvas{height:42dvh}.hill-instruments{padding:5px 18px}.hill-instruments b{font-size:20px}.hill-pedals{padding:7px 18px}.hill-pedals button{min-height:48px}.hill-pedals kbd{display:none}}

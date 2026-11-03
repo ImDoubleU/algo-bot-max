@@ -6,6 +6,7 @@
     `<g fill="#302a4e"><ellipse cx="${x-10}" cy="${y}" rx="3.3" ry="4.3"/><ellipse cx="${x+10}" cy="${y}" rx="3.3" ry="4.3"/></g><path d="M${x-5} ${y+12}q5 5 10 0" fill="none" stroke="#302a4e" stroke-width="2.8" stroke-linecap="round"/>`;
 
   function render(id) {
+    if (id==='hill') return ArcadeHillView.carSvg();
     if (window.ArcadeExtraArt?.has(id)) return window.ArcadeExtraArt.render(id);
     const u = "arcade-art-" + (++serial),
       g = n => `url(#${u}-${n})`;

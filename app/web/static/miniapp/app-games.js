@@ -17,7 +17,7 @@
         '"': "&quot;",
         "'": "&#39;"
     } [c]));
-    const title = id => id === "kopatych" ? "Копатыч · турнир" : E.games.find(g => g.id === id)?.name || id,
+    const title = id => id === "kopatych" ? "Копатыч · турнир" : id === 'runner' ? 'Геометрический рывок · архив' : E.games.find(g => g.id === id)?.name || id,
         art = id => A.render(id),
         speed = new Set(["orbit", "bugs", "tower", "typing", "react", "kopatych", "runner", "words"]);
     const goal = id => {
@@ -239,6 +239,20 @@
             player: actor().id,
             settings: profile.settings,
             onSprint: () => openGame('kopatych')
+        });
+    }
+
+    function openGarage() {
+        if (ArcadeHillGarage.isOpen) return;
+        close();
+        void ArcadeHillGarage.open(api, {
+            journey: profile.journeys.hill,
+            onDrive: (route, stage) => {
+                openGame('hill');
+                play.arena = route;
+                mode = 'practice';
+                void begin(play, stage);
+            }
         });
     }
 
@@ -650,6 +664,8 @@
             if (button.hasAttribute('data-menu-levels')) {
                 if (g.id === 'kopatych' && window.KopatychFarm) {
                     openGarden();
+                } else if (g.id === 'hill') {
+                    openGarage();
                 } else {
                     run.menuScreen = 'levels';
                     intro(run);
@@ -700,6 +716,7 @@
                 bubbles: 'forest'
             } [run.g.id] || 'space') : profile.settings.theme,
             quality: () => run.quality || "high",
+            phase: () => run.phase,
             paused: () => !["playing", "ready", "tutorial"].includes(run.phase)
         });
         run.view.update(run.world, 0);
@@ -709,6 +726,7 @@
     async function tutorial(run) {
         cancelAnimationFrame(run.raf);
         run.tutorialActed = false;
+        run.hillLesson = 0;
         run.phase = "tutorial";
         run.dialog.classList.remove('is-browsing');
         run.dialog.classList.add('is-learning');
@@ -720,6 +738,13 @@
             ...(run.g.id === 'drop' ? {
                 dropPhysics: 3,
                 arena: run.arena || 'classic'
+            } : {}),
+            ...(run.g.id === 'hill' ? {
+                hill: {
+                    route: 'meadow',
+                    car: 'scout',
+                    upgrades: {}
+                }
             } : {}),
             mode: "practice",
             device
@@ -783,9 +808,13 @@
         $('.arcade-learning-tip', run.dialog).textContent = instruction;
         const frame = () => {
             if (play !== run || run.phase !== "tutorial") return;
-            if (run.tutorialActed && ["orbit", "drop", "bubbles"].includes(w.id)) W.advance(w, 1);
+            if (run.tutorialActed && ["orbit", "drop", "bubbles", "hill"].includes(w.id)) W.advance(w, 1);
             run.view.update(w, 1 / 60);
-            if (window.ArcadeExtras?.tutorialDone(w) ?? (w.score >= (w.id === "typing" ? 3 : 1))) {
+            if (w.id === 'hill' && !run.hillLesson && w.score >= 15) {
+                run.hillLesson = 1;
+                $('.arcade-learning-tip', run.dialog).textContent = 'Отпусти газ и удерживай тормоз до остановки. В воздухе он опускает нос машины.';
+            }
+            if (w.id === 'hill' ? run.hillLesson === 1 && w.hill.brake && Math.abs(w.hill.vx) < 2 : window.ArcadeExtras?.tutorialDone(w) ?? (w.score >= (w.id === "typing" ? 3 : 1))) {
                 run.phase = "intro";
                 const cover = document.createElement("div");
                 cover.className = "game-result";
@@ -843,6 +872,9 @@
                     device,
                     ...(run.g.id === 'drop' && selectedMode === 'practice' ? {
                         arena: run.arena || 'classic'
+                    } : {}),
+                    ...(run.g.id === 'hill' && selectedMode === 'practice' ? {
+                        arena: run.arena || 'meadow'
                     } : {}),
                     ...(journeyStage ? {
                         stage: journeyStage
@@ -1091,6 +1123,11 @@
             if (report.journey) {
                 cover.classList.add('journey-result');
                 cover.innerHTML = ArcadeResults.journey(run, report, result.rewards);
+                if (run.g.id === 'hill') {
+                    if (result.garage_coins) $('.arcade-level-result', cover).insertAdjacentHTML('beforeend', `<p class="hill-run-coins">+${result.garage_coins} монет в гараж</p>`);
+                    $('.arcade-result-actions', cover).insertAdjacentHTML('beforeend', '<button class="game-back" data-back-garage>В гараж</button>');
+                    $('[data-back-garage]', cover).onclick = openGarage;
+                }
                 masteryGain(run, cover);
                 $('.journey-tools', run.dialog).hidden = true;
                 const map = () => {
@@ -1115,6 +1152,11 @@
             }
             if (play !== run) return;
             cover.innerHTML = ArcadeResults.normal(run, result, rank);
+            if (run.g.id === 'hill') {
+                $('.arcade-score-result', cover).insertAdjacentHTML('beforeend', `<p class="hill-run-reason">${esc(report.reason||'Заезд завершён')}</p>${result.garage_coins?`<p class="hill-run-coins">+${result.garage_coins} монет в гараж</p>`:''}`);
+                $('.arcade-result-actions', cover).insertAdjacentHTML('beforeend', '<button class="game-back" data-back-garage>В гараж</button>');
+                $('[data-back-garage]', cover).onclick = openGarage;
+            }
             masteryGain(run, cover);
             $("[data-again]", cover).onclick = () => {
                 mode = run.mode;

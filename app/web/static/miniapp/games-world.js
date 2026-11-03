@@ -128,7 +128,7 @@
     }
 
     function create(setup) {
-        if (!E.games.some(g => g.id === setup.game)) throw Error("Unknown game");
+        if (setup.game !== 'runner' && !E.games.some(g => g.id === setup.game)) throw Error("Unknown game");
         const w = {
             rule: 3,
             id: setup.game,
@@ -248,6 +248,7 @@
         });
         ensureText(w);
         if (window.ArcadeExtras?.has(w.id)) ArcadeExtras.create(w, helpers());
+        if (w.id === 'hill') ArcadeHill.create(w, setup);
         if (w.journey) ArcadeJourney.create(w, helpers());
         return w;
     }
@@ -661,6 +662,7 @@
             }
         }
         if (window.ArcadeExtras?.has(w.id)) ArcadeExtras.step(w, helpers());
+        if (w.id === 'hill') ArcadeHill.step(w, helpers());
         w.rankScore = w.id === "2048" ? w.points || 0 : w.score;
         if (w.journey) ArcadeJourney.step(w, helpers());
         if (w.tick >= MAX_TICKS) end(w, "Партия завершена");
@@ -689,6 +691,7 @@
 
     function baseInput(w, a) {
         if (w.ended) return false;
+        if (w.id === 'hill') return ArcadeHill.input(w,a);
         const c = progress(w);
         if (window.ArcadeExtras?.has(w.id)) return ArcadeExtras.input(w, a, helpers());
         if (a.type === "undo") {

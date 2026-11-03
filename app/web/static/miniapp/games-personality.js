@@ -15,6 +15,7 @@
         kopatych: 'Урожай',
         blocks: 'Очки',
         runner: 'Преграды',
+        hill: 'Дистанция, м',
         bubbles: 'Очки',
         sort: 'Наборы',
         words: 'Слова'
@@ -43,6 +44,7 @@
     };
 
     function score(game, value, unit) {
+        if(game==='hill') return `<div class="hill-distance-result"><span>Пройдено</span><h3>${Number(value).toLocaleString('ru-RU')} <small>м</small></h3></div>`;
         const size = String(value).length > 5 ? 34 : String(value).length > 3 ? 44 : 56;
         const safeUnit = String(unit).replace(/[&<>"']/g, c => ({
             '&': '&amp;',
@@ -114,7 +116,7 @@
         const score = run.dialog.querySelector('#gameScore');
         if (score?.parentElement) score.parentElement.firstChild.textContent = labels[id] + ' ';
         const canvas = run.view.canvas || stage.querySelector(':scope > canvas');
-        if (canvas) {
+        if (canvas && id !== 'hill') {
             const frame = document.createElement('div');
             frame.className = 'arcade-canvas-frame frame-' + id;
             canvas.replaceWith(frame);

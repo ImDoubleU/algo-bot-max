@@ -101,7 +101,7 @@
     goal: 5,
     unit: "попаданий",
     hint: "Жди зелёный и нажимай. Три раунда: времени на ответ всё меньше. Пять попаданий — первая награда."
-  }, ...(window.ArcadeExtras?.games || [])];
+  }, ...(window.ArcadeExtras?.games || []).map(g=>g.id==='runner'?window.ArcadeHill.game:g)];
   const achievementRules = [
     ["orbit", "Космический ас", "25 прыжков за одну партию", 25, 35],
     ["evolve", "Создатель вселенных", "2048 очков за одну партию", 2048, 35],

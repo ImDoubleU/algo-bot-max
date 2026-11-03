@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.services.arcade import GAMES, ArcadeError, ArcadeStore
 from app.services.arcade_farm import FarmStore
+from app.services.arcade_hill import HillStore
 
 
 class StrictPayload(BaseModel):
@@ -48,9 +49,16 @@ class FarmAction(StrictPayload):
     count: int = Field(default=1, ge=1, le=20, strict=True)
 
 
+class GarageAction(StrictPayload):
+    id: str = Field(min_length=12, max_length=80)
+    action: str = Field(max_length=20)
+    item: str | None = Field(default=None, max_length=40)
+
+
 def make_router(store: ArcadeStore, authenticate: Callable[[Request], Awaitable[dict]]):
     router = APIRouter()
     farm = FarmStore(store)
+    garage = HillStore(store)
 
     async def call(method, *args):
         try:
@@ -67,6 +75,16 @@ def make_router(store: ArcadeStore, authenticate: Callable[[Request], Awaitable[
     async def get_farm(request: Request):
         actor = await authenticate(request)
         return await call(farm.get, actor["player"])
+
+    @router.get("/garage")
+    async def get_garage(request: Request):
+        actor = await authenticate(request)
+        return await call(garage.get, actor["player"])
+
+    @router.post("/garage/actions")
+    async def garage_action(request: Request, payload: GarageAction):
+        actor = await authenticate(request)
+        return await call(garage.act, actor["player"], payload.id, payload.action, payload.item)
 
     @router.post("/farm/actions")
     async def farm_action(request: Request, payload: FarmAction):

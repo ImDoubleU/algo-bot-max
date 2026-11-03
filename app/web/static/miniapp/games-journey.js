@@ -110,6 +110,14 @@
       rules: ['Поймай ритм прыжков', 'Двойные препятствия', 'Переменный темп', 'Точный участок'],
       reward: 'Отметки пройденных трасс'
     },
+    hill: {
+      name:'Большая экспедиция',
+      chapters:['Первые холмы','Дальняя дорога','Песчаный караван','Северный маршрут','Лунный рейс','Огненный перевал'],
+      goals:[120,250,450,700,1000,1500],
+      power:'Канистра',action:'Добавить 30 литров топлива',
+      rules:['Доехать до отметки','Сохрани топливо','Держи баланс','Чистый заезд'],
+      reward:'Значки дорожной экспедиции'
+    },
     bubbles: {
       name: 'Подводная станция',
       chapters: ['Берег', 'Коралловый сад', 'Затонувший город', 'Тёмная вода', 'Глубинная станция', 'Сигнал со дна'],
@@ -151,6 +159,7 @@
     react: 180,
     blocks: 600,
     runner: 180,
+    hill: 600,
     bubbles: 600,
     sort: 900,
     words: 180
@@ -190,6 +199,7 @@
       blocks: 60,
       bubbles: 30,
       runner: 2,
+      hill: 40,
       words: 2,
       bugs: 2,
       memory: 2
@@ -213,7 +223,7 @@
   }
 
   function catalogue() {
-    return Object.fromEntries(Object.keys(specs).map(id => [id, {
+    return Object.fromEntries(Object.keys(specs).filter(id=>id!=='runner').map(id => [id, {
       ...specs[id],
       stages: Array.from({
         length: 24
@@ -408,6 +418,10 @@
       if (j.powerUntil > w.time) return false;
       j.powerUntil = w.time + 1;
     }
+    if(w.id==='hill') {
+      if(w.hill.fuel>w.hill.stats.tank-5)return false;
+      w.hill.fuel=Math.min(w.hill.stats.tank,w.hill.fuel+30);
+    }
     if (w.id === 'bubbles') {
       if (w.projectile) return false;
       [w.currentBubble, w.nextBubble] = [w.nextBubble, w.currentBubble];
@@ -527,6 +541,7 @@
     if (w.id === 'drop') return [j.movesUsed <= Math.ceil(j.goal / 8) + 10, j.movesUsed <= Math.ceil(j.goal / 12) + 8];
     if (w.id === 'blocks') return [w.lines >= Math.ceil(j.goal / 200), (j.bestCombo || 0) >= 2];
     if (w.id === 'runner') return [w.jumps <= j.goal + 2, w.jumps <= j.goal];
+    if (w.id === 'hill') return [w.hill.fuel>=20,w.hill.fuel>=40&&j.used===0];
     if (w.id === 'bubbles') return [j.movesUsed <= Math.ceil(j.goal / 18) + 10, j.movesUsed <= Math.ceil(j.goal / 30) + 5];
     if (w.id === 'sort') return [j.movesUsed <= j.goal * 110, j.movesUsed <= j.goal * 65];
     if (w.id === 'words') return [j.mistakes <= 2, j.mistakes === 0 && w.allWords.filter(a => a.length >= 5).length >= Math.ceil(j.goal / 3)];

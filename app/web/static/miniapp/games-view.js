@@ -40,6 +40,7 @@
     }
 
     function mount(game, stage, send, options) {
+        if (game==='hill') return ArcadeHillView.mount(stage,send,options);
         if (window.ArcadeExtraView?.has(game)) return window.ArcadeExtraView.mount(game, stage, send, options);
         stage.dataset.game = game;
         const on = (el, type, fn, opts = {}) => el.addEventListener(type, fn, {

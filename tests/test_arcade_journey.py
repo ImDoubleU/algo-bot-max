@@ -121,6 +121,13 @@ def test_every_game_has_a_playable_route_on_mobile_and_desktop(arcade, width):
     for game in arcade_journey.catalogue():
         page.locator(f'.game-card[data-game="{game}"]').click()
         page.locator("[data-menu-levels]").click()
+        if game == "hill":
+            page.locator('[data-garage-tab="missions"]').click()
+            assert page.locator(".hill-missions button").count() == 24
+            assert page.locator(".hill-missions button:not(:disabled)").count() == 1
+            assert page.locator(".hill-garage-dialog").evaluate("(n)=>n.scrollWidth<=n.clientWidth")
+            page.locator("[data-close]").click()
+            continue
         hub = page.locator(".journey-hub")
         assert hub.is_visible()
         assert page.locator(".journey-stop").count() == 24
@@ -166,7 +173,7 @@ def test_adventure_starts_real_game_and_saves_result_across_reentry(arcade):
     page.locator("[data-journey-map]").click()
     assert page.locator('[data-journey-play="2"]').is_visible()
     page.locator(".game-close").click()
-    assert "1/24" in page.locator('.game-card[data-game="debug"]').inner_text()
+    assert "1 из 24 пройдено" in page.locator('.game-card[data-game="debug"]').inner_text()
     page.locator('.game-card[data-game="debug"]').click()
     page.locator("[data-menu-levels]").click()
     assert page.locator('[data-journey-play="2"]').is_visible()
@@ -200,6 +207,7 @@ def test_active_tools_have_finite_charges_and_do_not_create_idle_progress(game):
           if(game==='bugs')while(!w.targets.some(t=>!t.good)&&!w.ended)W.advance(w,6);
           if(game==='blocks')for(let i=0;i<3;i++){W.input(w,{type:'piece',i});
             if(ArcadeJourney.rotatable(w))break;}
+          if(game==='hill')w.hill.fuel=50;
           const before=w.score,first=W.input(w,{type:'power'});
           if(game==='2048'){W.input(w,{type:'swap_cell',i:0});
             const k=w.board.findIndex(v=>v!==w.board[0]);W.input(w,{type:'swap_cell',i:k});}
