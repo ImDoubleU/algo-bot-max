@@ -33,9 +33,14 @@
       <ellipse cx="150" cy="281" rx="88" ry="10" fill="#6c58391b"/>
       <g stroke="#87512e" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
       <path d="M222 153q31-19 35-1 6 19-25 31" fill="#cb7638"/>
-      <path d="m253 130-8 129" stroke="#ba8c54" stroke-width="9"/>
-      <path d="m249 255 26 3-6 22-14 9-12-11Z" fill="${t>=3?'#d9be73':t>=2?'#d0ded9':'#c0c6bb'}" stroke="#7f8c7d" stroke-width="3"/>
-      <path d="m248 126 11 1 3-22-15-1Z" fill="#bd8a50"/>
+      <g class="kopatych-shovel" transform="rotate(4 250 162)">
+        <path d="M250 124v133" stroke="#b88c56" stroke-width="9"/>
+        <path d="M248 132v115" stroke="#d5ad72" stroke-width="2"/>
+        <path d="M239 103h22l-3 26h-16Zm6 6 2 14h6l2-14Z" fill="#bd8a50" fill-rule="evenodd" stroke-width="2.5"/>
+        <path d="M234 253q16-6 32 0l-2 19q-3 12-14 21-11-9-14-21Z" fill="${t>=3?'#d9be73':t>=2?'#d0ded9':'#c0c6bb'}" stroke="#7f8c7d" stroke-width="3"/>
+        <path d="M250 259v23" stroke="${t>=3?'#f3dca1':'#e4e9de'}" stroke-width="2.5"/>
+        <path d="M245 248h10v13h-10Z" fill="#8d9a87" stroke="#71816e" stroke-width="2"/>
+      </g>
       <path d="M99 251q-21 12-16 23 8 15 36 2l5-17m47 0 8 18q26 11 32-3 4-11-19-23" fill="#b96d35"/>
       <path d="M78 105q-20-26-35-8-13 17 9 34m151-24q21-27 36-10 14 16-7 35" fill="#c77a3c"/>
       <path d="M69 109q-11-14-17-5t7 19m155-14q10-15 17-6t-6 20" fill="#e6a45e" stroke="none"/>

@@ -20,7 +20,7 @@ def inject_games(source: str) -> str:
         '<link rel="stylesheet" href="/miniapp/static/games-play.css?v=2" />'
         '<link rel="stylesheet" href="/miniapp/static/games-personality.css?v=2" />'
         '<link rel="stylesheet" href="/miniapp/static/games-farm-journal.css?v=4" />'
-        '<link rel="stylesheet" href="/miniapp/static/games-lobby.css?v=2" />'
+        '<link rel="stylesheet" href="/miniapp/static/games-lobby.css?v=3" />'
         '<link rel="stylesheet" href="/miniapp/static/games-ranking.css?v=1" /></head>',
     )
     source = source.replace(
@@ -57,7 +57,7 @@ def inject_games(source: str) -> str:
         '<script src="/miniapp/static/games-sprites.js?v=1"></script>'
         '<script src="/miniapp/static/games-view.js?v=6"></script>'
         '<script src="/miniapp/static/games-extra-view.js?v=2"></script>'
-        '<script src="/miniapp/static/games-farm-art.js?v=2"></script>'
+        '<script src="/miniapp/static/games-farm-art.js?v=3"></script>'
         '<script src="/miniapp/static/games-farm.js?v=4"></script>'
         '<script src="/miniapp/static/games-journey-view.js?v=5"></script>'
         '<script src="/miniapp/static/games-menu.js?v=2"></script>'

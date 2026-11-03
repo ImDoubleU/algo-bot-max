@@ -42,7 +42,7 @@ body:has(#gamesView.is-active) { background:#f7f7f2; }
 #gamesRoot .arcade-feature-actions [data-garden] { background:#f1d58e; border-color:#f1d58e; color:#273b2c; }
 #gamesRoot .arcade-feature-actions button:hover { border-color:#f5e8c0; }
 #gamesRoot .arcade-feature-art { position:relative; display:grid; place-items:center; align-self:stretch; background:#2c543d; }
-#gamesRoot .arcade-feature-art>svg { position:absolute; width:255px; height:280px; bottom:-30px; max-width:none; }
+#gamesRoot .arcade-feature-art>svg { position:absolute; width:auto; height:calc(100% - 12px); aspect-ratio:1; bottom:6px; max-width:none; }
 #gamesRoot .arcade-library-heading { display:flex; justify-content:space-between; gap:20px; align-items:center; margin:0 0 6px; }
 #gamesRoot .arcade-library-heading>h2 { margin:0; font:700 26px/1.2 "Segoe UI",sans-serif; color:#28322b; letter-spacing:-.5px; }
 #gamesRoot .games-filters { display:flex; flex-wrap:nowrap; gap:16px; margin:0; }
@@ -124,7 +124,7 @@ body:has(#gamesView.is-active) { background:#f7f7f2; }
  #gamesRoot .arcade-feature-actions { display:grid; gap:8px; justify-items:start; }
  #gamesRoot .arcade-feature-actions button { min-height:44px; padding:9px 13px; font-size:16px; }
  #gamesRoot .arcade-feature-actions [data-sprint] { background:#244b38; }
- #gamesRoot .arcade-feature-art>svg { width:180px; height:220px; bottom:-22px; right:-14px; }
+ #gamesRoot .arcade-feature-art>svg { width:auto; height:calc(100% - 8px); bottom:4px; right:-14px; }
  #gamesRoot .arcade-library-heading>h2 { font-size:25px; }
  #gamesRoot .game-card-shell { grid-template-columns:1fr; }
  #gamesRoot .game-card-shell .game-card { padding:17px 0; }
@@ -134,4 +134,7 @@ body:has(#gamesView.is-active) { background:#f7f7f2; }
  #gamesRoot .game-card h3 { font-size:22px; }
  #gamesRoot .game-card-bottom { padding-right:40px; gap:3px 12px; }
  #gamesRoot .game-card-leader { position:absolute; right:0; bottom:14px; }
+}
+@media(max-width:380px) {
+ #gamesRoot .arcade-feature-art>svg { height:152px; right:-12px; }
 }
