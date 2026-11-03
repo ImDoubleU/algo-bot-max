@@ -15,12 +15,13 @@ def inject_games(source: str) -> str:
         '<link rel="stylesheet" href="/miniapp/static/games-extra.css?v=1" />'
         '<link rel="stylesheet" href="/miniapp/static/games-farm.css?v=2" />'
         '<link rel="stylesheet" href="/miniapp/static/games-journey.css?v=3" />'
-        '<link rel="stylesheet" href="/miniapp/static/games-mastery.css?v=3" />'
+        '<link rel="stylesheet" href="/miniapp/static/games-mastery.css?v=4" />'
         '<link rel="stylesheet" href="/miniapp/static/games-menu.css?v=2" />'
         '<link rel="stylesheet" href="/miniapp/static/games-play.css?v=2" />'
         '<link rel="stylesheet" href="/miniapp/static/games-personality.css?v=2" />'
         '<link rel="stylesheet" href="/miniapp/static/games-farm-journal.css?v=4" />'
-        '<link rel="stylesheet" href="/miniapp/static/games-lobby.css?v=2" /></head>',
+        '<link rel="stylesheet" href="/miniapp/static/games-lobby.css?v=2" />'
+        '<link rel="stylesheet" href="/miniapp/static/games-ranking.css?v=1" /></head>',
     )
     source = source.replace(
         '<button class="nav-button is-active" data-view="dashboard">',
@@ -62,7 +63,7 @@ def inject_games(source: str) -> str:
         '<script src="/miniapp/static/games-menu.js?v=2"></script>'
         '<script src="/miniapp/static/games-personality.js?v=2"></script>'
         '<script src="/miniapp/static/games-results.js?v=4"></script>'
-        '<script src="/miniapp/static/app-games.js?v=16"></script>',
+        '<script src="/miniapp/static/app-games.js?v=17"></script>',
         source,
         count=1,
     )

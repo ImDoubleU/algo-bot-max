@@ -1,0 +1,130 @@
+/* A standings sheet: results first, with details inside each player row. */
+.arcade-ranking { width:100%; margin:0 0 24px; padding:0; color:#28332b; font:16px/1.45 "Segoe UI",sans-serif; }
+.arcade-ranking * { box-sizing:border-box; }
+.ranking-heading { display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:18px; margin-bottom:22px; }
+.ranking-heading>div:first-child { min-width:0; flex:1; }
+.ranking-heading h3 { margin:0 0 8px; color:#25332a; font:750 30px/1.2 "Segoe UI",sans-serif; letter-spacing:-.7px; }
+.ranking-heading p { margin:0; color:#667066; font-size:16px; }
+.arcade-ranking .games-leader-period { display:flex; align-self:flex-start; gap:18px; padding:0; border-bottom:1px solid #d2d7cd; border-radius:0; background:none; }
+.arcade-ranking .games-leader-period button { min-height:44px; margin:0; padding:8px 0; border:0; border-bottom:2px solid transparent; border-radius:0; background:none; color:#687268; font:600 16px/1.3 "Segoe UI",sans-serif; cursor:pointer; }
+.arcade-ranking .games-leader-period button[aria-pressed=true] { color:#2a4e32; border-bottom-color:#2a4e32; }
+.ranking-device { width:fit-content; margin:0 0 20px; }
+.ranking-prizes { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:20px; padding:18px 0; margin-bottom:18px; border-top:1px solid #d2d7cd; border-bottom:1px solid #d2d7cd; }
+.ranking-prize-intro h4 { margin:0 0 5px; font-size:18px; font-weight:650; color:#3d483d; }
+.ranking-prize-intro p { margin:0; font-size:16px; color:#697365; }
+.ranking-prize-strip { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+.ranking-prize { padding:0 22px; border-left:1px solid #d2d7cd; }
+.ranking-prize>span { display:block; margin-bottom:4px; font-size:16px; color:#727365; }
+.ranking-prize>strong { display:block; white-space:nowrap; color:#6c542b; font-size:27px; line-height:1.2; font-weight:700; font-variant-numeric:tabular-nums; }
+.ranking-prize small { font-size:16px; font-weight:600; }
+.ranking-qualification { display:flex; justify-content:space-between; align-items:center; gap:24px; padding:14px 16px; margin:0 0 16px; border-left:3px solid #b2904d; background:#f1ecdf; }
+.ranking-qualification b { color:#715c31; font-size:18px; line-height:1.4; font-weight:600; }
+.ranking-qualification progress { flex:0 0 110px; width:110px; height:5px; border:0; border-radius:0; overflow:hidden; accent-color:#9a7c3f; }
+.ranking-qualification progress::-webkit-progress-bar { background:#ddd6c5; }
+.ranking-qualification progress::-webkit-progress-value { background:#9a7c3f; }
+.ranking-qualification.is-qualified { border-color:#658355; background:#e9eee3; }
+.ranking-qualification.is-qualified b { color:#3d5e3b; }
+.ranking-qualification.is-qualified progress { accent-color:#658355; }
+.ranking-qualification.is-qualified progress::-webkit-progress-value { background:#658355; }
+.ranking-list-heading,.ranking-player-line { display:grid; grid-template-columns:38px minmax(0,1fr) 110px 100px; align-items:center; gap:16px; padding-right:38px; }
+.ranking-list-heading { padding-top:10px; padding-bottom:12px; padding-left:12px; border-bottom:1px solid #bcc6b6; font-size:16px; color:#6d776b; }
+.ranking-list-heading>span:last-child { text-align:right; }
+.ranking-list { list-style:none; margin:0 0 18px; padding:0; }
+.ranking-player { border-bottom:1px solid #d4dacd; }
+.ranking-player.is-me { border-left:3px solid #55734b; background:#eaf0e2; }
+.ranking-player-line { position:relative; min-height:100px; padding-top:17px; padding-bottom:17px; padding-left:12px; list-style:none; cursor:pointer; }
+.ranking-player.is-me .ranking-player-line { padding-left:9px; }
+.ranking-player-line::-webkit-details-marker { display:none; }
+.ranking-player-line:hover { background:#e3e9db66; }
+.ranking-place { align-self:start; padding-top:1px; color:#7c8377; font-size:24px; line-height:1.3; font-weight:600; font-variant-numeric:tabular-nums; }
+.ranking-place.place-1 { color:#98732f; font-weight:750; }
+.ranking-place.place-2,.ranking-place.place-3 { color:#475b40; font-weight:700; }
+.ranking-person { min-width:0; }
+.ranking-person h4 { margin:0; color:#28362b; font-size:21px; line-height:1.35; font-weight:700; overflow-wrap:anywhere; }
+.ranking-person h4 em { margin-left:7px; color:#567348; font-size:16px; font-style:normal; font-weight:600; white-space:nowrap; }
+.ranking-person p { margin:5px 0 0; color:#6b7567; font-size:16px; line-height:1.4; overflow-wrap:anywhere; }
+.ranking-games-column { color:#4c6145; font-size:17px; }
+.ranking-games-column>span { display:block; margin-top:4px; font-size:16px; color:#77816e; }
+.ranking-games-mobile { display:none; }
+.ranking-points { min-width:0; text-align:right; font-variant-numeric:tabular-nums; }
+.ranking-points strong { display:block; color:#2c432e; font-size:30px; line-height:1.25; font-weight:750; }
+.ranking-points>span { display:block; margin-top:5px; color:#6b7665; font-size:16px; line-height:1.3; }
+.ranking-points .ranking-row-prize { color:#82662e; font-weight:600; }
+.ranking-expand { position:absolute; right:12px; top:25px; color:#68775e; font-size:24px; line-height:1; transition:transform .15s; }
+details[open]>.ranking-player-line .ranking-expand { transform:rotate(180deg); }
+.ranking-breakdown { margin:0; padding:0; border:0; background:none; }
+.ranking-breakdown>ul { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 26px; margin:0 38px 18px 66px; padding:0; list-style:none; }
+.ranking-breakdown li { display:grid; grid-template-columns:40px minmax(0,1fr) auto; align-items:center; gap:12px; padding:13px 0; border-top:1px solid #d2d9c8; }
+.ranking-breakdown li b { display:block; color:#3a4c35; font-size:17px; font-weight:600; }
+.ranking-breakdown li div>span { display:block; margin-top:3px; color:#717c68; font-size:16px; }
+.ranking-breakdown li strong { color:#4d733c; font-size:21px; white-space:nowrap; }
+.ranking-game-mark { display:grid; place-items:center; }
+.ranking-game-mark svg { width:44px; height:36px; }
+.ranking-gap { padding:7px 12px; border-bottom:1px solid #d4dacd; color:#77806e; font-size:24px; }
+.ranking-empty { padding:26px 0; border-bottom:1px solid #d4dacd; }
+.ranking-empty h4 { margin:0 0 8px; color:#43573a; font-size:23px; }
+.ranking-empty p { margin:0; color:#6d7965; font-size:17px; }
+.ranking-note { margin:16px 0; color:#707a67; font-size:16px; }
+.ranking-rules,.ranking-history { border-top:1px solid #ccd4c3; }
+.ranking-rules>summary,.ranking-history>summary { min-height:52px; padding:15px 0; color:#526846; font-size:17px; font-weight:600; cursor:pointer; }
+.ranking-rules-content { padding:0 0 20px; }
+.ranking-rules-content h4 { margin:16px 0 14px; color:#3b5132; font-size:19px; }
+.ranking-rules-content p { margin:14px 0 0; color:#6b7761; font-size:16px; line-height:1.6; }
+.ranking-point-key,.ranking-league-key { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px 20px; }
+.ranking-point-key>div { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:6px; padding:10px 0; border-bottom:1px solid #d5dccc; }
+.ranking-point-key span { color:#6c7a62; font-size:16px; }
+.ranking-point-key strong { color:#405d32; font-size:21px; }
+.ranking-league-key { margin:0; padding:0; list-style:none; }
+.ranking-league-key li { padding:10px 0; border-top:1px solid #d5dccc; }
+.ranking-league-key b { display:block; color:#4a653a; font-size:17px; }
+.ranking-league-key span { display:block; margin-top:5px; color:#6b7a60; font-size:16px; }
+.ranking-history section { padding:0 0 16px; }
+.ranking-history h4 { margin:5px 0 12px; color:#435f35; font-size:18px; }
+.ranking-history section>div { display:flex; justify-content:space-between; gap:16px; padding:8px 0; color:#627453; font-size:17px; }
+.ranking-history strong { color:#667a3e; white-space:nowrap; }
+.ranking-single-game .ranking-list-heading,.ranking-single-game .ranking-player-line { grid-template-columns:38px minmax(0,1fr) 120px; padding-right:12px; }
+.ranking-single-game .ranking-player-line { cursor:default; }
+.arcade-ranking button:focus-visible,.arcade-ranking summary:focus-visible { outline:3px solid #839e6e; outline-offset:3px; }
+.games-leader-dialog .arcade-ranking { margin:0; padding:24px; }
+.games-leader-dialog .ranking-heading { padding-right:42px; }
+.games-leader-dialog .ranking-heading h3 { font-size:27px; }
+@media(max-width:800px) {
+ .ranking-prizes { grid-template-columns:1fr; gap:15px; }
+ .ranking-prize:first-child { padding-left:0; border-left:0; }
+ .ranking-prize-strip { width:100%; }
+ .ranking-breakdown>ul { grid-template-columns:1fr; }
+ .ranking-point-key { grid-template-columns:repeat(3,minmax(0,1fr)); }
+ .ranking-league-key { grid-template-columns:repeat(3,minmax(0,1fr)); }
+}
+@media(max-width:580px) {
+ .ranking-heading { gap:14px; margin-bottom:18px; }
+ .ranking-heading>div:first-child { flex-basis:100%; }
+ .ranking-heading h3 { font-size:28px; }
+ .ranking-prize { padding:0 14px; }
+ .ranking-prize>strong { font-size:26px; }
+ .ranking-prize-intro p { line-height:1.5; }
+ .ranking-qualification { display:block; padding:12px 13px; }
+ .ranking-qualification b { font-size:17px; }
+ .ranking-qualification progress { display:block; width:100%; margin-top:12px; }
+ .ranking-list-heading,.ranking-player-line { grid-template-columns:28px minmax(0,1fr) 78px; gap:10px; padding-left:0; padding-right:0; }
+ .ranking-list-heading { font-size:16px; }
+ .ranking-games-column { display:none; }
+ .ranking-player-line { min-height:94px; padding-top:16px; padding-bottom:16px; }
+ .ranking-player.is-me .ranking-player-line { padding-left:7px; padding-right:7px; }
+ .ranking-place { font-size:22px; }
+ .ranking-person h4 { font-size:20px; }
+ .ranking-person p { font-size:16px; }
+ .ranking-games-mobile { display:flex; gap:10px; align-items:center; margin-top:6px; color:#5d7350; font-size:16px; }
+ .ranking-games-mobile>span { font-size:22px; line-height:1; }
+ details[open] .ranking-games-mobile>span { transform:rotate(180deg); }
+ .ranking-points strong { font-size:27px; }
+ .ranking-expand { display:none; }
+ .ranking-breakdown>ul { margin:0 8px 15px 38px; }
+ .ranking-breakdown li { grid-template-columns:minmax(0,1fr) auto; gap:10px; }
+ .ranking-game-mark { display:none; }
+ .ranking-breakdown li b { font-size:16px; }
+ .ranking-single-game .ranking-list-heading,.ranking-single-game .ranking-player-line { grid-template-columns:28px minmax(0,1fr) 84px; padding-left:0; padding-right:0; }
+ .ranking-point-key,.ranking-league-key { grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .games-leader-dialog .arcade-ranking { padding:22px 16px; }
+ .games-leader-dialog .ranking-heading { padding-right:38px; }
+}

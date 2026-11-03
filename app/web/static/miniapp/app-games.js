@@ -190,7 +190,7 @@
             return;
         }
         root.innerHTML = `<div class="games-heading"><div class="games-lobby-title"><h1>Игры</h1></div><div class="arcade-account"><label class="games-player-picker"><span class="games-player-label">Игрок</span><select id="gamesPlayer" aria-label="Игрок">${actors.map(p=>`<option value="${esc(p.id)}" ${p.id===actor().id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></label><button class="arcade-settings" aria-label="Настройки игр" data-settings>⚙</button></div></div>
-      <div class="arcade-lobby-status">${masteryMarkup()}<button class="arcade-reward-overview" data-tab="rewards"><span class="arcade-reward-balance"><span>Награды</span><strong>${profile.balance} <span>AC</span></strong></span></button></div>
+      ${tab!=='leaders'?`<div class="arcade-lobby-status">${masteryMarkup()}<button class="arcade-reward-overview" data-tab="rewards"><span class="arcade-reward-balance"><span>Награды</span><strong>${profile.balance} <span>AC</span></strong></span></button></div>`:''}
       <nav class="games-tabs" aria-label="Разделы игр">${tabs()}</nav><div id="arcadeTabContent"></div>`;
         const content = $("#arcadeTabContent", root);
         if (tab === "games") content.innerHTML = cards();
@@ -354,32 +354,53 @@
             weekly = period === 'week',
             rows = data.rows,
             mine = rows.find(r => r.player === actor().id),
+            index = rows.indexOf(mine),
+            minimum = data.min_games,
             shown = rows.slice(0, 20),
-            index = rows.findIndex(r => r.player === actor().id),
-            minimum = data.min_games;
-        for (const r of rows.slice(Math.max(0, index - 2), index + 3))
-            if (index >= 0 && !shown.some(s => s.player === r.player)) shown.push(r);
-        const before = index > 0 ? rows[index - 1] : null,
-            gap = before && mine ? Math.max(1, before.score - mine.score + 1) : 0,
+            eligible = combined && weekly ? rows.filter(r => r.prizeEligible).slice(0, data.prizes.length) : [],
+            prizeFor = r => eligible.includes(r) ? data.prizes[eligible.indexOf(r)] : 0,
             word = n => n % 100 >= 11 && n % 100 <= 14 ? 'игр' : n % 10 === 1 ? 'игра' : n % 10 >= 2 && n % 10 <= 4 ? 'игры' : 'игр',
-            remaining = r => Math.max(0, minimum - (r?.games || 0)),
-            requirement = r => remaining(r) ? `Ещё ${remaining(r)} ${word(remaining(r))} до призов` : 'Ты участвуешь в борьбе за призы',
+            missing = Math.max(0, minimum - (mine?.games || 0)),
+            qualification = missing ? `${missing===1?'Осталась':'Осталось'} ${missing} ${word(missing)} до призового зачёта` : 'Ты в призовом зачёте',
             weekLabel = value => new Date(value + 'T00:00:00+03:00').toLocaleDateString('ru-RU', {
                 timeZone: 'Europe/Moscow',
                 day: 'numeric',
                 month: 'long'
             }),
+            periodControls = `<div class="games-leader-period" aria-label="Период рейтинга">${[['week','За сезон'],['all','За всё время']].map(([id,name])=>`<button data-period="${id}" aria-pressed="${id===period}">${name}</button>`).join('')}</div>`,
             winners = data.history.filter(w => w.winners.length);
-        return `<section class="games-leaders arcade-ranking ${combined?'games-overall':''}" aria-label="${combined?'Общий рейтинг':esc(title(game))}">
-          <header class="ranking-heading"><h3>${combined?'Общий рейтинг':esc(title(game))}</h3><p>${weekly?'Лучшие результаты за сезон':'Лучшие результаты за всё время'} · режим «Соревнование»</p></header>
-          <div class="games-leader-controls"><div class="games-leader-period" aria-label="Период рейтинга">${[['week','За сезон'],['all','За всё время']].map(([id,name])=>`<button data-period="${id}" aria-pressed="${id===period}">${name}</button>`).join('')}</div>${speed.has(game)?`<div class="games-leader-period" aria-label="Управление">${[['keyboard','Клавиатура / мышь'],['touch','Касания']].map(([id,name])=>`<button data-board-device="${id}" aria-pressed="${id===device}">${name}</button>`).join('')}</div>`:''}</div>
-          ${combined&&weekly?`<section class="ranking-prizes" aria-label="Призы сезона"><div class="ranking-section-heading"><h4>Призы сезона</h4><p>Итоги ${nextDeadline(data.season.end)} · 00:00 МСК</p></div><div class="ranking-prize-strip">${data.prizes.map((amount,i)=>`<div class="ranking-prize prize-${i+1}"><span>${i+1} место</span><strong>${amount} <small>AC</small></strong></div>`).join('')}</div><p class="ranking-prize-condition">Чтобы получить приз, нужно попасть в первую тройку и выполнить цели в ${minimum} разных играх.</p></section>`:''}
-          ${mine?`<section class="games-my-rank ranking-mine" aria-label="Твой результат"><div class="ranking-mine-numbers"><div><span>Твоё место</span><strong>#${mine.rank}</strong></div><div><span>${combined?'Твои очки':'Твой рекорд'}</span><strong>${mine.score}${!combined?` <small>${esc(E.rankUnit(game))}</small>`:''}</strong></div></div>${combined&&weekly?`<div class="ranking-qualification ${mine.prizeEligible?'is-qualified':''}"><div><b>${requirement(mine)}</b><span>${Math.min(minimum,mine.games)} из ${minimum} игр с выполненной целью</span></div><div class="ranking-game-steps" aria-label="${Math.min(minimum,mine.games)} из ${minimum} игр">${Array.from({length:minimum},(_,i)=>`<i class="${i<mine.games?'is-complete':''}" aria-hidden="true">${i<mine.games?'✓':i+1}</i>`).join('')}</div></div>`:''}${before?`<p class="ranking-next-place">Чтобы обойти игрока на #${before.rank}, нужно ещё <b>${gap}</b> ${combined?'очков':esc(E.rankUnit(game))}.</p>`:''}</section>`:combined&&weekly?`<section class="ranking-first-step"><b>Начни с одной игры</b><p>Выбери «Соревнование» и выполни цель. Для призов нужны ${minimum} разные игры.</p></section>`:''}
-          <div class="ranking-list-heading"><h4>Участники</h4><span>${combined?'Очки':'Рекорд'}</span></div>
-          ${shown.length?`<ol class="ranking-list">${shown.map(r=>`<li value="${r.rank}" class="ranking-player ${r.player===actor().id?'is-me':''}"><div class="ranking-player-line"><span class="ranking-place place-${Math.min(4,r.rank)}" aria-label="Место ${r.rank}">${r.rank}</span><div class="ranking-person"><h4>${esc(r.name)}${r.player===actor().id?' <em>Ты</em>':''}</h4><p>${esc(r.group)}</p>${combined?`<span class="ranking-player-status ${r.prizeEligible?'is-qualified':''}">${weekly?r.prizeEligible?esc(r.league?.name||'Бронза'):requirement(r):`${r.games} ${word(r.games)}`}</span>`:''}</div><div class="ranking-points"><strong>${r.score}</strong><span>${combined?'очков':esc(E.rankUnit(game))}</span></div></div>${combined?`<details class="league-contributions ranking-breakdown"><summary>Из чего сложились очки</summary><ul>${r.contributions.map(c=>`<li><div><b>${esc(title(c.game))}</b><span>Место ${c.rank} в игре</span></div><strong>+${c.points}</strong></li>`).join('')}</ul></details>`:''}</li>`).join('')}</ol>`:'<div class="games-leaders-empty ranking-empty"><h4>Здесь появятся первые результаты</h4><p>Открой любую игру и выбери «Соревнование».</p></div>'}
+        for (const r of rows.slice(Math.max(0, index - 2), index + 3))
+            if (index >= 0 && !shown.includes(r)) shown.push(r);
+        const subtitle = weekly ? `Сезон с ${weekLabel(data.season.start)} · итоги ${weekLabel(data.season.end)}` : 'Результаты за всё время';
+        const gameMetric = r => {
+            const d = r.details || {};
+            if (game === 'typing' && d.accuracy) return `${d.accuracy}% точности`;
+            if (game === 'react' && d.reactionMs) return `${d.reactionMs} мс`;
+            if (game === 'memory' && d.moves) return `${d.moves} ходов`;
+            if (game === 'debug' && d.timeMs) return `${Math.floor(d.timeMs/60000)}:${String(Math.floor(d.timeMs/1000)%60).padStart(2,'0')}`;
+            if (game === '2048' && r.result) return `Плитка ${r.result}`;
+            return E.rankUnit(game);
+        };
+        const playerMarkup = r => {
+            const cells = `<span class="ranking-place place-${Math.min(4,r.rank)}" aria-label="Место ${r.rank}">${r.rank}</span><div class="ranking-person"><h4>${esc(r.name)}${r.player===actor().id?' <em>Ты</em>':''}</h4><p>${esc(r.group)}</p>${combined?`<span class="ranking-games-mobile">${r.games} ${word(r.games)} <span aria-hidden="true">⌄</span></span>`:''}</div>${combined?`<span class="ranking-games-column">${r.games} ${word(r.games)}${r.prizeEligible&&weekly?`<span>${esc(r.league?.name||'Бронза')}</span>`:''}</span>`:''}<span class="ranking-points"><strong>${r.score.toLocaleString('ru-RU')}</strong>${combined?prizeFor(r)?`<span class="ranking-row-prize" title="Предварительная награда по текущим результатам">${prizeFor(r)} AC</span>`:'':`<span>${esc(gameMetric(r))}</span>`}</span>${combined?'<span class="ranking-expand" aria-hidden="true">⌄</span>':''}`;
+            return `<li value="${r.rank}" class="ranking-player ${r.player===actor().id?'is-me':''}">${combined?`<details class="ranking-breakdown"><summary class="ranking-player-line" title="Результаты по играм">${cells}</summary><ul>${r.contributions.map(c=>`<li><span class="ranking-game-mark">${art(c.game)}</span><div><b>${esc(title(c.game))}</b><span>${c.rank} место в игре</span></div><strong>+${c.points}</strong></li>`).join('')}</ul></details>`:`<div class="ranking-player-line">${cells}</div>`}</li>`;
+        };
+        let lastIndex = -1;
+        const players = shown.map(r => {
+            const current = rows.indexOf(r),
+                gap = lastIndex >= 0 && current > lastIndex + 1;
+            lastIndex = current;
+            return `${gap?'<li class="ranking-gap" aria-label="Промежуточные участники не показаны">···</li>':''}${playerMarkup(r)}`;
+        }).join('');
+        return `<section class="arcade-ranking ${combined?'games-overall':'ranking-single-game'}" aria-label="${combined?'Общий рейтинг':esc(title(game))}">
+          <header class="ranking-heading"><div><h3>${combined?'Общий рейтинг':esc(title(game))}</h3><p>${subtitle}</p></div>${periodControls}</header>
+          ${speed.has(game)?`<div class="games-leader-period ranking-device" aria-label="Управление">${[['keyboard','Клавиатура / мышь'],['touch','Касания']].map(([id,name])=>`<button data-board-device="${id}" aria-pressed="${id===device}">${name}</button>`).join('')}</div>`:''}
+          ${combined&&weekly?`<section class="ranking-prizes" aria-label="Призы сезона"><div class="ranking-prize-intro"><h4>Призы сезона</h4></div><div class="ranking-prize-strip">${data.prizes.map((amount,i)=>`<div class="ranking-prize"><span>${i+1} место</span><strong>${amount} <small>AC</small></strong></div>`).join('')}</div></section><div class="ranking-qualification ${missing?'':'is-qualified'}"><b>${qualification}</b><progress max="${minimum}" value="${Math.min(minimum,mine?.games||0)}" aria-label="Цели в ${Math.min(minimum,mine?.games||0)} из ${minimum} игр"></progress></div>`:''}
+          <div class="ranking-list-heading"><span aria-label="Место">№</span><span>Игрок</span>${combined?'<span class="ranking-games-column">Игры</span>':''}<span>${combined?'Очки':'Результат'}</span></div>
+          ${shown.length?`<ol class="ranking-list">${players}</ol>`:'<div class="ranking-empty"><h4>Пока нет результатов</h4><p>Заверши игру в режиме «Соревнование».</p></div>'}
           ${game==='drop'?'<p class="ranking-note">В рейтинге — Космопорт с новой физикой. Прежние партии остались в истории.</p>':''}
-          ${combined?`<details class="league-rules ranking-rules"><summary>Как получить очки и призы</summary><div class="ranking-rules-content"><h4>Очки за место в каждой игре</h4><div class="ranking-point-key">${E.placePoints.map((points,i)=>`<div><span>${i+1} место</span><strong>${points}</strong></div>`).join('')}</div><p>Начиная с 11-го места — по 5 очков. В общий рейтинг идёт один лучший результат за каждую игру, если выполнена её цель. Для печати нужна точность от 90%.</p><p>Прохождение уровней, XP и достижения дают мастерство, а общий рейтинг считается по результатам «Соревнования».</p><h4>Ранги сезона</h4><ul class="ranking-league-key">${[[0,'Бронза'],[200,'Серебро'],[450,'Золото'],[800,'Алмаз'],[1200,'Космос']].map(([points,name])=>`<li><b>${name}</b><span>от ${points} очков</span></li>`).join('')}</ul><p>Для ранга нужны цели в ${minimum} разных играх в текущем сезоне. Сезон длится 14 дней. Итоги — по понедельникам раз в две недели в 00:00 МСК. При равных очках выше игрок с большим числом игр, затем первых мест, затем с более ранним результатом.</p><p>Клавиатура и касания сравниваются отдельно в скоростных играх; в общий рейтинг идёт один лучший вклад за игру. Общий лимит всех игровых наград — ${profile.cap.limit} AC за неделю. Награды сверх лимита сохраняются в очереди.</p></div></details>`:''}
-          ${combined&&winners.length?`<details class="league-last-week ranking-history"><summary>Победители прошлых сезонов</summary>${winners.map(w=>`<section><h4>${w.days===7?'Неделя':'Сезон'} с ${weekLabel(w.week)}</h4>${w.winners.map(r=>`<div><span>${esc(r.name)}</span><strong>+${r.prize} AC</strong></div>`).join('')}</section>`).join('')}</details>`:''}
+          ${combined?`<details class="ranking-rules"><summary>Как получить очки и призы</summary><div class="ranking-rules-content"><h4>Очки за место в каждой игре</h4><div class="ranking-point-key">${E.placePoints.map((points,i)=>`<div><span>${i+1} место</span><strong>${points}</strong></div>`).join('')}</div><p>Начиная с 11-го места — по 5 очков. В общий рейтинг идёт один лучший результат за каждую игру, если выполнена её цель. Для печати нужна точность от 90%.</p><p>Прохождение уровней, XP и достижения дают мастерство, а общий рейтинг считается по результатам «Соревнования».</p><h4>Ранги сезона</h4><ul class="ranking-league-key">${[[0,'Бронза'],[200,'Серебро'],[450,'Золото'],[800,'Алмаз'],[1200,'Космос']].map(([points,name])=>`<li><b>${name}</b><span>от ${points} очков</span></li>`).join('')}</ul><p>Для ранга нужны цели в ${minimum} разных играх в текущем сезоне. Сезон длится 14 дней. Итоги — по понедельникам раз в две недели в 00:00 МСК. При равных очках выше игрок с большим числом игр, затем первых мест, затем с более ранним результатом.</p><p>Клавиатура и касания сравниваются отдельно в скоростных играх; в общий рейтинг идёт один лучший вклад за игру. Общий лимит всех игровых наград — ${profile.cap.limit} AC за неделю. Награды сверх лимита сохраняются в очереди.</p></div></details>`:''}
+          ${combined&&winners.length?`<details class="ranking-history"><summary>Победители прошлых сезонов</summary>${winners.map(w=>`<section><h4>${w.days===7?'Неделя':'Сезон'} с ${weekLabel(w.week)}</h4>${w.winners.map(r=>`<div><span>${esc(r.name)}</span><strong>+${r.prize} AC</strong></div>`).join('')}</section>`).join('')}</details>`:''}
         </section>`;
     }
 

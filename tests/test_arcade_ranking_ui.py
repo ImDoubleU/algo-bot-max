@@ -25,9 +25,10 @@ def test_overall_standings_show_large_scores_and_clear_qualification(arcade, wid
     page.locator('.games-tabs [data-tab="leaders"]').click()
     page.locator(".ranking-player").first.wait_for()
     assert page.locator(".ranking-player").count() == 2
-    assert "Ещё 1 игра до призов" in page.locator(".ranking-qualification").inner_text()
-    assert page.locator(".ranking-game-steps .is-complete").count() == 2
-    assert page.locator(".ranking-mine-numbers strong").all_text_contents() == ["#2", "200"]
+    assert "Осталась 1 игра" in page.locator(".ranking-qualification").inner_text()
+    assert page.locator(".ranking-qualification progress").get_attribute("value") == "2"
+    assert page.locator(".ranking-player.is-me .ranking-place").inner_text() == "2"
+    assert page.locator(".ranking-player.is-me .ranking-points strong").inner_text() == "200"
     for selector, minimum in (
         (".ranking-person h4", 19),
         (".ranking-person p", 15),
@@ -45,7 +46,7 @@ def test_overall_standings_show_large_scores_and_clear_qualification(arcade, wid
     own = page.locator(".ranking-player.is-me")
     own.locator("summary").click()
     assert own.locator(".ranking-breakdown li").count() == 2
-    assert own.locator(".ranking-breakdown strong").all_text_contents() == ["+100", "+100"]
+    assert own.locator(".ranking-breakdown li strong").all_text_contents() == ["+100", "+100"]
     page.locator('[data-period="all"]').click()
     page.locator(".ranking-heading p").filter(has_text="всё время").wait_for()
     assert page.locator(".ranking-prizes, .ranking-qualification").count() == 0
@@ -90,5 +91,43 @@ def test_first_reward_hard_medals_and_fortnightly_season_are_explained_consisten
     assert "один раз за всё время" in page.locator(".games-reward-summary").inner_text()
     page.locator('.games-tabs [data-tab="leaders"]').click()
     page.get_by_role("button", name="За сезон", exact=True).wait_for()
-    assert "за сезон" in page.locator(".ranking-heading").inner_text()
+    assert "Сезон с" in page.locator(".ranking-heading p").inner_text()
     assert store.profile("p1")["season"]["days"] == 14
+
+
+def test_projected_prizes_skip_ineligible_players_and_keyboard_opens_the_breakdown(arcade):
+    page, store = arcade
+    seed_standings(store)
+    store.register([dict(id=f"p{i}", name=f"Игрок {i}", group="Демо") for i in range(3, 7)])
+    for player, game, score in (("p4", "debug", 7), ("p5", "typing", 180), ("p6", "memory", 20)):
+        verified(store, player, game, score)
+    for game, score in (("debug", 5), ("typing", 120), ("memory", 8)):
+        verified(store, "p3", game, score)
+    page.reload()
+    page.locator('.games-tabs [data-tab="leaders"]').click()
+    page.locator(".ranking-player").first.wait_for()
+    first, own, third = page.locator(".ranking-player").all()[:3]
+    assert first.locator(".ranking-row-prize").inner_text() == "100 AC"
+    assert own.locator(".ranking-place").inner_text() == "2"
+    assert own.locator(".ranking-row-prize").count() == 0
+    assert third.locator(".ranking-place").inner_text() == "3"
+    assert third.locator(".ranking-row-prize").inner_text() == "75 AC"
+    own.locator("summary").focus()
+    page.keyboard.press("Enter")
+    assert own.locator("details").get_attribute("open") is not None
+    assert sum(int(v.lstrip("+")) for v in own.locator("li strong").all_text_contents()) == 200
+    assert page.locator(".arcade-lobby-status").count() == 0
+
+
+def test_rank_outside_the_top_twenty_stays_visible_with_an_explicit_gap(arcade):
+    page, store = arcade
+    store.register([dict(id=f"player{i}", name=f"Игрок {i}", group="Демо") for i in range(30)])
+    for i in range(30):
+        verified(store, f"player{i}", "blocks", 10000 - i * 100)
+    verified(store, "p1", "blocks", 300)
+    page.reload()
+    page.locator('.games-tabs [data-tab="leaders"]').click()
+    page.locator(".ranking-player.is-me").wait_for()
+    assert page.locator(".ranking-player.is-me .ranking-place").inner_text() == "31"
+    assert page.locator(".ranking-gap").count() == 1
+    assert page.locator(".ranking-player").count() == 23
