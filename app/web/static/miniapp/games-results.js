@@ -25,7 +25,10 @@
     function normal(run, result, rank) {
         const report = result.run.report,
             record = result.run.accepted && report.score > run.oldBest;
-        return `${reward(result.rewards)}<div class="arcade-score-result"><p>${record?'Новый рекорд!':run.mode==='practice'?'Тренировка завершена':'Игра завершена'}</p><h3>${report.score}<span>${esc(run.g.unit)}</span></h3>${result.run.accepted&&rank?`<div class="arcade-result-place">Твоё место — <b>#${rank}</b></div>`:''}</div><div class="arcade-result-actions"><button class="games-main" data-again>Ещё раз</button><button class="game-back" data-back>К играм</button></div><details class="arcade-result-details"><summary>Подробнее</summary>${breakdown(result.rewards)}<p>${run.mode==='practice'?'Тренировка не участвует в рейтинге.':result.run.accepted?'Результат сохранён в таблице лидеров.':'Эта игра завершена без участия в рейтинге.'}</p><button data-analysis>Разбор игры</button></details>`;
+        const reaction = run.g.id === 'react' && report.score > 0 && report.details.reactionMs > 0;
+        const value = reaction ? report.details.reactionMs : report.score,
+            unit = reaction ? 'мс · средняя реакция' : run.g.unit;
+        return `${reward(result.rewards)}<div class="arcade-score-result"><p>${record?'Новый рекорд!':run.mode==='practice'?'Тренировка завершена':'Игра завершена'}</p>${ArcadePersonality.score(run.g.id, value, unit)}${reaction?`<p class="game-reaction-result">Точных реакций: ${report.score}</p>`:''}${result.run.accepted&&rank?`<div class="arcade-result-place">Твоё место — <b>#${rank}</b></div>`:''}</div><div class="arcade-result-actions"><button class="games-main" data-again>Ещё раз</button><button class="game-back" data-back>К играм</button></div><details class="arcade-result-details"><summary>Подробнее</summary>${breakdown(result.rewards)}<p>${run.mode==='practice'?'Тренировка не участвует в рейтинге.':result.run.accepted?'Результат сохранён в таблице лидеров.':'Эта игра завершена без участия в рейтинге.'}</p><button data-analysis>Разбор игры</button></details>`;
     }
 
     function journey(run, report, receipt) {

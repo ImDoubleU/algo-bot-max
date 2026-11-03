@@ -474,18 +474,26 @@
             source: run.device
         });
         $(".game-close", d).onclick = () => {
-            if (["playing", "ready", "paused"].includes(run.phase)) run.pause(true);
+            if (["playing", "ready", "paused", "starting"].includes(run.phase)) run.pause(true);
             else close();
         };
-        $(".game-leaders-button", d).onclick = () => openLeaders(id);
+        $(".game-leaders-button", d).onclick = async () => {
+            if (["playing", "ready", "starting"].includes(run.phase)) await run.pause();
+            openLeaders(id);
+        };
         $(".arcade-pause", d).onclick = () => run.pause();
         d.addEventListener("cancel", e => {
             e.preventDefault();
-            if (run.phase === "playing" || run.phase === "ready") run.pause();
+            if (run.phase === "playing" || run.phase === "ready" || run.phase === "starting") run.pause();
             else if (run.phase === "paused") run.resume();
             else close();
         });
         run.pause = async exit => {
+            if (run.phase === 'starting') {
+                run.pauseQueued = true;
+                run.pauseExit = !!exit;
+                return;
+            }
             if (run.phase !== "playing" && run.phase !== "ready") return;
             const wasReady = run.phase === "ready";
             const footerHidden = $('footer', d).hidden,
@@ -534,7 +542,7 @@
             if (e.code !== "Escape" || [...document.querySelectorAll("dialog[open]")].at(-1) !== d) return;
             e.preventDefault();
             e.stopImmediatePropagation();
-            if (run.phase === "playing" || run.phase === "ready") run.pause();
+            if (run.phase === "playing" || run.phase === "ready" || run.phase === "starting") run.pause();
             else if (run.phase === "paused") run.resume();
             else if (!["countdown", "starting", "loading", "finishing"].includes(run.phase)) close();
         }, {
@@ -621,6 +629,7 @@
             once: true
         });
         const stage = $(".game-stage", run.dialog);
+        run.dialog.dataset.playMode = run.world.mode;
         stage.innerHTML = "";
         stage.onclick = null;
         run.view = V.mount(run.g.id, stage, a => input(run, a), {
@@ -639,6 +648,7 @@
             paused: () => !["playing", "ready", "tutorial"].includes(run.phase)
         });
         run.view.update(run.world, 0);
+        ArcadePersonality.decorate(run);
         ArcadeJourneyView.tools(run);
     }
     async function tutorial(run) {
@@ -795,6 +805,8 @@
         run.recorded = false;
         run.record = null;
         run.inputQueue = [];
+        run.pauseQueued = false;
+        run.pauseExit = false;
         run.clockPromise = Promise.resolve();
         run.device = device;
         run.events = [];
@@ -808,10 +820,6 @@
         $(".arcade-pause", run.dialog).hidden = false;
         $("#gameFinish", run.dialog).hidden = false;
         run.oldBest = profile.best[run.g.id] || 0;
-        try {
-            const board = await boardData(run.g.id, "week", run.device);
-            run.oldRank = board.rows.find(r => r.player === actor().id)?.rank;
-        } catch {}
         if (run.g.id === "typing") {
             run.phase = "ready";
             $("#gameClock", run.dialog).textContent = "Начни печатать";
@@ -848,6 +856,10 @@
         run.anchor = performance.now();
         run.lastFrame = run.anchor;
         for (const action of run.inputQueue.splice(0)) apply(run, action);
+        if (run.pauseQueued) {
+            run.pauseQueued = false;
+            await run.pause(run.pauseExit);
+        }
     }
 
     function catchUp(run) {
@@ -964,6 +976,7 @@
             ArcadeJourneyView.tools(run);
             return;
         }
+        if (w.id === 'react') $('#gameClock', d).textContent = w.hits.length ? Math.round(w.hits.reduce((a, b) => a + b, 0) / w.hits.length) + ' мс' : '— мс';
         const q = profile.goals[g.id],
             next = profile.achievements.filter(a => a.game === g.id && !a.unlocked).sort((a, b) => a.tier - b.tier)[0],
             target = q.claimed && next ? next.target : g.goal;
@@ -1042,7 +1055,8 @@
                     const board = await boardData(run.g.id, 'week', run.device);
                     rank = board.rows.find(r => r.player === actor().id)?.rank;
                 } catch {
-                    /* The score and reward are already safe even if the board is unavailable. */ }
+                    /* The score and reward are already safe even if the board is unavailable. */
+                }
             }
             if (play !== run) return;
             cover.innerHTML = ArcadeResults.normal(run, result, rank);
@@ -1092,6 +1106,8 @@
 
     function showReplay(game, frames, report) {
         const d = document.createElement("dialog");
+        d.dataset.game = game;
+        d.dataset.playMode = 'replay';
         d.className = "game-dialog arcade-replay";
         d.innerHTML = `<header><div><small>РАЗБОР</small><h2>${title(game)}</h2></div><button class="game-close" aria-label="Закрыть разбор">×</button></header><div class="game-stage"></div><footer><span>${esc(report.reason||"Последние секунды партии")}</span></footer>`;
         document.body.append(d);
@@ -1106,6 +1122,14 @@
             theme: profile.settings.theme,
             skin: profile.settings.skin,
             quality: () => "high"
+        });
+        if (frames.length) view.update(frames[0], 0);
+        ArcadePersonality.decorate({
+            g: {
+                id: game
+            },
+            dialog: d,
+            view
         });
         let index = 0,
             last = 0,

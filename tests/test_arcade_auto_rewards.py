@@ -114,3 +114,42 @@ def test_pause_and_results_have_large_controls_and_aligned_header_buttons(arcade
     page.locator(".number-grid").wait_for()
     with store.db() as db:
         assert db.execute("SELECT COUNT(*) FROM arcade_sessions").fetchone()[0] == 2
+
+
+def test_escape_during_typing_clock_start_is_applied_when_the_server_acknowledges(arcade):
+    page, _ = arcade
+    pending = []
+    page.route("**/clock/start", lambda route: pending.append(route))
+    page.locator('.game-card[data-game="typing"]').click()
+    page.locator('[data-mode="ranked"]').click()
+    page.get_by_text("Начни печатать", exact=True).wait_for()
+    with page.expect_request("**/clock/start"):
+        page.locator(".typing-input").press_sequentially("кот")
+    assert pending
+    page.keyboard.press("Escape")
+    pending[0].fallback()
+    page.locator("[data-resume]").wait_for()
+    assert page.locator("#gameFinish").is_hidden()
+
+
+@pytest.mark.parametrize("game", ["2048", "blocks", "drop"])
+def test_level_timer_is_visible_even_when_free_play_has_no_time_limit(arcade, game):
+    page, _ = arcade
+    page.locator(f'.game-card[data-game="{game}"]').click()
+    page.locator("[data-menu-levels]").click()
+    page.locator('[data-journey-play="1"]').click()
+    page.locator(".arcade-countdown").wait_for(state="detached")
+    page.wait_for_function("document.querySelector('#gameClock')?.textContent.length>0")
+    assert page.locator("#gameClock").is_visible()
+
+
+def test_opening_the_cup_pauses_the_game_instead_of_running_behind_the_leaderboard(arcade):
+    page, _ = arcade
+    page.locator('.game-card[data-game="blocks"]').click()
+    page.locator('[data-mode="ranked"]').click()
+    page.locator(".arcade-countdown").wait_for(state="detached")
+    page.wait_for_function("document.querySelector('#gameClock')?.textContent.length>0")
+    page.locator(".game-leaders-button").click()
+    page.locator(".games-leader-close").click()
+    assert page.locator("[data-resume]").is_visible()
+    assert page.locator("#gameFinish").is_hidden()

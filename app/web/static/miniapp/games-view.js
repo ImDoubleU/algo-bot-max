@@ -104,6 +104,7 @@
             });
             paint = (w, dt = 0) => {
                 background(c, options.theme);
+                window.ArcadePersonality?.backdrop(c, game, w);
                 const raw = E.difficulty(game, game === "2048" ? Math.max(...w.board) : w.score),
                     config = w.journey ? ArcadeJourney.difficulty(w, raw) : raw;
                 for (const cue of w.cues.filter(q => q.n > lastCue)) {
@@ -207,7 +208,22 @@
                     c.setLineDash([]);
                     c.strokeStyle = "#5c4e72";
                     c.lineWidth = 3;
-                    c.strokeRect(11, 79, 338, 338);
+                    c.strokeStyle = '#b8c9df88';
+                    c.lineWidth = 4;
+                    c.beginPath();
+                    c.moveTo(11, 85);
+                    c.lineTo(11, 401);
+                    c.quadraticCurveTo(11, 417, 27, 417);
+                    c.lineTo(333, 417);
+                    c.quadraticCurveTo(349, 417, 349, 401);
+                    c.lineTo(349, 85);
+                    c.stroke();
+                    c.strokeStyle = '#edf4ff22';
+                    c.lineWidth = 2;
+                    c.beginPath();
+                    c.moveTo(17, 91);
+                    c.lineTo(17, 394);
+                    c.stroke();
                     if (w.dropPhysics === 3) ArcadeDrop.draw(c, w.arena);
                     S.draw(c, w.queue[0], x, 38, r * 1.7, {
                         ...options,
