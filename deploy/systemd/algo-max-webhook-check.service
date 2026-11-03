@@ -1,0 +1,16 @@
+[Unit]
+Description=Check and recover the Algo MAX webhook subscription
+After=network-online.target algo-max-api.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=algomax
+Group=algomax
+WorkingDirectory=/opt/algo-max
+EnvironmentFile=/etc/algo-max/algo-max.env
+ExecStart=/opt/algo-max/.venv/bin/python -m app.cli.ensure_webhook
+TimeoutStartSec=50
+NoNewPrivileges=true
+PrivateTmp=true
+

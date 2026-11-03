@@ -31,6 +31,8 @@ install -m 0644 deploy/systemd/algo-max-birthday.service /etc/systemd/system/alg
 install -m 0644 deploy/systemd/algo-max-birthday.timer /etc/systemd/system/algo-max-birthday.timer
 install -m 0644 deploy/systemd/algo-max-bank.service /etc/systemd/system/algo-max-bank.service
 install -m 0644 deploy/systemd/algo-max-bank.timer /etc/systemd/system/algo-max-bank.timer
+install -m 0644 deploy/systemd/algo-max-webhook-check.service /etc/systemd/system/algo-max-webhook-check.service
+install -m 0644 deploy/systemd/algo-max-webhook-check.timer /etc/systemd/system/algo-max-webhook-check.timer
 install -m 0755 deploy/scripts/backup_postgres.sh /usr/local/sbin/algo-max-backup
 sed "s/bot\.example\.ru/$domain/g" deploy/nginx/algo-max.conf > /etc/nginx/sites-available/algo-max
 if [[ ! -f "$env_file" ]]; then
@@ -43,6 +45,7 @@ rm -f /etc/nginx/sites-enabled/default
 systemctl daemon-reload
 systemctl enable algo-max-birthday.timer
 systemctl enable algo-max-bank.timer
+systemctl enable algo-max-webhook-check.timer
 nginx -t
 systemctl reload nginx
 
