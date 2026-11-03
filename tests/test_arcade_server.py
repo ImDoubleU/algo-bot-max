@@ -111,7 +111,7 @@ def test_server_records_claims_survive_restart_and_duplicate_submits(store):
     with ThreadPoolExecutor(max_workers=4) as pool:
         list(pool.map(lambda _: store.claim("p1", award), range(4)))
     restarted = ArcadeStore(store.path, store.clock)
-    assert restarted.profile("p1")["balance"] == 75
+    assert restarted.profile("p1")["balance"] == 40
     assert restarted.replay("p1", result["run"]["id"])["actions"] == replay["events"]
     with pytest.raises(ArcadeError):
         restarted.replay("p2", result["run"]["id"])
@@ -245,7 +245,7 @@ def test_device_cohorts_contribute_once_and_three_games_required(store):
     assert store.board()["rows"][0]["prizeEligible"]
 
 
-def test_week_closes_automatically_once_with_100_75_50_and_frozen_winners(store):
+def test_season_closes_automatically_once_with_100_75_50_and_frozen_winners(store):
     for i in range(1, 5):
         for game in ("tower", "debug", "memory"):
             verified(store, f"p{i}", game, 30 - i if game != "debug" else 9 - i)
@@ -565,7 +565,7 @@ def test_ui_generated_python_completion_award_and_replay(arcade):
     assert store.profile("p1")["best"]["debug"] == 8
     assert page.locator(".arcade-reward-receipt").is_visible()
     assert page.locator("[data-claim-result]").count() == 0
-    assert store.profile("p1")["balance"] == 75
+    assert store.profile("p1")["balance"] == 40
     page.locator(".arcade-result-details summary").click()
     page.locator("[data-analysis]").click()
     assert page.locator(".arcade-replay[open]").count() == 1
@@ -594,7 +594,7 @@ def test_first_character_starts_typing_timer_and_new_page_restores_results(arcad
     other.close()
 
 
-def test_weekly_challenge_seed_is_shared_but_practice_is_variable(store):
+def test_season_challenge_seed_is_shared_but_practice_is_variable(store):
     first = store.session("p1", "drop", "ranked", "keyboard")["setup"]
     assert first["seed"] == store.session("p2", "drop", "ranked", "keyboard")["setup"]["seed"]
     assert first["seed"] != store.session("p1", "drop", "practice", "keyboard")["setup"]["seed"]
@@ -604,7 +604,7 @@ def test_weekly_challenge_seed_is_shared_but_practice_is_variable(store):
 
 def test_three_mastery_tiers_require_quality_and_unlock_cosmetics_without_game_advantage(store):
     assert not store._master("typing", 240, {"accuracy": 94}, 2)
-    assert store._master("typing", 240, {"accuracy": 95}, 2)
+    assert store._master("typing", 400, {"accuracy": 99}, 2)
     assert not store._master("react", 15, {"reactionMs": 351, "mistakes": 0}, 2)
     assert not store._master("react", 15, {"reactionMs": 300, "mistakes": 1}, 2)
     finish_debug(store)
@@ -678,7 +678,14 @@ def test_kopatych_upgrades_and_full_harvest_are_replayed_before_reward(store):
     assert (
         len([a for a in profile["achievements"] if a["game"] == "kopatych" and a["unlocked"]]) >= 2
     )
-    assert store.claim("p1", profile["goals"]["kopatych"]["id"])["balance"] == 75
+    assert store.claim("p1", profile["goals"]["kopatych"]["id"])["balance"] == (
+        5
+        + sum(
+            a["reward"]
+            for a in profile["achievements"]
+            if a["game"] == "kopatych" and a["unlocked"]
+        )
+    )
     with arcade_runtime.context() as vm:
         report = vm.call(
             "ArcadeWorld.verify",

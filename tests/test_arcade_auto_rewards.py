@@ -28,10 +28,10 @@ def test_all_awards_are_auto_collected_once_even_with_concurrent_duplicate_finis
     with ThreadPoolExecutor(max_workers=3) as pool:
         results = list(pool.map(lambda _: finish(), range(3)))
     assert sum(not r["duplicate"] for r in results) == 1
-    assert sum(r["rewards"]["credited"] for r in results) == 75
+    assert sum(r["rewards"]["credited"] for r in results) == 40
     assert sum(len(r["rewards"]["awards"]) for r in results) == 4
     profile = ArcadeStore(store.path, store.clock).profile("p1")
-    assert profile["balance"] == 75
+    assert profile["balance"] == 40
     assert profile["goals"]["debug"]["credited"]
     assert all(a["claimed"] and a["credited"] is not None for a in profile["awards"])
     assert store.profile("p2")["balance"] == 0
@@ -47,7 +47,7 @@ def test_zero_practice_and_repeat_do_not_create_a_fake_reward_receipt(store):
     session = store.session("p1", "drop", "ranked", "keyboard")
     store.clock_action("p1", session["id"], "start")
     result = store.finish("p1", session["id"], [], 0, abandoned=True)
-    assert not result["rewards"]["awards"] and store.profile("p1")["balance"] == 75
+    assert not result["rewards"]["awards"] and store.profile("p1")["balance"] == 40
 
 
 def test_capped_reward_is_saved_and_credited_on_the_next_week_without_a_claim(store):
@@ -56,10 +56,10 @@ def test_capped_reward_is_saved_and_credited_on_the_next_week_without_a_claim(st
         store._credit(db, "p1")
     session, replay = ready(store)
     result = store.finish("p1", session["id"], replay["events"], replay["ticks"])
-    assert result["rewards"]["credited"] == 10 and result["rewards"]["pending"] == 65
+    assert result["rewards"]["credited"] == 10 and result["rewards"]["pending"] == 30
     assert store.profile("p1")["balance"] == 200
     store.clock.advance(8 * 86400)
-    assert ArcadeStore(store.path, store.clock).profile("p1")["balance"] == 265
+    assert ArcadeStore(store.path, store.clock).profile("p1")["balance"] == 230
 
 
 def test_legacy_unclaimed_award_is_collected_on_a_new_qualifying_result(store):
@@ -75,7 +75,7 @@ def test_legacy_unclaimed_award_is_collected_on_a_new_qualifying_result(store):
         )
     session, replay = ready(store)
     result = store.finish("p1", session["id"], replay["events"], replay["ticks"])
-    assert result["rewards"]["credited"] == 75
+    assert result["rewards"]["credited"] == 45
     assert len(result["rewards"]["awards"]) == 4
 
 

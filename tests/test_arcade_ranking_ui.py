@@ -77,3 +77,18 @@ def test_garden_label_opens_the_saved_farm_and_other_games_keep_levels(arcade):
     page.locator("[data-farm-close]").click()
     page.locator('.game-card[data-game="2048"]').click()
     assert page.get_by_role("button", name="Уровни", exact=True).is_visible()
+
+
+def test_first_reward_hard_medals_and_fortnightly_season_are_explained_consistently(arcade):
+    page, store = arcade
+    assert "5 AC" in page.locator('.game-card[data-game="typing"] .game-reward').inner_text()
+    page.locator('.games-tabs [data-tab="achievements"]').click()
+    medal = page.locator(".game-achievement").filter(has_text="Клавиатурный спринт · золото")
+    assert "400" in medal.inner_text() and "99%" in medal.inner_text()
+    assert medal.locator("button").inner_text() == "+20 AC"
+    page.locator('.games-tabs [data-tab="rewards"]').click()
+    assert "один раз за всё время" in page.locator(".games-reward-summary").inner_text()
+    page.locator('.games-tabs [data-tab="leaders"]').click()
+    page.get_by_role("button", name="За сезон", exact=True).wait_for()
+    assert "за сезон" in page.locator(".ranking-heading").inner_text()
+    assert store.profile("p1")["season"]["days"] == 14

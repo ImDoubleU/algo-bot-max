@@ -23,25 +23,29 @@ MOSCOW = timezone(timedelta(hours=3))
 SPEED = {"orbit", "bugs", "tower", "typing", "react", "kopatych", "runner", "words"}
 FINITE = {"typing", "debug", "memory", "react", "kopatych", "words"}
 GAMES = {
-    "orbit": (8, [10, 18, 25]),
-    "evolve": (128, [256, 1024, 2048]),
-    "bugs": (20, [20, 35, 50]),
-    "tower": (8, [10, 18, 25]),
-    "typing": (120, [140, 200, 240]),
-    "debug": (5, [6, 7, 8]),
-    "2048": (128, [256, 512, 1024]),
-    "drop": (100, [250, 600, 1000]),
-    "memory": (8, [10, 28, 40]),
-    "react": (5, [8, 12, 15]),
-    "kopatych": (300, [1500, 12000, 30000]),
-    "blocks": (300, [600, 1200, 2000]),
-    "runner": (15, [25, 40, 60]),
-    "bubbles": (200, [400, 800, 1500]),
-    "sort": (3, [4, 7, 10]),
-    "words": (10, [16, 24, 32]),
+    "orbit": (8, [25, 40, 60]),
+    "evolve": (128, [1024, 2048, 4096]),
+    "bugs": (20, [50, 80, 120]),
+    "tower": (8, [25, 40, 60]),
+    "typing": (120, [240, 320, 400]),
+    "debug": (5, [8, 8, 8]),
+    "2048": (128, [1024, 2048, 4096]),
+    "drop": (100, [1000, 2500, 5000]),
+    "memory": (8, [28, 40, 40]),
+    "react": (5, [15, 15, 15]),
+    "kopatych": (300, [12000, 30000, 60000]),
+    "blocks": (300, [2000, 4000, 7000]),
+    "runner": (15, [40, 70, 100]),
+    "bubbles": (200, [1500, 3000, 5000]),
+    "sort": (3, [10, 15, 20]),
+    "words": (10, [24, 32, 40]),
 }
 POINTS = [100, 80, 65, 55, 45, 35, 25, 20, 15, 10]
 PRIZES = [100, 75, 50]
+FIRST_GOAL_REWARD = 5
+MEDAL_REWARDS = [5, 10, 20]
+# A fixed Monday anchor keeps seasons stable across years and server restarts.
+SEASON_ANCHOR = datetime(2026, 11, 2).date()
 DEFAULT_SETTINGS = {
     "sound": False,
     "vibration": False,
@@ -65,6 +69,17 @@ async def maintenance_worker(store, interval=15):
 def week_key(stamp: float) -> str:
     today = datetime.fromtimestamp(stamp, MOSCOW).date()
     return (today - timedelta(days=today.weekday())).isoformat()
+
+
+def season_key(stamp: float) -> str:
+    today = datetime.fromtimestamp(stamp, MOSCOW).date()
+    return (SEASON_ANCHOR + timedelta(days=((today - SEASON_ANCHOR).days // 14) * 14)).isoformat()
+
+
+def season_info(stamp: float) -> dict:
+    start = season_key(stamp)
+    end = (datetime.fromisoformat(start) + timedelta(days=14)).date().isoformat()
+    return {"start": start, "end": end, "days": 14}
 
 
 def iso(stamp: float) -> str:
@@ -111,6 +126,8 @@ class ArcadeStore:
                 week TEXT NOT NULL,amount INTEGER NOT NULL,created REAL NOT NULL);
               CREATE TABLE IF NOT EXISTS arcade_weeks(week TEXT PRIMARY KEY,closed REAL NOT NULL,
                 winners TEXT NOT NULL,standings TEXT NOT NULL);
+              CREATE TABLE IF NOT EXISTS arcade_seasons(week TEXT PRIMARY KEY,closed REAL NOT NULL,
+                winners TEXT NOT NULL,standings TEXT NOT NULL);
               CREATE TABLE IF NOT EXISTS arcade_policy(week TEXT PRIMARY KEY,cap INTEGER NOT NULL);
               CREATE TABLE IF NOT EXISTS arcade_log(id INTEGER PRIMARY KEY AUTOINCREMENT,
                 created REAL NOT NULL,player TEXT,session TEXT,event TEXT NOT NULL,detail
@@ -118,6 +135,11 @@ class ArcadeStore:
             """)
             db.execute(
                 "INSERT OR IGNORE INTO arcade_meta VALUES('secret',?)", (secrets.token_hex(32),)
+            )
+            # Historical weekly podiums stay intact; never pay them again as old seasons.
+            db.execute(
+                "INSERT OR IGNORE INTO arcade_meta VALUES('season_prizes_start',?)",
+                (season_key(self.clock()),),
             )
 
     @contextmanager
@@ -190,7 +212,8 @@ class ArcadeStore:
         cap = self._cap(db, period)
         rows = db.execute(
             """SELECT * FROM arcade_awards WHERE player=? AND claimed=1 AND credited IS NULL
-          ORDER BY CASE kind WHEN 'podium' THEN 0 WHEN 'weekly' THEN 1 ELSE 2 END,created,id""",
+          ORDER BY CASE kind WHEN 'podium' THEN 0 WHEN 'weekly' THEN 1 WHEN 'first' THEN 1
+          ELSE 2 END,created,id""",
             (player,),
         ).fetchall()
         for row in rows:
@@ -208,6 +231,16 @@ class ArcadeStore:
             report["game"] != "typing" or report["details"].get("accuracy", 0) >= 90
         )
 
+    def _goal_award(self, db, player, game):
+        # A previously earned weekly goal counts as the lifetime first reward.
+        # Keep its original amount, including legacy pending/unclaimed awards.
+        return db.execute(
+            "SELECT * FROM arcade_awards WHERE player=? AND "
+            "(id=? OR (kind='weekly' AND id LIKE ?)) "
+            "ORDER BY credited IS NULL,created,id LIMIT 1",
+            (player, f"first:{player}:{game}", f"%:{game}"),
+        ).fetchone()
+
     def _master(self, game, score, details, tier):
         if score < GAMES[game][1][tier]:
             return False
@@ -215,13 +248,32 @@ class ArcadeStore:
 
     def _quality(self, game, details, tier):
         if game == "typing":
-            return details.get("accuracy", 0) >= [90, 93, 95][tier]
+            return details.get("accuracy", 0) >= [95, 97, 99][tier]
         if game == "react":
             return (
-                details.get("mistakes", 99) <= [1, 0, 0][tier]
-                and 0 < details.get("reactionMs", 0) <= [450, 400, 350][tier]
+                details.get("mistakes", 99) == 0
+                and 80 <= details.get("reactionMs", 0) <= [320, 260, 220][tier]
             )
+        if game == "debug":
+            return 0 < details.get("timeMs", 0) <= [180000, 120000, 60000][tier]
+        if game == "memory" and tier > 0:
+            return 0 < details.get("moves", 0) <= [0, 80, 60][tier]
+        if game == "words" and tier == 2:
+            return 0 < details.get("timeMs", 0) <= 150000
         return True
+
+    def _medal_condition(self, game, tier):
+        if game == "typing":
+            return f"точность от {[95, 97, 99][tier]}%"
+        if game == "react":
+            return f"без ошибок, средняя реакция до {[320, 260, 220][tier]} мс"
+        if game == "debug":
+            return f"все задачи без ошибок за {[180, 120, 60][tier]} с"
+        if game == "memory" and tier > 0:
+            return f"не больше {[0, 80, 60][tier]} ходов"
+        if game == "words" and tier == 2:
+            return "за 150 с"
+        return "за одну соревновательную партию"
 
     def session(self, player, game, mode, device, stage=None, arena=None):
         if (
@@ -253,7 +305,7 @@ class ArcadeStore:
             if count >= 30:
                 raise ArcadeError("Слишком много новых попыток. Подожди минуту.")
             secret = db.execute("SELECT value FROM arcade_meta WHERE key='secret'").fetchone()[0]
-            challenge = f"v3:{week_key(self.clock())}:{game}:{device}".encode()
+            challenge = f"v3:{season_key(self.clock())}:{game}:{device}".encode()
             seed = int.from_bytes(
                 hmac.new(secret.encode(), challenge, hashlib.sha256).digest()[:4], "big"
             )
@@ -386,7 +438,7 @@ class ArcadeStore:
             row["mode"] == "ranked"
             and (report["complete"] or row["game"] not in FINITE)
             and not abandoned
-            and week_key(row["created"]) == week_key(self.clock())
+            and season_key(row["created"]) == season_key(self.clock())
         )
         key = secrets.token_urlsafe(18)
         now = self.clock()
@@ -434,41 +486,38 @@ class ArcadeStore:
                 if collected:
                     reward_keys.append(collected)
 
+            def grant_first_goal(game):
+                previous_goal = self._goal_award(db, player, game)
+                if previous_goal:
+                    grant(
+                        previous_goal["kind"],
+                        previous_goal["period"],
+                        previous_goal["id"],
+                        previous_goal["amount"],
+                        previous_goal["label"],
+                    )
+                else:
+                    title = next(g["name"] for g in arcade_runtime.catalogue() if g["id"] == game)
+                    grant(
+                        "first",
+                        "all",
+                        f"first:{player}:{game}",
+                        FIRST_GOAL_REWARD,
+                        f"{title} · первое выполнение цели",
+                    )
+
             if row["mode"] == "journey" and report.get("journey", {}).get("success"):
                 arcade_journey.record(db, player, row["game"], report, now)
-                if (
-                    report.get("journey", {}).get("success")
-                    and self._qualifies(report)
-                    and week_key(row["created"]) == week_key(now)
-                ):
-                    title = next(
-                        g["name"] for g in arcade_runtime.catalogue() if g["id"] == row["game"]
-                    )
-                    grant(
-                        "weekly",
-                        week_key(now),
-                        f"weekly:{week_key(now)}:{player}:{row['game']}",
-                        10,
-                        f"{title} · цель недели",
-                    )
+                if self._qualifies(report):
+                    grant_first_goal(row["game"])
             if accepted:
                 game = row["game"]
                 title = next(g["name"] for g in arcade_runtime.catalogue() if g["id"] == game)
                 if self._qualifies(report):
-                    grant(
-                        "weekly",
-                        week_key(now),
-                        f"weekly:{week_key(now)}:{player}:{game}",
-                        10,
-                        f"{title} · цель недели",
-                    )
+                    grant_first_goal(game)
                 for tier in range(3):
                     if self._master(game, report["score"], report["details"], tier):
-                        amount = [
-                            10,
-                            20,
-                            40 if game in ("typing", "2048", "memory", "react") else 35,
-                        ][tier]
+                        amount = MEDAL_REWARDS[tier]
                         grant(
                             "master",
                             "all",
@@ -517,8 +566,9 @@ class ArcadeStore:
         )
         args = []
         if period != "all":
-            query += " AND r.week=?"
-            args.append(period)
+            end = (datetime.fromisoformat(period) + timedelta(days=14)).date().isoformat()
+            query += " AND r.week>=? AND r.week<?"
+            args.extend((period, end))
         if game:
             query += " AND r.game=?"
             args.append(game)
@@ -614,15 +664,22 @@ class ArcadeStore:
     def maintain(self):
         now = self.clock()
         with self.db() as db:
-            current = week_key(now)
-            periods = [
-                r[0]
-                for r in db.execute(
-                    "SELECT DISTINCT week FROM arcade_runs WHERE accepted=1 AND week<?", (current,)
-                )
-            ]
+            current = season_key(now)
+            first_season = db.execute(
+                "SELECT value FROM arcade_meta WHERE key='season_prizes_start'"
+            ).fetchone()[0]
+            periods = sorted(
+                {
+                    season_key(datetime.fromisoformat(r[0]).replace(tzinfo=MOSCOW).timestamp())
+                    for r in db.execute(
+                        "SELECT DISTINCT week FROM arcade_runs "
+                        "WHERE accepted=1 AND week>=? AND week<?",
+                        (first_season, current),
+                    )
+                }
+            )
             for period in periods:
-                if db.execute("SELECT 1 FROM arcade_weeks WHERE week=?", (period,)).fetchone():
+                if db.execute("SELECT 1 FROM arcade_seasons WHERE week=?", (period,)).fetchone():
                     continue
                 standings = self._overall(db, period)
                 winners = [r for r in standings if r["prizeEligible"]][:3]
@@ -634,13 +691,13 @@ class ArcadeStore:
                         row["player"],
                         "podium",
                         period,
-                        f"podium:{period}:{row['player']}",
+                        f"season-podium:{period}:{row['player']}",
                         PRIZES[i],
-                        f"Общий рейтинг · {i + 1}-е место · неделя {period}",
+                        f"Общий рейтинг · {i + 1}-е место · сезон с {period}",
                         claimed=True,
                     )
                 db.execute(
-                    "INSERT INTO arcade_weeks VALUES(?,?,?,?)",
+                    "INSERT INTO arcade_seasons VALUES(?,?,?,?)",
                     (
                         period,
                         now,
@@ -658,7 +715,7 @@ class ArcadeStore:
 
     def board(self, game="overall", period="week", device="keyboard"):
         self.maintain()
-        period = "all" if period == "all" else week_key(self.clock())
+        period = "all" if period == "all" else season_key(self.clock())
         with self.db() as db:
             rows = (
                 self._overall(db, period)
@@ -667,7 +724,11 @@ class ArcadeStore:
             )
             history = [
                 dict(r)
-                for r in db.execute("SELECT * FROM arcade_weeks ORDER BY week DESC LIMIT 12")
+                for r in db.execute(
+                    "SELECT week,closed,winners,standings,14 AS days FROM arcade_seasons "
+                    "UNION ALL SELECT week,closed,winners,standings,7 AS days FROM arcade_weeks "
+                    "ORDER BY week DESC LIMIT 12"
+                )
             ]
             for row in history:
                 row["winners"] = json.loads(row["winners"])
@@ -676,6 +737,7 @@ class ArcadeStore:
                 "rows": rows,
                 "history": history,
                 "week": week_key(self.clock()),
+                "season": season_info(self.clock()),
                 "prizes": PRIZES,
                 "min_games": 3,
                 "server_time": iso(self.clock()),
@@ -746,32 +808,23 @@ class ArcadeStore:
                             "tier": tier,
                             "target": target,
                             "value": min(target, value),
-                            "reward": [
-                                10,
-                                20,
-                                40 if game in ("typing", "2048", "memory", "react") else 35,
-                            ][tier],
+                            "reward": award["amount"] if award else MEDAL_REWARDS[tier],
+                            "condition": self._medal_condition(game, tier),
                             "unlocked": bool(award),
                             "claimed": bool(award and award["claimed"]),
                             "credited": bool(award and award["credited"] is not None),
                         }
                     )
-            weekly_results = verified + [
+            goal_results = verified + [
                 r
                 for r in rows
                 if r["mode"] == "journey" and r["report"].get("journey", {}).get("success")
             ]
             goals = {}
             for game, (goal, _) in GAMES.items():
-                award = next(
-                    (r for r in awards if r["id"] == f"weekly:{current}:{player}:{game}"), None
-                )
+                award = self._goal_award(db, player, game)
                 score = max(
-                    (
-                        r["score"]
-                        for r in weekly_results
-                        if r["game"] == game and r["week"] == current
-                    ),
+                    (r["score"] for r in goal_results if r["game"] == game),
                     default=0,
                 )
                 goals[game] = {
@@ -781,9 +834,13 @@ class ArcadeStore:
                     "claimed": bool(award and award["claimed"]),
                     "credited": bool(award and award["credited"] is not None),
                     "id": award["id"] if award else None,
+                    "reward": award["amount"] if award else FIRST_GOAL_REWARD,
                 }
             journeys = arcade_journey.progress(db, player)
-            standing = next((r for r in self._overall(db, current) if r["player"] == player), None)
+            standing = next(
+                (r for r in self._overall(db, season_key(self.clock())) if r["player"] == player),
+                None,
+            )
             return {
                 "mastery": mastery(journeys, badges),
                 "competition": {
@@ -805,6 +862,7 @@ class ArcadeStore:
                 "credits": credits[:100],
                 "runs": rows[:100],
                 "week": current,
+                "season": season_info(self.clock()),
                 "server_time": iso(self.clock()),
             }
 

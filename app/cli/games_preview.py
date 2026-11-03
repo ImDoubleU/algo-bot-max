@@ -46,7 +46,7 @@ def inject_games(source: str) -> str:
     return re.sub(
         r'(?=<script src="/miniapp/static/app\.js)',
         '<script src="/miniapp/static/games-extra.js?v=3"></script>'
-        '<script src="/miniapp/static/games-engine.js?v=1"></script>'
+        '<script src="/miniapp/static/games-engine.js?v=2"></script>'
         '<script src="/miniapp/static/games-motion.js?v=1"></script>'
         '<script src="/miniapp/static/games-art.js?v=1"></script>'
         '<script src="/miniapp/static/games-journey.js?v=2"></script>'
@@ -61,7 +61,7 @@ def inject_games(source: str) -> str:
         '<script src="/miniapp/static/games-menu.js?v=2"></script>'
         '<script src="/miniapp/static/games-personality.js?v=2"></script>'
         '<script src="/miniapp/static/games-results.js?v=4"></script>'
-        '<script src="/miniapp/static/app-games.js?v=13"></script>',
+        '<script src="/miniapp/static/app-games.js?v=14"></script>',
         source,
         count=1,
     )

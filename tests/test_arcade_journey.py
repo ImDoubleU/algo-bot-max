@@ -270,11 +270,11 @@ def test_adventure_weekly_reward_and_ranked_reward_share_the_same_once_only_cred
     profile = store.profile("p1")
     reward = profile["goals"]["debug"]
     assert reward["eligible"] and reward["score"] >= 5
-    assert store.claim("p1", reward["id"])["balance"] == 10
+    assert store.claim("p1", reward["id"])["balance"] == 5
     ranked = store.session("p1", "debug", "ranked", "keyboard")
     assert finish(store, ranked, solve_debug(ranked["setup"]))["run"]["accepted"]
-    assert len([a for a in store.profile("p1")["awards"] if a["kind"] == "weekly"]) == 1
-    assert store.claim("p1", reward["id"])["balance"] == 75
+    assert len([a for a in store.profile("p1")["awards"] if a["kind"] == "first"]) == 1
+    assert store.claim("p1", reward["id"])["balance"] == 40
 
 
 def test_adventure_result_collects_weekly_ac_automatically_through_the_real_interface(arcade):
@@ -306,9 +306,9 @@ def test_adventure_result_collects_weekly_ac_automatically_through_the_real_inte
         if i < 4:
             page.locator("[data-next]").click()
     page.locator(".arcade-reward-receipt").wait_for()
-    assert "Ваша награда — 10 AC" in page.locator(".arcade-reward-receipt").inner_text()
+    assert "Ваша награда — 5 AC" in page.locator(".arcade-reward-receipt").inner_text()
     assert page.locator("[data-journey-claim]").count() == 0
-    assert store.profile("p1")["balance"] == 10
+    assert store.profile("p1")["balance"] == 5
 
 
 def test_soft_drop_many_real_drops_remain_bounded_and_replay_identically():
