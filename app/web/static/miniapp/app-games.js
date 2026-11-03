@@ -229,7 +229,7 @@
 
     function cards() {
         return `<div class="games-filters">${[["all","Все"],["fun","Залипательные"],["skill","С пользой"],["puzzle","Подумать"]].map(([id,name])=>`<button data-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${name}</button>`).join("")}</div><div class="games-grid">${E.games.slice().sort((a,b)=>Number(!!b.fresh)-Number(!!a.fresh)).filter(g=>filter==="all"||g.kind===filter).map(g=>{
-    const q=profile.goals[g.id];return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><div class="game-card-art">${art(g.id)}${g.fresh?'<span class="arcade-new">НОВОЕ</span>':""}<span class="game-reward">${q.claimed?"✓ Получено":q.eligible?"✦ Забрать награду":"✦ 10 AC"}</span></div><div class="game-card-body"><small>${g.tag}</small><h3>${g.name}</h3><div class="game-card-bottom"><span>${g.persistent?"Ферма · свой прогресс":ArcadeJourney.specs[g.id]?`${profile.journeys[g.id].cleared}/24 заданий · ${profile.journeys[g.id].stars} ★`:profile.best[g.id]?`Рекорд <b>${profile.best[g.id]}</b>`:`Цель: ${goal(g.id)}`}</span><span class="game-play">↗</span></div></div></button><button class="game-card-leader" data-leader="${g.id}">🏆 ${g.persistent?"Лидеры турнира":"Лидеры"}</button></div>`;
+    const q=profile.goals[g.id];return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><div class="game-card-art">${art(g.id)}${g.fresh?'<span class="arcade-new">НОВОЕ</span>':""}<span class="game-reward">${q.claimed?q.credited?"✓ Получено":"В очереди":q.eligible?"✦ Забрать награду":"✦ 10 AC"}</span></div><div class="game-card-body"><small>${g.tag}</small><h3>${g.name}</h3><div class="game-card-bottom"><span>${g.persistent?"Ферма · свой прогресс":ArcadeJourney.specs[g.id]?`${profile.journeys[g.id].cleared}/24 заданий · ${profile.journeys[g.id].stars} ★`:profile.best[g.id]?`Рекорд <b>${profile.best[g.id]}</b>`:`Цель: ${goal(g.id)}`}</span><span class="game-play">↗</span></div></div></button><button class="game-card-leader" data-leader="${g.id}">🏆 ${g.persistent?"Лидеры турнира":"Лидеры"}</button></div>`;
   }).join("")}</div>`;
     }
 
@@ -246,7 +246,7 @@
         const pending = profile.awards.filter(a => a.claimed && a.credited === null);
         return `<section class="games-reward-summary"><div><small>Тестовые астрокоины</small><strong>${profile.balance} <span>AC</span></strong><p>Отдельный игровой баланс демки</p></div><div><b>Лимит недели: ${profile.cap.limit} AC</b><p>Начислено ${profile.cap.used} AC. Заработанные награды сверх лимита ждут следующей недели.</p></div></section>
       ${pending.length?`<div class="games-warning"><b>Ожидают лимита: ${pending.reduce((n,a)=>n+a.amount,0)} AC</b><p>Награды сохранены. Начисление продолжится с новой недели.</p></div>`:""}
-      <div class="games-reward-list">${E.games.map(g=>{const q=profile.goals[g.id];return `<div><span class="reward-dot ${g.color}">✦</span><span><b>${g.name}</b><small>${Math.min(q.score,q.target)} / ${q.target}${g.id==="typing"?" · точность от 90%":""}</small></span><button data-claim="${esc(q.id||"")}" ${!q.eligible||q.claimed?"disabled":""}>${q.claimed?"✓ Заявлено":"Забрать 10 AC"}</button></div>`;}).join("")}</div>
+      <div class="games-reward-list">${E.games.map(g=>{const q=profile.goals[g.id];return `<div><span class="reward-dot ${g.color}">✦</span><span><b>${g.name}</b><small>${Math.min(q.score,q.target)} / ${q.target}${g.id==="typing"?" · точность от 90%":""}</small></span><button data-claim="${esc(q.id||"")}" ${!q.eligible||q.claimed?"disabled":""}>${q.claimed?q.credited?"✓ Начислено":"В очереди":"Забрать 10 AC"}</button></div>`;}).join("")}</div>
       <h3 class="games-history-title">История начислений</h3><div class="games-reward-list">${profile.credits.length?profile.credits.map(c=>`<div><span><b>${esc(c.label)}</b><small>${new Date(c.created*1000).toLocaleString("ru-RU",{timeZone:"Europe/Moscow"})}</small></span><strong>+${c.amount} AC</strong></div>`).join(""):'<div><span>Пока нет начислений</span></div>'}</div>`;
     }
 
@@ -435,8 +435,9 @@
         const g = E.games.find(g => g.id === id),
             d = document.createElement("dialog");
         d.id = "gameDialog";
+        d.dataset.game = id;
         d.className = "game-dialog";
-        d.innerHTML = `<header><button class="game-menu-back" aria-label="Меню игры" hidden>←</button><div><h2>${g.name}</h2></div><button class="game-leaders-button" aria-label="Таблица лидеров">🏆</button><button class="game-close" aria-label="Закрыть игру">×</button></header><div class="game-hud"><span>Счёт <b id="gameScore">0</b></span><span id="gameClock"></span><span class="game-level" id="gameLevel">Сложность 1</span><button class="arcade-pause" aria-label="Пауза" hidden>Ⅱ</button></div><div class="arcade-live-goal"><span></span><progress value="0" max="${g.goal}"></progress></div><div class="arcade-learning-tip" role="status" hidden></div><div class="journey-tools" hidden><div><b></b><small></small></div><button></button></div><div class="game-stage"></div><footer><span id="gameHint"></span><button id="gameFinish" hidden>Завершить</button></footer>`;
+        d.innerHTML = `<header><button class="game-menu-back" aria-label="Меню игры" hidden>←</button><div><h2>${g.name}</h2></div><button class="game-leaders-button" aria-label="Таблица лидеров">${ArcadeResults.trophy}</button><button class="game-close" aria-label="Закрыть игру">×</button></header><div class="game-hud"><span>Счёт <b id="gameScore">0</b></span><span id="gameClock"></span><span class="game-level" id="gameLevel">Сложность 1</span><button class="arcade-pause" aria-label="Пауза" hidden>Ⅱ</button></div><div class="arcade-live-goal"><span></span><progress value="0" max="${g.goal}"></progress></div><div class="arcade-learning-tip" role="status" hidden></div><div class="journey-tools" hidden><div><b></b><small></small></div><button></button></div><div class="game-stage"></div><footer><span id="gameHint"></span><button id="gameFinish" hidden>Завершить</button></footer>`;
         const run = {
             g,
             dialog: d,
@@ -487,15 +488,19 @@
         run.pause = async exit => {
             if (run.phase !== "playing" && run.phase !== "ready") return;
             const wasReady = run.phase === "ready";
+            const footerHidden = $('footer', d).hidden,
+                goalHidden = $('.arcade-live-goal', d).hidden;
             if (!wasReady) {
                 catchUp(run);
                 run.playedMs += performance.now() - run.anchor;
             }
             if (run.world?.ended) return;
             run.phase = "paused";
+            $('footer', d).hidden = true;
+            $('.arcade-live-goal', d).hidden = true;
             const cover = document.createElement("div");
             cover.className = "game-pause";
-            cover.innerHTML = `<span>Ⅱ</span><h3>${exit?"Закончить попытку?":"Пауза"}</h3><button class="games-main" data-resume>Продолжить →</button><button class="game-back" data-exit>Выйти из партии</button>`;
+            cover.innerHTML = `<span class="arcade-pause-symbol" aria-hidden="true">Ⅱ</span><h3>${exit?"Завершить игру?":"Пауза"}</h3><button class="games-main" data-resume>Продолжить</button><button class="game-back" data-exit>Завершить игру</button>`;
             $(".game-stage", d).append(cover);
             if (!wasReady) run.clockPromise = run.clockPromise.then(() => api(`/sessions/${run.session.id}/clock/pause`, {
                 method: "POST"
@@ -515,6 +520,8 @@
                     return;
                 }
                 cover.remove();
+                $('footer', d).hidden = footerHidden;
+                $('.arcade-live-goal', d).hidden = goalHidden;
                 run.anchor = performance.now();
                 run.phase = wasReady ? "ready" : "playing";
             };
@@ -545,7 +552,7 @@
         const before = run.oldMastery,
             after = profile.mastery;
         if (!before || !after || after.xp <= before.xp) return;
-        cover.insertAdjacentHTML('afterbegin', `<div class="arcade-mastery-gain">+${after.xp-before.xp} XP${after.level>before.level?` · Уровень ${after.level}`:''}${after.title!==before.title?` · ${esc(after.title)}`:''}</div>`);
+        ($('.arcade-result-actions', cover) || cover).insertAdjacentHTML('afterend', `<div class="arcade-mastery-gain">+${after.xp-before.xp} XP${after.level>before.level?` · Уровень ${after.level}`:''}${after.title!==before.title?` · ${esc(after.title)}`:''}</div>`);
     }
 
     function intro(run) {
@@ -557,7 +564,7 @@
             dialog: d
         } = run, screen = run.menuScreen || 'menu';
         d.classList.add('is-browsing');
-        d.classList.remove('is-learning');
+        d.classList.remove('is-learning', 'is-finished');
         $('.game-hud', d).hidden = true;
         $('.arcade-live-goal', d).hidden = true;
         $('.journey-tools', d).hidden = true;
@@ -621,7 +628,13 @@
             device: run.world.device,
             mode: run.world.mode,
             skin: run.world.journey ? ['base', 'mint', 'sun', 'nebula', 'mint', 'nebula'][run.world.journey.chapter] : profile.settings.skin,
-            theme: run.world.journey ? ['space', 'forest', 'sunset', 'nebula', 'forest', 'nebula'][run.world.journey.chapter] : profile.settings.theme,
+            theme: run.world.journey ? ['space', 'forest', 'sunset', 'nebula', 'forest', 'nebula'][run.world.journey.chapter] : profile.settings.theme === 'space' ? ({
+                bugs: 'forest',
+                tower: 'sunset',
+                drop: 'nebula',
+                runner: 'nebula',
+                bubbles: 'forest'
+            } [run.g.id] || 'space') : profile.settings.theme,
             quality: () => run.quality || "high",
             paused: () => !["playing", "ready", "tutorial"].includes(run.phase)
         });
@@ -746,7 +759,7 @@
         cancelAnimationFrame(run.raf);
         run.viewAbort?.abort();
         run.phase = "loading";
-        run.dialog.classList.remove('is-browsing', 'is-learning');
+        run.dialog.classList.remove('is-browsing', 'is-learning', 'is-finished');
         $('.arcade-learning-tip', run.dialog).hidden = true;
         $('.game-menu-back', run.dialog).hidden = true;
         $('.game-leaders-button', run.dialog).hidden = false;
@@ -795,14 +808,13 @@
         $(".arcade-pause", run.dialog).hidden = false;
         $("#gameFinish", run.dialog).hidden = false;
         run.oldBest = profile.best[run.g.id] || 0;
-        run.knownAchievements = new Set(profile.achievements.filter(a => a.unlocked).map(a => a.id));
         try {
             const board = await boardData(run.g.id, "week", run.device);
             run.oldRank = board.rows.find(r => r.player === actor().id)?.rank;
         } catch {}
         if (run.g.id === "typing") {
             run.phase = "ready";
-            $("#gameClock", run.dialog).textContent = "Первый символ → старт";
+            $("#gameClock", run.dialog).textContent = "Начни печатать";
         } else {
             run.phase = "countdown";
             const cover = document.createElement("div");
@@ -977,6 +989,12 @@
         if (run.frames.length > 26) run.frames.shift();
         run.phase = "finishing";
         cancelAnimationFrame(run.raf);
+        run.viewAbort?.abort();
+        run.dialog.classList.add('is-finished');
+        $('.game-hud', run.dialog).hidden = true;
+        $('.arcade-live-goal', run.dialog).hidden = true;
+        $('.journey-tools', run.dialog).hidden = true;
+        $('footer', run.dialog).hidden = true;
         $(".arcade-pause", run.dialog).hidden = true;
         $("#gameFinish", run.dialog).hidden = true;
         $(".game-pause", run.dialog)?.remove();
@@ -984,7 +1002,7 @@
             cover = document.createElement("div");
         cover.className = "game-result";
         cover.innerHTML = '<div class="arcade-loading">Проверяем результат партии…</div>';
-        stage.append(cover);
+        stage.replaceChildren(cover);
         try {
             await run.clockPromise;
             const result = await api(`/sessions/${run.session.id}/finish`, {
@@ -1001,32 +1019,11 @@
             await loadProfile();
             if (play !== run) return;
             run.phase = "done";
-            const report = result.run.report || W.report(run.world),
-                q = profile.goals[run.g.id],
-                newBadges = profile.achievements.filter(a => a.unlocked && !run.knownAchievements.has(a.id));
+            const report = result.run.report || W.report(run.world);
             if (report.journey) {
                 cover.classList.add('journey-result');
-                cover.innerHTML = ArcadeJourneyView.result(run, report, profile.journeys[run.g.id]);
+                cover.innerHTML = ArcadeResults.journey(run, report, result.rewards);
                 masteryGain(run, cover);
-                if (q.eligible && !q.claimed) {
-                    $('[data-journey-next]', cover).insertAdjacentHTML('beforebegin', '<button class="game-claim-result" data-journey-claim>Забрать 10 AC</button>');
-                    $('[data-journey-claim]', cover).onclick = async e => {
-                        const button = e.currentTarget;
-                        button.disabled = true;
-                        try {
-                            profile = await api('/claims', {
-                                method: 'POST',
-                                body: {
-                                    id: q.id
-                                }
-                            });
-                            button.textContent = '✓ Награда сохранена';
-                        } catch (error) {
-                            toast(error.message);
-                            button.disabled = false;
-                        }
-                    };
-                }
                 $('.journey-tools', run.dialog).hidden = true;
                 const map = () => {
                     run.selectedJourney = report.journey.success ? Math.min(24, report.journey.stage + 1) : report.journey.stage;
@@ -1036,41 +1033,30 @@
                     intro(run);
                 };
                 $('[data-journey-next]', cover).onclick = () => !report.journey.success ? begin(run, report.journey.stage) : report.journey.stage < 24 ? begin(run, report.journey.stage + 1) : map();
-                $('[data-journey-retry]', cover)?.addEventListener('click', () => begin(run, report.journey.stage));
                 $('[data-journey-map]', cover)?.addEventListener('click', map);
                 return;
             }
-            const record = report.score > run.oldBest,
-                board = await boardData(run.g.id, "week", run.device),
-                rank = board.rows.find(r => r.player === actor().id)?.rank;
-            cover.innerHTML = `<span class="result-star">${result.run.accepted?"✦":"↗"}</span><small>${abandoned?"Попытка завершена":report.reason||"Результат сохранён"}</small><h3>${report.score} <span>${run.g.unit}</span></h3><p>${run.mode==="practice"?"Тренировка сохранена":result.run.accepted?"Результат подтверждён сервером":"Попытка сохранена без рейтинга"}</p>${record&&result.run.accepted?`<div class="game-new-achievement">Новый рекорд · +${report.score-run.oldBest}</div>`:""}${rank&&result.run.accepted?`<div class="arcade-result-rank">Место #${rank}${run.oldRank&&run.oldRank!==rank?` · было #${run.oldRank}`:""}</div>`:""}${newBadges.length?`<div class="game-new-achievement">Открыто достижений: ${newBadges.length}</div>`:""}<button class="games-main" data-again>Ещё раз ↻</button>${q.eligible&&!q.claimed?'<button class="game-claim-result" data-claim-result>Забрать 10 AC</button>':""}<button class="game-result-leaders" data-result-board>🏆 Лидеры</button><button class="game-back" data-analysis>Разбор партии</button><button class="game-back" data-back>К играм</button>`;
+            let rank = null;
+            if (result.run.accepted) {
+                try {
+                    const board = await boardData(run.g.id, 'week', run.device);
+                    rank = board.rows.find(r => r.player === actor().id)?.rank;
+                } catch {
+                    /* The score and reward are already safe even if the board is unavailable. */ }
+            }
+            if (play !== run) return;
+            cover.innerHTML = ArcadeResults.normal(run, result, rank);
             masteryGain(run, cover);
             $("[data-again]", cover).onclick = () => {
-                const g = run.g.id;
-                close();
-                openGame(g);
+                mode = run.mode;
+                device = run.device;
+                void begin(run);
             };
             $("[data-back]", cover).onclick = () => {
                 close();
                 draw();
             };
-            $("[data-result-board]", cover).onclick = () => openLeaders(run.g.id);
             $("[data-analysis]", cover).onclick = () => run.frames.length ? showReplay(run.g.id, run.frames, report) : replayHistory(result.run.id);
-            $("[data-claim-result]", cover)?.addEventListener("click", async e => {
-                e.currentTarget.disabled = true;
-                try {
-                    profile = await api("/claims", {
-                        method: "POST",
-                        body: {
-                            id: q.id
-                        }
-                    });
-                    e.target.textContent = "✓ Награда сохранена";
-                } catch (error) {
-                    toast(error.message);
-                    e.target.disabled = false;
-                }
-            });
         } catch (error) {
             run.phase = "done";
             cover.innerHTML = `<h3>Не удалось сохранить</h3><p>${esc(error.message)}</p><button class="games-main" data-retry>Повторить отправку</button><button class="game-back" data-close>К играм</button>`;

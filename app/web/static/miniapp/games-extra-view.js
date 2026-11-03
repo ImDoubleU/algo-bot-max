@@ -492,7 +492,7 @@
           c.fillRect(-6, 5, 13, 3);
           c.restore();
           c.fillStyle = '#b5a4ce';
-          c.font = '600 11px system-ui';
+          c.font = '600 14px system-ui';
           c.textAlign = 'left';
           c.fillText(`${Math.floor(w.distance/10)} м`, 20, 28);
           c.textAlign = 'right';
@@ -561,7 +561,7 @@
           else ball(180, 402, w.currentBubble);
           ball(322, 402, w.nextBubble, 12);
           c.fillStyle = '#9b8cae';
-          c.font = '8px system-ui';
+          c.font = '600 13px system-ui';
           c.textAlign = 'center';
           c.fillText('ДАЛЬШЕ', 322, 377);
           for (let i = 0; i < 5; i++) {

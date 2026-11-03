@@ -169,10 +169,17 @@ class ArcadeStore:
         return row[0] if row else 200
 
     def _award(self, db, player, kind, period, key, amount, label, claimed=False):
-        db.execute(
+        inserted = db.execute(
             "INSERT OR IGNORE INTO arcade_awards VALUES(?,?,?,?,?,?,?,?,NULL)",
             (key, player, kind, period, amount, label, self.clock(), int(claimed)),
-        )
+        ).rowcount
+        if claimed:
+            collected = db.execute(
+                "UPDATE arcade_awards SET claimed=1 WHERE id=? AND player=? AND claimed=0",
+                (key, player),
+            ).rowcount
+            return key if inserted or collected else None
+        return None
 
     def _credit(self, db, player):
         period = week_key(self.clock())
@@ -334,6 +341,7 @@ class ArcadeStore:
                         "report": json.loads(previous["report"]),
                     },
                     "duplicate": True,
+                    "rewards": {"awards": [], "credited": 0, "pending": 0},
                 }
             row = db.execute(
                 "SELECT * FROM arcade_sessions WHERE id=? AND player=?", (session, player)
@@ -395,6 +403,7 @@ class ArcadeStore:
                         "report": json.loads(previous["report"]),
                     },
                     "duplicate": True,
+                    "rewards": {"awards": [], "credited": 0, "pending": 0},
                 }
             db.execute(
                 "INSERT INTO arcade_runs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -416,6 +425,15 @@ class ArcadeStore:
                 ),
             )
             db.execute("UPDATE arcade_sessions SET status='finished' WHERE id=?", (session,))
+            reward_keys = []
+
+            def grant(kind, period, award_key, amount, label):
+                collected = self._award(
+                    db, player, kind, period, award_key, amount, label, claimed=True
+                )
+                if collected:
+                    reward_keys.append(collected)
+
             if row["mode"] == "journey" and report.get("journey", {}).get("success"):
                 arcade_journey.record(db, player, row["game"], report, now)
                 if (
@@ -426,9 +444,7 @@ class ArcadeStore:
                     title = next(
                         g["name"] for g in arcade_runtime.catalogue() if g["id"] == row["game"]
                     )
-                    self._award(
-                        db,
-                        player,
+                    grant(
                         "weekly",
                         week_key(now),
                         f"weekly:{week_key(now)}:{player}:{row['game']}",
@@ -439,9 +455,7 @@ class ArcadeStore:
                 game = row["game"]
                 title = next(g["name"] for g in arcade_runtime.catalogue() if g["id"] == game)
                 if self._qualifies(report):
-                    self._award(
-                        db,
-                        player,
+                    grant(
                         "weekly",
                         week_key(now),
                         f"weekly:{week_key(now)}:{player}:{game}",
@@ -455,21 +469,45 @@ class ArcadeStore:
                             20,
                             40 if game in ("typing", "2048", "memory", "react") else 35,
                         ][tier]
-                        self._award(
-                            db,
-                            player,
+                        grant(
                             "master",
                             "all",
                             f"master3:{player}:{game}:{tier}",
                             amount,
                             f"{title} · {['бронза', 'серебро', 'золото'][tier]}",
                         )
+            self._credit(db, player)
+            rewards = {"awards": [], "credited": 0, "pending": 0}
+            for award_key in reward_keys:
+                award = db.execute(
+                    "SELECT id,amount,label,credited FROM arcade_awards WHERE id=? AND player=?",
+                    (award_key, player),
+                ).fetchone()
+                credited = award["credited"] is not None
+                rewards["awards"].append(
+                    dict(
+                        id=award["id"],
+                        amount=award["amount"],
+                        label=award["label"],
+                        credited=credited,
+                    )
+                )
+                rewards["credited" if credited else "pending"] += award["amount"]
+            if reward_keys:
+                self._log(
+                    db,
+                    player,
+                    session,
+                    "rewards_collected",
+                    f"awards={len(reward_keys)};credited={rewards['credited']};pending={rewards['pending']}",
+                )
             self._log(
                 db, player, session, "run_verified", f"{row['game']}:{report['score']}:{accepted}"
             )
         return {
             "run": {"id": key, "score": report["score"], "accepted": accepted, "report": report},
             "duplicate": False,
+            "rewards": rewards,
         }
 
     def _rows(self, db, period, game=None):
@@ -741,6 +779,7 @@ class ArcadeStore:
                     "target": goal,
                     "eligible": bool(award),
                     "claimed": bool(award and award["claimed"]),
+                    "credited": bool(award and award["credited"] is not None),
                     "id": award["id"] if award else None,
                 }
             journeys = arcade_journey.progress(db, player)

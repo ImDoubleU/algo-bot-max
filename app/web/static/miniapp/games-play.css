@@ -1,0 +1,204 @@
+/* Readable game chrome, boards, pause and results share the menu's visual language. */
+.game-dialog { --play-accent: #8056aa; --play-wash: #eee6f7; --play-paper: #f6f5fb; border-color: #e2dbea; background: var(--play-paper); color: #342b42; }
+.game-dialog > header { flex-shrink: 0; gap: 10px; padding: 16px 20px; border-bottom: 1px solid #e7e1ee; background: #fff; }
+.game-dialog > header h2 { color: #30263e; }
+.game-dialog .game-close, .game-dialog .game-menu-back { display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 44px; padding: 0; border: 1px solid #e1d9eb; background: #f7f4fb; color: #776487; border-radius: 12px; line-height: 1; }
+.game-dialog .game-leaders-button { position: static; display: grid; place-items: center; align-self: center; flex: 0 0 44px; width: 44px; height: 44px; margin: 0; padding: 10px; border: 1px solid #e6d8b4; border-radius: 12px; background: #fff4d6; color: #94702f; line-height: 1; transform: none; }
+.game-dialog .game-leaders-button svg { display: block; width: 24px; height: 24px; }
+.game-dialog.is-learning > header .game-menu-back { border-color: #e1d9eb; background: #f7f4fb; color: #776487; }
+.game-dialog .game-hud { padding: 12px 18px; gap: 10px; font-size: 14px; color: #70617c; background: #fff; flex-wrap: wrap; }
+.game-dialog .game-hud > span { font-size: 14px; }
+.game-dialog .game-hud b { font-size: 23px; color: #493359; }
+.game-dialog .game-hud #gameClock { color: #658142; font-size: 19px; font-variant-numeric: tabular-nums; }
+.game-dialog .game-level { font-size: 14px; padding: 6px 9px; border: 0; border-radius: 8px; background: var(--play-wash); color: #80649d; }
+.game-dialog .arcade-pause { width: 44px; height: 44px; font-size: 21px; border: 1px solid #dcd1e8; border-radius: 10px; color: #795691; background: #f5f0fa; }
+.game-dialog .arcade-live-goal { padding: 12px 18px; color: #746282; font-size: 15px; line-height: 1.4; border-bottom: 1px solid #e3dbea; background: #eee9f5; }
+.game-dialog .arcade-live-goal progress { width: 90px; min-width: 64px; height: 8px; flex-shrink: 0; }
+.game-dialog .arcade-live-goal progress::-webkit-progress-bar { background: #dbd0e7; }
+.game-dialog .arcade-live-goal progress::-webkit-progress-value { background: #a386c0; }
+.game-dialog > footer { padding: 12px 18px; border-top: 1px solid #e5ddeb; background: #fff; color: #756180; font-size: 14px; line-height: 1.4; }
+.game-dialog > footer button { padding: 11px 14px; min-height: 44px; font-size: 15px; background: #f5f0fa; border-color: #dfd3e9; color: #795991; border-radius: 10px; }
+.game-dialog .game-stage { background: var(--play-paper); }
+.game-dialog .game-stage:has(>canvas) { background: #17182c; }
+.game-dialog .journey-tools { padding: 12px 18px; gap: 12px; background: #f1e9da; border-color: #e1d4b8; }
+.game-dialog .journey-tools b { color: #826a3e; font-size: 16px; }
+.game-dialog .journey-tools small { color: #9a8764; font-size: 13px; line-height: 1.4; }
+.game-dialog .journey-tools button { min-height: 44px; padding: 10px 13px; border: 1px solid #d4bd85; background: #f9edce; color: #82663c; border-radius: 10px; font-size: 15px; }
+.game-dialog .game-pause, .game-dialog .game-result { gap: 16px; padding: 26px; color: #4e3f5d; background: var(--play-paper); overflow-y: auto; justify-content: safe center; }
+.game-dialog .game-pause h3 { color: #493557; font: 750 32px/1.2 "Segoe UI", sans-serif; margin: 0 0 10px; }
+.game-dialog .arcade-pause-symbol { display: grid; place-items: center; width: 68px; height: 68px; border-radius: 20px; background: #e9dff5; color: #8860aa; font-size: 32px; margin-bottom: 4px; }
+.game-dialog .game-pause .games-main, .game-dialog .game-result .games-main { min-height: 54px; width: 100%; max-width: 330px; padding: 14px 20px; margin: 0; border: 0; border-radius: 12px; background: var(--play-accent); color: #fff; font: 700 20px/1.3 "Segoe UI", sans-serif; box-shadow: none; }
+.game-dialog .game-pause .game-back, .game-dialog .game-result .game-back { min-height: 52px; width: 100%; max-width: 330px; padding: 13px 20px; margin: 0; border: 1px solid #dcd0e8; border-radius: 12px; background: #fff; color: #785b8d; font: 650 18px/1.3 "Segoe UI", sans-serif; }
+.game-dialog .game-pause [data-exit] { color: #a56d79; border-color: #e6cfd5; }
+.game-dialog.is-finished .game-stage { display: flex; align-items: stretch; justify-content: flex-start; min-height: 440px; overflow: auto; }
+.game-dialog.is-finished .game-result { position: relative; inset: auto; flex: 1; width: 100%; min-height: 440px; }
+.game-dialog .arcade-score-result > p, .game-dialog .arcade-level-result > p { font-size: 18px; line-height: 1.4; color: #8a7599; margin: 0 0 12px; }
+.game-dialog .arcade-score-result h3 { display: flex; flex-direction: column; align-items: center; gap: 5px; color: #584069; font: 800 66px/1.05 "Segoe UI", sans-serif; margin: 0; letter-spacing: -2px; }
+.game-dialog .arcade-score-result h3 > span { font-size: 20px; font-weight: 600; color: #80688f; letter-spacing: 0; }
+.game-dialog .arcade-result-place { font-size: 18px; margin-top: 16px; color: #8f779e; }
+.game-dialog .arcade-result-place b { color: #76528f; }
+.game-dialog .arcade-result-actions { display: grid; gap: 12px; width: 100%; max-width: 330px; }
+.game-dialog .arcade-result-details { width: 100%; max-width: 330px; color: #8c789c; text-align: left; }
+.game-dialog .arcade-result-details > summary { display: list-item; padding: 12px 0; cursor: pointer; font-size: 16px; min-height: 44px; box-sizing: border-box; }
+.game-dialog .arcade-result-details p { font-size: 15px; line-height: 1.5; color: #917d9e; margin: 8px 0 14px; }
+.game-dialog .arcade-result-details button { width: 100%; min-height: 48px; border: 1px solid #dbd0e6; background: #fff; color: #816198; border-radius: 10px; font-size: 17px; }
+.game-dialog .arcade-reward-receipt { display: flex; align-items: flex-start; gap: 14px; padding: 18px; width: 100%; max-width: 350px; box-sizing: border-box; border: 1px solid #cdddba; border-radius: 16px; background: #edf5e7; color: #587247; text-align: left; }
+.game-dialog .arcade-reward-receipt > span { font-size: 32px; line-height: 1; color: #91ac6f; }
+.game-dialog .arcade-reward-receipt b { display: block; font-size: 17px; margin-bottom: 5px; color: #78915f; }
+.game-dialog .arcade-reward-receipt strong { display: block; font-size: 21px; font-weight: 750; line-height: 1.3; color: #506b3f; }
+.game-dialog .arcade-reward-receipt p { font-size: 14px; line-height: 1.45; margin: 7px 0 0; color: #657b50; }
+.game-dialog .arcade-mastery-gain { margin: 0; padding: 8px 12px; background: var(--play-wash); border: 0; color: #9778af; font-size: 15px; }
+.game-dialog .arcade-level-result h3 { font: 750 29px/1.2 "Segoe UI", sans-serif; color: #674c7b; letter-spacing: -.6px; margin: 0 0 12px; }
+.game-dialog .arcade-level-result .journey-result-stars { margin: 0 0 14px; font-size: 44px; letter-spacing: 5px; color: #c4a05a; }
+.game-dialog .journey-result-goals { margin: 0; gap: 14px; max-width: none; }
+.game-dialog .journey-result-goals li { font-size: 16px; color: #7d6889; line-height: 1.5; }
+.game-dialog .journey-result-goals li.is-done { color: #7a9060; }
+.game-dialog .journey-result-goals li > span { font-size: 18px; }
+.game-dialog .game-result .result-star { color: #93ad70; }
+.game-dialog .game-result > h3 { color: #654b79; font-size: 30px; letter-spacing: -.5px; }
+.game-dialog .game-result > p { color: #8d7b9a; font-size: 17px; line-height: 1.5; }
+
+/* Boards retain their shapes and colour cues, with readable text and larger controls. */
+.game-dialog .number-points, .game-dialog .memory-top, .game-dialog .typing-stats, .game-dialog .debug-progress, .game-dialog .blocks-meta, .game-dialog .sort-meta, .game-dialog .words-round { color: #7e698d; font-size: 15px; }
+.game-dialog .number-points b, .game-dialog .memory-top b, .game-dialog .blocks-meta b { color: #8f7347; }
+.game-dialog .number-grid { background: #e2d7ed; }
+.game-dialog .number-cell.n0 { background: #f2ecf8; }
+.game-dialog .number-controls button { min-width: 48px; min-height: 44px; border-color: #dacde7; background: #fff; color: #8a67a6; font-size: 22px; border-radius: 10px; }
+.game-dialog .arcade-subtle { min-height: 44px; font-size: 15px; padding: 10px 14px; }
+.game-dialog .typing-passage { padding: 16px; background: #fff; border: 1px solid #e4d9ed; border-radius: 14px; color: #ad9bb9; font-size: 23px; line-height: 1.8; }
+.game-dialog .typing-passage .correct { color: #8ca171; }
+.game-dialog .typing-passage .cursor { color: #614777; border-bottom-color: #a98ac1; }
+.game-dialog .typing-game label, .game-dialog .typing-game > small { color: #80688f; font-size: 14px; }
+.game-dialog .typing-input { color: #735988; background: #fff; border-color: #d6c6e3; font-size: 18px; }
+.game-dialog .typing-game.journey-highlight .typing-passage { background: #fff8e9; border-color: #d9bf87; font-size: 25px; }
+.game-dialog .debug-game h3 { color: #685078; font-size: 20px; }
+.game-dialog .debug-code { background: #fff; border-color: #ddcfe9; }
+.game-dialog .debug-code button { color: #6c5182; min-height: 48px; padding: 12px 14px; }
+.game-dialog .debug-code button.selected { background: #eee3f7; }
+.game-dialog .debug-code code, .game-dialog .debug-options code { font-size: 16px; line-height: 1.6; }
+.game-dialog .debug-code span { font-size: 14px; color: #b19abb; }
+.game-dialog .debug-progress span { font-size: 14px; border-color: #dcd0e7; color: #8fa46f; }
+.game-dialog .debug-instruction, .game-dialog .debug-feedback, .game-dialog .debug-feedback p { font-size: 16px; line-height: 1.5; color: #786484; }
+.game-dialog .debug-feedback b { color: #8ba16b; }
+.game-dialog .debug-options button { background: #fff; color: #7f6094; border-color: #dbcee5; font-size: 16px; padding: 14px; min-height: 48px; }
+.game-dialog .debug-feedback .games-main, .game-dialog .memory-next .games-main, .game-dialog .words-form .games-main { background: var(--play-accent); color: #fff; font-size: 18px; padding: 13px 18px; min-height: 50px; border-radius: 12px; box-shadow: none; }
+.game-dialog .evolve-time, .game-dialog .evolve-game p { color: #80698f; font-size: 15px; }
+.game-dialog .evolve-grid button { background: #fff; border-color: #e1d6eb; }
+.game-dialog .evolve-grid button.selected { background: #eee4f8; border-color: #b39ac8; }
+.game-dialog .evolve-grid small { color: #9f84b1; font-size: 14px; }
+.game-dialog .memory-grid button { background: #e8ddf3; color: #9f82b6; border-color: #cdbcda; }
+.game-dialog .memory-grid button.flipped { background: #fff; color: #655174; }
+.game-dialog .memory-grid button.matched { background: #e5efda; border-color: #b7c99d; opacity: .7; }
+.game-dialog .reaction-pad { background: #f6e5eb; color: #a57086; border-color: #e8cbd6; }
+.game-dialog .reaction-pad.go { background: #d8edb9; color: #607c41; border-color: #b7d18e; }
+.game-dialog .reaction-pad.feedback { background: #ebe0f6; color: #9477ac; border-color: #cdb9df; }
+.game-dialog .reaction-pad.decoy { background: #dae9fa; color: #6e90b9; border-color: #b5cee9; }
+.game-dialog .reaction-pad small { font-size: 17px; }
+.game-dialog .blocks-board { background: #e5daef; border-color: #d7c6e4; }
+.game-dialog .blocks-board .block-cell:not(.is-filled):not(.is-preview):not(.is-invalid) { background: #f6f0fb; }
+.game-dialog .blocks-hand button { background: #fff; border-color: #e0d2ec; }
+.game-dialog .blocks-hand button[aria-pressed=true] { background: #ebe0f5; border-color: #b293cd; }
+.game-dialog .blocks-instruction, .game-dialog .sort-message, .game-dialog .words-message, .game-dialog .words-rule { font-size: 15px; color: #7c668b; line-height: 1.5; }
+.game-dialog .sort-tube { color: #7d6190; font-size: 14px; }
+.game-dialog .sort-glass { border-color: #bca5cb; background: #fff9; }
+.game-dialog .sort-glass:before { background: #e7dcef; border-color: #c5b1d3; }
+.game-dialog .sort-tools button { font-size: 16px; min-height: 46px; padding: 10px 15px; background: #fff; color: #9778ab; border-color: #ddcee8; }
+.game-dialog .sort-complete { background: var(--play-paper)f5; }
+.game-dialog .sort-complete h3 { color: #7c618e; }
+.game-dialog .words-source button { min-width: 36px; height: 44px; background: #f1e7f8; border-color: #c7afd8; color: #9770b3; font-size: 19px; box-shadow: 0 3px #e2d3ec; }
+.game-dialog .words-form { grid-template-columns: minmax(0,1fr) 44px; }
+.game-dialog .words-form input { color: #8d6ca1; border-color: #d3c0e2; background: #fff; font-size: 19px; }
+.game-dialog .words-form [data-word-back] { background: var(--play-wash); border-color: #d6c4e4; color: #805f94; }
+.game-dialog .words-found span { background: #eaf1e2; border-color: #d3e0c0; color: #8a9e72; font-size: 16px; }
+.game-dialog .garden-summary small, .game-dialog .garden-upgrades b, .game-dialog .garden-upgrades small, .game-dialog .garden-upgrades strong { font-size: 14px; line-height: 1.4; }
+.game-dialog .garden-upgrades { gap: 9px; }
+.game-dialog .garden-gold { font-size: 15px; height: auto; min-height: 22px; }
+
+@media(max-width:640px) {
+ .game-dialog > header { padding: 14px 16px; gap: 8px; }
+ .game-dialog > header h2 { font-size: 20px; }
+ .game-dialog .game-hud { padding: 10px 14px; gap: 8px; font-size: 13px; }
+ .game-dialog .game-hud b { font-size: 22px; }
+ .game-dialog .game-level { font-size: 12px; padding: 6px 8px; }
+ .game-dialog .arcade-pause { width: 44px; height: 44px; }
+ .game-dialog .arcade-live-goal { font-size: 14px; padding: 11px 14px; }
+ .game-dialog > footer { font-size: 14px; padding: 10px 14px; }
+ .game-dialog .game-pause, .game-dialog .game-result { padding: 22px; }
+ .game-dialog.is-finished .game-stage { min-height: 0; }
+ .game-dialog.is-finished .game-result { min-height: 100%; }
+ .game-dialog .journey-tools { padding: 11px 14px; }
+ .game-dialog .journey-tools small { font-size: 12px; }
+ .game-dialog .journey-tools button { font-size: 14px; padding: 10px; }
+ .game-dialog .debug-game { padding: 20px 16px; }
+ .game-dialog .garden-upgrades b, .game-dialog .garden-upgrades small, .game-dialog .garden-upgrades strong { font-size: 13px; }
+}
+@media(max-height:650px) {
+ .game-dialog .game-pause, .game-dialog .game-result { padding: 18px; gap: 12px; }
+ .game-dialog .arcade-score-result h3 { font-size: 54px; }
+ .game-dialog .arcade-reward-receipt { padding: 13px; gap: 10px; }
+ .game-dialog .arcade-reward-receipt strong { font-size: 19px; }
+ .game-dialog .arcade-reward-receipt p { font-size: 14px; }
+}
+
+/* Game identity: the shell is familiar, palettes and play surfaces stay distinct. */
+.game-dialog[data-game=orbit]{--play-accent:#6875ad;--play-wash:#e5eafb;--play-paper:#f4f6fc}
+.game-dialog[data-game=evolve]{--play-accent:#66865c;--play-wash:#e4efdf;--play-paper:#f5f8ef}
+.game-dialog[data-game=bugs]{--play-accent:#9a703c;--play-wash:#f7ead1;--play-paper:#fcf8ef}
+.game-dialog[data-game=tower]{--play-accent:#547d97;--play-wash:#dceaf2;--play-paper:#f1f7fa}
+.game-dialog[data-game=typing]{--play-accent:#91713f;--play-wash:#f5ecd5;--play-paper:#fcf9ef}
+.game-dialog[data-game=debug]{--play-accent:#5579a1;--play-wash:#e2edf9;--play-paper:#f3f7fc}
+.game-dialog[data-game="2048"]{--play-accent:#b07b50;--play-wash:#f4e1ce;--play-paper:#fcf6ef}
+.game-dialog[data-game=drop]{--play-accent:#8a68ac;--play-wash:#eadff7;--play-paper:#f8f4fc}
+.game-dialog[data-game=memory]{--play-accent:#5d8d79;--play-wash:#deeee7;--play-paper:#f1f8f5}
+.game-dialog[data-game=react]{--play-accent:#9a873b;--play-wash:#f7efcb;--play-paper:#fbf9ef}
+.game-dialog[data-game=kopatych]{--play-accent:#768a45;--play-wash:#e8efd3;--play-paper:#f8faef}
+.game-dialog[data-game=blocks]{--play-accent:#627eac;--play-wash:#e0eafb;--play-paper:#f3f7fc}
+.game-dialog[data-game=runner]{--play-accent:#9571a7;--play-wash:#efe1f7;--play-paper:#fbf5fd}
+.game-dialog[data-game=bubbles]{--play-accent:#4e8c9c;--play-wash:#dff0f4;--play-paper:#f1f9fa}
+.game-dialog[data-game=sort]{--play-accent:#718f65;--play-wash:#e5efde;--play-paper:#f7faef}
+.game-dialog[data-game=words]{--play-accent:#9a7c45;--play-wash:#f6ecd5;--play-paper:#fcf9f0}
+.game-dialog.is-browsing[data-game],.game-dialog.is-browsing[data-game] .game-stage { background:var(--play-paper); }
+.game-dialog[data-game] .arcade-level-grid .journey-stop.is-selected,.game-dialog[data-game] .arcade-menu-start {background:var(--play-accent);border-color:var(--play-accent)}
+.game-dialog[data-game] .arcade-current-level {border-color:color-mix(in srgb,var(--play-accent) 25%,white)}
+.game-dialog[data-game] .game-hud #gameClock {color:var(--play-accent)}
+.game-dialog[data-game] .game-level {color:var(--play-accent);background:var(--play-wash)}
+.game-dialog[data-game] .arcade-live-goal {background:var(--play-wash)}
+.game-dialog[data-game] .arcade-live-goal progress::-webkit-progress-value {background:var(--play-accent)}
+.game-dialog[data-game] .arcade-pause-symbol,.game-dialog[data-game] .arcade-mastery-gain {background:var(--play-wash);color:var(--play-accent)}
+.game-dialog[data-game] .arcade-score-result h3,.game-dialog[data-game] .arcade-level-result h3 {color:var(--play-accent)}
+.game-dialog[data-game="2048"] .number-grid{background:#dbc3a7}
+.game-dialog[data-game="2048"] .number-cell.n0{background:#f3e5d2}
+.game-dialog[data-game=debug] .debug-code{background:#1d2a3b;border-color:#32445c}
+.game-dialog[data-game=debug] .debug-code button{color:#d2e3f3}
+.game-dialog[data-game=debug] .debug-code button.selected{background:#354c68}
+.game-dialog[data-game=debug] .debug-code span{color:#7e9ab6}
+.game-dialog[data-game=debug] .debug-options button{border-color:#c7d8e9;color:#567393}
+.game-dialog[data-game=typing] .typing-passage{background:#fffdf5;border-color:#e8d9b8;box-shadow:inset 4px 0 #d5b77a}
+.game-dialog[data-game=typing] .typing-input{border-color:#d6c195;color:#89703f}
+.game-dialog[data-game=words] .words-source button{background:#f7edda;border-color:#d5bd8e;color:#94733e;box-shadow:0 3px #e9d8b8}
+.game-dialog[data-game=words] .words-form input{border-color:#dec89f;color:#8e7142}
+.game-dialog[data-game=words] .words-form [data-word-back]{background:#f7edda;color:#94733e;border-color:#dec89f}
+.game-dialog[data-game=evolve] .evolve-grid button{border-color:#ccdcc2;background:#fbfdf7}
+.game-dialog[data-game=evolve] .evolve-grid button.selected{border-color:#8ea977;background:#e6efdc}
+.game-dialog[data-game=memory] .memory-grid button{background:#deede6;color:#759b87;border-color:#adcaba}
+.game-dialog[data-game=blocks] .blocks-board{background:#dce5f0;border-color:#bacbe1}
+.game-dialog[data-game=blocks] .blocks-board .block-cell:not(.is-filled):not(.is-preview):not(.is-invalid){background:#f1f5fb}
+.game-dialog[data-game=blocks] .blocks-hand button[aria-pressed=true]{background:#e0e9f6;border-color:#8faacb}
+@media(max-width:380px){
+ .game-dialog .memory-grid[style*="repeat(6"]{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+ .game-dialog .game-hud{display:grid;grid-template-columns:1fr auto auto;gap:8px 12px}
+ .game-dialog .game-hud>span:first-child{grid-column:1;grid-row:1}
+ .game-dialog .game-hud #gameClock{grid-column:2;grid-row:1}
+ .game-dialog .game-hud #gameLevel{grid-column:1/3;grid-row:2;justify-self:start}
+ .game-dialog .game-hud .arcade-pause{grid-column:3;grid-row:1/3}
+}
+.games-leader-dialog .games-leaders h3{font-size:24px}
+.games-leader-dialog .games-leader-controls button{min-height:44px;font-size:15px}
+.games-leader-dialog .games-leader-scroll th,.games-leader-dialog .games-leader-scroll td{font-size:16px;padding:14px 12px}
+.games-leader-dialog .games-leader-scroll small{font-size:13px}
+.games-leader-dialog .games-leaders-empty h4{font-size:21px}
+.games-leader-dialog .games-leaders-empty p,.games-leader-dialog .games-my-rank{font-size:16px}
+.games-leader-dialog .games-leader-close{width:44px;height:44px;font-size:25px}
+.game-dialog .arcade-result-awards{list-style:none;padding:0;margin:6px 0 18px;display:grid;gap:10px}
+.game-dialog .arcade-result-awards li{display:flex;justify-content:space-between;gap:15px;font-size:15px;line-height:1.4;color:#7e698d}
+.game-dialog .arcade-result-awards b{white-space:nowrap;color:#6e8757}

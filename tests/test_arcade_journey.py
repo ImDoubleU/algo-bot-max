@@ -158,7 +158,7 @@ def test_adventure_starts_real_game_and_saves_result_across_reentry(arcade):
         if i == 0:
             page.locator("[data-next]").click()
     page.locator(".journey-result").wait_for()
-    assert "Готово!" in page.locator(".journey-result").inner_text()
+    assert "Уровень пройден!" in page.locator(".journey-result").inner_text()
     xp = store.profile("p1")["mastery"]["xp"]
     assert xp >= 100
     assert f"+{xp} XP" in page.locator(".arcade-mastery-gain").inner_text()
@@ -274,10 +274,10 @@ def test_adventure_weekly_reward_and_ranked_reward_share_the_same_once_only_cred
     ranked = store.session("p1", "debug", "ranked", "keyboard")
     assert finish(store, ranked, solve_debug(ranked["setup"]))["run"]["accepted"]
     assert len([a for a in store.profile("p1")["awards"] if a["kind"] == "weekly"]) == 1
-    assert store.claim("p1", reward["id"])["balance"] == 10
+    assert store.claim("p1", reward["id"])["balance"] == 75
 
 
-def test_adventure_result_can_claim_weekly_ac_through_the_real_interface(arcade):
+def test_adventure_result_collects_weekly_ac_automatically_through_the_real_interface(arcade):
     page, store = arcade
     store.clock = Clock()
     with store.db() as db:
@@ -305,12 +305,9 @@ def test_adventure_result_can_claim_weekly_ac_through_the_real_interface(arcade)
         page.locator("[data-option]").nth(tasks[i]["answer"]).click()
         if i < 4:
             page.locator("[data-next]").click()
-    claim = page.locator("[data-journey-claim]")
-    claim.wait_for()
-    claim.click()
-    page.wait_for_function(
-        "document.querySelector('[data-journey-claim]')?.textContent==='✓ Награда сохранена'"
-    )
+    page.locator(".arcade-reward-receipt").wait_for()
+    assert "Ваша награда — 10 AC" in page.locator(".arcade-reward-receipt").inner_text()
+    assert page.locator("[data-journey-claim]").count() == 0
     assert store.profile("p1")["balance"] == 10
 
 

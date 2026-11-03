@@ -111,7 +111,7 @@ def test_server_records_claims_survive_restart_and_duplicate_submits(store):
     with ThreadPoolExecutor(max_workers=4) as pool:
         list(pool.map(lambda _: store.claim("p1", award), range(4)))
     restarted = ArcadeStore(store.path, store.clock)
-    assert restarted.profile("p1")["balance"] == 10
+    assert restarted.profile("p1")["balance"] == 75
     assert restarted.replay("p1", result["run"]["id"])["actions"] == replay["events"]
     with pytest.raises(ArcadeError):
         restarted.replay("p2", result["run"]["id"])
@@ -438,14 +438,14 @@ def test_all_ten_games_start_pause_finish_and_fit(arcade, width):
             page.keyboard.press("ArrowLeft")
         page.keyboard.press("Escape")
         try:
-            page.get_by_role("button", name="Продолжить →").wait_for()
+            page.get_by_role("button", name="Продолжить").wait_for()
         except Exception:
             print("PAUSE", game, page.locator("body").inner_text()[-800:])
             raise
         ticks = page.locator("#gameClock").inner_text()
         page.wait_for_timeout(50)
         assert page.locator("#gameClock").inner_text() == ticks
-        page.get_by_role("button", name="Продолжить →").click()
+        page.get_by_role("button", name="Продолжить").click()
         page.wait_for_timeout(50)
         page.locator("#gameFinish").click()
         page.locator("[data-again]").wait_for()
@@ -465,7 +465,7 @@ def test_tutorial_then_real_2048_has_one_handler_and_practice_undo(arcade):
     page.wait_for_function("document.querySelector('#gameClock')?.textContent.length>0")
     page.keyboard.press("ArrowLeft")
     page.keyboard.press("Escape")
-    page.get_by_role("button", name="Продолжить →").click()
+    page.get_by_role("button", name="Продолжить").click()
     page.locator("#gameFinish").click()
     page.locator("[data-back]").click()
     page.locator('.game-card[data-game="2048"]').click()
@@ -563,9 +563,10 @@ def test_ui_generated_python_completion_award_and_replay(arcade):
         page.locator("[data-next]").click()
     page.locator("[data-again]").wait_for()
     assert store.profile("p1")["best"]["debug"] == 8
-    page.locator("[data-claim-result]").click()
-    page.wait_for_timeout(250)
-    assert store.profile("p1")["balance"] == 10
+    assert page.locator(".arcade-reward-receipt").is_visible()
+    assert page.locator("[data-claim-result]").count() == 0
+    assert store.profile("p1")["balance"] == 75
+    page.locator(".arcade-result-details summary").click()
     page.locator("[data-analysis]").click()
     assert page.locator(".arcade-replay[open]").count() == 1
 
@@ -677,7 +678,7 @@ def test_kopatych_upgrades_and_full_harvest_are_replayed_before_reward(store):
     assert (
         len([a for a in profile["achievements"] if a["game"] == "kopatych" and a["unlocked"]]) >= 2
     )
-    assert store.claim("p1", profile["goals"]["kopatych"]["id"])["balance"] == 10
+    assert store.claim("p1", profile["goals"]["kopatych"]["id"])["balance"] == 75
     with arcade_runtime.context() as vm:
         report = vm.call(
             "ArcadeWorld.verify",

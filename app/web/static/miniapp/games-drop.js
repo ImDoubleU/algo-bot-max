@@ -123,7 +123,7 @@
             c.fillStyle = '#9a87b1';
             c.fill();
         }
-        c.font = '600 11px system-ui';
+        c.font = '600 14px system-ui';
         c.textAlign = 'left';
         c.fillStyle = '#baaccd';
         c.fillText(arena.name, 20, 104);

@@ -9,7 +9,6 @@
       '"': '&quot;',
       "'": '&#39;'
     } [c]));
-  const stars = n => '★'.repeat(n) + '☆'.repeat(3 - n);
 
   function countWord(n, forms) {
     return forms[n % 100 >= 11 && n % 100 <= 14 ? 2 : n % 10 === 1 ? 0 : n % 10 >= 2 && n % 10 <= 4 ? 1 : 2];
@@ -75,13 +74,6 @@
     run.dialog.dataset.journeyPower = j.powerUntil > w.time || j.correction || j.magnet ? 'on' : 'off';
   }
 
-  function result(run, report, saved) {
-    const j = report.journey,
-      m = J.mission(run.g.id, j.stage),
-      record = saved.records.find(r => r.stage === j.stage);
-    return `<div class="journey-result-head"><small>УРОВЕНЬ ${j.stage} · ${esc(m.title)}</small><div class="journey-result-stars" aria-label="${j.stars} из 3 звёзд">${stars(j.stars)}</div><h3>${j.success?'Готово!':'Попробуем ещё?'}</h3><p>${j.success?`${report.score} / ${j.goal} · лучший результат: ${record?.stars||j.stars} ★`:esc(report.reason)}</p></div><ul class="journey-result-goals">${starGoals(m).map((g,i)=>`<li class="${j.stars>i?'is-done':''}"><span>${j.stars>i?'✓':'○'}</span>${esc(g)}</li>`).join('')}</ul>${j.success&&j.stage%4===0?`<div class="journey-keepsake">✦ Глава пройдена · ${esc(J.specs[run.g.id].reward)}</div>`:''}<button class="games-main" data-journey-next>${!j.success?'Повторить уровень':j.stage<24?'Следующий уровень →':'К уровням'}</button>${j.success?'<button class="game-back" data-journey-retry>Повторить уровень</button>':''}${!j.success||j.stage<24?'<button class="game-back" data-journey-map>К уровням</button>':''}`;
-  }
-
   function collection(saved) {
     const entries = Object.entries(saved || {}).filter(([, s]) => s.cleared > 0);
     if (!entries.length) return '';
@@ -90,7 +82,6 @@
   window.ArcadeJourneyView = {
     collection,
     tools,
-    result,
     labels,
     starGoals
   };

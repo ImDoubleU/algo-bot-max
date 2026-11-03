@@ -2754,11 +2754,6 @@ body[data-active-view="games"] .content-area>.status-strip {
     margin-left: 3px
   }
 
-  .game-level {
-    padding: 4px 5px !important;
-    font-size: 8px !important
-  }
-
   .game-hud #gameClock {
     font-size: 9px
   }
