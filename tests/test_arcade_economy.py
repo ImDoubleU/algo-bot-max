@@ -1,4 +1,4 @@
-"""Lifetime goals, demanding medals and fortnightly prizes share a bounded ledger."""
+"""Lifetime goals, demanding medals and fortnightly prizes share an uncapped ledger."""
 
 from datetime import date, datetime
 
@@ -168,7 +168,7 @@ def test_weekly_boundary_inside_a_season_keeps_a_valid_attempt_ranked(store):
     "prize,expected",
     [(0, [368, 0, 0]), (50, [468, 100, 100]), (75, [518, 150, 150]), (100, [568, 200, 200])],
 )
-def test_calendar_projection_uses_actual_weekly_caps_and_two_fortnightly_payouts(prize, expected):
+def test_calendar_projection_uses_lifetime_rewards_and_two_fortnightly_payouts(prize, expected):
     months = project(date(2026, 11, 3), prize)
     assert [m["credited"] for m in months] == expected
     assert [m["pending"] for m in months] == [0, 0, 0]

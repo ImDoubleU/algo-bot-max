@@ -130,6 +130,7 @@ class ArcadeStore:
                 winners TEXT NOT NULL,standings TEXT NOT NULL);
               CREATE TABLE IF NOT EXISTS arcade_seasons(week TEXT PRIMARY KEY,closed REAL NOT NULL,
                 winners TEXT NOT NULL,standings TEXT NOT NULL);
+              -- Historical settings are retained, but no longer restrict payouts.
               CREATE TABLE IF NOT EXISTS arcade_policy(week TEXT PRIMARY KEY,cap INTEGER NOT NULL);
               CREATE TABLE IF NOT EXISTS arcade_log(id INTEGER PRIMARY KEY AUTOINCREMENT,
                 created REAL NOT NULL,player TEXT,session TEXT,event TEXT NOT NULL,detail
@@ -187,12 +188,6 @@ class ArcadeStore:
             (self.clock(), player, session, event, str(detail)[:300]),
         )
 
-    def _cap(self, db, period):
-        row = db.execute(
-            "SELECT cap FROM arcade_policy WHERE week<=? ORDER BY week DESC LIMIT 1", (period,)
-        ).fetchone()
-        return row[0] if row else 200
-
     def _award(self, db, player, kind, period, key, amount, label, claimed=False):
         inserted = db.execute(
             "INSERT OR IGNORE INTO arcade_awards VALUES(?,?,?,?,?,?,?,?,NULL)",
@@ -208,11 +203,6 @@ class ArcadeStore:
 
     def _credit(self, db, player):
         period = week_key(self.clock())
-        used = db.execute(
-            "SELECT COALESCE(SUM(amount),0) FROM arcade_credits WHERE player=? AND week=?",
-            (player, period),
-        ).fetchone()[0]
-        cap = self._cap(db, period)
         rows = db.execute(
             """SELECT * FROM arcade_awards WHERE player=? AND claimed=1 AND credited IS NULL
           ORDER BY CASE kind WHEN 'podium' THEN 0 WHEN 'weekly' THEN 1 WHEN 'first' THEN 1
@@ -220,14 +210,11 @@ class ArcadeStore:
             (player,),
         ).fetchall()
         for row in rows:
-            if used + row["amount"] > cap:
-                continue
             db.execute(
                 "INSERT OR IGNORE INTO arcade_credits VALUES(?,?,?,?,?)",
                 (row["id"], player, period, row["amount"], self.clock()),
             )
             db.execute("UPDATE arcade_awards SET credited=? WHERE id=?", (self.clock(), row["id"]))
-            used += row["amount"]
 
     def _qualifies(self, report):
         return (
@@ -240,7 +227,22 @@ class ArcadeStore:
         row = db.execute(
             "SELECT payload FROM arcade_receipts WHERE session=?", (session,)
         ).fetchone()
-        return json.loads(row[0]) if row else {"awards": [], "credited": 0, "pending": 0}
+        receipt = json.loads(row[0]) if row else {"awards": [], "credited": 0, "pending": 0}
+        awards = receipt["awards"]
+        if awards:
+            marks = ",".join("?" for _ in awards)
+            credited = {
+                row["id"]: row["credited"] is not None
+                for row in db.execute(
+                    f"SELECT id,credited FROM arcade_awards WHERE id IN ({marks})",
+                    [award["id"] for award in awards],
+                )
+            }
+            for award in awards:
+                award["credited"] = credited.get(award["id"], award["credited"])
+            receipt["credited"] = sum(a["amount"] for a in awards if a["credited"])
+            receipt["pending"] = sum(a["amount"] for a in awards if not a["credited"])
+        return receipt
 
     def _goal_award(self, db, player, game):
         # A previously earned weekly goal counts as the lifetime first reward.
@@ -425,6 +427,7 @@ class ArcadeStore:
                 "SELECT * FROM arcade_runs WHERE session=? AND player=?", (session, player)
             ).fetchone()
             if previous:
+                self._credit(db, player)
                 return {
                     "run": {
                         "id": previous["id"],
@@ -492,6 +495,7 @@ class ArcadeStore:
                 "SELECT * FROM arcade_runs WHERE session=?", (session,)
             ).fetchone()
             if previous:
+                self._credit(db, player)
                 return {
                     "run": {
                         "id": previous["id"],
@@ -846,8 +850,6 @@ class ArcadeStore:
                 for game in GAMES
             }
             current = week_key(self.clock())
-            used = sum(r["amount"] for r in credits if r["week"] == current)
-            next_period = (datetime.fromisoformat(current) + timedelta(days=7)).date().isoformat()
             badges = []
             for game, (_goal, targets) in GAMES.items():
                 records = [r for r in verified if r["game"] == game]
@@ -927,8 +929,6 @@ class ArcadeStore:
                 },
                 "player": {"id": player, "name": person["name"], "group": person["group_name"]},
                 "balance": sum(r["amount"] for r in credits),
-                "cap": {"limit": self._cap(db, current), "used": used},
-                "nextCap": self._cap(db, next_period),
                 "settings": json.loads(person["settings"]),
                 "best": best,
                 "journeys": journeys,
@@ -993,22 +993,6 @@ class ArcadeStore:
                 "UPDATE arcade_players SET settings=? WHERE id=?", (json.dumps(settings), player)
             )
         return settings
-
-    def policy(self, cap):
-        if type(cap) is not int or not max(PRIZES) <= cap <= 1000:
-            raise ArcadeError(
-                "Выбери лимит от 100 до 1000 AC, чтобы призы рейтинга могли начисляться."
-            )
-        next_week = (
-            (datetime.fromisoformat(week_key(self.clock())) + timedelta(days=7)).date().isoformat()
-        )
-        with self.db() as db:
-            db.execute(
-                "INSERT INTO arcade_policy VALUES(?,?) "
-                "ON CONFLICT(week) DO UPDATE SET cap=excluded.cap",
-                (next_week, cap),
-            )
-        return {"week": next_week, "cap": cap}
 
     def replay(self, player, run):
         with self.db() as db:

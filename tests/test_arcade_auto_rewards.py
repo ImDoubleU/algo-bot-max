@@ -1,4 +1,4 @@
-"""Rewards are settled with a verified result, exactly once, including retries and caps."""
+"""Rewards are settled with a verified result, exactly once, including retries."""
 
 from concurrent.futures import ThreadPoolExecutor
 
@@ -50,14 +50,14 @@ def test_zero_practice_and_repeat_do_not_create_a_fake_reward_receipt(store):
     assert not result["rewards"]["awards"] and store.profile("p1")["balance"] == 23
 
 
-def test_capped_reward_is_saved_and_credited_on_the_next_week_without_a_claim(store):
+def test_rewards_above_the_old_weekly_limit_are_credited_immediately(store):
     with store.db() as db:
         store._award(db, "p1", "test", "all", "earlier", 190, "Earlier", claimed=True)
         store._credit(db, "p1")
     session, replay = ready(store)
     result = store.finish("p1", session["id"], replay["events"], replay["ticks"])
-    assert result["rewards"]["credited"] == 8 and result["rewards"]["pending"] == 15
-    assert store.profile("p1")["balance"] == 198
+    assert result["rewards"]["credited"] == 23 and result["rewards"]["pending"] == 0
+    assert store.profile("p1")["balance"] == 213
     store.clock.advance(8 * 86400)
     assert ArcadeStore(store.path, store.clock).profile("p1")["balance"] == 213
 

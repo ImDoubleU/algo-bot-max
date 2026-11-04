@@ -13,7 +13,7 @@
     function reward(receipt) {
         if (!receipt?.awards?.length) return '';
         const total = receipt.credited + receipt.pending;
-        const note = receipt.pending ? `${receipt.credited ? receipt.credited + ' AC начислено. ' : ''}${receipt.pending} AC начислим после обновления недельного лимита.` : 'Астрокоины уже на игровом балансе';
+        const note = receipt.pending ? 'Награда сохранена' : 'Астрокоины уже на игровом балансе';
         return `<section class="arcade-reward-receipt" role="status" aria-live="polite"><span aria-hidden="true">✦</span><div><b>Поздравляем!</b><strong>Ваша награда — ${total} AC</strong><p>${esc(note)}</p></div></section>`;
     }
 

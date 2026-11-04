@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from app.services.arcade import GAMES, ArcadeError, ArcadeStore
+from app.services.arcade import GAMES, ArcadeStore
 from tests.test_arcade_journey import solve_debug
 from tests.test_arcade_server import arcade as arcade
 from tests.test_arcade_server import browser as browser
@@ -48,10 +48,15 @@ def test_saved_reward_receipt_survives_a_lost_response_and_restart_without_doubl
     assert not retry["rewards"]["awards"]
 
 
-def test_policy_cannot_set_a_weekly_limit_that_would_trap_a_podium_prize_forever(store):
-    with pytest.raises(ArcadeError):
-        store.policy(50)
-    assert store.policy(100)["cap"] == 100
+def test_an_old_configured_limit_does_not_restrict_new_rewards(store):
+    with store.db() as db:
+        db.execute("INSERT INTO arcade_policy VALUES(?,?)", ("2020-01-06", 50))
+        store._award(db, "p1", "podium", "all", "old-prize", 100, "Приз", claimed=True)
+        store._award(db, "p1", "master", "all", "old-medal", 200, "Медаль", claimed=True)
+    profile = store.profile("p1")
+    assert profile["balance"] == 300
+    assert all(a["credited"] is not None for a in profile["awards"])
+    assert "cap" not in profile and "nextCap" not in profile
 
 
 def test_reward_notice_survives_a_lost_finish_response_in_the_actual_window(arcade):

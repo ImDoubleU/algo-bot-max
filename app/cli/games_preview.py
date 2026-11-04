@@ -66,8 +66,8 @@ def inject_games(source: str) -> str:
         '<script src="/miniapp/static/games-journey-view.js?v=6"></script>'
         '<script src="/miniapp/static/games-menu.js?v=3"></script>'
         '<script src="/miniapp/static/games-personality.js?v=3"></script>'
-        '<script src="/miniapp/static/games-results.js?v=6"></script>'
-        '<script src="/miniapp/static/app-games.js?v=21"></script>',
+        '<script src="/miniapp/static/games-results.js?v=7"></script>'
+        '<script src="/miniapp/static/app-games.js?v=22"></script>',
         source,
         count=1,
     )

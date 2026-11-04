@@ -1,4 +1,4 @@
-/* Local arcade client. Ranked scores, achievements, caps and prizes belong to the server. */
+/* Local arcade client. Ranked scores, achievements and prizes belong to the server. */
 (() => {
     "use strict";
     if (!window.ALGO_GAMES_PROTOTYPE || !localDemoHost || !apiContext.demoMode) return;
@@ -278,7 +278,7 @@
             const q = profile.goals[g.id], journey = profile.journeys[g.id],
                 cleared = journey?.cleared || 0,
                 progressText = g.persistent ? 'Огород и турнир' : journey ? cleared===24 ? 'Все уровни пройдены' : cleared ? `${cleared} из 24 пройдено` : '24 уровня' : `Цель: ${goal(g.id)}`;
-            return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><span class="game-card-art">${art(g.id)}</span><span class="game-card-body"><h3>${g.name}</h3><span class="game-card-bottom"><span>${progressText}</span>${!q.claimed||!q.credited?`<span class="game-reward">${q.claimed?'В очереди':`+${q.reward} AC`}</span>`:''}</span>${journey&&cleared?`<progress class="game-card-progress" aria-label="Пройденные уровни: ${cleared} из 24" value="${cleared}" max="24"></progress>`:''}</span></button><button class="game-card-leader" data-leader="${g.id}" aria-label="Лидеры: ${g.name}" title="Лидеры">${trophy}</button></div>`;
+            return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><span class="game-card-art">${art(g.id)}</span><span class="game-card-body"><h3>${g.name}</h3><span class="game-card-bottom"><span>${progressText}</span>${!q.claimed||!q.credited?`<span class="game-reward">${q.claimed?'Начисляется':`+${q.reward} AC`}</span>`:''}</span>${journey&&cleared?`<progress class="game-card-progress" aria-label="Пройденные уровни: ${cleared} из 24" value="${cleared}" max="24"></progress>`:''}</span></button><button class="game-card-leader" data-leader="${g.id}" aria-label="Лидеры: ${g.name}" title="Лидеры">${trophy}</button></div>`;
         }).join("")}</div>`;
     }
 
@@ -287,14 +287,12 @@
     }
 
     function achievements() {
-        return ArcadeJourneyView.collection(profile.journeys) + `<div class="arcade-tier-key"><span>Бронза · сильный результат</span><span>Серебро · эксперт</span><span>Золото · мастерство</span></div><div class="games-achievement-grid">${profile.achievements.map(a=>`<article class="game-achievement ${a.unlocked?"unlocked":""}"><span class="achievement-medal ${E.games.find(g=>g.id===a.game).color}">${art(a.game)}<i>${["I","II","III"][a.tier]}</i></span><div><h3>${title(a.game)} · ${["бронза","серебро","золото"][a.tier]}</h3><p>${achievementText(a)}</p><progress max="${a.target}" value="${a.value}"></progress><small>${a.value} / ${a.target}</small></div><button data-claim="${esc(a.id)}" ${!a.unlocked||a.claimed?"disabled":""}>${a.credited?"✓ Получено":a.claimed?"Ждёт лимита":`+${a.reward} AC`}</button></article>`).join("")}</div>`;
+        return ArcadeJourneyView.collection(profile.journeys) + `<div class="arcade-tier-key"><span>Бронза · сильный результат</span><span>Серебро · эксперт</span><span>Золото · мастерство</span></div><div class="games-achievement-grid">${profile.achievements.map(a=>`<article class="game-achievement ${a.unlocked?"unlocked":""}"><span class="achievement-medal ${E.games.find(g=>g.id===a.game).color}">${art(a.game)}<i>${["I","II","III"][a.tier]}</i></span><div><h3>${title(a.game)} · ${["бронза","серебро","золото"][a.tier]}</h3><p>${achievementText(a)}</p><progress max="${a.target}" value="${a.value}"></progress><small>${a.value} / ${a.target}</small></div><button data-claim="${esc(a.id)}" ${!a.unlocked||a.claimed?"disabled":""}>${a.credited?"✓ Получено":a.claimed?"Начисляется":`+${a.reward} AC`}</button></article>`).join("")}</div>`;
     }
 
     function rewards() {
-        const pending = profile.awards.filter(a => a.claimed && a.credited === null);
-        return `<section class="games-reward-summary"><div><small>Тестовые астрокоины</small><strong>${profile.balance} <span>AC</span></strong><p>5 AC за первое выполнение цели каждой игры — один раз за всё время.</p></div><div><b>Лимит недели: ${profile.cap.limit} AC</b><p>Начислено ${profile.cap.used} AC. Заработанные награды сверх лимита ждут следующей недели.</p></div></section>
-      ${pending.length?`<div class="games-warning"><b>Ожидают лимита: ${pending.reduce((n,a)=>n+a.amount,0)} AC</b><p>Награды сохранены. Начисление продолжится с новой недели.</p></div>`:""}
-      <div class="games-reward-list">${E.games.map(g=>{const q=profile.goals[g.id];return `<div><span class="reward-dot ${g.color}">✦</span><span><b>${g.name}</b><small>${Math.min(q.score,q.target)} / ${q.target}${g.id==="typing"?" · точность от 90%":""}</small></span><button data-claim="${esc(q.id||"")}" ${!q.eligible||q.claimed?"disabled":""}>${q.claimed?q.credited?"✓ Начислено":"В очереди":`Забрать ${q.reward} AC`}</button></div>`;}).join("")}</div>
+        return `<section class="games-reward-summary"><div><small>Тестовые астрокоины</small><strong>${profile.balance} <span>AC</span></strong><p>5 AC за первое выполнение цели каждой игры — один раз за всё время.</p></div></section>
+      <div class="games-reward-list">${E.games.map(g=>{const q=profile.goals[g.id];return `<div><span class="reward-dot ${g.color}">✦</span><span><b>${g.name}</b><small>${Math.min(q.score,q.target)} / ${q.target}${g.id==="typing"?" · точность от 90%":""}</small></span><button data-claim="${esc(q.id||"")}" ${!q.eligible||q.claimed?"disabled":""}>${q.claimed?q.credited?"✓ Начислено":"Начисляется":`Забрать ${q.reward} AC`}</button></div>`;}).join("")}</div>
       <h3 class="games-history-title">История начислений</h3><div class="games-reward-list">${profile.credits.length?profile.credits.map(c=>`<div><span><b>${esc(c.label)}</b><small>${new Date(c.created*1000).toLocaleString("ru-RU",{timeZone:"Europe/Moscow"})}</small></span><strong>+${c.amount} AC</strong></div>`).join(""):'<div><span>Пока нет начислений</span></div>'}</div>`;
     }
 
@@ -429,7 +427,7 @@
           <div class="ranking-list-heading"><span aria-label="Место">№</span><span>Игрок</span>${combined?'<span class="ranking-games-column">Игры</span>':''}<span>${combined?'Очки':'Результат'}</span></div>
           ${shown.length?`<ol class="ranking-list">${players}</ol>`:'<div class="ranking-empty"><h4>Пока нет результатов</h4><p>Заверши игру в режиме «Соревнование».</p></div>'}
           ${game==='drop'?'<p class="ranking-note">В рейтинге — Космопорт с новой физикой. Прежние партии остались в истории.</p>':''}
-          ${combined?`<details class="ranking-rules"><summary>Как получить очки и призы</summary><div class="ranking-rules-content"><h4>Очки за место в каждой игре</h4><div class="ranking-point-key">${E.placePoints.map((points,i)=>`<div><span>${i+1} место</span><strong>${points}</strong></div>`).join('')}</div><p>Начиная с 11-го места — по 5 очков. В общий рейтинг идёт один лучший результат за каждую игру, если выполнена её цель. Для печати нужна точность от 90%.</p><p>Прохождение уровней, XP и достижения дают мастерство, а общий рейтинг считается по результатам «Соревнования».</p><h4>Ранги сезона</h4><ul class="ranking-league-key">${[[0,'Бронза'],[200,'Серебро'],[450,'Золото'],[800,'Алмаз'],[1200,'Космос']].map(([points,name])=>`<li><b>${name}</b><span>от ${points} очков</span></li>`).join('')}</ul><p>Для ранга нужны цели в ${minimum} разных играх в текущем сезоне. Сезон длится 14 дней. Итоги — по понедельникам раз в две недели в 00:00 МСК. При равных очках выше игрок с большим числом игр, затем первых мест, затем с более ранним результатом.</p><p>Клавиатура и касания сравниваются отдельно в скоростных играх; в общий рейтинг идёт один лучший вклад за игру. Общий лимит всех игровых наград — ${profile.cap.limit} AC за неделю. Награды сверх лимита сохраняются в очереди.</p></div></details>`:''}
+          ${combined?`<details class="ranking-rules"><summary>Как получить очки и призы</summary><div class="ranking-rules-content"><h4>Очки за место в каждой игре</h4><div class="ranking-point-key">${E.placePoints.map((points,i)=>`<div><span>${i+1} место</span><strong>${points}</strong></div>`).join('')}</div><p>Начиная с 11-го места — по 5 очков. В общий рейтинг идёт один лучший результат за каждую игру, если выполнена её цель. Для печати нужна точность от 90%.</p><p>Прохождение уровней, XP и достижения дают мастерство, а общий рейтинг считается по результатам «Соревнования».</p><h4>Ранги сезона</h4><ul class="ranking-league-key">${[[0,'Бронза'],[200,'Серебро'],[450,'Золото'],[800,'Алмаз'],[1200,'Космос']].map(([points,name])=>`<li><b>${name}</b><span>от ${points} очков</span></li>`).join('')}</ul><p>Для ранга нужны цели в ${minimum} разных играх в текущем сезоне. Сезон длится 14 дней. Итоги — по понедельникам раз в две недели в 00:00 МСК. При равных очках выше игрок с большим числом игр, затем первых мест, затем с более ранним результатом.</p><p>Клавиатура и касания сравниваются отдельно в скоростных играх; в общий рейтинг идёт один лучший вклад за игру.</p></div></details>`:''}
           ${combined&&winners.length?`<details class="ranking-history"><summary>Победители прошлых сезонов</summary>${winners.map(w=>`<section><h4>${w.days===7?'Неделя':'Сезон'} с ${weekLabel(w.week)}</h4>${w.winners.map(r=>`<div><span>${esc(r.name)}</span><strong>+${r.prize} AC</strong></div>`).join('')}</section>`).join('')}</details>`:''}
         </section>`;
     }
@@ -479,9 +477,8 @@
     function openSettings() {
         const d = document.createElement("dialog");
         d.className = "games-leader-dialog arcade-preferences";
-        const p = profile.settings,
-            admin = window.pizzaPreview?.role === "partner_director";
-        d.innerHTML = `<button class="games-leader-close" aria-label="Закрыть">×</button><h3>Настройки игр</h3><form><label>Качество эффектов<select name="quality"><option value="auto">Автоматически</option><option value="high">Высокое</option><option value="low">Экономное</option></select></label><label class="arcade-check"><input type="checkbox" name="sound" ${p.sound?"checked":""}> Звуки</label><label class="arcade-check"><input type="checkbox" name="vibration" ${p.vibration?"checked":""}> Вибрация</label><button class="games-main">Сохранить</button><p role="status"></p></form>${admin?`<form class="arcade-policy"><h4>Лимит наград</h4><label>AC за неделю<input type="number" min="100" max="1000" name="cap" value="${profile.nextCap}"></label><small>Изменение действует со следующей недели.</small><button class="arcade-subtle">Применить</button><p role="status"></p></form>`:""}`;
+        const p = profile.settings;
+        d.innerHTML = `<button class="games-leader-close" aria-label="Закрыть">×</button><h3>Настройки игр</h3><form><label>Качество эффектов<select name="quality"><option value="auto">Автоматически</option><option value="high">Высокое</option><option value="low">Экономное</option></select></label><label class="arcade-check"><input type="checkbox" name="sound" ${p.sound?"checked":""}> Звуки</label><label class="arcade-check"><input type="checkbox" name="vibration" ${p.vibration?"checked":""}> Вибрация</label><button class="games-main">Сохранить</button><p role="status"></p></form>`;
         document.body.append(d);
         d.showModal();
         $("[name=quality]", d).value = p.quality;
@@ -506,21 +503,7 @@
                 $("[role=status]", form).textContent = error.message;
             }
         };
-        $(".arcade-policy", d)?.addEventListener("submit", async e => {
-            e.preventDefault();
-            try {
-                const result = await api("/policy", {
-                    method: "PATCH",
-                    body: {
-                        cap: Number(e.target.cap.value)
-                    },
-                    admin: true
-                });
-                $("[role=status]", e.target).textContent = `Сохранено: ${result.cap} AC с ${result.week}`;
-            } catch (error) {
-                $("[role=status]", e.target).textContent = error.message;
-            }
-        });
+
     }
 
     function openGame(id) {

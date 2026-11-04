@@ -38,10 +38,6 @@ class Preferences(StrictPayload):
     values: dict[str, Any]
 
 
-class Policy(StrictPayload):
-    cap: int = Field(ge=100, le=1000, strict=True)
-
-
 class FarmAction(StrictPayload):
     id: str = Field(min_length=12, max_length=80)
     action: str = Field(max_length=20)
@@ -150,13 +146,6 @@ def make_router(store: ArcadeStore, authenticate: Callable[[Request], Awaitable[
     async def settings(request: Request, payload: Preferences):
         actor = await authenticate(request)
         return await call(store.settings, actor["player"], payload.values)
-
-    @router.patch("/policy")
-    async def policy(request: Request, payload: Policy):
-        actor = await authenticate(request)
-        if not actor.get("director"):
-            raise HTTPException(403, "Лимит настраивает директор.")
-        return await call(store.policy, payload.cap)
 
     @router.get("/replay/{run}")
     async def replay(request: Request, run: str):

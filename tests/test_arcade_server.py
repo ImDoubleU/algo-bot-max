@@ -269,19 +269,17 @@ def test_season_closes_automatically_once_with_100_75_50_and_frozen_winners(stor
     assert sum(len(store.profile(f"p{i}")["credits"]) for i in range(1, 6)) == 3
 
 
-def test_cap_defers_earned_awards_without_loss_and_settings_are_persistent(store):
+def test_earned_awards_are_not_limited_by_week_and_settings_are_persistent(store):
     with store.db() as db:
         for i in range(5):
             store._award(db, "p1", "test", "all", f"m:{i}", 50, "Тест", True)
     store.maintain()
-    assert store.profile("p1")["balance"] == 200
-    assert len([a for a in store.profile("p1")["awards"] if a["credited"] is None]) == 1
-    assert store.policy(150)["cap"] == 150
-    assert store.profile("p1")["cap"]["limit"] == 200
+    assert store.profile("p1")["balance"] == 250
+    assert not [a for a in store.profile("p1")["awards"] if a["credited"] is None]
+    assert "cap" not in store.profile("p1") and "nextCap" not in store.profile("p1")
     store.clock.advance(8 * 86400)
     store.maintain()
     assert store.profile("p1")["balance"] == 250
-    assert store.profile("p1")["cap"]["limit"] == 150
     with pytest.raises(ArcadeError):
         store.settings("p1", {"skin": "nebula"})
     prefs = {"ui": {"tab": "progress", "filter": "puzzle", "scroll": 42}, "quality": "low"}
@@ -302,7 +300,7 @@ def make_client(store):
     return TestClient(app)
 
 
-def test_api_rejects_scores_without_trace_extra_fields_and_director_only_policy(store):
+def test_api_rejects_scores_without_trace_extra_fields_and_has_no_limit_setting(store):
     client = make_client(store)
     assert client.get("/preview/arcade/profile").status_code == 401
     h = {"x-miniapp-token": "p1"}
@@ -319,12 +317,12 @@ def test_api_rejects_scores_without_trace_extra_fields_and_director_only_policy(
         ).status_code
         == 422
     )
-    assert client.patch("/preview/arcade/policy", headers=h, json={"cap": 500}).status_code == 403
+    assert client.patch("/preview/arcade/policy", headers=h, json={"cap": 500}).status_code == 404
     assert (
         client.patch(
             "/preview/arcade/policy", headers={"x-miniapp-token": "director"}, json={"cap": 500}
         ).status_code
-        == 200
+        == 404
     )
 
 
