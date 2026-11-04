@@ -3,12 +3,8 @@
     'use strict';
     const H = ArcadeHill;
 
-    function carSvg(id = 'scout', color = H.getCar(id).color) {
-        const roof = id === 'truck' ? 'M107 104V54h43l23 50' : id === 'buggy' ? 'M60 107 84 76h40l28 31' : id === 'rover' ? 'M54 104Q57 45 110 45t49 59Z' : 'M64 104l14-42h44l25 42';
-        const body = id === 'buggy' ? 'M37 115 94 103l67 10 40 14-15 14H43Z' : id === 'rover' ? 'M39 105h138q30 5 18 31l-9 5H43q-14-16-4-36Z' : 'M48 103h129l17 18-8 20H43l-7-19Z';
-        const dx = id === 'truck' ? 32 : 0,
-            dy = id === 'buggy' ? 12 : 0;
-        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 176" fill="none" aria-hidden="true"><path d="M8 153q66-35 120-12t120-9" stroke="#9cb395" stroke-width="4"/><g transform="rotate(-8 128 100)" stroke="#344737" stroke-width="3" stroke-linejoin="round"><path d="${roof}" fill="${id==='buggy'?'none':'#d4e8e1'}"/><path d="${body}" fill="${color}"/>${id==='truck'?`<path d="M45 104V81h56v28" fill="${color}"/>`:id==='rover'?'<path d="M76 53V29l13-10" stroke="#6c8374"/><circle cx="90" cy="18" r="4" fill="#f2cf7c"/><path d="M57 119h93m-93 7h93" stroke="#e9e9d4"/>':'<path d="M124 66v36M42 120h151"/>'}<path d="M49 98h28v10H49Z" fill="#f0d08b"/><path d="M162 111h17v10h-17Z" fill="#fff1bf"/><path d="m54 140 11-26m83 26 11-26" stroke="#a1b2a2" stroke-width="5"/><g fill="#38423c"><circle cx="67" cy="141" r="23"/><circle cx="163" cy="141" r="23"/></g><g fill="#d8cfb4"><circle cx="67" cy="141" r="12"/><circle cx="163" cy="141" r="12"/></g><path d="m67 132 1 18m-9-9h18m86-9v18m-9-9h18" stroke="#677565" stroke-width="2"/><g transform="translate(${dx} ${dy})"><circle cx="105" cy="80" r="12" fill="#ecd4a4"/><path d="M92 77q13-23 26 0" fill="#587361"/><path d="M106 79h7" stroke-width="2"/></g></g></svg>`;
+    function carSvg(id = 'scout', color) {
+        return ArcadeHillArt.svg(id, color);
     }
 
     function mount(stage, send, options) {
@@ -254,73 +250,7 @@
             c.translate(x(h.x), y(h.y));
             c.rotate(-h.angle);
             c.scale(scale, -scale);
-            c.lineWidth = .09;
-            c.strokeStyle = '#334539';
-            c.lineJoin = 'round';
-            c.fillStyle = '#d7ece5';
-            c.beginPath();
-            if (h.car === 'rover') {
-                c.moveTo(-1, .3);
-                c.bezierCurveTo(-1, 1.7, .8, 1.7, 1, .3);
-            } else if (h.car === 'truck') {
-                c.moveTo(.1, .3);
-                c.lineTo(.1, 1.35);
-                c.lineTo(.9, 1.35);
-                c.lineTo(1.3, .3);
-            } else {
-                c.moveTo(-.85, .3);
-                c.lineTo(-.6, h.car === 'buggy' ? .9 : 1.14);
-                c.lineTo(.5, h.car === 'buggy' ? .9 : 1.14);
-                c.lineTo(1, .3);
-            }
-            c.closePath();
-            if (h.car !== 'buggy') c.fill();
-            c.stroke();
-            c.fillStyle = h.paint;
-            c.beginPath();
-            c.moveTo(-1.7, .35);
-            c.lineTo(1.4, .35);
-            c.lineTo(1.75, 0);
-            c.lineTo(1.6, -.35);
-            c.lineTo(-1.65, -.35);
-            c.closePath();
-            c.fill();
-            c.stroke();
-            if (h.car === 'truck') {
-                c.fillStyle = h.paint;
-                c.fillRect(-1.6, .3, 1.55, .55);
-                c.strokeRect(-1.6, .3, 1.55, .55);
-            }
-            if (h.car === 'rover') {
-                c.beginPath();
-                c.moveTo(-.8, 1.2);
-                c.lineTo(-.8, 1.8);
-                c.stroke();
-                c.fillStyle = '#e9cd80';
-                c.beginPath();
-                c.arc(-.8, 1.85, .09, 0, 7);
-                c.fill();
-            }
-            const driver = h.car === 'truck' ? .65 : .05;
-            c.fillStyle = '#f4dfaf';
-            c.beginPath();
-            c.arc(driver, .72, .25, 0, 7);
-            c.fill();
-            c.fillStyle = '#57775f';
-            c.fillRect(driver - .25, .87, .5, .13);
-            c.fillStyle = '#3d493a';
-            c.beginPath();
-            c.arc(driver + .1, .75, .035, 0, 7);
-            c.fill();
-            if (h.stats.power > H.getCar(h.car).power * 1.3) {
-                c.fillStyle = '#687d66';
-                c.fillRect(1, .35, .4, .25);
-                c.strokeRect(1, .35, .4, .25);
-            }
-            c.fillStyle = '#fff2b7';
-            c.fillRect(1.35, .05, .23, .15);
-            c.fillStyle = '#bd5747';
-            c.fillRect(-1.68, -.1, .12, .16);
+            ArcadeHillArt.drawBody(c, h);
             c.restore();
             if (h.contact && h.gas && !paused && options.quality() !== 'low') {
                 c.fillStyle = route.soil + 'aa';
