@@ -43,7 +43,7 @@ GAMES = {
 POINTS = [100, 80, 65, 55, 45, 35, 25, 20, 15, 10]
 PRIZES = [100, 75, 50]
 FIRST_GOAL_REWARD = 5
-MEDAL_REWARDS = [5, 10, 20]
+MEDAL_REWARDS = [3, 5, 10]
 # A fixed Monday anchor keeps seasons stable across years and server restarts.
 SEASON_ANCHOR = datetime(2026, 11, 2).date()
 DEFAULT_SETTINGS = {

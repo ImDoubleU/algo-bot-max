@@ -86,7 +86,7 @@ def test_first_reward_hard_medals_and_fortnightly_season_are_explained_consisten
     page.locator('.games-tabs [data-tab="achievements"]').click()
     medal = page.locator(".game-achievement").filter(has_text="Клавиатурный спринт · золото")
     assert "400" in medal.inner_text() and "99%" in medal.inner_text()
-    assert medal.locator("button").inner_text() == "+20 AC"
+    assert medal.locator("button").inner_text() == "+10 AC"
     page.locator('.games-tabs [data-tab="rewards"]').click()
     assert "один раз за всё время" in page.locator(".games-reward-summary").inner_text()
     page.locator('.games-tabs [data-tab="leaders"]').click()

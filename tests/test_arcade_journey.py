@@ -282,7 +282,7 @@ def test_adventure_weekly_reward_and_ranked_reward_share_the_same_once_only_cred
     ranked = store.session("p1", "debug", "ranked", "keyboard")
     assert finish(store, ranked, solve_debug(ranked["setup"]))["run"]["accepted"]
     assert len([a for a in store.profile("p1")["awards"] if a["kind"] == "first"]) == 1
-    assert store.claim("p1", reward["id"])["balance"] == 40
+    assert store.claim("p1", reward["id"])["balance"] == 23
 
 
 def test_adventure_result_collects_weekly_ac_automatically_through_the_real_interface(arcade):

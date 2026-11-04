@@ -112,7 +112,7 @@ def test_server_records_claims_survive_restart_and_duplicate_submits(store):
     with ThreadPoolExecutor(max_workers=4) as pool:
         list(pool.map(lambda _: store.claim("p1", award), range(4)))
     restarted = ArcadeStore(store.path, store.clock)
-    assert restarted.profile("p1")["balance"] == 40
+    assert restarted.profile("p1")["balance"] == 23
     assert restarted.replay("p1", result["run"]["id"])["actions"] == replay["events"]
     with pytest.raises(ArcadeError):
         restarted.replay("p2", result["run"]["id"])
@@ -563,7 +563,7 @@ def test_ui_generated_python_completion_award_and_replay(arcade):
     assert store.profile("p1")["best"]["debug"] == 8
     assert page.locator(".arcade-reward-receipt").is_visible()
     assert page.locator("[data-claim-result]").count() == 0
-    assert store.profile("p1")["balance"] == 40
+    assert store.profile("p1")["balance"] == 23
     page.locator(".arcade-result-details summary").click()
     page.locator("[data-analysis]").click()
     assert page.locator(".arcade-replay[open]").count() == 1

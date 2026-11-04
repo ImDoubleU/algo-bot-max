@@ -44,7 +44,7 @@ def test_saved_reward_receipt_survives_a_lost_response_and_restart_without_doubl
     restarted = ArcadeStore(store.path, store.clock)
     retry = restarted.finish("p1", session["id"], [], 0)
     assert retry["duplicate"] and retry["receipt"] == first["receipt"]
-    assert retry["receipt"]["credited"] == restarted.profile("p1")["balance"] == 40
+    assert retry["receipt"]["credited"] == restarted.profile("p1")["balance"] == 23
     assert not retry["rewards"]["awards"]
 
 
@@ -83,8 +83,8 @@ def test_reward_notice_survives_a_lost_finish_response_in_the_actual_window(arca
         page.locator("[data-next]").click()
     page.locator("[data-retry]").click()
     page.locator(".arcade-reward-receipt").wait_for()
-    assert "Ваша награда — 40 AC" in page.locator(".arcade-reward-receipt").inner_text()
-    assert store.profile("p1")["balance"] == 40
+    assert "Ваша награда — 23 AC" in page.locator(".arcade-reward-receipt").inner_text()
+    assert store.profile("p1")["balance"] == 23
 
 
 def test_leaving_typing_before_first_character_does_not_submit_an_unstarted_run(arcade):

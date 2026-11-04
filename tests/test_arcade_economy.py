@@ -39,15 +39,15 @@ def test_fixed_fortnights_follow_moscow_midnight_and_survive_new_year(moment, st
 def test_first_goal_and_medals_never_repeat_after_a_week_season_or_restart(store):
     finish_debug(store)
     first = store.profile("p1")
-    assert first["balance"] == 40
+    assert first["balance"] == 23
     assert first["goals"]["debug"]["reward"] == FIRST_GOAL_REWARD == 5
-    assert [a["amount"] for a in first["awards"] if a["kind"] == "master"] == [5, 10, 20]
+    assert [a["amount"] for a in first["awards"] if a["kind"] == "master"] == [3, 5, 10]
     for days in (8, 14, 35):
         store.clock.advance(days * 86400)
         store = ArcadeStore(store.path, store.clock)
         result, _, _ = finish_debug(store)
         assert result["rewards"] == dict(awards=[], credited=0, pending=0)
-        assert store.profile("p1")["balance"] == 40
+        assert store.profile("p1")["balance"] == 23
         assert store.profile("p1")["goals"]["debug"]["credited"]
 
 
@@ -90,7 +90,7 @@ def test_legacy_earned_amounts_stay_intact_and_do_not_create_a_second_goal(store
         store._credit(db, "p1")
     finish_debug(store)
     profile = store.profile("p1")
-    assert profile["balance"] == 60  # Original 45 + new bronze 5 + new silver 10.
+    assert profile["balance"] == 53  # Original 45 + new bronze 3 + new silver 5.
     assert profile["goals"]["debug"]["reward"] == 10
     assert not any(a["kind"] == "first" for a in profile["awards"])
     gold = next(a for a in profile["achievements"] if a["game"] == "debug" and a["tier"] == 2)
@@ -112,13 +112,37 @@ def test_existing_weekly_history_is_not_paid_again_as_an_old_season(store):
     assert migrated.board()["history"][0]["days"] == 7
 
 
+def test_lower_medal_rates_preserve_earned_unclaimed_amounts_and_apply_to_new_players(store):
+    with store.db() as db:
+        for tier, amount in enumerate((5, 10, 20)):
+            store._award(
+                db,
+                "p1",
+                "master",
+                "all",
+                f"master3:p1:debug:{tier}",
+                amount,
+                "Previously earned medal",
+            )
+    result, _, _ = finish_debug(store)
+    assert result["rewards"]["credited"] == 40  # First goal 5 + existing medals 35.
+    old = ArcadeStore(store.path, store.clock).profile("p1")
+    assert [b["reward"] for b in old["achievements"] if b["game"] == "debug"] == [5, 10, 20]
+    assert old["balance"] == 40
+    new, _, _ = finish_debug(store, player="p2")
+    assert new["rewards"]["credited"] == 23
+    assert store.profile("p2")["balance"] == 23
+    repeated, _, _ = finish_debug(store)
+    assert not repeated["rewards"]["awards"] and store.profile("p1")["balance"] == 40
+
+
 def test_medals_need_strong_scores_and_quality_not_a_basic_goal(store):
     for game, (goal, targets) in GAMES.items():
         assert goal < targets[0]
         assert not store._master(game, goal, {}, 0)
         assert targets == sorted(targets)
-    assert MEDAL_REWARDS == [5, 10, 20]
-    assert len(GAMES) * (FIRST_GOAL_REWARD + sum(MEDAL_REWARDS)) == 640
+    assert MEDAL_REWARDS == [3, 5, 10]
+    assert len(GAMES) * (FIRST_GOAL_REWARD + sum(MEDAL_REWARDS)) == 368
     assert not store._master("typing", 400, {"accuracy": 98}, 2)
     assert store._master("typing", 400, {"accuracy": 99}, 2)
     assert not store._master("react", 15, {"reactionMs": 221, "mistakes": 0}, 2)
@@ -137,12 +161,12 @@ def test_weekly_boundary_inside_a_season_keeps_a_valid_attempt_ranked(store):
     result, _, _ = finish_debug(store)
     assert result["run"]["accepted"]
     assert season_key(store.clock()) == "2026-11-02"
-    assert store.profile("p1")["balance"] == 40
+    assert store.profile("p1")["balance"] == 23
 
 
 @pytest.mark.parametrize(
     "prize,expected",
-    [(0, [640, 0, 0]), (50, [740, 100, 100]), (75, [790, 150, 150]), (100, [840, 200, 200])],
+    [(0, [368, 0, 0]), (50, [468, 100, 100]), (75, [518, 150, 150]), (100, [568, 200, 200])],
 )
 def test_calendar_projection_uses_actual_weekly_caps_and_two_fortnightly_payouts(prize, expected):
     months = project(date(2026, 11, 3), prize)
@@ -180,4 +204,4 @@ def test_hard_gold_targets_are_reachable_through_verified_actions(store, game):
         a for a in store.profile("p1")["achievements"] if a["game"] == game and a["tier"] == 2
     )
     assert gold["unlocked"], result["run"]["report"]
-    assert result["rewards"]["credited"] == 40
+    assert result["rewards"]["credited"] == 23
