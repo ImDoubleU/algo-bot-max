@@ -18,7 +18,7 @@ def store(tmp_path, monkeypatch):
     return store
 
 
-def drive(setup, seconds=30):
+def drive(setup, seconds=600):
     with arcade_runtime.context() as vm:
         vm.eval("""function drive(setup,seconds){
           const W=ArcadeWorld,w=W.create(setup),events=[];
@@ -102,14 +102,14 @@ def test_verified_finish_pays_garage_once_and_never_touches_other_player_or_farm
     assert HillStore(ArcadeStore(store.path, store.clock)).get("p1") == saved
 
 
-def test_leaving_keeps_verified_driving_rewards_but_fake_input_does_not_pay(store):
+def test_leaving_an_incomplete_drive_does_not_pay_and_fake_input_cannot_create_coins(store):
     garage = HillStore(store)
     session = store.session("p1", "hill", "practice", "keyboard")
     run = drive(session["setup"], 5)
     reward = run["report"]["details"]["coins"] + run["report"]["score"] // 15
     result = finish(store, session, run, abandoned=True)
-    assert result["garage_coins"] == reward > 0
-    assert garage.get("p1")["balance"] == 250 + reward
+    assert reward > 0 and result["garage_coins"] == 0
+    assert garage.get("p1")["balance"] == 250
     assert not result["run"]["accepted"]
     assert store.profile("p1")["balance"] == 0
     session = store.session("p1", "hill", "practice", "keyboard")

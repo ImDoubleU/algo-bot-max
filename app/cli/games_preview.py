@@ -55,19 +55,19 @@ def inject_games(source: str) -> str:
         '<script src="/miniapp/static/games-art.js?v=2"></script>'
         '<script src="/miniapp/static/games-journey.js?v=3"></script>'
         '<script src="/miniapp/static/games-drop.js?v=2"></script>'
-        '<script src="/miniapp/static/games-world.js?v=6"></script>'
+        '<script src="/miniapp/static/games-world.js?v=7"></script>'
         '<script src="/miniapp/static/games-sprites.js?v=1"></script>'
         '<script src="/miniapp/static/games-view.js?v=7"></script>'
         '<script src="/miniapp/static/games-extra-view.js?v=2"></script>'
-        '<script src="/miniapp/static/games-hill-view.js?v=3"></script>'
+        '<script src="/miniapp/static/games-hill-view.js?v=4"></script>'
         '<script src="/miniapp/static/games-hill-garage.js?v=3"></script>'
         '<script src="/miniapp/static/games-farm-art.js?v=3"></script>'
         '<script src="/miniapp/static/games-farm.js?v=4"></script>'
         '<script src="/miniapp/static/games-journey-view.js?v=6"></script>'
         '<script src="/miniapp/static/games-menu.js?v=3"></script>'
         '<script src="/miniapp/static/games-personality.js?v=3"></script>'
-        '<script src="/miniapp/static/games-results.js?v=5"></script>'
-        '<script src="/miniapp/static/app-games.js?v=20"></script>',
+        '<script src="/miniapp/static/games-results.js?v=6"></script>'
+        '<script src="/miniapp/static/app-games.js?v=21"></script>',
         source,
         count=1,
     )

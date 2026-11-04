@@ -124,6 +124,8 @@ class ArcadeStore:
                 created REAL NOT NULL,claimed INTEGER NOT NULL DEFAULT 0,credited REAL);
               CREATE TABLE IF NOT EXISTS arcade_credits(award TEXT PRIMARY KEY,player TEXT NOT NULL,
                 week TEXT NOT NULL,amount INTEGER NOT NULL,created REAL NOT NULL);
+              CREATE TABLE IF NOT EXISTS arcade_receipts(session TEXT PRIMARY KEY,
+                payload TEXT NOT NULL);
               CREATE TABLE IF NOT EXISTS arcade_weeks(week TEXT PRIMARY KEY,closed REAL NOT NULL,
                 winners TEXT NOT NULL,standings TEXT NOT NULL);
               CREATE TABLE IF NOT EXISTS arcade_seasons(week TEXT PRIMARY KEY,closed REAL NOT NULL,
@@ -234,6 +236,12 @@ class ArcadeStore:
             and (report["game"] != "typing" or report["details"].get("accuracy", 0) >= 90)
         )
 
+    def _receipt(self, db, session):
+        row = db.execute(
+            "SELECT payload FROM arcade_receipts WHERE session=?", (session,)
+        ).fetchone()
+        return json.loads(row[0]) if row else {"awards": [], "credited": 0, "pending": 0}
+
     def _goal_award(self, db, player, game):
         # A previously earned weekly goal counts as the lifetime first reward.
         # Keep its original amount, including legacy pending/unclaimed awards.
@@ -250,20 +258,31 @@ class ArcadeStore:
         return self._quality(game, details, tier)
 
     def _quality(self, game, details, tier):
-        if game == "typing":
-            return details.get("accuracy", 0) >= [95, 97, 99][tier]
-        if game == "react":
-            return (
-                details.get("mistakes", 99) == 0
-                and 80 <= details.get("reactionMs", 0) <= [320, 260, 220][tier]
+        rules = self._medal_requirements(game, tier)
+        return (
+            ("accuracy" not in rules or details.get("accuracy", 0) >= rules["accuracy"])
+            and ("mistakes" not in rules or details.get("mistakes", 99) == rules["mistakes"])
+            and (
+                "reactionMs" not in rules
+                or 80 <= details.get("reactionMs", 0) <= rules["reactionMs"]
             )
+            and ("timeMs" not in rules or 0 < details.get("timeMs", 0) <= rules["timeMs"])
+            and ("moves" not in rules or 0 < details.get("moves", 0) <= rules["moves"])
+        )
+
+    def _medal_requirements(self, game, tier):
+        """Machine-readable counterparts of the conditions displayed to the player."""
+        if game == "typing":
+            return {"accuracy": [95, 97, 99][tier]}
+        if game == "react":
+            return {"mistakes": 0, "reactionMs": [320, 260, 220][tier]}
         if game == "debug":
-            return 0 < details.get("timeMs", 0) <= [180000, 120000, 60000][tier]
+            return {"timeMs": [180000, 120000, 60000][tier]}
         if game == "memory" and tier > 0:
-            return 0 < details.get("moves", 0) <= [0, 80, 60][tier]
+            return {"moves": [0, 80, 60][tier]}
         if game == "words" and tier == 2:
-            return 0 < details.get("timeMs", 0) <= 150000
-        return True
+            return {"timeMs": 150000}
+        return {}
 
     def _medal_condition(self, game, tier):
         if game == "typing":
@@ -338,6 +357,7 @@ class ArcadeStore:
                 "seed": seed,
                 "mode": mode,
                 "device": device,
+                "continuous": True,
                 "weak": "".join(sorted(weak, key=weak.get, reverse=True)[:6])
                 if mode == "practice"
                 else "",
@@ -345,6 +365,8 @@ class ArcadeStore:
             if game == "drop":
                 setup["dropPhysics"] = 3
                 setup["arena"] = arena or "classic"
+            if game == "sort" and mode == "ranked":
+                setup["roundSeconds"] = 600
             if journey:
                 setup["journey"] = journey
                 seed = int.from_bytes(
@@ -375,6 +397,8 @@ class ArcadeStore:
             ).fetchone()
             if not row or row["status"] == "finished" or self.clock() - row["created"] > 7200:
                 raise ArcadeError("Эта попытка уже закрыта. Начни новую игру.")
+            if action in ("pause", "resume") and json.loads(row["setup"]).get("continuous"):
+                raise ArcadeError("В этой партии время идёт без пауз.")
             if action == "start" and row["started"] is None:
                 db.execute(
                     "UPDATE arcade_sessions SET started=?,status='playing' WHERE id=?",
@@ -410,6 +434,7 @@ class ArcadeStore:
                     },
                     "duplicate": True,
                     "rewards": {"awards": [], "credited": 0, "pending": 0},
+                    "receipt": self._receipt(db, session),
                     "garage_coins": arcade_hill.reward_for(db, session),
                 }
             row = db.execute(
@@ -451,10 +476,12 @@ class ArcadeStore:
             and report["details"].get("reactionMs", 0) < 80
         ):
             raise ArcadeError("Время реакции не прошло проверку. Начни новую попытку.")
+        # Closing the page on the winning frame must not erase a completed level.
+        abandoned = bool(abandoned and not report["complete"])
         accepted = (
             row["mode"] == "ranked"
             and row["game"] in GAMES
-            and (report["complete"] or row["game"] not in FINITE)
+            and (report["complete"] or not setup.get("continuous") and row["game"] not in FINITE)
             and not abandoned
             and season_key(row["created"]) == season_key(self.clock())
         )
@@ -474,6 +501,7 @@ class ArcadeStore:
                     },
                     "duplicate": True,
                     "rewards": {"awards": [], "credited": 0, "pending": 0},
+                    "receipt": self._receipt(db, session),
                     "garage_coins": arcade_hill.reward_for(db, session),
                 }
             db.execute(
@@ -528,6 +556,7 @@ class ArcadeStore:
             if (
                 row["game"] in GAMES
                 and row["mode"] == "journey"
+                and not abandoned
                 and report.get("journey", {}).get("success")
             ):
                 arcade_journey.record(db, player, row["game"], report, now)
@@ -549,7 +578,7 @@ class ArcadeStore:
                             f"{title} · {['бронза', 'серебро', 'золото'][tier]}",
                         )
             garage_coins = 0
-            if row["game"] == "hill":
+            if row["game"] == "hill" and report["complete"] and not abandoned:
                 garage_coins = arcade_hill.record(db, player, session, report, now)
             self._credit(db, player)
             rewards = {"awards": [], "credited": 0, "pending": 0}
@@ -579,16 +608,19 @@ class ArcadeStore:
             self._log(
                 db, player, session, "run_verified", f"{row['game']}:{report['score']}:{accepted}"
             )
+            db.execute("INSERT INTO arcade_receipts VALUES(?,?)", (session, json.dumps(rewards)))
         return {
             "run": {"id": key, "score": report["score"], "accepted": accepted, "report": report},
             "duplicate": False,
             "rewards": rewards,
+            "receipt": rewards,
             "garage_coins": garage_coins,
         }
 
     def _rows(self, db, period, game=None):
         query = (
-            "SELECT r.*,p.name,p.group_name FROM arcade_runs r "
+            "SELECT r.player,r.game,r.device,r.created,r.score,r.rank_score,r.report,"
+            "p.name,p.group_name FROM arcade_runs r "
             "JOIN arcade_players p ON p.id=r.player WHERE accepted=1"
         )
         args = []
@@ -778,13 +810,14 @@ class ArcadeStore:
             rows = [
                 dict(r)
                 for r in db.execute(
-                    "SELECT * FROM arcade_runs WHERE player=? ORDER BY created DESC LIMIT 150",
+                    "SELECT id,session,player,game,mode,device,week,created,score,rank_score,"
+                    "report,ticks,accepted FROM arcade_runs WHERE player=? "
+                    "ORDER BY created DESC LIMIT 150",
                     (player,),
                 )
             ]
             for row in rows:
                 row["report"] = json.loads(row["report"])
-                row.pop("actions")
             awards = [
                 dict(r)
                 for r in db.execute(
@@ -802,7 +835,8 @@ class ArcadeStore:
             verified = [
                 dict(r)
                 for r in db.execute(
-                    "SELECT * FROM arcade_runs WHERE player=? AND accepted=1", (player,)
+                    "SELECT game,score,report FROM arcade_runs WHERE player=? AND accepted=1",
+                    (player,),
                 )
             ]
             for record in verified:
@@ -837,6 +871,7 @@ class ArcadeStore:
                             "value": min(target, value),
                             "reward": award["amount"] if award else MEDAL_REWARDS[tier],
                             "condition": self._medal_condition(game, tier),
+                            "requirements": self._medal_requirements(game, tier),
                             "unlocked": bool(award),
                             "claimed": bool(award and award["claimed"]),
                             "credited": bool(award and award["credited"] is not None),
@@ -960,8 +995,10 @@ class ArcadeStore:
         return settings
 
     def policy(self, cap):
-        if not isinstance(cap, int) or not 50 <= cap <= 1000:
-            raise ArcadeError("Выбери лимит от 50 до 1000 AC.")
+        if type(cap) is not int or not max(PRIZES) <= cap <= 1000:
+            raise ArcadeError(
+                "Выбери лимит от 100 до 1000 AC, чтобы призы рейтинга могли начисляться."
+            )
         next_week = (
             (datetime.fromisoformat(week_key(self.clock())) + timedelta(days=7)).date().isoformat()
         )

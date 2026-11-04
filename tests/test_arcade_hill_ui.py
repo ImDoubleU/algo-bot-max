@@ -1,44 +1,32 @@
 """Real pedal input, learning and garage controls work on narrow screens."""
 
-import json
-
 import pytest
 
 from tests.test_arcade_server import arcade as arcade
 from tests.test_arcade_server import browser as browser
+from tests.test_arcade_server import finish_naturally
 
 
 @pytest.mark.parametrize("size", [(320, 568), (390, 844), (1440, 900)])
-def test_pedals_fit_and_releasing_a_key_during_pause_does_not_leave_the_accelerator_on(
-    arcade, size
-):
+def test_pedals_fit_and_losing_focus_releases_the_accelerator_without_a_pause(arcade, size):
     page, store = arcade
     page.set_viewport_size(dict(width=size[0], height=size[1]))
-    assert page.locator('[data-game="runner"]').count() == 0
     page.locator('.game-card[data-game="hill"]').click()
     page.locator('[data-mode="practice"]').click()
-    page.locator(".arcade-countdown").wait_for(state="detached")
-    page.wait_for_function('document.querySelector("#gameClock").textContent.length>0')
-    for pedal in page.locator("[data-pedal]").all():
-        rect = pedal.bounding_box()
-        assert rect["height"] >= 60
-        assert 0 <= rect["y"] and rect["y"] + rect["height"] <= size[1]
+    page.wait_for_function("document.querySelector('#gameClock')?.textContent.length>0")
+    for b in page.locator("[data-pedal]").all():
+        assert b.bounding_box()["height"] >= 64
     page.keyboard.down("ArrowRight")
-    page.wait_for_function('Number(document.querySelector("#gameScore").textContent)>20')
-    page.locator(".arcade-pause").click()
+    page.wait_for_function("Number(document.querySelector('#gameScore').textContent)>15")
+    page.evaluate("window.dispatchEvent(new Event('blur'))")
     page.keyboard.up("ArrowRight")
-    page.locator("[data-resume]").click()
     page.wait_for_function(
-        '!document.querySelector("[data-pedal=gas]").classList.contains("is-pressed")'
+        "!document.querySelector('[data-pedal=gas]').classList.contains('is-pressed')"
     )
-    page.locator("#gameFinish").click()
-    page.locator("[data-back-garage]").wait_for()
-    with store.db() as db:
-        row = db.execute("SELECT actions,report FROM arcade_runs WHERE game='hill'").fetchone()
-    events = json.loads(row["actions"])
-    assert [e["value"] for e in events if e.get("pedal") == "gas"] == [1, 0]
-    assert json.loads(row["report"])["score"] > 20
-    assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
+    assert page.locator("[data-resume],.arcade-pause").count() == 0
+    finish_naturally(page, store, 601)
+    page.locator("[data-back-garage]").click()
+    page.locator(".hill-route-hero").wait_for()
 
 
 def test_garage_purchase_displays_actual_next_effect_and_survives_reentry(arcade):

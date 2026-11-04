@@ -151,13 +151,12 @@ def test_server_rejects_clock_owner_cohort_and_event_order(store):
     ):
         with pytest.raises(ArcadeError):
             store.finish("p1", session["id"], actions, 120)
-    store.clock_action("p1", session["id"], "pause")
-    store.clock.advance(60)
     with pytest.raises(ArcadeError):
-        store.finish("p1", session["id"], [], 600)
-    store.clock_action("p1", session["id"], "resume")
+        store.clock_action("p1", session["id"], "pause")
+    with pytest.raises(ArcadeError):
+        store.clock_action("p1", session["id"], "resume")
     store.clock.advance(1)
-    assert store.finish("p1", session["id"], [], 120)["run"]["accepted"]
+    assert not store.finish("p1", session["id"], [], 120)["run"]["accepted"]
 
 
 def test_typing_needs_accuracy_and_practice_adapts_to_missed_letters(store):
@@ -329,6 +328,19 @@ def test_api_rejects_scores_without_trace_extra_fields_and_director_only_policy(
     )
 
 
+def finish_naturally(page, store, seconds=3601):
+    """Advance both clocks; the shared world must reach a real terminal state."""
+    previous_clock = store.clock
+    store.clock = lambda: previous_clock() + seconds
+    page.evaluate(
+        """seconds=>{const now=performance.now.bind(performance);
+      performance.now=()=>now()+seconds*1000;}""",
+        seconds,
+    )
+    page.locator(".game-result").wait_for()
+    page.locator("[data-again],[data-journey-next],[data-retry]").first.wait_for()
+
+
 @pytest.fixture
 def browser():
     pw = pytest.importorskip("playwright.sync_api")
@@ -409,65 +421,41 @@ def arcade(browser, tmp_path, request):
 
 
 @pytest.mark.parametrize("width", [320, 390, 768, 1440])
-def test_all_ten_games_start_pause_finish_and_fit(arcade, width):
+def test_all_games_start_without_pause_finish_naturally_and_fit(arcade, width):
     page, store = arcade
-    page.set_viewport_size({"width": width, "height": 900})
+    page.set_viewport_size(dict(width=width, height=900))
     assert page.locator(".game-card").count() == len(GAMES)
     for game in GAMES:
         page.locator(f'.game-card[data-game="{game}"]').click()
-        if game == "kopatych":
-            page.locator("[data-menu-levels]").click()
-            page.locator("[data-farm-sprint]").first.click()
         page.locator('[data-mode="ranked"]').click()
-        try:
-            page.locator(".arcade-pause").wait_for(state="visible")
-        except Exception:
-            print(
-                game,
-                page.locator("dialog[open]").inner_text(),
-                page.locator("body").inner_text()[-400:],
-            )
-            raise
         page.wait_for_function("document.querySelector('#gameClock')?.textContent.length>0")
+        assert page.locator(".arcade-pause,#gameFinish").count() == 0
+        assert page.locator(".game-leaders-button").is_hidden()
         if game == "typing":
-            field = page.locator(".typing-input")
-            field.press_sequentially("Кос")
+            page.locator(".typing-input").press_sequentially("Кос")
             page.wait_for_function(
                 "/^\\d+ с$/.test(document.querySelector('#gameClock').textContent)"
             )
         elif game == "2048":
             page.keyboard.press("ArrowLeft")
-        page.keyboard.press("Escape")
-        try:
-            page.get_by_role("button", name="Продолжить").wait_for()
-        except Exception:
-            print("PAUSE", game, page.locator("body").inner_text()[-800:])
-            raise
-        ticks = page.locator("#gameClock").inner_text()
-        page.wait_for_timeout(50)
-        assert page.locator("#gameClock").inner_text() == ticks
-        page.get_by_role("button", name="Продолжить").click()
-        page.wait_for_timeout(50)
-        page.locator("#gameFinish").click()
-        page.locator("[data-again]").wait_for()
+        finish_naturally(page, store)
         assert "Не удалось" not in page.locator(".game-result").inner_text()
-        assert page.locator("dialog[open]").evaluate("(d)=>d.scrollWidth<=d.clientWidth")
+        assert page.locator(".game-dialog").evaluate("d=>d.scrollWidth<=d.clientWidth")
+        assert page.locator(".game-leaders-button").is_visible()
         page.locator("[data-back]").click()
     assert len(store.profile("p1")["runs"]) == len(GAMES)
     assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
 
 
 def test_tutorial_then_real_2048_has_one_handler_and_practice_undo(arcade):
-    page, _ = arcade
+    page, store = arcade
     page.locator('.game-card[data-game="2048"]').click()
     page.locator("[data-menu-learning]").click()
     page.keyboard.press("ArrowLeft")
     page.locator("[data-learning-play]").click()
     page.wait_for_function("document.querySelector('#gameClock')?.textContent.length>0")
     page.keyboard.press("ArrowLeft")
-    page.keyboard.press("Escape")
-    page.get_by_role("button", name="Продолжить").click()
-    page.locator("#gameFinish").click()
+    finish_naturally(page, store)
     page.locator("[data-back]").click()
     page.locator('.game-card[data-game="2048"]').click()
     page.locator('[data-mode="practice"]').click()
@@ -592,7 +580,7 @@ def test_first_character_starts_typing_timer_and_new_page_restores_results(arcad
     sample = page.locator(".typing-passage").inner_text()[:3]
     page.locator(".typing-input").press_sequentially(sample)
     page.wait_for_function("/^\\d+ с$/.test(document.querySelector('#gameClock').textContent)")
-    page.locator("#gameFinish").click()
+    finish_naturally(page, store)
     page.locator("[data-back]").click()
     other = page.context.new_page()
     other.goto(page.url)
@@ -660,7 +648,7 @@ def test_tower_combo_and_drop_queue_are_physical_world_state():
 
 def play_extra(store, game, script, mode="ranked"):
     session = store.session("p1", game, mode, "keyboard")
-    run = trace(session["setup"], script)
+    run = trace(session["setup"], script + ";W.advance(w,ArcadeWorld.MAX_TICKS-w.tick);")
     store.clock_action("p1", session["id"], "start")
     store.clock.advance(run["ticks"] / 60 + 1)
     result = store.finish("p1", session["id"], run["events"], run["ticks"])
@@ -878,7 +866,7 @@ def test_expansion_accepts_real_touch_input_and_onscreen_letters(arcade):
     for _ in range(3):
         page.locator(".kopatych-tap").tap()
         page.wait_for_timeout(100)
-    page.locator("#gameFinish").tap()
+    finish_naturally(page, store)
     page.locator("[data-back]").tap()
     run = store.profile("p1")["runs"][0]
     assert run["score"] == 3
@@ -890,7 +878,7 @@ def test_expansion_accepts_real_touch_input_and_onscreen_letters(arcade):
     page.locator('[data-piece="0"]').tap()
     page.locator('[data-block-cell="0"]').tap()
     assert page.locator(".block-cell.is-filled").count() > 0
-    page.locator("#gameFinish").tap()
+    finish_naturally(page, store)
     page.locator("[data-back]").tap()
     page.locator('.game-card[data-game="words"]').tap()
     page.locator("[data-menu-learning]").tap()
@@ -1028,7 +1016,7 @@ def test_farm_tournament_remains_separate_from_passive_carrots(arcade):
     assert page.locator("#kopatychFarm").count() == 0
     page.locator('[data-mode="ranked"]').click()
     page.wait_for_function("document.querySelector('#gameClock')?.textContent==='90 с'")
-    page.locator("#gameFinish").click()
+    finish_naturally(page, store)
     page.locator("[data-back]").click()
     assert not store.profile("p1")["goals"]["kopatych"]["eligible"]
 

@@ -240,6 +240,20 @@ function playAdventure(setup, attempt = 0) {
         x
       });
       wait(45);
+    } else if (id === 'hill') {
+      const h = w.hill,
+        angle = Math.atan2(Math.sin(h.angle), Math.cos(h.angle)),
+        lookahead = [0, .2, .4, .6, .8][attempt % 5],
+        landing = lookahead ? Math.atan(ArcadeHill.slope(w, h.x + h.vx * lookahead)) : 0,
+        error = landing - angle - h.omega * (.25 + (attempt % 3) * .1);
+      const pedals = {
+        gas: h.contact ? Number(angle < .75 + (attempt % 5) * .15) : Number(error > .04),
+        brake: h.contact ? Number(angle > 1 + (attempt % 5) * .15) : Number(error < -.08)
+      };
+      for (const [pedal, value] of Object.entries(pedals)) {
+        if (h[pedal] !== value) send({type: 'pedal', pedal, value});
+      }
+      wait(6);
     } else if (id === 'runner') {
       const speed = 155 + Math.min(160, w.score * 4.5),
         o = w.obstacles.find(o => !o.passed && o.x + o.width > 65);

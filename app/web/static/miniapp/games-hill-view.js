@@ -78,9 +78,15 @@
                 control(pedal, e.code, false);
             }
         });
-        on(window, 'blur', () => {
+        const releaseControls = () => {
             state.reset = true;
-            for (const key of ['gas', 'brake']) pressed[key].clear();
+            for (const key of ['gas', 'brake']) {
+                for (const held of [...pressed[key]]) control(key, held, false);
+            }
+        };
+        on(window, 'blur', releaseControls);
+        on(document, 'visibilitychange', () => {
+            if (document.hidden) releaseControls();
         });
 
         function update(w) {

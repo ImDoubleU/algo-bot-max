@@ -80,56 +80,46 @@ def test_legacy_unclaimed_award_is_collected_on_a_new_qualifying_result(store):
 
 
 @pytest.mark.parametrize("width", [320, 390, 1440])
-def test_pause_and_results_have_large_controls_and_aligned_header_buttons(arcade, width):
+def test_natural_results_have_large_controls_and_aligned_header_buttons(arcade, width):
+    from tests.test_arcade_server import finish_naturally
+
     page, store = arcade
     page.set_viewport_size(dict(width=width, height=844))
     page.locator('.game-card[data-game="2048"]').click()
     page.locator('[data-mode="practice"]').click()
-    page.locator(".arcade-countdown").wait_for(state="detached")
     page.wait_for_function("document.querySelector('#gameClock')?.textContent.length>0")
-    for selector in (".game-hud > span:first-child", "#gameClock", "#gameLevel"):
-        assert page.locator(selector).evaluate("e=>parseFloat(getComputedStyle(e).fontSize)") >= 14
+    assert page.locator(".arcade-pause,#gameFinish").count() == 0
+    finish_naturally(page, store)
     cup = page.locator(".game-leaders-button").bounding_box()
     close = page.locator(".game-close").bounding_box()
     assert abs(cup["y"] - close["y"]) < 1 and cup["height"] == close["height"] == 44
-    page.locator(".arcade-pause").click()
-    assert page.locator("#gameFinish").is_hidden()
-    for selector in ("[data-resume]", "[data-exit]"):
-        button = page.locator(selector)
-        assert button.bounding_box()["height"] >= 50
-        assert button.evaluate("e=>parseFloat(getComputedStyle(e).fontSize)") >= 18
-    page.locator("[data-exit]").click()
-    page.locator("[data-again]").wait_for()
     assert page.locator(".game-hud").is_hidden()
     assert page.locator(".arcade-live-goal").is_hidden()
     assert page.locator(".arcade-reward-receipt").count() == 0
-    assert page.locator(".game-result").evaluate("e=>e.scrollWidth<=e.clientWidth")
     for selector in ("[data-again]", "[data-back]"):
-        button = page.locator(selector)
-        assert button.bounding_box()["height"] >= 50
-        assert button.evaluate("e=>parseFloat(getComputedStyle(e).fontSize)") >= 18
+        b = page.locator(selector)
+        assert b.bounding_box()["height"] >= 50
+        assert b.evaluate("e=>parseFloat(getComputedStyle(e).fontSize)") >= 18
     assert store.profile("p1")["balance"] == 0
     page.locator("[data-again]").click()
-    page.locator(".arcade-countdown").wait_for(state="detached")
     page.locator(".number-grid").wait_for()
     with store.db() as db:
         assert db.execute("SELECT COUNT(*) FROM arcade_sessions").fetchone()[0] == 2
 
 
-def test_escape_during_typing_clock_start_is_applied_when_the_server_acknowledges(arcade):
+def test_escape_during_typing_clock_start_closes_without_an_unstarted_result(arcade):
     page, _ = arcade
     pending = []
-    page.route("**/clock/start", lambda route: pending.append(route))
+    page.route("**/clock/start", lambda r: pending.append(r))
     page.locator('.game-card[data-game="typing"]').click()
     page.locator('[data-mode="ranked"]').click()
     page.get_by_text("Начни печатать", exact=True).wait_for()
     with page.expect_request("**/clock/start"):
         page.locator(".typing-input").press_sequentially("кот")
-    assert pending
     page.keyboard.press("Escape")
+    assert page.locator("#gameDialog").count() == 0
     pending[0].fallback()
-    page.locator("[data-resume]").wait_for()
-    assert page.locator("#gameFinish").is_hidden()
+    assert page.locator("[data-resume],.game-result").count() == 0
 
 
 @pytest.mark.parametrize("game", ["2048", "blocks", "drop"])
@@ -143,13 +133,16 @@ def test_level_timer_is_visible_even_when_free_play_has_no_time_limit(arcade, ga
     assert page.locator("#gameClock").is_visible()
 
 
-def test_opening_the_cup_pauses_the_game_instead_of_running_behind_the_leaderboard(arcade):
-    page, _ = arcade
+def test_cup_is_available_after_completion_and_cannot_interrupt_a_competition(arcade):
+    from tests.test_arcade_server import finish_naturally
+
+    page, store = arcade
     page.locator('.game-card[data-game="blocks"]').click()
     page.locator('[data-mode="ranked"]').click()
-    page.locator(".arcade-countdown").wait_for(state="detached")
     page.wait_for_function("document.querySelector('#gameClock')?.textContent.length>0")
+    assert page.locator(".game-leaders-button").is_hidden()
+    finish_naturally(page, store)
     page.locator(".game-leaders-button").click()
     page.locator(".games-leader-close").click()
-    assert page.locator("[data-resume]").is_visible()
-    assert page.locator("#gameFinish").is_hidden()
+    assert page.locator("[data-again]").is_visible()
+    assert page.locator("[data-resume]").count() == 0

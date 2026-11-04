@@ -7,6 +7,25 @@ from pathlib import Path
 
 from app.cli.farm_simulation import SimulationClock, SimulationStore
 from app.services import arcade_journey, arcade_runtime
+from app.services.arcade_hill import HillStore
+
+
+def improve_garage(store):
+    """Only spend coins earned by real runs; never grant money or parts."""
+    garage = HillStore(store)
+    state = garage.get("pilot")
+    if any(t["ready"] and not t["claimed"] for t in state["tasks"]):
+        state = garage.act("pilot", f"sim-claim-{store.clock()}", "claim_all")
+    while True:
+        affordable = [
+            p for p in state["parts"] if p["tier"] < 10 and p["price"] <= state["balance"]
+        ]
+        if not affordable:
+            return
+        part = min(affordable, key=lambda p: (p["tier"], p["price"]))
+        state = garage.act(
+            "pilot", f"sim-buy-{store.clock()}-{part['id']}-{part['tier']}", "upgrade", part["id"]
+        )
 
 
 def run(games, report_path):
@@ -25,7 +44,9 @@ def run(games, report_path):
                 for game in games:
                     for stage in range(1, 25):
                         passed = False
-                        for attempt in range(5):
+                        for attempt in range(20 if game == "hill" else 5):
+                            if game == "hill":
+                                improve_garage(store)
                             session = store.session("pilot", game, "journey", "keyboard", stage)
                             trace = vm.call(
                                 "playAdventure", session["setup"], attempt, timeout_sec=90

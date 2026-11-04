@@ -304,7 +304,7 @@
     }
 
     function progress() {
-        const rows = profile.runs.filter(r => r.game === statsGame).slice(0, 10).reverse(),
+        const rows = profile.runs.filter(r => r.game === statsGame && (r.accepted || r.report.complete)).slice(0, 10).reverse(),
             max = Math.max(1, ...rows.map(r => r.score));
         const pts = rows.map((r, i) => `${20+i*260/Math.max(1,rows.length-1)},${110-r.score/max*85}`).join(" ");
         return masteryMarkup(true) + `<div class="arcade-progress-heading"><h3>Последние 10 партий</h3><select id="arcadeStatsGame">${E.games.map(g=>`<option value="${g.id}" ${statsGame===g.id?"selected":""}>${g.name}</option>`).join("")}</select></div>
@@ -455,11 +455,15 @@
                 }
             };
         } catch (error) {
-            host.innerHTML = `<p class="games-warning">${esc(error.message)}</p>`;
+            if (!host.isConnected || host.dataset.request !== key) return;
+            host.innerHTML = `<div class="games-warning" role="alert"><p>${esc(error.message)}</p><button class="arcade-subtle" data-board-retry>Попробовать снова</button></div>`;
+            $('[data-board-retry]', host).onclick = () => {
+                host.innerHTML = '<div class="arcade-loading" role="status">Загружаем рейтинг…</div>';
+                void drawBoard(host, game);
+            };
         }
     }
     async function openLeaders(game) {
-        if (play?.phase === "playing") await play.pause();
         $("#gamesLeaderDialog")?.remove();
         const d = document.createElement("dialog");
         d.id = "gamesLeaderDialog";
@@ -477,7 +481,7 @@
         d.className = "games-leader-dialog arcade-preferences";
         const p = profile.settings,
             admin = window.pizzaPreview?.role === "partner_director";
-        d.innerHTML = `<button class="games-leader-close" aria-label="Закрыть">×</button><h3>Настройки игр</h3><form><label>Качество эффектов<select name="quality"><option value="auto">Автоматически</option><option value="high">Высокое</option><option value="low">Экономное</option></select></label><label class="arcade-check"><input type="checkbox" name="sound" ${p.sound?"checked":""}> Звуки</label><label class="arcade-check"><input type="checkbox" name="vibration" ${p.vibration?"checked":""}> Вибрация</label><button class="games-main">Сохранить</button><p role="status"></p></form>${admin?`<form class="arcade-policy"><h4>Лимит наград</h4><label>AC за неделю<input type="number" min="50" max="1000" name="cap" value="${profile.nextCap}"></label><small>Изменение действует со следующей недели.</small><button class="arcade-subtle">Применить</button><p role="status"></p></form>`:""}`;
+        d.innerHTML = `<button class="games-leader-close" aria-label="Закрыть">×</button><h3>Настройки игр</h3><form><label>Качество эффектов<select name="quality"><option value="auto">Автоматически</option><option value="high">Высокое</option><option value="low">Экономное</option></select></label><label class="arcade-check"><input type="checkbox" name="sound" ${p.sound?"checked":""}> Звуки</label><label class="arcade-check"><input type="checkbox" name="vibration" ${p.vibration?"checked":""}> Вибрация</label><button class="games-main">Сохранить</button><p role="status"></p></form>${admin?`<form class="arcade-policy"><h4>Лимит наград</h4><label>AC за неделю<input type="number" min="100" max="1000" name="cap" value="${profile.nextCap}"></label><small>Изменение действует со следующей недели.</small><button class="arcade-subtle">Применить</button><p role="status"></p></form>`:""}`;
         document.body.append(d);
         d.showModal();
         $("[name=quality]", d).value = p.quality;
@@ -527,7 +531,7 @@
         d.id = "gameDialog";
         d.dataset.game = id;
         d.className = "game-dialog";
-        d.innerHTML = `<header><button class="game-menu-back" aria-label="Меню игры" hidden>←</button><div><h2>${g.name}</h2></div><button class="game-leaders-button" aria-label="Таблица лидеров">${ArcadeResults.trophy}</button><button class="game-close" aria-label="Закрыть игру">×</button></header><div class="game-hud"><span>Счёт <b id="gameScore">0</b></span><span id="gameClock"></span><span class="game-level" id="gameLevel">Сложность 1</span><button class="arcade-pause" aria-label="Пауза" hidden>Ⅱ</button></div><div class="arcade-live-goal"><span></span><progress value="0" max="${g.goal}"></progress></div><div class="arcade-learning-tip" role="status" hidden></div><div class="journey-tools" hidden><div><b></b><small></small></div><button></button></div><div class="game-stage"></div><footer><span id="gameHint"></span><button id="gameFinish" hidden>Завершить</button></footer>`;
+        d.innerHTML = `<header><button class="game-menu-back" aria-label="Меню игры" hidden>←</button><div><h2>${g.name}</h2></div><button class="game-leaders-button" aria-label="Таблица лидеров">${ArcadeResults.trophy}</button><button class="game-close" aria-label="Закрыть игру">×</button></header><div class="game-hud"><span>Счёт <b id="gameScore">0</b></span><span id="gameClock"></span><span class="game-level" id="gameLevel">Сложность 1</span></div><div class="arcade-live-goal"><span></span><progress value="0" max="${g.goal}"></progress></div><div class="arcade-learning-tip" role="status" hidden></div><div class="journey-tools" hidden><div><b></b><small></small></div><button></button></div><div class="game-stage"></div><footer><span id="gameHint"></span></footer>`;
         const run = {
             g,
             dialog: d,
@@ -541,7 +545,7 @@
             view: null,
             playedMs: 0,
             anchor: 0,
-            clockPromise: Promise.resolve(),
+            started: false,
             inputQueue: [],
             level: 1,
             lastCue: 0,
@@ -563,87 +567,37 @@
             type: 'power',
             source: run.device
         });
-        $(".game-close", d).onclick = () => {
-            if (["playing", "ready", "paused", "starting"].includes(run.phase)) run.pause(true);
-            else close();
-        };
-        $(".game-leaders-button", d).onclick = async () => {
-            if (["playing", "ready", "starting"].includes(run.phase)) await run.pause();
-            openLeaders(id);
-        };
-        $(".arcade-pause", d).onclick = () => run.pause();
+        $(".game-close", d).onclick = () => leave(run);
+        $(".game-leaders-button", d).onclick = () => openLeaders(id);
         d.addEventListener("cancel", e => {
             e.preventDefault();
-            if (run.phase === "playing" || run.phase === "ready" || run.phase === "starting") run.pause();
-            else if (run.phase === "paused") run.resume();
-            else close();
+            leave(run);
         });
-        run.pause = async exit => {
-            if (run.phase === 'starting') {
-                run.pauseQueued = true;
-                run.pauseExit = !!exit;
-                return;
-            }
-            if (run.phase !== "playing" && run.phase !== "ready") return;
-            const wasReady = run.phase === "ready";
-            const footerHidden = $('footer', d).hidden,
-                goalHidden = $('.arcade-live-goal', d).hidden;
-            if (!wasReady) {
-                catchUp(run);
-                run.playedMs += performance.now() - run.anchor;
-            }
-            if (run.world?.ended) return;
-            run.phase = "paused";
-            $('footer', d).hidden = true;
-            $('.arcade-live-goal', d).hidden = true;
-            const cover = document.createElement("div");
-            cover.className = "game-pause";
-            cover.innerHTML = `<span class="arcade-pause-symbol" aria-hidden="true">Ⅱ</span><h3>${exit?(run.g.id==='hill'?'Закончить заезд?':'Завершить игру?'):'Пауза'}</h3><button class="games-main" data-resume>Продолжить</button><button class="game-back" data-exit>${run.g.id==='hill'?'Закончить заезд':'Завершить игру'}</button>`;
-            $(".game-stage", d).append(cover);
-            if (!wasReady) run.clockPromise = run.clockPromise.then(() => api(`/sessions/${run.session.id}/clock/pause`, {
-                method: "POST"
-            })).catch(e => toast(e.message));
-            run.resume = async () => {
-                const b = $("[data-resume]", cover);
-                b.disabled = true;
-                await run.clockPromise;
-                if (play !== run) return;
-                if (!wasReady) try {
-                    await api(`/sessions/${run.session.id}/clock/resume`, {
-                        method: "POST"
-                    });
-                } catch (error) {
-                    toast(error.message);
-                    b.disabled = false;
-                    return;
-                }
-                cover.remove();
-                $('footer', d).hidden = footerHidden;
-                $('.arcade-live-goal', d).hidden = goalHidden;
-                run.anchor = performance.now();
-                run.phase = wasReady ? "ready" : "playing";
-            };
-            $("[data-resume]", cover).onclick = run.resume;
-            $("[data-exit]", cover).onclick = () => finish(run, true);
-        };
-        $("#gameFinish", d).onclick = () => finish(run, false);
-
         window.addEventListener("keydown", e => {
             if (e.code !== "Escape" || [...document.querySelectorAll("dialog[open]")].at(-1) !== d) return;
             e.preventDefault();
             e.stopImmediatePropagation();
-            if (run.phase === "playing" || run.phase === "ready" || run.phase === "starting") run.pause();
-            else if (run.phase === "paused") run.resume();
-            else if (!["countdown", "starting", "loading", "finishing"].includes(run.phase)) close();
-        }, {
-            capture: true,
-            signal: run.abort.signal
-        });
-        document.addEventListener("visibilitychange", () => {
-            if (document.hidden) run.pause();
-        }, {
-            signal: run.abort.signal
-        });
+            leave(run);
+        }, {capture: true, signal: run.abort.signal});
+    }
+
+    function discard(run) {
+        if (!run.started || run.recorded || !run.session) return;
+        void api(`/sessions/${run.session.id}/finish`, {
+            method: "POST", keepalive: true,
+            body: {actions: run.events, ticks: run.world.tick, abandoned: true}
+        }).catch(() => {});
+    }
+
+    function leave(run) {
+        if (play !== run) return;
+        if (run.phase === 'playing') catchUp(run);
+        if (run.world?.ended && !run.recorded && run.phase !== 'finishing') {
+            void finish(run, false);
+            return;
+        }
+        if (run.phase !== 'finishing') discard(run);
+        close();
     }
 
     function masteryGain(run, cover) {
@@ -872,8 +826,8 @@
         run.dialog.classList.remove('is-browsing', 'is-learning', 'is-finished');
         $('.arcade-learning-tip', run.dialog).hidden = true;
         $('.game-menu-back', run.dialog).hidden = true;
-        $('.game-leaders-button', run.dialog).hidden = false;
-        $('footer', run.dialog).hidden = false;
+        $('.game-leaders-button', run.dialog).hidden = true;
+        $('footer', run.dialog).hidden = true;
         $("#gameHint", run.dialog).textContent = `Цель: ${goal(run.g.id)}`;
         $(".game-stage", run.dialog).innerHTML = '<div class="arcade-loading">Готовим партию…</div>';
         const selectedMode = journeyStage ? 'journey' : mode;
@@ -909,9 +863,7 @@
         run.finishResult = null;
         run.record = null;
         run.inputQueue = [];
-        run.pauseQueued = false;
-        run.pauseExit = false;
-        run.clockPromise = Promise.resolve();
+        run.started = false;
         run.device = device;
         run.events = [];
         run.frames = [];
@@ -921,8 +873,6 @@
         $('.game-hud', run.dialog).hidden = false;
         $('.arcade-live-goal', run.dialog).hidden = false;
         run.dialog.scrollTop = 0;
-        $(".arcade-pause", run.dialog).hidden = false;
-        $("#gameFinish", run.dialog).hidden = false;
         run.oldBest = profile.best[run.g.id] || 0;
         if (run.g.id === "typing") {
             run.phase = "ready";
@@ -955,15 +905,15 @@
             close();
             return;
         }
-        if (play !== run) return;
+        run.started = true;
+        if (play !== run) {
+            discard(run);
+            return;
+        }
         run.phase = "playing";
         run.anchor = performance.now();
         run.lastFrame = run.anchor;
         for (const action of run.inputQueue.splice(0)) apply(run, action);
-        if (run.pauseQueued) {
-            run.pauseQueued = false;
-            await run.pause(run.pauseExit);
-        }
     }
 
     function catchUp(run) {
@@ -1066,7 +1016,7 @@
             g = run.g;
         $("#gameScore", d).textContent = w.score;
         $("#gameLevel", d).textContent = `Сложность ${w.level}`;
-        if (run.phase !== "ready") $("#gameClock", d).textContent = (g.seconds || w.id === "typing") ? `${Math.max(0,Math.ceil((g.seconds||60)-w.time))} с` : w.id === "memory" && !w.between ? `${Math.max(0,Math.ceil(w.left))} с` : w.id === "debug" ? `${Math.min(8,w.index+1)} / 8` : `${Math.floor(w.time)} с`;
+        if (run.phase !== "ready") $("#gameClock", d).textContent = (w.roundSeconds || g.seconds || w.id === "typing") ? `${Math.max(0,Math.ceil((w.roundSeconds||g.seconds||60)-w.time))} с` : w.id === "memory" && !w.between ? `${Math.max(0,Math.ceil(w.left))} с` : w.id === "debug" ? `${Math.min(8,w.index+1)} / 8` : `${Math.floor(w.time)} с`;
         if (w.journey) {
             const j = w.journey;
             $('#gameLevel', d).textContent = 'Уровень ' + j.stage;
@@ -1083,13 +1033,17 @@
         if (w.id === 'react') $('#gameClock', d).textContent = w.hits.length ? Math.round(w.hits.reduce((a, b) => a + b, 0) / w.hits.length) + ' мс' : '— мс';
         const q = profile.goals[g.id],
             next = profile.achievements.filter(a => a.game === g.id && !a.unlocked).sort((a, b) => a.tier - b.tier)[0],
-            target = q.claimed && next ? next.target : g.goal;
-        $(".arcade-live-goal progress", d).max = target;
-        $(".arcade-live-goal progress", d).value = Math.min(target, w.score);
-        $(".arcade-live-goal span", d).textContent = w.id === "typing" && w.score >= target && w.details.accuracy < 90 ? `Точность ${w.details.accuracy}% · нужно 90%` : w.score >= target ? "Цель достигнута" : `До ${run.mode==="practice"?"цели":q.claimed?"достижения":"награды"}: ${target-w.score} ${g.unit}`;
+            live = ArcadeResults.liveGoal(w, g, q, next, run.mode === 'practice');
+        $(".arcade-live-goal progress", d).max = live.target;
+        $(".arcade-live-goal progress", d).value = Math.min(live.target, w.score);
+        $(".arcade-live-goal span", d).textContent = live.text;
     }
     async function finish(run, abandoned) {
         if (play !== run || ["finishing", "done"].includes(run.phase)) return;
+        if (!run.world?.ended) {
+            leave(run);
+            return;
+        }
         if (!run.session) {
             close();
             return;
@@ -1108,12 +1062,11 @@
         cancelAnimationFrame(run.raf);
         run.viewAbort?.abort();
         run.dialog.classList.add('is-finished');
+        $('.game-leaders-button', run.dialog).hidden = false;
         $('.game-hud', run.dialog).hidden = true;
         $('.arcade-live-goal', run.dialog).hidden = true;
         $('.journey-tools', run.dialog).hidden = true;
         $('footer', run.dialog).hidden = true;
-        $(".arcade-pause", run.dialog).hidden = true;
-        $("#gameFinish", run.dialog).hidden = true;
         $(".game-pause", run.dialog)?.remove();
         const stage = $(".game-stage", run.dialog),
             cover = document.createElement("div");
@@ -1121,7 +1074,6 @@
         cover.innerHTML = '<div class="arcade-loading">Проверяем результат партии…</div>';
         stage.replaceChildren(cover);
         try {
-            await run.clockPromise;
             const result = run.finishResult || await api(`/sessions/${run.session.id}/finish`, {
                 method: "POST",
                 body: {
@@ -1131,6 +1083,7 @@
                 }
             });
             run.finishResult = result;
+            result.rewards = result.receipt || result.rewards;
             run.recorded = true;
             run.record = result.run;
             boardCache.clear();
@@ -1195,7 +1148,7 @@
             cover.innerHTML = `<h3>${run.recorded?'Результат сохранён':'Не удалось сохранить'}</h3><p>${esc(run.recorded?'Не удалось обновить экран. Попробуй ещё раз.':error.message)}</p><button class="games-main" data-retry>${run.recorded?'Обновить результат':'Повторить отправку'}</button><button class="game-back" data-close>К играм</button>`;
             $("[data-retry]", cover).onclick = () => {
                 cover.remove();
-                run.phase = "paused";
+                run.phase = "retry";
                 finish(run, abandoned);
             };
             $("[data-close]", cover).onclick = () => {
@@ -1305,7 +1258,7 @@
                 }
             }).catch(() => {});
         }
-        if (play?.session && !play.recorded && ["playing", "paused"].includes(play.phase)) {
+        if (play?.session && !play.recorded && play.started && ["playing", "starting"].includes(play.phase)) {
             if (play.phase === "playing") catchUp(play);
             api(`/sessions/${play.session.id}/finish`, {
                 method: "POST",

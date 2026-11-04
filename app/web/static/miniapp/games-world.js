@@ -136,6 +136,7 @@
             seed: setup.seed >>> 0,
             mode: setup.mode || "ranked",
             device: setup.device || "keyboard",
+            roundSeconds: setup.roundSeconds || 0,
             tick: 0,
             time: 0,
             score: 0,
@@ -665,6 +666,7 @@
         if (w.id === 'hill') ArcadeHill.step(w, helpers());
         w.rankScore = w.id === "2048" ? w.points || 0 : w.score;
         if (w.journey) ArcadeJourney.step(w, helpers());
+        if (w.roundSeconds && w.time >= w.roundSeconds) end(w, "Время соревнования вышло");
         if (w.tick >= MAX_TICKS) end(w, "Партия завершена");
     }
 

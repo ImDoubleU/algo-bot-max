@@ -39,7 +39,7 @@ class Preferences(StrictPayload):
 
 
 class Policy(StrictPayload):
-    cap: int = Field(ge=50, le=1000, strict=True)
+    cap: int = Field(ge=100, le=1000, strict=True)
 
 
 class FarmAction(StrictPayload):

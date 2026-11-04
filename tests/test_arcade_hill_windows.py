@@ -8,6 +8,7 @@ import pytest
 from app.services.arcade_hill import HillStore, save, state_for
 from tests.test_arcade_server import arcade as arcade
 from tests.test_arcade_server import browser as browser
+from tests.test_arcade_server import finish_naturally
 
 
 def clickable(locator):
@@ -31,21 +32,17 @@ def short_drive(page):
 
 
 @pytest.mark.parametrize("size", [(844, 390), (568, 320)])
-def test_landscape_menu_pedals_pause_and_replay_are_accessible(arcade, size):
+def test_landscape_menu_pedals_results_and_replay_are_accessible(arcade, size):
     page, store = arcade
     page.set_viewport_size(dict(width=size[0], height=size[1]))
     page.locator('.game-card[data-game="hill"]').click()
     assert all(clickable(b) for b in page.locator(".arcade-menu-actions>button").all())
     page.locator('[data-mode="practice"]').click()
-    page.locator(".arcade-countdown").wait_for(state="detached")
-    page.wait_for_function('document.querySelector("#gameClock").textContent.length>0')
+    page.wait_for_function("document.querySelector('#gameClock')?.textContent.length>0")
     assert all(clickable(b) for b in page.locator("[data-pedal]").all())
     assert page.locator(".hill-canvas").bounding_box()["height"] >= 70
     short_drive(page)
-    page.locator(".game-close").click()
-    assert clickable(page.locator("[data-resume]"))
-    assert clickable(page.locator("[data-exit]"))
-    page.locator("[data-exit]").click()
+    finish_naturally(page, store, 601)
     page.locator(".hill-run-coins").wait_for()
     assert HillStore(store).get("p1")["balance"] > 250
     page.locator(".arcade-result-details>summary").click()
@@ -168,7 +165,7 @@ def test_lost_finish_response_can_be_retried_without_losing_or_duplicating_coins
     page.route("**/sessions/*/finish", lose_response, times=1)
     start(page)
     short_drive(page)
-    page.locator("#gameFinish").click()
+    finish_naturally(page, store)
     page.locator("[data-retry]").wait_for()
     page.locator("[data-retry]").click()
     page.locator(".hill-run-coins").wait_for()
@@ -192,7 +189,7 @@ def test_profile_refresh_failure_reuses_the_saved_result_instead_of_sending_it_a
         lambda route: route.fulfill(status=503, json={"detail": "Временно недоступно"}),
         times=1,
     )
-    page.locator("#gameFinish").click()
+    finish_naturally(page, store)
     page.get_by_role("heading", name="Результат сохранён", exact=True).wait_for()
     page.get_by_role("button", name="Обновить результат", exact=True).click()
     page.locator(".hill-run-coins").wait_for()
@@ -213,7 +210,7 @@ def test_return_from_free_drive_keeps_the_selected_track(arcade):
     page.locator(".arcade-countdown").wait_for(state="detached")
     page.wait_for_function('document.querySelector("#gameClock").textContent.length>0')
     short_drive(page)
-    page.locator("#gameFinish").click()
+    finish_naturally(page, store)
     page.locator("[data-back-garage]").click()
     page.locator(".hill-route-hero").wait_for()
     assert page.locator('[data-route="dunes"]').get_attribute("aria-pressed") == "true"

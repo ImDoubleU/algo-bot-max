@@ -22,6 +22,21 @@
         return `<ul class="arcade-result-awards">${receipt.awards.map(a=>`<li><span>${esc(a.label.split('·').at(-1).trim())}</span><b>+${a.amount} AC</b></li>`).join('')}</ul>`;
     }
 
+    function liveGoal(world, game, goal, next, practice) {
+        const medal = !practice && goal.claimed ? next : null,
+            target = medal?.target || game.goal,
+            details = world.details,
+            rules = medal?.requirements || (world.id === 'typing' ? {accuracy: 90} : {});
+        if (!practice && goal.claimed && !next) return {target, text: 'Все награды этой игры получены'};
+        if (world.score < target) return {target, text: `До ${practice?'цели':medal?'достижения':'награды'}: ${target-world.score} ${game.unit}`};
+        if (rules.accuracy && details.accuracy < rules.accuracy) return {target, text: `Точность ${details.accuracy}% · нужно ${rules.accuracy}%`};
+        if (rules.mistakes === 0 && details.mistakes) return {target, text: 'Для медали нужна игра без ошибок'};
+        if (rules.reactionMs && (!details.reactionMs || details.reactionMs > rules.reactionMs)) return {target, text: `Для медали реакция до ${rules.reactionMs} мс`};
+        if (rules.moves && (!details.moves || details.moves > rules.moves)) return {target, text: `Для медали — не больше ${rules.moves} ходов`};
+        if (rules.timeMs && world.time * 1000 > rules.timeMs) return {target, text: `Для медали — уложись в ${rules.timeMs/1000} с`};
+        return {target, text: practice ? 'Цель тренировки выполнена' : 'Цель выполнена · закончи игру'};
+    }
+
     function normal(run, result, rank) {
         const report = result.run.report,
             record = result.run.accepted && report.score > run.oldBest;
@@ -43,6 +58,7 @@
     window.ArcadeResults = {
         trophy,
         reward,
+        liveGoal,
         normal,
         journey
     };
