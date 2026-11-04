@@ -1,10 +1,11 @@
 """Permission-scoped, paginated audit presentation."""
 
 import re
+from collections import defaultdict
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import String, case, cast, func, or_, select
+from sqlalchemy import String, and_, case, cast, func, or_, select
 
 from app.models.account import MaxAccount
 from app.models.audit import AuditLog
@@ -147,6 +148,107 @@ def copy_for(action, payload):
     return title, category
 
 
+async def _person_search(db, text, *, tenant_id, all_tenants):
+    """Resolve directory matches once, not once for every historical event."""
+    accounts = (
+        await db.execute(
+            select(MaxAccount.id, MaxAccount.max_user_id).where(
+                or_(
+                    func.lower(MaxAccount.display_name).contains(text, autoescape=True),
+                    cast(MaxAccount.max_user_id, String).contains(text, autoescape=True),
+                )
+            )
+        )
+    ).all()
+    student_text = or_(
+        func.lower(Student.last_name + " " + Student.first_name).contains(text, autoescape=True),
+        func.lower(Student.first_name + " " + Student.last_name).contains(text, autoescape=True),
+        func.lower(Student.lms_student_id).contains(text, autoescape=True),
+    )
+    students = (
+        await db.execute(
+            select(Student.id, Student.tenant_id).where(
+                student_text,
+                *([] if all_tenants else [Student.tenant_id == tenant_id]),
+            )
+        )
+    ).all()
+    conditions = []
+    if accounts:
+        conditions.append(
+            or_(
+                AuditLog.actor_account_id.in_([key for key, _ in accounts]),
+                and_(
+                    AuditLog.actor_account_id.is_(None),
+                    cast(AuditLog.payload["max_user_id"].as_string(), String).in_(
+                        [str(value) for _, value in accounts]
+                    ),
+                ),
+            )
+        )
+    by_school = defaultdict(list)
+    for key, school in students:
+        by_school[school].append(key.hex)
+    for school, keys in by_school.items():
+        conditions.append(
+            and_(
+                AuditLog.tenant_id == school,
+                or_(
+                    func.replace(AuditLog.payload["student_id"].as_string(), "-", "").in_(keys),
+                    and_(
+                        AuditLog.payload["link_target"]["kind"].as_string() == "student",
+                        func.replace(
+                            AuditLog.payload["link_target"]["id"].as_string(), "-", ""
+                        ).in_(keys),
+                    ),
+                    and_(
+                        AuditLog.entity_type.like("student%"),
+                        func.replace(AuditLog.entity_id, "-", "").in_(keys),
+                    ),
+                    *[
+                        func.replace(
+                            cast(AuditLog.payload["student_ids"], String), "-", ""
+                        ).contains(key, autoescape=True)
+                        for key in keys
+                    ],
+                ),
+            )
+        )
+    if students:
+        contacts = (
+            await db.execute(
+                select(Contact.tenant_id, Contact.external_contact_id)
+                .join(ContactStudentLink, ContactStudentLink.contact_id == Contact.id)
+                .join(Student, Student.id == ContactStudentLink.student_id)
+                .where(
+                    ContactStudentLink.student_id.in_([key for key, _ in students]),
+                    Student.tenant_id == Contact.tenant_id,
+                    *([] if all_tenants else [Contact.tenant_id == tenant_id]),
+                )
+                .distinct()
+            )
+        ).all()
+        by_contact_school = defaultdict(list)
+        for school, external in contacts:
+            by_contact_school[school].append(external)
+        for school, keys in by_contact_school.items():
+            conditions.append(
+                and_(
+                    AuditLog.tenant_id == school,
+                    or_(
+                        cast(AuditLog.payload["contact_id"].as_string(), String).in_(keys),
+                        and_(
+                            AuditLog.payload["link_target"]["kind"].as_string() == "contact",
+                            cast(AuditLog.payload["link_target"]["id"].as_string(), String).in_(
+                                keys
+                            ),
+                        ),
+                    ),
+                )
+            )
+    return conditions
+
+
 async def history_page(
     db,
     *,
@@ -274,7 +376,9 @@ async def history_page(
     if actor_max_user_id:
         conditions.append(
             or_(
-                MaxAccount.max_user_id == actor_max_user_id,
+                AuditLog.actor_account_id.in_(
+                    select(MaxAccount.id).where(MaxAccount.max_user_id == actor_max_user_id)
+                ),
                 cast(AuditLog.payload["max_user_id"].as_string(), String) == str(actor_max_user_id),
             )
         )
@@ -300,51 +404,15 @@ async def history_page(
             }.items():
                 if text in title.lower():
                     matching.append(action)
-        student_text = or_(
-            func.lower(Student.last_name + " " + Student.first_name)
-            .contains(text, autoescape=True),
-            func.lower(Student.first_name + " " + Student.last_name)
-            .contains(text, autoescape=True),
-            func.lower(Student.lms_student_id).contains(text, autoescape=True),
-        )
-        student_key = func.replace(cast(Student.id, String), "-", "")
-        direct_student = select(Student.id).where(
-            Student.tenant_id == AuditLog.tenant_id, student_text,
-            or_(
-                func.replace(AuditLog.payload["student_id"].as_string(), "-", "") == student_key,
-                (AuditLog.payload["link_target"]["kind"].as_string() == "student")
-                & (func.replace(AuditLog.payload["link_target"]["id"].as_string(), "-", "")
-                   == student_key),
-                AuditLog.entity_type.like("student%")
-                & (func.replace(AuditLog.entity_id, "-", "") == student_key),
-                func.replace(cast(AuditLog.payload["student_ids"], String), "-", "")
-                .contains(student_key),
-            ),
-        ).correlate(AuditLog).exists()
-        contact_student = (
-            select(ContactStudentLink.id)
-            .join(Student, Student.id == ContactStudentLink.student_id)
-            .join(Contact, Contact.id == ContactStudentLink.contact_id)
-            .where(
-                Contact.tenant_id == AuditLog.tenant_id, Student.tenant_id == AuditLog.tenant_id,
-                student_text,
-                or_(
-                    Contact.external_contact_id == AuditLog.payload["contact_id"].as_string(),
-                    (AuditLog.payload["link_target"]["kind"].as_string() == "contact")
-                    & (Contact.external_contact_id
-                       == AuditLog.payload["link_target"]["id"].as_string()),
-                ),
-            ).correlate(AuditLog).exists()
+        people_conditions = await _person_search(
+            db, text, tenant_id=tenant.id, all_tenants=all_tenants,
         )
         conditions.append(
             or_(
                 func.lower(AuditLog.action).contains(text, autoescape=True),
-                func.lower(MaxAccount.display_name).contains(text, autoescape=True),
-                cast(MaxAccount.max_user_id, String).contains(text, autoescape=True),
                 func.lower(cast(AuditLog.payload, String)).contains(text, autoescape=True),
                 AuditLog.action.in_(matching),
-                direct_student,
-                contact_student,
+                *people_conditions,
             )
         )
     if category:
@@ -413,17 +481,12 @@ async def history_page(
         select(AuditLog, MaxAccount, Tenant)
         .outerjoin(
             MaxAccount,
-            or_(
-                MaxAccount.id == AuditLog.actor_account_id,
-                (AuditLog.actor_account_id.is_(None))
-                & (cast(MaxAccount.max_user_id, String)
-                   == AuditLog.payload["max_user_id"].as_string()),
-            ),
+            MaxAccount.id == AuditLog.actor_account_id,
         )
         .outerjoin(Tenant, Tenant.id == AuditLog.tenant_id)
         .where(*conditions)
     )
-    total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
+    total = await db.scalar(select(func.count()).select_from(AuditLog).where(*conditions))
     start = max(0, offset)
     page_size = max(1, min(limit, 500))
     rows = (
@@ -433,6 +496,29 @@ async def history_page(
             .limit(page_size)
         )
     ).all()
+    # The small selected page can resolve legacy actors in one indexed lookup.
+    # Keeping this out of the main/count join avoids scanning all accounts per event.
+    missing = {}
+    for audit, actor, _ in rows:
+        value = (audit.payload or {}).get("max_user_id")
+        if actor is None and type(value) in (int, str):
+            try:
+                number = int(value)
+            except ValueError:
+                continue
+            if 0 < number < 2**63 and str(number) == str(value):
+                missing[audit.id] = number
+    if missing:
+        accounts = {
+            actor.max_user_id: actor
+            for actor in await db.scalars(
+                select(MaxAccount).where(MaxAccount.max_user_id.in_(set(missing.values())))
+            )
+        }
+        rows = [
+            (audit, actor or accounts.get(missing.get(audit.id)), school)
+            for audit, actor, school in rows
+        ]
     from app.services.audit_people import history_people
 
     people = await history_people(
