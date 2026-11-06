@@ -172,9 +172,14 @@
                         c.fillStyle = `hsl(${250+i*9+w.score*8} 65% 73%)`;
                         const bounce = i === visible.length - 1 ? Math.sin(w.settle * 29) * Math.exp(-w.settle * 14) * 5 : 0;
                         c.fillRect(b.left, 390 - i * 25 + bounce, b.width, 21);
+                        c.fillStyle='#ffffff45';c.fillRect(b.left,390-i*25+bounce,b.width,3);
+                        c.fillStyle='#21182b44';c.fillRect(b.left,408-i*25+bounce,b.width,3);
+                        c.fillStyle='#f7edbc99';
+                        for(let x=b.left+9;x<b.left+b.width-6;x+=18)c.fillRect(x,397-i*25+bounce,6,6);
                     });
                     c.fillStyle = "#c9ed81";
                     c.fillRect(w.left, 390 - visible.length * 25, w.width, 21);
+                    c.fillStyle='#f0ffd1';c.fillRect(w.left,390-visible.length*25,w.width,3);
                     for (const p of w.debris) {
                         c.save();
                         c.globalAlpha = Math.min(1, (1.8 - p.age) * 2);
@@ -322,7 +327,7 @@
             stage.innerHTML = '<div class="typing-game"><div class="typing-stats"><span id="typingAccuracy"></span><span id="typingSpeed"></span></div><div class="typing-passage"></div><label>Печатай здесь<textarea class="typing-input" rows="3" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Текст по образцу"></textarea></label><small>Русская раскладка · минута после первого символа</small></div>';
             const field = $("textarea", stage);
             let current = "",
-                committed = 0;
+                passageKey = "";
             on(field, "paste", e => e.preventDefault());
             on(field, "drop", e => e.preventDefault());
             on(field, "beforeinput", e => {
@@ -357,7 +362,11 @@
             update = w => {
                 const start = Math.max(0, w.typed.length - 35),
                     view = w.text.slice(start, start + 130);
-                $(".typing-passage", stage).innerHTML = [...view].map((ch, i) => `<span class="${start+i<w.typed.length?(ch===w.typed[start+i]?"correct":"wrong"):start+i===w.typed.length?"cursor":""}">${esc(ch)}</span>`).join("");
+                const key = w.text + ':' + w.typed;
+                if (key !== passageKey) {
+                    passageKey = key;
+                    $(".typing-passage", stage).innerHTML = [...view].map((ch, i) => `<span class="${start+i<w.typed.length?(ch===w.typed[start+i]?"correct":"wrong"):start+i===w.typed.length?"cursor":""}">${esc(ch)}</span>`).join("");
+                }
                 current = w.typed.slice(-60);
                 if (field.value !== current) {
                     field.value = current;
@@ -577,6 +586,9 @@
         };
     }
     window.ArcadeView = {
-        mount
+        mount: (game, stage, send, options) => {
+            const view=mount(game,stage,send,options);
+            return window.ArcadeFeedback?.wrap(game,view,stage,options)||view;
+        }
     };
 })();

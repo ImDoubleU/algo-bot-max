@@ -967,7 +967,8 @@
                     M.pop($("#gameLevel", run.dialog));
                 }
                 if (cue.type === "miss") M.shake($(".game-stage", run.dialog), 3);
-                if (["land", "perfect", "pair", "correct", "reaction", "merge"].includes(cue.type)) feedback(run, cue.type);
+                if (["land", "perfect", "stack", "pair", "correct", "reaction", "merge", "hit", "evolve", "clearLines", "bubblePop", "pour", "sortWin", "wordFound"].includes(cue.type)
+                    || cue.type === 'slide' && cue.moves.some(m => m.merged)) feedback(run, cue.type);
             }
         }
         run.view.update(run.world, delta / 1000);
@@ -976,19 +977,26 @@
     }
 
     function feedback(run, type) {
-        if (profile.settings.vibration && navigator.vibrate) navigator.vibrate(type === "perfect" ? [15, 20, 15] : 12);
+        const now=performance.now();
+        if(now-(run.feedbackAt||0)<85)return;
+        run.feedbackAt=now;
+        if (profile.settings.vibration && navigator.vibrate) navigator.vibrate(type === "perfect" ? [8, 15, 8] : 7);
         if (profile.settings.sound) {
             try {
                 run.audio ||= new(window.AudioContext || window.webkitAudioContext)();
-                const o = run.audio.createOscillator(),
-                    g = run.audio.createGain();
-                o.connect(g);
-                g.connect(run.audio.destination);
-                o.frequency.value = type === "merge" ? 520 : 660;
-                g.gain.setValueAtTime(.035, run.audio.currentTime);
-                g.gain.exponentialRampToValueAtTime(.001, run.audio.currentTime + .09);
-                o.start();
-                o.stop(run.audio.currentTime + .1);
+                const base={orbit:392,evolve:523,bugs:880,tower:196,debug:659,
+                    '2048':330,drop:294,memory:523,react:880,blocks:262,bubbles:784,sort:587,words:659}[run.g.id]||440;
+                const notes=['perfect','clearLines','sortWin','victory'].includes(type)?[1,1.25,1.5]:[1];
+                notes.forEach((ratio,i)=>{
+                    const o=run.audio.createOscillator(),g=run.audio.createGain(),start=run.audio.currentTime+i*.055;
+                    o.type=['tower','blocks'].includes(run.g.id)?'triangle':'sine';
+                    o.connect(g);g.connect(run.audio.destination);
+                    o.frequency.setValueAtTime(base*ratio,start);
+                    o.frequency.exponentialRampToValueAtTime(base*ratio*(type==='stack'?.65:1.05),start+.075);
+                    g.gain.setValueAtTime(0,start);g.gain.linearRampToValueAtTime(.025,start+.006);
+                    g.gain.exponentialRampToValueAtTime(.001,start+.13);
+                    o.onended=()=>{o.disconnect();g.disconnect();};o.start(start);o.stop(start+.14);
+                });
             } catch {}
         }
     }
@@ -1077,6 +1085,8 @@
             if (report.journey) {
                 cover.classList.add('journey-result');
                 cover.innerHTML = ArcadeResults.journey(run, report, result.rewards);
+                ArcadeFeedback.result(run, cover, report);
+                if(report.journey.success)feedback(run,'victory');
                 if (run.g.id === 'hill') {
                     if (result.garage_coins) $('.arcade-level-result', cover).insertAdjacentHTML('beforeend', `<p class="hill-run-coins">+${result.garage_coins} монет в гараж</p>`);
                     $('.arcade-result-actions', cover).insertAdjacentHTML('beforeend', '<button class="game-back" data-back-garage>В гараж</button>');
@@ -1110,6 +1120,8 @@
             }
             if (play !== run) return;
             cover.innerHTML = ArcadeResults.normal(run, result, rank);
+            ArcadeFeedback.result(run, cover, report);
+            if(result.run.accepted&&report.score>run.oldBest)feedback(run,'victory');
             if (run.g.id === 'hill') {
                 $('.arcade-score-result', cover).insertAdjacentHTML('beforeend', `${report.reason?`<p class="hill-run-reason">${esc(report.reason)}</p>`:''}${result.garage_coins?`<p class="hill-run-coins">+${result.garage_coins} монет в гараж</p>`:''}`);
                 $('.arcade-result-actions', cover).insertAdjacentHTML('beforeend', '<button class="game-back" data-back-garage>В гараж</button>');

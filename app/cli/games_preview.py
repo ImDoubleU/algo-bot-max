@@ -22,7 +22,8 @@ def inject_games(source: str) -> str:
         '<link rel="stylesheet" href="/miniapp/static/games-farm-journal.css?v=4" />'
         '<link rel="stylesheet" href="/miniapp/static/games-lobby.css?v=3" />'
         '<link rel="stylesheet" href="/miniapp/static/games-ranking.css?v=1" />'
-        '<link rel="stylesheet" href="/miniapp/static/games-hill.css?v=5" /></head>',
+        '<link rel="stylesheet" href="/miniapp/static/games-hill.css?v=5" />'
+        '<link rel="stylesheet" href="/miniapp/static/games-feedback.css?v=1" /></head>',
     )
     source = source.replace(
         '<button class="nav-button is-active" data-view="dashboard">',
@@ -57,7 +58,8 @@ def inject_games(source: str) -> str:
         '<script src="/miniapp/static/games-drop.js?v=2"></script>'
         '<script src="/miniapp/static/games-world.js?v=7"></script>'
         '<script src="/miniapp/static/games-sprites.js?v=1"></script>'
-        '<script src="/miniapp/static/games-view.js?v=7"></script>'
+        '<script src="/miniapp/static/games-feedback.js?v=1"></script>'
+        '<script src="/miniapp/static/games-view.js?v=8"></script>'
         '<script src="/miniapp/static/games-extra-view.js?v=2"></script>'
         '<script src="/miniapp/static/games-hill-art.js?v=2"></script>'
         '<script src="/miniapp/static/games-hill-view.js?v=6"></script>'
@@ -68,7 +70,7 @@ def inject_games(source: str) -> str:
         '<script src="/miniapp/static/games-menu.js?v=3"></script>'
         '<script src="/miniapp/static/games-personality.js?v=3"></script>'
         '<script src="/miniapp/static/games-results.js?v=7"></script>'
-        '<script src="/miniapp/static/app-games.js?v=22"></script>',
+        '<script src="/miniapp/static/app-games.js?v=23"></script>',
         source,
         count=1,
     )
