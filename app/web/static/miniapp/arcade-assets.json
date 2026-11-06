@@ -30,14 +30,15 @@
     "/miniapp/static/games-journey.js?v=4",
     "/miniapp/static/games-drop.js?v=3",
     "/miniapp/static/games-drop-stable.js?v=2",
-    "/miniapp/static/games-world.js?v=9",
+    "/miniapp/static/games-drop-soft.js?v=2",
+    "/miniapp/static/games-world.js?v=10",
     "/miniapp/static/games-benchmarks.js?v=3",
     "/miniapp/static/games-sprites.js?v=3",
-    "/miniapp/static/games-drop-art.js?v=2",
+    "/miniapp/static/games-drop-art.js?v=3",
     "/miniapp/static/games-feedback.js?v=2",
     "/miniapp/static/games-expedition-view.js?v=2",
     "/miniapp/static/games-debug-view.js?v=1",
-    "/miniapp/static/games-view.js?v=10",
+    "/miniapp/static/games-view.js?v=11",
     "/miniapp/static/games-sort-view.js?v=1",
     "/miniapp/static/games-extra-view.js?v=4",
     "/miniapp/static/games-hill-art.js?v=2",
@@ -50,6 +51,6 @@
     "/miniapp/static/games-personality.js?v=4",
     "/miniapp/static/games-results.js?v=9",
     "/miniapp/static/games-benchmark-view.js?v=3",
-    "/miniapp/static/app-games.js?v=28"
+    "/miniapp/static/app-games.js?v=29"
   ]
 }

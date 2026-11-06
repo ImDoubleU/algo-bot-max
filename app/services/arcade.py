@@ -368,7 +368,7 @@ class ArcadeStore:
                 else "",
             }
             if game == "drop":
-                setup["dropPhysics"] = 4
+                setup["dropPhysics"] = 5
                 setup["arena"] = arena or "classic"
             if game == "sort" and mode == "ranked":
                 setup["roundSeconds"] = 600
@@ -663,7 +663,7 @@ class ArcadeStore:
                 continue
             details = report["details"]
             # Preserve old replays and earned awards, but don't mix different physics in a board.
-            if game == "drop" and details.get("physics") != "soft4":
+            if game == "drop" and details.get("physics") != "soft5":
                 continue
             key = (
                 -row["rank_score"],

@@ -710,7 +710,7 @@
             lessonVersion: 2,
             evolveRules: 2,
             ...(run.g.id === 'drop' ? {
-                dropPhysics: 4,
+                dropPhysics: 5,
                 arena: run.arena || 'classic'
             } : {}),
             ...(run.g.id === 'hill' ? {

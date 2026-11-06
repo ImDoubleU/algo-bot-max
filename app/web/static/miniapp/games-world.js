@@ -315,6 +315,7 @@
     const rad = [13, 18, 24, 31, 39, 48, 59, 72];
 
     function dropPhysics(w, dt, c) {
+        if(w.dropPhysics>=5)return ArcadeDropSoft.step(w,dt,c,{...helpers(),rad});
         if(w.dropPhysics>=4)return ArcadeDropStable.step(w,dt,c,{...helpers(),rad});
         if (w.softDrop) return softDropPhysics(w, dt, c);
         w.cool = Math.max(0, w.cool - dt);
@@ -1008,7 +1009,7 @@
                 timeMs: Math.round(w.time * 1000),
                 bestCombo: w.bestCombo || 0,
                 ...(w.id === 'drop' && w.softDrop ? {
-                    physics: w.dropPhysics>=4?'soft4':w.dropPhysics === 3 ? 'soft3' : 'soft2',
+                    physics: w.dropPhysics>=5?'soft5':w.dropPhysics>=4?'soft4':w.dropPhysics === 3 ? 'soft3' : 'soft2',
                     ...(w.dropPhysics >= 3 ? {
                         arena: w.arena
                     } : {})

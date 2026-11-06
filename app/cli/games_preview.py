@@ -64,14 +64,15 @@ def inject_games(source: str) -> str:
         '<script src="/miniapp/static/games-journey.js?v=4"></script>'
         '<script src="/miniapp/static/games-drop.js?v=3"></script>'
         '<script src="/miniapp/static/games-drop-stable.js?v=2"></script>'
-        '<script src="/miniapp/static/games-world.js?v=9"></script>'
+        '<script src="/miniapp/static/games-drop-soft.js?v=2"></script>'
+        '<script src="/miniapp/static/games-world.js?v=10"></script>'
         '<script src="/miniapp/static/games-benchmarks.js?v=3"></script>'
         '<script src="/miniapp/static/games-sprites.js?v=3"></script>'
-        '<script src="/miniapp/static/games-drop-art.js?v=2"></script>'
+        '<script src="/miniapp/static/games-drop-art.js?v=3"></script>'
         '<script src="/miniapp/static/games-feedback.js?v=2"></script>'
         '<script src="/miniapp/static/games-expedition-view.js?v=2"></script>'
         '<script src="/miniapp/static/games-debug-view.js?v=1"></script>'
-        '<script src="/miniapp/static/games-view.js?v=10"></script>'
+        '<script src="/miniapp/static/games-view.js?v=11"></script>'
         '<script src="/miniapp/static/games-sort-view.js?v=1"></script>'
         '<script src="/miniapp/static/games-extra-view.js?v=4"></script>'
         '<script src="/miniapp/static/games-hill-art.js?v=2"></script>'
@@ -84,7 +85,7 @@ def inject_games(source: str) -> str:
         '<script src="/miniapp/static/games-personality.js?v=4"></script>'
         '<script src="/miniapp/static/games-results.js?v=9"></script>'
         '<script src="/miniapp/static/games-benchmark-view.js?v=3"></script>'
-        '<script src="/miniapp/static/app-games.js?v=28"></script>',
+        '<script src="/miniapp/static/app-games.js?v=29"></script>',
         source,
         count=1,
     )

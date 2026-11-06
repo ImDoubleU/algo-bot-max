@@ -203,7 +203,8 @@
                 }
                 if (game === "drop") {
                     const r = ArcadeWorld.rad[w.queue[0]],
-                        x = Math.max(r + 12, Math.min(348 - r, aim));
+                        x = Math.max(r + 12, Math.min(348 - r, aim)),
+                        orbOptions=w.dropPhysics>=5?{...options,softShape:ArcadeDropSoft.round}:options;
                     let y = 416 - r;
                     for (const b of w.balls) {
                         const dx = b.x - x,
@@ -212,7 +213,7 @@
                     }
                     if (w.dropPhysics >= 3) y = ArcadeDrop.preview(w, x, r);
                     c.globalAlpha = .18;
-                    if(w.dropPhysics>=4)ArcadeDropArt.draw(c,w.queue[0],x,Math.max(45,y),r,options);
+                    if(w.dropPhysics>=4)ArcadeDropArt.draw(c,w.queue[0],x,Math.max(45,y),r,orbOptions);
                     else circle(c, x, Math.max(45, y), r, colors[w.queue[0]]);
                     c.globalAlpha = 1;
                     c.strokeStyle = w.danger ? "#ee8c9b" : "#887997";
@@ -243,7 +244,7 @@
                     c.stroke();
                     if (w.dropPhysics >= 3) ArcadeDrop.draw(c, w.arena);
                     if(w.dropPhysics>=4) {
-                        ArcadeDropArt.draw(c,w.queue[0],x,38,r,options);
+                        ArcadeDropArt.draw(c,w.queue[0],x,38,r,orbOptions);
                         ArcadeDropArt.draw(c,w.queue[1],297,32,11,options);
                         ArcadeDropArt.draw(c,w.queue[2],327,32,10,options);
                     } else {S.draw(c, w.queue[0], x, 38, r * 1.7, {
@@ -255,7 +256,7 @@
                     }
                     for (const b of w.balls) {
                         if(w.dropPhysics>=4) {
-                            ArcadeDropArt.draw(c,b.level,b.x,b.y,b.r,{...options,angle:b.angle,squash:b.squash,axis:b.squashAxis,supported:b.supported});
+                            ArcadeDropArt.draw(c,b.level,b.x,b.y,b.r,{...orbOptions,angle:b.angle,squash:b.squash,axis:b.squashAxis,supported:b.supported,softShape:b.softShape||orbOptions.softShape});
                             continue;
                         }
                         c.save();
