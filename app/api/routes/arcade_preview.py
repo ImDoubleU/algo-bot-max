@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.services.arcade import GAMES, ArcadeError, ArcadeStore
+from app.services.arcade_benchmarks import BenchmarkStore
 from app.services.arcade_farm import FarmStore
 from app.services.arcade_hill import HillStore
 
@@ -18,7 +19,7 @@ class StrictPayload(BaseModel):
 
 class NewSession(StrictPayload):
     arena: str | None = Field(default=None, max_length=20)
-    stage: int | None = Field(default=None, ge=1, le=24, strict=True)
+    stage: int | None = Field(default=None, ge=1, le=96, strict=True)
     game: str = Field(max_length=20)
     mode: str = Field(pattern="^(ranked|practice|journey)$")
     device: str = Field(pattern="^(keyboard|touch)$")
@@ -51,10 +52,15 @@ class GarageAction(StrictPayload):
     item: str | None = Field(default=None, max_length=40)
 
 
+class BenchmarkStart(StrictPayload):
+    test: str = Field(pattern="^(number|verbal|sequence|spatial)$")
+
+
 def make_router(store: ArcadeStore, authenticate: Callable[[Request], Awaitable[dict]]):
     router = APIRouter()
     farm = FarmStore(store)
     garage = HillStore(store)
+    benchmarks = BenchmarkStore(store)
 
     async def call(method, *args):
         try:
@@ -66,6 +72,23 @@ def make_router(store: ArcadeStore, authenticate: Callable[[Request], Awaitable[
     async def profile(request: Request):
         actor = await authenticate(request)
         return await call(store.profile, actor["player"])
+
+    @router.get("/benchmarks/{test}")
+    async def benchmark_stats(request: Request, test: str):
+        actor = await authenticate(request)
+        return await call(benchmarks.stats, actor["player"], test)
+
+    @router.post("/benchmarks/sessions")
+    async def benchmark_start(request: Request, payload: BenchmarkStart):
+        actor = await authenticate(request)
+        return await call(benchmarks.start, actor["player"], payload.test)
+
+    @router.post("/benchmarks/sessions/{session}/finish")
+    async def benchmark_finish(request: Request, session: str, payload: Finish):
+        actor = await authenticate(request)
+        return await call(
+            benchmarks.finish, actor["player"], session, payload.actions, payload.ticks
+        )
 
     @router.get("/farm")
     async def get_farm(request: Request):

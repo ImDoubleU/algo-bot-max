@@ -41,6 +41,7 @@
 
     function mount(game, stage, send, options) {
         if (game==='hill') return ArcadeHillView.mount(stage,send,options);
+        if(game==='evolve'&&options.expedition)return ArcadeExpeditionView.mount(stage,send,options);
         if (window.ArcadeExtraView?.has(game)) return window.ArcadeExtraView.mount(game, stage, send, options);
         stage.dataset.game = game;
         const on = (el, type, fn, opts = {}) => el.addEventListener(type, fn, {
@@ -169,13 +170,22 @@
                 if (game === "tower") {
                     const visible = w.blocks.slice(-11);
                     visible.forEach((b, i) => {
-                        c.fillStyle = `hsl(${250+i*9+w.score*8} 65% 73%)`;
+                        const floor=Math.max(0,w.score-visible.length+i+1),
+                            material=['#7ba3ae','#c18a66','#9aaa77','#d4af65'][floor%4];
+                        c.fillStyle = material;
                         const bounce = i === visible.length - 1 ? Math.sin(w.settle * 29) * Math.exp(-w.settle * 14) * 5 : 0;
                         c.fillRect(b.left, 390 - i * 25 + bounce, b.width, 21);
                         c.fillStyle='#ffffff45';c.fillRect(b.left,390-i*25+bounce,b.width,3);
                         c.fillStyle='#21182b44';c.fillRect(b.left,408-i*25+bounce,b.width,3);
-                        c.fillStyle='#f7edbc99';
-                        for(let x=b.left+9;x<b.left+b.width-6;x+=18)c.fillRect(x,397-i*25+bounce,6,6);
+                        c.strokeStyle='#34535455';c.lineWidth=1;
+                        if(floor%3===1) {
+                            c.beginPath();c.moveTo(b.left+4,394-i*25+bounce);c.lineTo(b.left+b.width-4,407-i*25+bounce);
+                            c.moveTo(b.left+b.width-4,394-i*25+bounce);c.lineTo(b.left+4,407-i*25+bounce);c.stroke();
+                        } else for(let x=b.left+9;x<b.left+b.width-4;x+=14) {
+                            c.beginPath();c.moveTo(x,395-i*25+bounce);c.lineTo(x,406-i*25+bounce);c.stroke();
+                        }
+                        c.fillStyle='#e9ecd0';
+                        for(const x of [b.left+4,b.left+b.width-5])c.fillRect(x,399-i*25+bounce,2,2);
                     });
                     c.fillStyle = "#c9ed81";
                     c.fillRect(w.left, 390 - visible.length * 25, w.width, 21);
@@ -200,9 +210,10 @@
                             sum = b.r + r;
                         if (Math.abs(dx) < sum) y = Math.min(y, b.y - Math.sqrt(sum * sum - dx * dx));
                     }
-                    if (w.dropPhysics === 3) y = ArcadeDrop.preview(w, x, r);
+                    if (w.dropPhysics >= 3) y = ArcadeDrop.preview(w, x, r);
                     c.globalAlpha = .18;
-                    circle(c, x, Math.max(45, y), r, colors[w.queue[0]]);
+                    if(w.dropPhysics>=4)ArcadeDropArt.draw(c,w.queue[0],x,Math.max(45,y),r,options);
+                    else circle(c, x, Math.max(45, y), r, colors[w.queue[0]]);
                     c.globalAlpha = 1;
                     c.strokeStyle = w.danger ? "#ee8c9b" : "#887997";
                     c.lineWidth = 1;
@@ -230,14 +241,23 @@
                     c.moveTo(17, 91);
                     c.lineTo(17, 394);
                     c.stroke();
-                    if (w.dropPhysics === 3) ArcadeDrop.draw(c, w.arena);
-                    S.draw(c, w.queue[0], x, 38, r * 1.7, {
+                    if (w.dropPhysics >= 3) ArcadeDrop.draw(c, w.arena);
+                    if(w.dropPhysics>=4) {
+                        ArcadeDropArt.draw(c,w.queue[0],x,38,r,options);
+                        ArcadeDropArt.draw(c,w.queue[1],297,32,11,options);
+                        ArcadeDropArt.draw(c,w.queue[2],327,32,10,options);
+                    } else {S.draw(c, w.queue[0], x, 38, r * 1.7, {
                         ...options,
                         quality: options.quality()
                     });
                     S.draw(c, w.queue[1], 297, 32, 22, options);
                     S.draw(c, w.queue[2], 327, 32, 20, options);
+                    }
                     for (const b of w.balls) {
+                        if(w.dropPhysics>=4) {
+                            ArcadeDropArt.draw(c,b.level,b.x,b.y,b.r,{...options,angle:b.angle,squash:b.squash,axis:b.squashAxis});
+                            continue;
+                        }
                         c.save();
                         c.translate(b.x, b.y);
                         const grow = 1 - Math.exp(-b.age * 12) * Math.cos(b.age * 20) * .14;
@@ -324,7 +344,7 @@
             };
         }
         if (game === "typing") {
-            stage.innerHTML = '<div class="typing-game"><div class="typing-stats"><span id="typingAccuracy"></span><span id="typingSpeed"></span></div><div class="typing-passage"></div><label>Печатай здесь<textarea class="typing-input" rows="3" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Текст по образцу"></textarea></label><small>Русская раскладка · минута после первого символа</small></div>';
+            stage.innerHTML = '<div class="typing-game"><div class="typing-stats"><span id="typingAccuracy"></span><span id="typingSpeed"></span></div><div class="typing-surface"><div class="typing-passage" id="typingSample"></div><textarea class="typing-input" rows="3" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Печатай текст по образцу" aria-describedby="typingSample"></textarea></div><small>Русская раскладка · минута после первого символа</small></div>';
             const field = $("textarea", stage);
             let current = "",
                 passageKey = "";
@@ -335,7 +355,9 @@
                     e.preventDefault();
                     return;
                 }
-                if (e.inputType.startsWith("delete")) {
+                if(e.inputType==='insertLineBreak'||e.inputType==='insertParagraph') {
+                    e.preventDefault();input({type:'text',value:'\n'},e);
+                } else if (e.inputType.startsWith("delete")) {
                     e.preventDefault();
                     input({
                         type: "text",
@@ -360,55 +382,34 @@
                 field.value = current;
             });
             update = w => {
-                const start = Math.max(0, w.typed.length - 35),
-                    view = w.text.slice(start, start + 130);
+                const start = Math.max(0, Math.floor(Math.max(0,w.typed.length-300)/300)*300),
+                    view = w.text.slice(start, start + 950);
                 const key = w.text + ':' + w.typed;
                 if (key !== passageKey) {
                     passageKey = key;
-                    $(".typing-passage", stage).innerHTML = [...view].map((ch, i) => `<span class="${start+i<w.typed.length?(ch===w.typed[start+i]?"correct":"wrong"):start+i===w.typed.length?"cursor":""}">${esc(ch)}</span>`).join("");
+                    const passage=$(".typing-passage",stage);
+                    passage.innerHTML = [...view].map((ch, i) => `<span class="${start+i<w.typed.length?(ch===w.typed[start+i]?"correct":"wrong"):start+i===w.typed.length?"cursor":""}">${esc(start+i<w.typed.length?w.typed[start+i]:ch)}</span>`).join("");
+                    const cursor=passage.querySelector('.cursor');
+                    if(cursor) {
+                        const a=cursor.getBoundingClientRect(),b=passage.getBoundingClientRect();
+                        if(a.bottom>b.bottom-20)passage.scrollTop+=a.bottom-b.bottom+60;
+                        if(a.top<b.top+10)passage.scrollTop-=b.top-a.top+25;
+                    }
                 }
                 current = w.typed.slice(-60);
                 if (field.value !== current) {
                     field.value = current;
                     field.setSelectionRange(current.length, current.length);
                 }
-                if (w.journey) $('.typing-game>small', stage).textContent = w.journey.chapter >= 4 ? 'Код · английская раскладка' : 'Сообщение · русская раскладка';
+                if (w.journey) $('.typing-game>small', stage).textContent = w.lessonVersion>=2?
+                    ArcadeLessons.typingTopics[w.journey.chapter]:w.journey.chapter >= 4 ? 'Код · английская раскладка' : 'Сообщение · русская раскладка';
                 $('.typing-game', stage).classList.toggle('journey-highlight', !!w.journey && w.journey.powerUntil > w.time);
                 $("#typingAccuracy", stage).textContent = `Точность ${w.details.accuracy}%`;
                 $("#typingSpeed", stage).textContent = `${Math.round(w.score/Math.max(1,w.time)*60)} зн/мин`;
             };
             if (!options.readOnly) field.focus();
         }
-        if (game === "debug") {
-            let signature = "";
-            on(stage, "click", e => {
-                const b = e.target.closest("button");
-                if (!b) return;
-                if (b.dataset.line !== undefined) input({
-                    type: "line",
-                    i: +b.dataset.line
-                }, e);
-                if (b.dataset.option !== undefined) input({
-                    type: "answer",
-                    i: +b.dataset.option
-                }, e);
-                if (b.hasAttribute("data-next")) input({
-                    type: "next"
-                }, e);
-                if (b.hasAttribute("data-hint")) input({
-                    type: "hint"
-                }, e);
-            });
-            update = w => {
-                if (w.index >= 8) return;
-                const key = [w.index, w.line, w.answered, w.hints].join();
-                if (key === signature) return;
-                signature = key;
-                const t = w.tasks[w.index],
-                    last = w.answers.at(-1);
-                stage.innerHTML = `<div class="debug-game"><div class="debug-progress">Задача ${w.index+1} / 8<span>PYTHON</span></div><h3>${esc(t.intro)}</h3><div class="debug-code">${t.lines.map((line,i)=>`<button data-line="${i}" class="${w.line===i?"selected":""} ${w.mode==="practice"&&w.hintAt===w.index&&i===t.line?"is-hint":""}" ${w.answered?"disabled":""}><span>${i+1}</span><code>${esc(line)}</code></button>`).join("")}</div><p class="debug-instruction">${w.line<0?"Нажми на строку с ошибкой":"Чем заменим строку?"}</p>${w.line>=0?`<div class="debug-options">${t.options.map((option,i)=>`<button data-option="${i}" ${w.answered||(w.journey?.hintAt===w.index&&w.journey?.hintOption===i)?"disabled":""}><code>${esc(option)}</code></button>`).join("")}</div>`:""}${w.mode==="practice"&&!w.answered?'<button class="arcade-subtle" data-hint>Подсказка</button>':""}<div class="debug-feedback" role="status">${w.answered?`<b>${last?.ok?"Верно!":"Разберём ошибку"}</b><p>${esc(t.why)}</p><code>${esc(t.options[t.answer])}</code><button class="games-main" data-next>${w.index===7?"Результат":"Дальше →"}</button>`:""}</div></div>`;
-            };
-        }
+        if (game === "debug") return ArcadeDebugView.mount(stage,send,options);
         if (game === "2048") {
             stage.innerHTML = '<div class="number-game"><div class="number-points">Очки <b>0</b></div><div class="number-grid" role="grid"></div><div class="number-controls"><button data-dir="up" aria-label="Вверх">↑</button><div><button data-dir="left" aria-label="Влево">←</button><button data-dir="down" aria-label="Вниз">↓</button><button data-dir="right" aria-label="Вправо">→</button></div></div>' + (options.mode === "practice" ? '<button class="arcade-subtle" data-undo>Отменить ход</button>' : "") + '</div>';
             const grid = $(".number-grid", stage);

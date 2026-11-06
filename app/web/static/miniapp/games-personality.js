@@ -77,35 +77,44 @@
         }
         if (id === 'tower') {
             c.save();
-            c.strokeStyle = '#c5d6da22';
-            c.lineWidth = 1;
-            for (let y = 65; y < 410; y += 25) {
-                c.beginPath();
-                c.moveTo(8, y);
-                c.lineTo(352, y);
-                c.stroke();
+            const sky=c.createLinearGradient(0,0,0,430);
+            sky.addColorStop(0,'#b9d4df');sky.addColorStop(1,'#f4e4bc');
+            c.fillStyle=sky;c.fillRect(0,0,360,430);
+            for(let i=0;i<8;i++) {
+                const x=i*53-18,h=48+(i*31)%86;
+                c.fillStyle=i%2?'#8faeab':'#a9bfaf';c.fillRect(x,410-h,41,h);
+                c.fillStyle='#e6e8bd';
+                for(let y=420-h;y<400;y+=15)for(let n=0;n<3;n++)c.fillRect(x+7+n*10,y,4,6);
             }
-            const x = w.left + w.width / 2,
-                y = 390 - Math.min(11, w.blocks.length) * 25;
-            c.strokeStyle = '#cfbd79';
-            c.lineWidth = 5;
-            c.beginPath();
-            c.moveTo(18, 410);
-            c.lineTo(18, 65);
-            c.lineTo(338, 65);
-            c.stroke();
-            c.lineWidth = 1.5;
-            c.beginPath();
-            c.moveTo(18, 65);
-            c.lineTo(18, 42);
-            c.lineTo(270, 65);
-            c.stroke();
-            c.beginPath();
-            c.moveTo(x, 67);
-            c.lineTo(x, Math.max(85, y - 8));
-            c.stroke();
-            c.fillStyle = '#e8d595';
-            c.fillRect(x - 7, 61, 14, 10);
+            const stroke=(points,color,width=2)=>{
+                c.strokeStyle=color;c.lineWidth=width;c.lineJoin='round';c.lineCap='round';
+                c.beginPath();points.forEach(([x,y],i)=>i?c.lineTo(x,y):c.moveTo(x,y));c.stroke();
+            };
+            // Twin-rail lattice mast and cross-braced jib, with a real counterweight.
+            c.fillStyle='#cfaa58';c.fillRect(18,59,18,353);
+            stroke([[18,412],[18,59],[36,59],[36,412]],'#7f754e',3);
+            for(let y=67;y<402;y+=24) {
+                stroke([[19,y],[35,y+23],[19,y+23],[35,y]],'#f4d180',1.5);
+            }
+            c.fillStyle='#526d6a';c.fillRect(8,409,40,10);
+            c.fillStyle='#dfa94b';c.fillRect(6,43,342,20);
+            stroke([[6,43],[348,43],[348,63],[6,63],[6,43]],'#90763e',2);
+            for(let x=8;x<332;x+=27)stroke([[x,62],[x+13,44],[x+27,62]],'#fff0b4',1.6);
+            stroke([[6,43],[27,18],[348,43]],'#6d7770',1.4);
+            stroke([[27,18],[27,43]],'#8e793e',4);
+            c.fillStyle='#52686b';c.fillRect(5,65,35,15);
+            for(let i=0;i<3;i++){c.fillStyle='#a5b0a0';c.fillRect(6+i*11,66,9,12);}
+            c.fillStyle='#dfb15b';c.fillRect(37,65,27,23);
+            c.fillStyle='#466c7b';c.fillRect(42,69,17,12);
+            stroke([[42,82],[59,82]],'#fff0b7',1);
+            const bx=w.left+w.width/2,tx=Math.max(48,Math.min(339,bx)),
+                by=390-Math.min(11,w.blocks.length)*25,hook=Math.max(91,by-13);
+            c.fillStyle='#3c5959';c.fillRect(tx-9,58,18,11);
+            c.fillStyle='#e5c56e';c.fillRect(tx-6,60,12,4);
+            stroke([[tx-3,69],[bx-2,hook],[bx+2,hook],[tx+3,69]],'#46575a',1.3);
+            c.fillStyle='#e2b04f';c.fillRect(bx-5,hook-2,10,8);
+            stroke([[bx-3,hook+6],[bx,hook+10],[bx+3,hook+6]],'#485a56',2);
+            stroke([[bx,hook+8],[w.left+w.width*.22,by],[w.left+w.width*.78,by],[bx,hook+8]],'#63776b',1.2);
             c.restore();
         }
     }
@@ -126,7 +135,7 @@
             if (!stage.querySelector('.editor-tab')) stage.querySelector('.debug-code')?.insertAdjacentHTML('beforebegin', '<div class="editor-tab" aria-hidden="true"><i></i><i></i><i></i><span>main.py</span></div>');
         };
         if (id === 'debug') editorTab();
-        if (id === 'typing') {
+        if (id === 'typing'&&!stage.querySelector('.typing-surface')) {
             stage.querySelector('.typing-input').insertAdjacentHTML('afterend', '<div class="typewriter-body" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><i></i></div>');
         }
         if (id === 'react') {

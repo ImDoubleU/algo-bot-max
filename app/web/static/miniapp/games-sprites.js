@@ -201,13 +201,20 @@
                 ], "#a1c37e", null);
                 break;
             case "planet":
-                ellipse(c, 0, 0, 15, 15, palette[0]);
+                // The sphere hides the far half of its ring.
                 c.strokeStyle = palette[1];
                 c.lineWidth = 4;
                 c.beginPath();
-                c.ellipse(0, 1, 23, 6, -.4, 0, Math.PI * 2);
+                c.ellipse(0, 1, 23, 6, -.4, Math.PI, Math.PI * 2);
                 c.stroke();
+                const globe=c.createRadialGradient(-5,-6,2,2,3,19);
+                globe.addColorStop(0,'#e6dcfa');globe.addColorStop(.45,palette[0]);globe.addColorStop(1,'#6f659b');
+                ellipse(c, 0, 0, 15, 15, globe);
                 ellipse(c, -5, -5, 4, 4, "#decfff");
+                c.strokeStyle=palette[1];c.lineWidth=3.6;
+                c.beginPath();c.ellipse(0,1,23,6,-.4,0,Math.PI);c.stroke();
+                c.strokeStyle='#eff8ca';c.lineWidth=.65;
+                c.beginPath();c.ellipse(0,1,23,6,-.4,.05,Math.PI-.05);c.stroke();
                 break;
             case "sun":
                 for (let i = 0; i < 10; i++) {
@@ -355,7 +362,7 @@
         c.className = "sprite-canvas";
         c.setAttribute("aria-hidden", "true");
         if (!c.parentNode) button.prepend(c);
-        draw(c.getContext("2d"), type, 50, 50, 70, options);
+        draw(c.getContext("2d"), type, 50, 50, options.spriteSize || 70, options);
     }
     window.ArcadeSprites = {
         draw,

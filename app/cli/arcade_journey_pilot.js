@@ -104,6 +104,11 @@ function playAdventure(setup, attempt = 0) {
         wait(6);
       } else wait(1);
     } else if (id === 'evolve') {
+      if(w.expedition) {
+        const slot=w.expedition.orders.findIndex(v=>w.cells.includes(v));
+        if(slot>=0){send({type:'cell',i:w.cells.indexOf(w.expedition.orders[slot])});wait(12);send({type:'rescue',slot});wait(12);continue;}
+      }
+
       let pair = null;
       for (let i = 0; i < 16; i++)
         for (let k = i + 1; k < 16; k++)
@@ -146,8 +151,8 @@ function playAdventure(setup, attempt = 0) {
       });
       wait(12);
       send({
-        type: 'answer',
-        i: t.answer
+        type: t.freeAnswer ? 'fix' : 'answer',
+        ...(t.freeAnswer?{value:t.options[t.answer]}:{i:t.answer})
       });
       if (!w.ended) {
         wait(12);

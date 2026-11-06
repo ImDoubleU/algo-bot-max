@@ -155,6 +155,12 @@
             weak: String(setup.weak || "").slice(0, 10),
             badKeys: {}
         };
+        if(['typing','debug'].includes(w.id))w.lessonVersion=setup.lessonVersion||1;
+        if (w.id === 'sort') w.sortRules = setup.sortRules || 1;
+        if (w.id === 'words') {
+            w.wordDictionary = setup.wordDictionary || 1;
+            if(setup.wordRoots)w.wordRoots=setup.wordRoots;
+        }
         if (w.mode === "journey") w.journey = ArcadeJourney.config(setup);
         if (w.id === "orbit") Object.assign(w, {
             angle: -Math.PI / 2,
@@ -204,7 +210,7 @@
         if (w.id === "debug") Object.assign(w, {
             tasks: Array.from({
                 length: 8
-            }, (_, i) => task(w, i)),
+            }, (_, i) => w.lessonVersion>=2?ArcadeLessons.debug(w,i,helpers()):task(w, i)),
             index: 0,
             line: -1,
             answered: false,
@@ -220,7 +226,7 @@
             balls: [],
             softDrop: setup.dropPhysics >= 2 || w.mode === 'journey',
             dropPhysics: setup.dropPhysics || (w.mode === 'journey' ? 2 : 1),
-            arena: setup.dropPhysics === 3 ? (w.mode === 'journey' ? ArcadeDrop.chapter(setup.journey.stage) : ArcadeDrop.get(setup.arena).id) : 'classic',
+            arena: setup.dropPhysics >= 3 ? (w.mode === 'journey' ? ArcadeDrop.chapter(setup.journey.stage) : ArcadeDrop.get(setup.arena).id) : 'classic',
             aim: 180,
             queue: [0, Math.floor(range(w, 0, 3)), Math.floor(range(w, 0, 3))],
             cool: 0,
@@ -251,6 +257,7 @@
         if (window.ArcadeExtras?.has(w.id)) ArcadeExtras.create(w, helpers());
         if (w.id === 'hill') ArcadeHill.create(w, setup);
         if (w.journey) ArcadeJourney.create(w, helpers());
+        if(w.id==='evolve'&&setup.evolveRules>=2)ArcadeExpedition.create(w);
         return w;
     }
 
@@ -270,6 +277,7 @@
     function ensureText(w) {
         if (w.id !== "typing") return;
         while (w.text.length - w.typed.length < 200) {
+            if(w.lessonVersion>=2) {w.text+=ArcadeLessons.sentence(w,helpers());continue;}
             const level = E.difficulty("typing", w.text.length).level;
             let sentence = level === 1 ? pick(w, texts.slice(0, 2)) : level === 2 ? texts[2] : texts[Math.min(4, level)];
             if (w.mode === "practice" && w.weak) sentence = w.weak.split("").join(" ") + " " + sentence;
@@ -307,6 +315,7 @@
     const rad = [13, 18, 24, 31, 39, 48, 59, 72];
 
     function dropPhysics(w, dt, c) {
+        if(w.dropPhysics>=4)return ArcadeDropStable.step(w,dt,c,{...helpers(),rad});
         if (w.softDrop) return softDropPhysics(w, dt, c);
         w.cool = Math.max(0, w.cool - dt);
         for (const b of w.balls) {
@@ -664,6 +673,7 @@
         }
         if (window.ArcadeExtras?.has(w.id)) ArcadeExtras.step(w, helpers());
         if (w.id === 'hill') ArcadeHill.step(w, helpers());
+        if(w.expedition)ArcadeExpedition.step(w,helpers());
         w.rankScore = w.id === "2048" ? w.points || 0 : w.score;
         if (w.journey) ArcadeJourney.step(w, helpers());
         if (w.roundSeconds && w.time >= w.roundSeconds) end(w, "Время соревнования вышло");
@@ -695,6 +705,7 @@
         if (w.ended) return false;
         if (w.id === 'hill') return ArcadeHill.input(w,a);
         const c = progress(w);
+        if(w.expedition)return ArcadeExpedition.input(w,a,helpers());
         if (window.ArcadeExtras?.has(w.id)) return ArcadeExtras.input(w, a, helpers());
         if (a.type === "undo") {
             if (w.id !== "2048" || w.mode !== "practice" || !w.undo.length) return false;
@@ -837,6 +848,13 @@
             return true;
         }
         if (w.id === "debug") {
+            if(a.type==='fix'&&typeof a.value==='string'&&a.value.length<=300&&!w.answered&&w.index<8&&w.line>=0) {
+                const t=w.tasks[w.index];
+                if(!t.freeAnswer)return false;
+                const ok=w.line===t.line&&ArcadeLessons.sameFix(a.value,t.options[t.answer]);
+                w.answered=true;if(ok)w.score++;
+                w.answers.push({line:w.line,fix:a.value,ok});emit(w,ok?'correct':'wrong');return true;
+            }
             if (a.type === "hint" && w.mode === "practice") {
                 w.hints++;
                 w.hintAt = w.index;
@@ -848,8 +866,9 @@
                 return true;
             }
             if (a.type === "answer" && !w.answered && Number.isInteger(a.i) && a.i >= 0 && a.i < 3) {
-                const t = w.tasks[w.index],
-                    ok = w.line === t.line && a.i === t.answer;
+                const t = w.tasks[w.index];
+                if(t.freeAnswer)return false;
+                const ok = w.line === t.line && a.i === t.answer;
                 w.answered = true;
                 if (ok) w.score++;
                 w.answers.push({
@@ -904,7 +923,7 @@
                 y: 45,
                 r,
                 level,
-                vx: w.dropPhysics === 3 ? range(w, -5, 5) : 0,
+                vx: w.dropPhysics>=4?range(w,-2.5,2.5):w.dropPhysics === 3 ? range(w, -5, 5) : 0,
                 vy: 0,
                 age: 0,
                 angle: range(w, -.2, .2),
@@ -989,8 +1008,8 @@
                 timeMs: Math.round(w.time * 1000),
                 bestCombo: w.bestCombo || 0,
                 ...(w.id === 'drop' && w.softDrop ? {
-                    physics: w.dropPhysics === 3 ? 'soft3' : 'soft2',
-                    ...(w.dropPhysics === 3 ? {
+                    physics: w.dropPhysics>=4?'soft4':w.dropPhysics === 3 ? 'soft3' : 'soft2',
+                    ...(w.dropPhysics >= 3 ? {
                         arena: w.arena
                     } : {})
                 } : {})

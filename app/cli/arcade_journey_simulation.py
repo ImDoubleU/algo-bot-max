@@ -42,7 +42,7 @@ def run(games, report_path):
                     .read_text(encoding="utf-8-sig")
                 )
                 for game in games:
-                    for stage in range(1, 25):
+                    for stage in range(1, len(arcade_journey.catalogue()[game]["stages"]) + 1):
                         passed = False
                         for attempt in range(20 if game == "hill" else 5):
                             if game == "hill":
@@ -78,7 +78,10 @@ def run(games, report_path):
                 games=games,
                 missions=records,
                 progress=progress,
-                all_complete=all(progress[g]["cleared"] == 24 for g in games),
+                all_complete=all(
+                    progress[g]["cleared"] == len(arcade_journey.catalogue()[g]["stages"])
+                    for g in games
+                ),
             )
         finally:
             store.connection.close()

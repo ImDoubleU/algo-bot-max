@@ -16,6 +16,7 @@
 
   function labels(m) {
     if(m.game==='hill') return 'Проедь '+m.goal+' м';
+    if(m.game==='evolve') return m.goal+' очков · спаси '+Math.ceil(m.stage/4)+' '+countWord(Math.ceil(m.stage/4),['зверя','зверей','зверей']);
     if (m.game === '2048') return 'Собери плитку ' + m.goal + (m.corner ? ' в левом верхнем углу' : '');
     const forms = {
       orbit: ['прыжок', 'прыжка', 'прыжков'],
@@ -79,7 +80,7 @@
   function collection(saved) {
     const entries = Object.entries(saved || {}).filter(([, s]) => s.cleared > 0);
     if (!entries.length) return '';
-    return `<section class="journey-shelf"><h3>Коллекция приключений</h3><div>${entries.map(([game,s])=>`<button data-game="${game}"><span>${AlgoGameArt.render(game)}</span><div><b>${esc(J.specs[game].name)}</b><small>${s.cleared}/24 заданий · ${s.stars}/72 ★</small><em>${Array.from({length:6},(_,i)=>`<i class="${s.keepsakes.includes(i+1)?'is-earned':''}">✦</i>`).join('')}</em></div><strong>→</strong></button>`).join('')}</div></section>`;
+    return `<section class="journey-shelf"><h3>Коллекция приключений</h3><div>${entries.map(([game,s])=>`<button data-game="${game}"><span>${AlgoGameArt.render(game)}</span><div><b>${esc(J.specs[game].name)}</b><small>${s.cleared}/${s.maximum||24} заданий · ${s.stars}/${(s.maximum||24)*3} ★</small><em>${Array.from({length:Math.ceil((s.maximum||24)/(s.chapterSize||4))},(_,i)=>`<i class="${s.keepsakes.includes(i+1)?'is-earned':''}">✦</i>`).join('')}</em></div><strong>→</strong></button>`).join('')}</div></section>`;
   }
   window.ArcadeJourneyView = {
     collection,

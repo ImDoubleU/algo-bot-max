@@ -182,10 +182,17 @@
     return key(piece) !== key(rotated.map(([x, y]) => [x - minX, y - minY]));
   }
 
-  function mission(game, stage) {
-    const s = specs[game];
-    if (!s || !Number.isInteger(stage) || stage < 1 || stage > 24) throw Error('Unknown adventure');
-    const chapter = Math.floor((stage - 1) / 4),
+  const legacyLessons={typing:specs.typing,debug:specs.debug};
+  specs.typing={...specs.typing,chapters:ArcadeLessons.typingTopics,
+    goals:[25,40,60,80,100,120,150,180]};
+  specs.debug={...specs.debug,chapters:ArcadeLessons.topics,goals:[2,3,4,4,5,6,7,8]};
+  const stageCount=game=>['typing','debug'].includes(game)?96:24;
+  const chapterSize=game=>['typing','debug'].includes(game)?12:4;
+  function mission(game, stage, modern=true) {
+    const extended=modern&&['typing','debug'].includes(game),
+      s=!modern&&legacyLessons[game]?legacyLessons[game]:specs[game];
+    if (!s || !Number.isInteger(stage) || stage < 1 || stage > (extended?96:24)) throw Error('Unknown adventure');
+    const chapter = Math.floor((stage - 1) / (extended?12:4)),
       variant = (stage - 1) % 4;
     let goal = s.goals[chapter];
     if (game === 'evolve') goal = Math.round(goal * [1, 1.25, 1.5, 2][variant]);
@@ -204,6 +211,7 @@
       bugs: 2,
       memory: 2
     } [game] || 1);
+    if(extended&&game==='typing')goal+=Math.floor(((stage-1)%12)/4)*5;
     return {
       game,
       stage,
@@ -226,13 +234,14 @@
     return Object.fromEntries(Object.keys(specs).filter(id=>id!=='runner').map(id => [id, {
       ...specs[id],
       stages: Array.from({
-        length: 24
+        length: stageCount(id)
       }, (_, i) => mission(id, i + 1))
     }]));
   }
 
   function config(setup) {
-    const m = mission(setup.game, setup.journey?.stage);
+    const m = mission(setup.game, setup.journey?.stage,
+      !['typing','debug'].includes(setup.game)||setup.lessonVersion>=2);
     return {
       ...m,
       charges: Math.max(1, Math.min(3, Number(setup.journey.charges) || 1)),
@@ -318,6 +327,9 @@
     const j = w.journey;
     if (!j) return;
     if (w.id === 'typing') {
+      if(w.lessonVersion>=2) {
+        w.text='';while(w.text.length<Math.max(1000,j.goal+200))w.text+=ArcadeLessons.sentence(w,H);
+      } else {
       const sets = [
         ['Лес шумит. Кот идёт домой. Мы строим новый город. '],
         ['Отряд 7: прибытие в 12:45. На борту 24 прибора. '],
@@ -328,10 +340,11 @@
       w.text = Array.from({
         length: 20
       }, () => H.pick(w, options)).join('');
+      }
     }
     if (w.id === 'debug') w.tasks = Array.from({
       length: 8
-    }, (_, i) => debugTask(w, i, H));
+    }, (_, i) => w.lessonVersion>=2?ArcadeLessons.debug(w,i,H):debugTask(w, i, H));
     if (w.id === 'tower' && j.variant === 3) {
       w.width = 160;
       w.blocks[0] = {
@@ -537,7 +550,7 @@
     if (w.id === 'react') return [w.misses <= 1, w.misses === 0 && (w.details.reactionMs || 999) <= 350];
     if (w.id === 'memory') return [w.moves <= w.score * 3, w.moves <= w.score * 2];
     if (w.id === '2048') return [j.movesUsed <= j.moves * .9, j.movesUsed <= j.moves * .7];
-    if (w.id === 'evolve') return [w.merges <= Math.ceil(j.goal / 4), Math.max(...w.cells) >= j.species];
+    if (w.id === 'evolve') return [w.merges <= Math.ceil(j.goal / 4), Math.max(...w.cells,...(w.expedition?.discovered||[])) >= j.species];
     if (w.id === 'drop') return [j.movesUsed <= Math.ceil(j.goal / 8) + 10, j.movesUsed <= Math.ceil(j.goal / 12) + 8];
     if (w.id === 'blocks') return [w.lines >= Math.ceil(j.goal / 200), (j.bestCombo || 0) >= 2];
     if (w.id === 'runner') return [w.jumps <= j.goal + 2, w.jumps <= j.goal];
@@ -552,7 +565,7 @@
     const j = w.journey;
     if (!j || j.complete) return;
     const [clean, precision] = quality(w);
-    if (w.score >= j.goal && j.inputs > 0 && (!j.corner || w.board[0] >= j.goal)) {
+    if (w.score >= j.goal && j.inputs > 0 && (!w.expedition||w.expedition.rescued>=w.expedition.goal) && (!j.corner || w.board[0] >= j.goal)) {
       j.complete = true;
       j.stars = 1 + Number(clean) + Number(clean && precision);
       w.ended = false;
@@ -571,6 +584,7 @@
       used: j.used,
       moves: j.movesUsed,
       mistakes: j.mistakes,
+      ...(w.lessonVersion>=2?{lessonVersion:w.lessonVersion}:{}),
       seconds: j.seconds
     } : null;
   }
@@ -578,6 +592,8 @@
     specs,
     rotatable,
     mission,
+    stageCount,
+    chapterSize,
     catalogue,
     config,
     difficulty,

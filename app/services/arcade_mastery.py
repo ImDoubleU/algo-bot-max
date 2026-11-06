@@ -39,10 +39,14 @@ def mastery(journeys, badges):
             cleared=cleared,
             stars=stars,
             medals=len(medals),
-            chapter=min(6, cleared // 4 + 1),
+            chapter=min(
+                saved.get("maximum", 24) // saved.get("chapterSize", 4),
+                cleared // saved.get("chapterSize", 4) + 1,
+            ),
+            breadthQualified=saved.get("breadthQualified", cleared >= 4),
         )
     xp = sum(g["xp"] for g in games.values())
-    breadth = sum(g["cleared"] >= 4 or g["medals"] > 0 for g in games.values())
+    breadth = sum(g["breadthQualified"] or g["medals"] > 0 for g in games.values())
     level, floor = 1, 0
     while level < 50 and xp >= floor + 200 + (level - 1) * 40:
         floor += 200 + (level - 1) * 40

@@ -1,0 +1,41 @@
+.game-dialog .arcade-level-topic{grid-column:1/-1;margin:22px 0 6px;font-size:19px;color:#344f50;text-align:left}
+.game-dialog[data-game=typing] .typing-game{padding:18px 18px 22px;width:100%;box-sizing:border-box}
+.game-dialog[data-game=typing] .typing-stats{font-size:16px;color:#485d57;margin-bottom:14px}
+.typing-surface{position:relative;width:100%;border:2px solid #9daea6;border-radius:12px;background:#fffef8;box-sizing:border-box}
+.typing-surface:focus-within{border-color:#748e64;box-shadow:0 0 0 3px #c4d7b14d}
+.game-dialog[data-game=typing] .typing-surface .typing-passage{border:0;border-radius:10px;background:transparent;box-shadow:none;margin:0;padding:20px;min-height:220px;max-height:290px;overflow-y:hidden;color:#52615b;font:500 23px/1.8 Consolas,'Courier New',monospace;white-space:pre-wrap;overflow-wrap:anywhere;position:relative}
+.game-dialog[data-game=typing] .typing-passage .correct{color:#216440;background:#e7f1dc}
+.game-dialog[data-game=typing] .typing-passage .wrong{color:#9d2929;background:#f9d9d0;text-decoration:underline;text-decoration-thickness:2px}
+.game-dialog[data-game=typing] .typing-passage .cursor{border-left:3px solid #b17929;margin-left:-3px;background:#f7e7b8;color:#263b32}
+.game-dialog[data-game=typing] .typing-surface .typing-input{position:absolute;inset:0;width:100%;height:100%;min-height:0;max-height:none;opacity:.01;padding:0;margin:0;border:0;resize:none;color:transparent;caret-color:transparent;background:transparent;box-shadow:none;border-radius:10px;box-sizing:border-box;font-size:20px}
+.game-dialog[data-game=typing] .typing-game>small{display:block;margin-top:14px;font-size:16px;color:#5d6d5b}
+.game-dialog[data-game=debug]{--play-paper:#e9eff3;--play-accent:#315d7b}
+.game-dialog[data-game=debug] .debug-game{width:100%;padding:20px;box-sizing:border-box;color:#203a4d}
+.game-dialog[data-game=debug] .debug-progress{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;color:#35556d;font-size:16px}
+.game-dialog[data-game=debug] .debug-progress span{font-size:15px;background:#d4e1ea;padding:6px 9px;border-radius:6px;color:#27475c}
+.game-dialog[data-game=debug] .debug-game h3{font-size:22px;line-height:1.4;color:#19374b;margin:18px 0}
+.game-dialog[data-game=debug] .editor-tab{background:#233a4c;color:#d3e4ed;border:1px solid #233a4c;padding:11px 13px}
+.game-dialog[data-game=debug] .editor-tab span{color:#e4eef4;font-size:16px;margin-left:8px}
+.game-dialog[data-game=debug] .editor-tab b{margin-left:auto;color:#afc9d9;font-size:13px}
+.game-dialog[data-game=debug] .debug-code{background:#132632;border:1px solid #233a4c;overflow-x:auto;padding:8px 0;display:block}
+.game-dialog[data-game=debug] .debug-code button{display:flex;align-items:baseline;gap:12px;width:100%;min-width:max-content;min-height:44px;padding:10px 14px;border:0;border-left:4px solid transparent;border-radius:0;background:transparent;color:#e8f0f5;text-align:left;opacity:1;box-sizing:border-box}
+.game-dialog[data-game=debug] .debug-code button>span{flex:0 0 22px;text-align:right;color:#92aeba;font:14px Consolas,monospace}
+.game-dialog[data-game=debug] .debug-code code{white-space:pre;font:16px/1.6 Consolas,'Courier New',monospace;color:inherit}
+.game-dialog[data-game=debug] .debug-code button:hover:not(:disabled){background:#254455}
+.game-dialog[data-game=debug] .debug-code button.selected{border-left-color:#f3c16f;background:#2c4b60}
+.game-dialog[data-game=debug] .debug-code button.is-correct-line{border-left-color:#9ed9a3;background:#1d493f}
+.game-dialog[data-game=debug] .debug-code button.is-wrong-line{border-left-color:#edb0a0;background:#553832}
+.code-keyword{color:#d1a9fb}.code-string{color:#b7dd99}.code-number{color:#f1c584}.code-comment{color:#a4b3be}
+.game-dialog[data-game=debug] .debug-instruction{font-size:17px;color:#28495e;margin:16px 0 12px}
+.game-dialog[data-game=debug] .debug-options{display:grid;gap:10px}
+.game-dialog[data-game=debug] .debug-options button{min-height:52px;padding:13px;border:1px solid #9bb6c6;border-left:4px solid #6a96af;border-radius:8px;background:#fff;color:#183c53;text-align:left;overflow-x:auto}
+.game-dialog[data-game=debug] .debug-options code{font:16px/1.6 Consolas,monospace;white-space:pre}
+.game-dialog[data-game=debug] .debug-feedback:empty{display:none}
+.game-dialog[data-game=debug] .debug-feedback{margin-top:18px;padding:18px;background:#fff;border:1px solid #a2becb;border-left:5px solid #6e9baf;border-radius:9px;color:#28475b}
+.game-dialog[data-game=debug] .debug-feedback b{font-size:21px;color:#244b39}.game-dialog[data-game=debug] .debug-feedback p{font-size:17px;line-height:1.6;color:#294859}
+.game-dialog[data-game=debug] .debug-feedback>span{display:block;font-size:15px;margin:12px 0 7px;color:#537084}
+.game-dialog[data-game=debug] .debug-feedback>code{display:block;padding:12px;background:#e9f2e8;border-radius:6px;color:#245039;font:16px/1.6 Consolas,monospace;overflow-x:auto;white-space:pre}
+.game-dialog[data-game=debug] .debug-feedback .games-main{margin-top:16px}
+.debug-fix-form{display:grid;gap:10px}.debug-fix-form label{color:#25485f;font-weight:700;font-size:17px}
+.debug-fix-form textarea{width:100%;box-sizing:border-box;border:2px solid #789cb1;background:#fff;color:#17374b;border-radius:8px;padding:13px;font:17px/1.6 Consolas,monospace;min-height:90px;resize:vertical}
+@media(max-width:360px){.game-dialog[data-game=debug] .debug-game{padding:14px}.game-dialog[data-game=typing] .typing-game{padding:14px}.game-dialog[data-game=typing] .typing-surface .typing-passage{padding:14px;font-size:21px}}

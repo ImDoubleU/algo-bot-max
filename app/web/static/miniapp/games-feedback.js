@@ -146,6 +146,10 @@
                 ghost(old?.[cue.from],node);p=centre(node);burst(p,10);pop(node);
                 if(delta>0)label('+'+delta,p);
             }
+            if(id==='evolve'&&cue.type==='rescue') {
+                const node=stage.querySelectorAll('.evolve-grid>button')[cue.to];
+                burst(centre(node),14);label('Спасён!',centre(node));
+            }
             if(id==='2048'&&cue.type==='slide') {
                 const cells=stage.querySelectorAll('.number-cell');
                 const targets=[...new Set(cue.moves.filter(m=>m.merged).map(m=>m.to))];
@@ -186,8 +190,6 @@
                 label(cue.fallen?'Цепочка! +'+delta:'+'+delta,p);
             }
             if(id==='sort'&&cue.type==='pour') {
-                const node=stage.querySelector(`[data-tube="${cue.from}"] .sort-glass`);
-                animate(node,[{rotate:'0deg'},{rotate:(cue.to>cue.from?'10deg':'-10deg'),offset:.35},{rotate:'0deg'}],300);
                 const target=stage.querySelector(`[data-tube="${cue.to}"]`);
                 if(target?.classList.contains('is-complete')){burst(centre(target),10);flash(target);}
             }

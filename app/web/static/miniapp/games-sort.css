@@ -1,0 +1,23 @@
+.game-dialog[data-game=sort] .sort-game{padding:18px 14px 24px}
+.game-dialog[data-game=sort] .sort-meta{flex-wrap:wrap;gap:8px 12px;align-items:center;margin-bottom:20px}
+.game-dialog[data-game=sort] .sort-meta b{font-size:19px;color:#3e5b44;margin-right:auto}
+.game-dialog[data-game=sort] .sort-meta span{font-size:15px;color:#607865}
+.game-dialog[data-game=sort] .sort-tubes{display:grid;grid-template-columns:repeat(var(--tube-columns,5),minmax(0,1fr));justify-items:center;gap:24px 8px;padding:18px 0 20px;position:relative}
+.game-dialog[data-game=sort] .sort-tube{min-width:44px;width:100%;max-width:64px;padding:8px 0 0;gap:11px;touch-action:none;outline-offset:4px;transition:translate .18s,opacity .18s}
+.game-dialog[data-game=sort] .sort-glass{width:48px;height:164px;gap:4px;padding:9px 4px 8px;border:2px solid #92b3a4;border-top:0;border-radius:0 0 24px 24px;background:linear-gradient(90deg,#ffffffe0,#edf7f03b 45%,#ffffffb0);box-shadow:inset 4px 0 #fff9,3px 6px #b7cabb66;transform-origin:50% 95%}
+.game-dialog[data-game=sort] .sort-glass>i{width:31px;height:31px;min-height:31px}
+.game-dialog[data-game=sort] .sort-ball,.sort-effects .sort-ball{border-radius:50%;background:radial-gradient(circle at 32% 24%,#fff 0 4%,#ffffff80 8%,#ffffff00 36%),var(--ball);box-shadow:inset -3px -5px #24344622,inset 1px 1px #ffffff88,0 2px 3px #28423d1a}
+.game-dialog[data-game=sort] .sort-ball small,.sort-effects .sort-ball small{font:800 11px/1 system-ui;color:#293c4a99}
+.game-dialog[data-game=sort] .sort-tube.is-selected{transform:none;translate:0 -9px}
+.game-dialog[data-game=sort] .sort-tube.is-selected .sort-glass{border-color:#c69f4f;box-shadow:inset 4px 0 #fff9,0 0 0 3px #e8cf8f66}
+.game-dialog[data-game=sort] .sort-tube.can-receive .sort-glass{border-color:#6eaa86;box-shadow:inset 4px 0 #fff9,0 0 0 2px #a3cdb555}
+.game-dialog[data-game=sort] .sort-tube.is-muted{opacity:.55}
+.game-dialog[data-game=sort] .sort-tube.is-drag-target .sort-glass{border-color:#408b61;box-shadow:0 0 0 4px #7fbd9299}
+.game-dialog[data-game=sort] .sort-tube.is-complete .sort-glass{border-color:#6f9e6d;background:#d9ebd64d}
+.game-dialog[data-game=sort] .sort-tube.is-complete>small:after{content:' ✓';color:#4a8253}
+.game-dialog[data-game=sort] .sort-message{min-height:22px;margin:16px 0 8px;color:#805f3e}
+.game-dialog[data-game=sort] .sort-tools{margin-top:10px;flex-wrap:wrap}
+.sort-effects{position:absolute;inset:0;z-index:7;pointer-events:none;overflow:visible}
+.sort-effects .sort-flight{position:absolute;display:grid;place-items:center;pointer-events:none;margin:0;z-index:1;box-sizing:border-box}
+@media(max-width:360px){.game-dialog[data-game=sort] .sort-game{padding-inline:10px}.game-dialog[data-game=sort] .sort-glass{width:43px;height:148px;gap:3px;padding:8px 3px 7px}.game-dialog[data-game=sort] .sort-glass>i{width:28px;height:28px;min-height:28px}}
+@media(prefers-reduced-motion:reduce){.game-dialog[data-game=sort] .sort-tube{transition:none}}

@@ -137,6 +137,9 @@ class ArcadeStore:
                 TEXT NOT NULL);
             """)
             arcade_hill.install(db)
+            from app.services import arcade_words
+
+            arcade_words.install(db)
             db.execute(
                 "INSERT OR IGNORE INTO arcade_meta VALUES('secret',?)", (secrets.token_hex(32),)
             )
@@ -365,10 +368,21 @@ class ArcadeStore:
                 else "",
             }
             if game == "drop":
-                setup["dropPhysics"] = 3
+                setup["dropPhysics"] = 4
                 setup["arena"] = arena or "classic"
             if game == "sort" and mode == "ranked":
                 setup["roundSeconds"] = 600
+            if game == "sort":
+                setup["sortRules"] = 2
+            if game == "words":
+                setup["wordDictionary"] = 2
+                from app.services import arcade_words
+
+                setup["wordRoots"] = arcade_words.prepare(db, player)
+            if game in ("typing", "debug"):
+                setup["lessonVersion"] = 2
+            if game == "evolve":
+                setup["evolveRules"] = 2
             if journey:
                 setup["journey"] = journey
                 seed = int.from_bytes(
@@ -649,7 +663,7 @@ class ArcadeStore:
                 continue
             details = report["details"]
             # Preserve old replays and earned awards, but don't mix different physics in a board.
-            if game == "drop" and details.get("physics") != "soft3":
+            if game == "drop" and details.get("physics") != "soft4":
                 continue
             key = (
                 -row["rank_score"],

@@ -176,6 +176,10 @@
     root,
     answers: [...new Set(text.split(" ").map(w => w.replace(/ё/g, "е")))].filter(w => w.length >= 3 && w.length < root.length && fitsWord(w, root))
   }));
+  const packsV2 = Object.entries(window.ArcadeWordDictionary?.byRoot||{}).map(([root,text]) => ({root,
+    answers:[...new Set([...(packs.find(p=>p.root===root)?.answers||[]),...text.split(' ')])]
+      .filter(w=>w.length>=3&&w.length<root.length&&fitsWord(w,root))
+  }));
 
   function difficulty(id, p) {
     if (!ids.has(id)) return null;
@@ -237,7 +241,7 @@
     }))).filter(m => m.ok);
   }
 
-  function sortRound(w, H) {
+  function sortRound(w, H, attempt=0) {
     const count = Math.min(7, 3 + w.score + (w.journey ? Math.floor(w.journey.chapter/2)+(w.journey.variant===2?1:0) : 0));
     w.tubes = Array.from({
       length: count
@@ -280,6 +284,11 @@
         single: true
       });
     }
+    // Keep the reversible construction, but avoid nearly-solved new puzzles.
+    const mixed=w.tubes.filter(t=>new Set(t).size>1).length;
+    if(w.sortRules>=2&&mixed<Math.min(count,3)&&attempt<8) {
+      sortRound(w,H,attempt+1);return;
+    }
     w.sortStart = w.tubes.map(t => t.slice());
     w.sortUndo = [];
     w.selectedTube = -1;
@@ -289,7 +298,7 @@
   }
 
   function wordRound(w) {
-    w.wordPack = packs[w.packOrder[w.wordRound % w.packOrder.length]];
+    w.wordPack = (w.wordDictionary>=2?packsV2:packs)[w.packOrder[w.wordRound % w.packOrder.length]];
     w.roundWords = [];
     w.wordFeedback = "";
     w.wordHint = "";
@@ -456,7 +465,9 @@
     }
     if (w.id === "words") {
       Object.assign(w, {
-        packOrder: H.shuffled(w, [0, 1, 2, 3, 4, 5, 6, 7]),
+        packOrder: w.wordDictionary>=2&&w.wordRoots?.length?
+          w.wordRoots.map(root=>packsV2.findIndex(p=>p.root===root)).filter(i=>i>=0):
+          H.shuffled(w,w.wordDictionary>=2?packsV2.map((_,i)=>i):[0,1,2,3,4,5,6,7]),
         wordRound: 0,
         allWords: []
       });
@@ -652,10 +663,12 @@
         const from = w.selectedTube;
         w.selectedTube = -1;
         if (from === a.i) return true;
-        return pour(w, {
+        const accepted=pour(w, {
           from,
           to: a.i
         }, H);
+        if(!accepted&&w.sortRules>=2)w.selectedTube=w.tubes[a.i].length?a.i:from;
+        return accepted;
       }
       if (a.type === "pour") return pour(w, a, H);
     }
@@ -665,7 +678,16 @@
         return true;
       }
       if (a.type === "word" && typeof a.value === "string" && a.value.length <= 32) {
-        const word = a.value.trim().toLowerCase().replace(/ё/g, "е");
+        const word = a.value.trim().toLowerCase().normalize('NFC').replace(/ё/g, "е");
+        if(w.wordDictionary>=2) {
+          const minimum=w.journey?.minimumWord||3;
+          let reason='';
+          if(!/^[а-я]+$/.test(word))reason='Введи слово русскими буквами';
+          else if(word.length<minimum)reason='Нужно слово минимум из '+minimum+' букв';
+          else if(!fitsWord(word,w.wordPack.root))reason='В исходном слове не хватает букв для этого слова';
+          else if(word===w.wordPack.root.toLowerCase())reason='Составь другое слово из этих букв';
+          if(reason){w.wordFeedback=reason;H.emit(w,'wordMiss');return false;}
+        }
         if (w.roundWords.includes(word)) {
           w.wordFeedback = "Это слово уже найдено";
           H.emit(w, "wordMiss");
@@ -709,13 +731,17 @@
     // One ball per tap makes every scramble exactly reversible and exposes an undo in practice only.
     w.sortUndo.push(w.tubes.map(t => t.slice()));
     if (w.sortUndo.length > 40) w.sortUndo.shift();
-    to.push(from.pop());
+    const color=from.at(-1),fromSize=from.length,toSize=to.length;
+    let moved=0;
+    do{to.push(from.pop());moved++;}
+    while(w.sortRules>=2&&!a.single&&from.length&&from.at(-1)===color&&to.length<4);
     w.roundMoves++;
     w.details.moves++;
     w.sortMessage = "";
     H.emit(w, "pour", {
       from: a.from,
-      to: a.to
+      to: a.to,
+      ...(w.sortRules>=2?{count:moved,color,fromSize,toSize}:{})
     });
     if (sortSolved(w)) {
       w.score++;
@@ -783,6 +809,7 @@
     sortMoves,
     bubblePoint,
     bubbleNear,
-    packs
+    packs,
+    packsV2
   };
 })();

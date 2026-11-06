@@ -117,7 +117,7 @@ def test_incompatible_drop_records_stay_in_history_but_not_competitive_board(sto
     ]
     assert store._game_board(rows, "drop") == []
     rows[0]["report"] = json.dumps(
-        dict(details=dict(physics="soft3", arena="classic"), level=1, timeMs=100)
+        dict(details=dict(physics="soft4", arena="classic"), level=1, timeMs=100)
     )
     assert len(store._game_board(rows, "drop")) == 1
 
@@ -142,4 +142,4 @@ def test_mastery_and_arena_controls_fit_and_start_selected_arena(arcade, width):
                 "SELECT setup FROM arcade_sessions ORDER BY created DESC LIMIT 1"
             ).fetchone()[0]
         )
-    assert saved["arena"] == "pins" and saved["dropPhysics"] == 3
+    assert saved["arena"] == "pins" and saved["dropPhysics"] == 4

@@ -16,12 +16,17 @@ def sources() -> str:
     return "var window=globalThis;\n" + "\n".join(
         (STATIC / name).read_text(encoding="utf-8")
         for name in (
+            "games-words-data.js",
+            "games-lessons.js",
+            "games-expedition.js",
             "games-extra.js",
             "games-hill.js",
             "games-engine.js",
             "games-journey.js",
             "games-drop.js",
+            "games-drop-stable.js",
             "games-world.js",
+            "games-benchmarks.js",
         )
     )
 

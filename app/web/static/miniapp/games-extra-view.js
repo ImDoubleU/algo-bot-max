@@ -216,64 +216,7 @@
         }
       };
     }
-    if (id === 'sort') {
-      stage.innerHTML = '<div class="sort-game"><div class="sort-meta"><b></b><span></span></div><div class="sort-tubes"></div><p class="sort-message" role="status"></p><div class="sort-tools"><button data-sort-restart>Заново</button>' + (options.mode === 'practice' ? '<button data-sort-undo>Отменить ход</button>' : '') + '</div><div class="sort-complete"></div></div>';
-      let signature = '',
-        won = false;
-      on(stage, 'click', e => {
-        const b = e.target.closest('button');
-        if (!b) return;
-        if (b.dataset.tube !== undefined) input({
-          type: 'tube',
-          i: +b.dataset.tube
-        }, e);
-        if (b.hasAttribute('data-sort-restart')) input({
-          type: 'restart'
-        }, e);
-        if (b.hasAttribute('data-sort-undo')) input({
-          type: 'undo'
-        }, e);
-        if (b.hasAttribute('data-sort-next')) input({
-          type: 'next'
-        }, e);
-      });
-      update = w => {
-        world = w;
-        const key = JSON.stringify([w.tubes, w.selectedTube]);
-        if (key !== signature) {
-          signature = key;
-          const grid = $('.sort-tubes', stage);
-          const oldTops = [...grid.querySelectorAll('[data-tube]')].map(b => b.querySelector('.sort-ball')?.getBoundingClientRect());
-          grid.innerHTML = w.tubes.map((t, i) => {
-            const balls = Array.from({length: 4}, (_, j) => t[j] === undefined ? '<i></i>' :
-              `<i class="sort-ball" style="--ball:${colors[t[j]]}"><small>${t[j]+1}</small></i>`).reverse().join('');
-            return `<button data-tube="${i}" class="sort-tube ${w.selectedTube===i?'is-selected':''} ${t.length===4&&t.every(v=>v===t[0])?'is-complete':''}" aria-label="Колба ${i+1}: ${t.map(v=>v+1).join(', ')||'пусто'}"><span class="sort-glass">${balls}</span><small>${i+1}</small></button>`;
-          }).join('');
-          const pour = w.cues.filter(c => c.n > lastCue && c.type === 'pour').at(-1);
-          lastCue = w.cueSeq;
-          if (pour && oldTops[pour.from] && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-            const target = grid.querySelector(`[data-tube="${pour.to}"] .sort-ball`);
-            if (target) {
-              const from = oldTops[pour.from], to = target.getBoundingClientRect(), ghost = document.createElement('span');
-              ghost.className = 'sort-flying-ball';
-              Object.assign(ghost.style, {position:'fixed',left:to.left+'px',top:to.top+'px',width:to.width+'px',height:to.height+'px',background:colors[w.tubes[pour.to].at(-1)]});
-              stage.append(ghost); target.style.opacity = '0';
-              const dx = from.left-to.left, dy = from.top-to.top;
-              ghost.animate([{transform:`translate(${dx}px,${dy}px)`},{transform:`translate(${dx*.5}px,${Math.min(0,dy)-35}px)`,offset:.5},{transform:'translate(0,0)'}],{duration:260,easing:'ease-in-out'}).finished.then(()=>{ghost.remove();target.style.opacity='';M.pop(target);}).catch(()=>ghost.remove());
-            }
-          }
-        }
-        $('.sort-meta b', stage).textContent = `Уровень ${w.sortWon?w.score:w.score+1}`;
-        $('.sort-meta span', stage).textContent = `Ходов: ${w.roundMoves}`;
-        $('.sort-message', stage).textContent = w.sortMessage;
-        if (won !== w.sortWon) {
-          won = w.sortWon;
-          $('.sort-complete', stage).innerHTML = won ? '<div><span>✓</span><h3>Всё по цветам</h3><button class="games-main" data-sort-next>Следующий уровень →</button></div>' : '';
-        }
-        $('[data-sort-undo]', stage)?.toggleAttribute('disabled', !w.sortUndo.length || w.sortWon);
-        $('[data-sort-restart]', stage).disabled = w.sortWon;
-      };
-    }
+    if (id === 'sort') return ArcadeSortView.mount(stage,send,options);
     if (id === 'words') {
       stage.innerHTML = '<div class="words-game"><div class="words-round"><b></b><span></span></div><div class="words-source"></div><form class="words-form"><label class="sr-only" for="arcadeWordInput">Новое слово</label><input id="arcadeWordInput" maxlength="32" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Составь слово"><button aria-label="Стереть букву" data-word-back type="button">⌫</button><button class="games-main" type="submit">Проверить</button></form><p class="words-message" role="status"></p><div class="words-found"></div><small class="words-rule">Существительные от 3 букв · словарь игры</small>' + (options.mode === 'practice' ? '<button class="arcade-subtle" data-word-hint>Подсказка</button>' : '') + '</div>';
       const field = $('input', stage);

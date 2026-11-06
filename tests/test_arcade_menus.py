@@ -13,6 +13,8 @@ def test_all_sixteen_games_have_four_large_visible_mode_buttons(arcade, size):
     page.set_viewport_size(dict(width=size[0], height=size[1]))
     for game in GAMES:
         page.locator(f'.game-card[data-game="{game}"]').click()
+        if game == 'react':
+            page.locator('[data-benchmark-react]').click()
         buttons = page.locator(".arcade-menu-actions > button")
         assert buttons.all_text_contents() == [
             "Соревнование›",

@@ -28,11 +28,11 @@
 
     function levels(game, saved, selected) {
         const stage = selected || saved.unlocked,
-            mission = ArcadeJourney.mission(game, stage);
+            mission = ArcadeJourney.mission(game, stage), total=ArcadeJourney.stageCount(game);
         const record = saved.records.find(r => r.stage === stage);
-        return `<section class="arcade-game-levels journey-hub" data-journey-game="${game}" aria-label="Уровни"><div class="arcade-levels-heading"><h3>Уровни</h3><span>${saved.cleared} / 24</span></div><div class="arcade-current-level"><div><h4>Уровень ${stage}</h4>${record?`<span class="arcade-level-stars" aria-label="${record.stars} из 3 звёзд">${'★'.repeat(record.stars)}${'☆'.repeat(3-record.stars)}</span>`:''}</div><p>${esc(ArcadeJourneyView.labels(mission))}</p><button class="arcade-menu-start" data-journey-play="${stage}">Играть</button></div><div class="arcade-level-grid" role="group" aria-label="Выбор уровня">${Array.from({length:24}, (_, i) => {
+        return `<section class="arcade-game-levels journey-hub" data-journey-game="${game}" aria-label="Уровни"><div class="arcade-levels-heading"><h3>Уровни</h3><span>${saved.cleared} / ${total}</span></div><div class="arcade-current-level"><div><h4>Уровень ${stage}</h4>${record?`<span class="arcade-level-stars" aria-label="${record.stars} из 3 звёзд">${'★'.repeat(record.stars)}${'☆'.repeat(3-record.stars)}</span>`:''}</div><p>${esc(ArcadeJourneyView.labels(mission))}</p><button class="arcade-menu-start" data-journey-play="${stage}">Играть</button></div><div class="arcade-level-grid" role="group" aria-label="Выбор уровня">${Array.from({length:total}, (_, i) => {
             const n = i + 1, r = saved.records.find(r => r.stage === n), locked = n > saved.unlocked;
-            return `<button data-journey-stage="${n}" class="journey-stop ${n===stage?'is-selected':''} ${r?'is-complete':''}" aria-label="Уровень ${n}${locked?', закрыт':r?', звёзд: '+r.stars:''}" aria-pressed="${n===stage}" ${locked?'disabled':''}><b>${n}</b><span aria-hidden="true">${locked?'<svg viewBox="0 0 24 24"><path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v11H5Z"/></svg>':r?'★'.repeat(r.stars)+'☆'.repeat(3-r.stars):'•'}</span></button>`;
+            return `${i%ArcadeJourney.chapterSize(game)===0?`<h4 class="arcade-level-topic">${esc(ArcadeJourney.mission(game,n).title)}</h4>`:''}<button data-journey-stage="${n}" class="journey-stop ${n===stage?'is-selected':''} ${r?'is-complete':''}" aria-label="Уровень ${n}${locked?', закрыт':r?', звёзд: '+r.stars:''}" aria-pressed="${n===stage}" ${locked?'disabled':''}><b>${n}</b><span aria-hidden="true">${locked?'<svg viewBox="0 0 24 24"><path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v11H5Z"/></svg>':r?'★'.repeat(r.stars)+'☆'.repeat(3-r.stars):'•'}</span></button>`;
         }).join('')}</div></section>`;
     }
 

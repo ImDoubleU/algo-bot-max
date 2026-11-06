@@ -276,9 +276,9 @@
         const trophy = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4h8v6a4 4 0 0 1-8 0Z"/><path d="M8 6H4v2a4 4 0 0 0 4 4m8-6h4v2a4 4 0 0 1-4 4m-4 2v5m-4 1h8"/></svg>';
         return `${filter==='all'?gardenFeature():''}<div class="arcade-library-heading"><h2>Библиотека</h2><div class="games-filters" aria-label="Категории игр">${[["all","Все"],["fun","Аркады"],["skill","Навыки"],["puzzle","Логика"]].map(([id,name])=>`<button data-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${name}</button>`).join("")}</div></div><div class="games-grid">${E.games.slice().sort((a,b)=>Number(!!b.fresh)-Number(!!a.fresh)).filter(g=>filter==="all"||g.kind===filter).map(g=>{
             const q = profile.goals[g.id], journey = profile.journeys[g.id],
-                cleared = journey?.cleared || 0,
-                progressText = g.persistent ? 'Огород и турнир' : journey ? cleared===24 ? 'Все уровни пройдены' : cleared ? `${cleared} из 24 пройдено` : '24 уровня' : `Цель: ${goal(g.id)}`;
-            return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><span class="game-card-art">${art(g.id)}</span><span class="game-card-body"><h3>${g.name}</h3><span class="game-card-bottom"><span>${progressText}</span>${!q.claimed||!q.credited?`<span class="game-reward">${q.claimed?'Начисляется':`+${q.reward} AC`}</span>`:''}</span>${journey&&cleared?`<progress class="game-card-progress" aria-label="Пройденные уровни: ${cleared} из 24" value="${cleared}" max="24"></progress>`:''}</span></button><button class="game-card-leader" data-leader="${g.id}" aria-label="Лидеры: ${g.name}" title="Лидеры">${trophy}</button></div>`;
+                cleared = journey?.cleared || 0, maximum=journey?.maximum||24,
+                progressText = g.id==='react' ? '5 тестов · реакция и память' : g.persistent ? 'Огород и турнир' : journey ? cleared===maximum ? 'Все уровни пройдены' : cleared ? `${cleared} из ${maximum} пройдено` : maximum===24?'24 уровня':`${maximum} уровней` : `Цель: ${goal(g.id)}`;
+            return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><span class="game-card-art">${art(g.id)}</span><span class="game-card-body"><h3>${g.name}</h3><span class="game-card-bottom"><span>${progressText}</span>${!q.claimed||!q.credited?`<span class="game-reward">${q.claimed?'Начисляется':`+${q.reward} AC`}</span>`:''}</span>${journey&&cleared?`<progress class="game-card-progress" aria-label="Пройденные уровни: ${cleared} из ${maximum}" value="${cleared}" max="${maximum}"></progress>`:''}</span></button><button class="game-card-leader" data-leader="${g.id}" aria-label="Лидеры: ${g.name}" title="Лидеры">${trophy}</button></div>`;
         }).join("")}</div>`;
     }
 
@@ -507,7 +507,7 @@
     }
 
     function openGame(id) {
-        if (play || window.KopatychFarm?.isOpen) return;
+        if (play || window.KopatychFarm?.isOpen || window.ArcadeBenchmarkView?.isOpen()) return;
         device = matchMedia('(pointer:coarse)').matches ? 'touch' : 'keyboard';
         const g = E.games.find(g => g.id === id),
             d = document.createElement("dialog");
@@ -608,12 +608,17 @@
         $('.game-leaders-button', d).hidden = true;
         $('.game-menu-back', d).hidden = screen === 'menu';
         const host = $('.game-stage', d);
-        host.innerHTML = screen === 'levels' ? ArcadeMenu.levels(g.id, profile.journeys[g.id], run.selectedJourney) :
+        host.innerHTML = g.id==='react'&&screen==='menu'?ArcadeBenchmarkView.hub():screen === 'levels' ? ArcadeMenu.levels(g.id, profile.journeys[g.id], run.selectedJourney) :
             screen === 'arenas' ? ArcadeMenu.arenas(run.arena || 'classic') : ArcadeMenu.home(g);
         host.scrollTop = 0;
         host.onclick = e => {
             const button = e.target.closest('button');
             if (!button || button.disabled) return;
+            if(button.dataset.benchmark) {
+                const test=button.dataset.benchmark;close();
+                void ArcadeBenchmarkView.open(api,test,()=>openGame('react'));return;
+            }
+            if(button.hasAttribute('data-benchmark-react')){run.menuScreen='reaction';intro(run);return;}
             if (button.hasAttribute('data-menu-levels')) {
                 if (g.id === 'kopatych' && window.KopatychFarm) {
                     openGarden();
@@ -660,8 +665,9 @@
             signal: run.viewAbort.signal,
             device: run.world.device,
             mode: run.world.mode,
-            skin: run.world.journey ? ['base', 'mint', 'sun', 'nebula', 'mint', 'nebula'][run.world.journey.chapter] : profile.settings.skin,
-            theme: run.world.journey ? ['space', 'forest', 'sunset', 'nebula', 'forest', 'nebula'][run.world.journey.chapter] : profile.settings.theme === 'space' ? ({
+            expedition: !!run.world.expedition,
+            skin: run.world.journey ? ['base', 'mint', 'sun', 'nebula', 'mint', 'nebula'][run.world.journey.chapter % 6] : profile.settings.skin,
+            theme: run.world.journey ? ['space', 'forest', 'sunset', 'nebula', 'forest', 'nebula'][run.world.journey.chapter % 6] : profile.settings.theme === 'space' ? ({
                 bugs: 'forest',
                 tower: 'sunset',
                 drop: 'nebula',
@@ -688,8 +694,12 @@
         run.world = W.create({
             game: run.g.id,
             seed: 41,
+            sortRules: 2,
+            wordDictionary: 2,
+            lessonVersion: 2,
+            evolveRules: 2,
             ...(run.g.id === 'drop' ? {
-                dropPhysics: 3,
+                dropPhysics: 4,
                 arena: run.arena || 'classic'
             } : {}),
             ...(run.g.id === 'hill' ? {
@@ -767,7 +777,10 @@
                 run.hillLesson = 1;
                 $('.arcade-learning-tip', run.dialog).textContent = 'Отпусти газ и удерживай тормоз до остановки. В воздухе он опускает нос машины.';
             }
-            if (w.id === 'hill' ? run.hillLesson === 1 && w.hill.brake && Math.abs(w.hill.vx) < 2 : window.ArcadeExtras?.tutorialDone(w) ?? (w.score >= (w.id === "typing" ? 3 : 1))) {
+            if (w.id === 'evolve' && w.merges > 0) {
+                $('.arcade-learning-tip', run.dialog).textContent = 'Выбери росток на поле, затем нажми «Спасти» на станции';
+            }
+            if (w.id === 'evolve' ? w.merges > 0 && w.expedition.rescued > 0 : w.id === 'hill' ? run.hillLesson === 1 && w.hill.brake && Math.abs(w.hill.vx) < 2 : window.ArcadeExtras?.tutorialDone(w) ?? (w.score >= (w.id === "typing" ? 3 : 1))) {
                 run.phase = "intro";
                 const cover = document.createElement("div");
                 cover.className = "game-result";
@@ -1051,6 +1064,14 @@
         if (run.frames.length > 26) run.frames.shift();
         run.phase = "finishing";
         cancelAnimationFrame(run.raf);
+        if(run.view?.settled) {
+            // The clock has already ended. Let the last balls land before replacing the board.
+            run.view.update(run.world,0);
+            let timer;
+            await Promise.race([run.view.settled(),new Promise(resolve=>{timer=setTimeout(resolve,1000);})]);
+            clearTimeout(timer);
+            if(play!==run)return;
+        }
         run.viewAbort?.abort();
         run.dialog.classList.add('is-finished');
         $('.game-leaders-button', run.dialog).hidden = false;
@@ -1095,7 +1116,7 @@
                 masteryGain(run, cover);
                 $('.journey-tools', run.dialog).hidden = true;
                 const map = () => {
-                    run.selectedJourney = report.journey.success ? Math.min(24, report.journey.stage + 1) : report.journey.stage;
+                    run.selectedJourney = report.journey.success ? Math.min(ArcadeJourney.stageCount(run.g.id), report.journey.stage + 1) : report.journey.stage;
                     if (run.g.id === 'hill') {
                         openGarage('missions', run.selectedJourney);
                         return;
@@ -1105,7 +1126,7 @@
                     run.menuScreen = 'levels';
                     intro(run);
                 };
-                $('[data-journey-next]', cover).onclick = () => !report.journey.success ? begin(run, report.journey.stage) : report.journey.stage < 24 ? begin(run, report.journey.stage + 1) : map();
+                $('[data-journey-next]', cover).onclick = () => !report.journey.success ? begin(run, report.journey.stage) : report.journey.stage < ArcadeJourney.stageCount(run.g.id) ? begin(run, report.journey.stage + 1) : map();
                 $('[data-journey-map]', cover)?.addEventListener('click', map);
                 return;
             }
@@ -1121,6 +1142,7 @@
             if (play !== run) return;
             cover.innerHTML = ArcadeResults.normal(run, result, rank);
             ArcadeFeedback.result(run, cover, report);
+            if(run.g.id==='react')cover.insertAdjacentHTML('beforeend','<details class="arcade-result-details"><summary>Сравнение с Human Benchmark</summary><p>На сайте Human Benchmark опубликованы среднее 284 мс и медиана 273 мс. Это ориентир: устройства, задержка экрана и условия теста влияют на результат.</p><a href="https://humanbenchmark.com/tests/reactiontime/statistics" target="_blank" rel="noopener noreferrer">Источник · 06.11.2026</a></details>');
             if(result.run.accepted&&report.score>run.oldBest)feedback(run,'victory');
             if (run.g.id === 'hill') {
                 $('.arcade-score-result', cover).insertAdjacentHTML('beforeend', `${report.reason?`<p class="hill-run-reason">${esc(report.reason)}</p>`:''}${result.garage_coins?`<p class="hill-run-coins">+${result.garage_coins} монет в гараж</p>`:''}`);
@@ -1185,6 +1207,7 @@
             mode: "practice",
             device,
             readOnly: true,
+            expedition: !!frames[0]?.expedition,
             paused: () => true,
             theme: profile.settings.theme,
             skin: profile.settings.skin,

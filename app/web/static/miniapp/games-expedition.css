@@ -1,0 +1,19 @@
+.game-dialog[data-game=evolve] .evolve-expedition{padding:16px;width:100%;box-sizing:border-box;background:#e4eddb;color:#345440}
+.expedition-heading{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:12px;font-size:18px}
+.expedition-heading>span{font-size:16px;color:#547548}
+.expedition-orders{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px}
+.expedition-order{display:flex;flex-direction:column;align-items:center;gap:3px;min-height:105px;padding:7px 4px;border:1px solid #b7c5a7;border-radius:12px;background:#f8faee;color:#3f6045;opacity:1}
+.expedition-order>span{display:block;width:44px;height:44px}.expedition-order canvas{width:44px!important;height:44px!important;max-height:44px!important}
+.expedition-order b{font:700 15px/1.2 'Segoe UI',sans-serif}.expedition-order em{font:500 12px/1.2 'Segoe UI',sans-serif;color:#687c58}
+.expedition-order.is-ready{background:#d2e9b7;border-color:#759c55;box-shadow:0 0 0 2px #98bc7780;cursor:pointer}
+.expedition-order.is-ready em{font-size:16px;font-weight:800;color:#315839}
+.game-dialog[data-game=evolve] .evolve-expedition .evolve-grid{padding:9px;gap:7px;border-width:5px;border-bottom-width:8px}
+.game-dialog[data-game=evolve] .evolve-expedition .evolve-grid>button{min-height:58px;aspect-ratio:1;border-width:1px;padding:3px}
+.game-dialog[data-game=evolve] .evolve-expedition .evolve-grid>button canvas{width:90%;max-width:58px;max-height:58px}
+.evolve-expedition .evolve-grid>button.is-requested:after{content:'';position:absolute;right:5px;top:5px;width:7px;height:7px;border-radius:50%;background:#d3a352}
+.evolve-expedition .evolve-grid>button{position:relative}.expedition-selection{font-size:16px;line-height:1.4;min-height:44px;margin:10px 0}
+.expedition-powers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.expedition-powers button{border:1px solid #96ad7e;background:#f6f8eb;border-radius:8px;min-height:55px;padding:8px 5px;color:#355c40}
+.expedition-powers b{font:700 14px/1.2 'Segoe UI',sans-serif;display:block}.expedition-powers span{font-size:13px;display:block;margin-top:4px}
+.expedition-powers button:disabled{opacity:.5}.expedition-atlas{display:flex;justify-content:space-between;gap:8px;font-size:14px;margin-top:12px}
+@media(max-width:360px){.game-dialog[data-game=evolve] .evolve-expedition{padding:12px}.expedition-order b{font-size:13px}.expedition-order em{font-size:11px}.expedition-powers b{font-size:13px}.game-dialog[data-game=evolve] .evolve-expedition .evolve-grid>button{min-height:48px}}

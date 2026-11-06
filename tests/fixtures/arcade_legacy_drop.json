@@ -1,0 +1,614 @@
+[
+  {
+    "setup": {
+      "game": "drop",
+      "mode": "practice",
+      "device": "keyboard",
+      "seed": 17,
+      "dropPhysics": 3,
+      "arena": "classic"
+    },
+    "actions": [
+      {
+        "type": "tap",
+        "x": 45,
+        "t": 0,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 112,
+        "t": 50,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 179,
+        "t": 100,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 246,
+        "t": 150,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 313,
+        "t": 200,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 110,
+        "t": 250,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 177,
+        "t": 300,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 244,
+        "t": 350,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 311,
+        "t": 400,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 108,
+        "t": 450,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 175,
+        "t": 500,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 242,
+        "t": 550,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 309,
+        "t": 600,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 106,
+        "t": 650,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 173,
+        "t": 700,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 240,
+        "t": 750,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 307,
+        "t": 800,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 104,
+        "t": 850,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 171,
+        "t": 900,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 238,
+        "t": 950,
+        "source": "keyboard"
+      }
+    ],
+    "ticks": 1000,
+    "report": {
+      "score": 164,
+      "rankScore": 164,
+      "level": 2,
+      "complete": false,
+      "reason": "",
+      "ticks": 1000,
+      "timeMs": 16667,
+      "details": {
+        "accuracy": 100,
+        "mistakes": 0,
+        "moves": 0,
+        "result": 164,
+        "timeMs": 16667,
+        "bestCombo": 0,
+        "physics": "soft3",
+        "arena": "classic"
+      },
+      "badKeys": {}
+    }
+  },
+  {
+    "setup": {
+      "game": "drop",
+      "mode": "practice",
+      "device": "keyboard",
+      "seed": 17,
+      "dropPhysics": 3,
+      "arena": "bowl"
+    },
+    "actions": [
+      {
+        "type": "tap",
+        "x": 45,
+        "t": 0,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 112,
+        "t": 50,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 179,
+        "t": 100,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 246,
+        "t": 150,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 313,
+        "t": 200,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 110,
+        "t": 250,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 177,
+        "t": 300,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 244,
+        "t": 350,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 311,
+        "t": 400,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 108,
+        "t": 450,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 175,
+        "t": 500,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 242,
+        "t": 550,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 309,
+        "t": 600,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 106,
+        "t": 650,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 173,
+        "t": 700,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 240,
+        "t": 750,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 307,
+        "t": 800,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 104,
+        "t": 850,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 171,
+        "t": 900,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 238,
+        "t": 950,
+        "source": "keyboard"
+      }
+    ],
+    "ticks": 1000,
+    "report": {
+      "score": 120,
+      "rankScore": 120,
+      "level": 2,
+      "complete": false,
+      "reason": "",
+      "ticks": 1000,
+      "timeMs": 16667,
+      "details": {
+        "accuracy": 100,
+        "mistakes": 0,
+        "moves": 0,
+        "result": 120,
+        "timeMs": 16667,
+        "bestCombo": 0,
+        "physics": "soft3",
+        "arena": "bowl"
+      },
+      "badKeys": {}
+    }
+  },
+  {
+    "setup": {
+      "game": "drop",
+      "mode": "practice",
+      "device": "keyboard",
+      "seed": 17,
+      "dropPhysics": 3,
+      "arena": "slopes"
+    },
+    "actions": [
+      {
+        "type": "tap",
+        "x": 45,
+        "t": 0,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 112,
+        "t": 50,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 179,
+        "t": 100,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 246,
+        "t": 150,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 313,
+        "t": 200,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 110,
+        "t": 250,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 177,
+        "t": 300,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 244,
+        "t": 350,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 311,
+        "t": 400,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 108,
+        "t": 450,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 175,
+        "t": 500,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 242,
+        "t": 550,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 309,
+        "t": 600,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 106,
+        "t": 650,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 173,
+        "t": 700,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 240,
+        "t": 750,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 307,
+        "t": 800,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 104,
+        "t": 850,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 171,
+        "t": 900,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 238,
+        "t": 950,
+        "source": "keyboard"
+      }
+    ],
+    "ticks": 1000,
+    "report": {
+      "score": 188,
+      "rankScore": 188,
+      "level": 2,
+      "complete": false,
+      "reason": "",
+      "ticks": 1000,
+      "timeMs": 16667,
+      "details": {
+        "accuracy": 100,
+        "mistakes": 0,
+        "moves": 0,
+        "result": 188,
+        "timeMs": 16667,
+        "bestCombo": 0,
+        "physics": "soft3",
+        "arena": "slopes"
+      },
+      "badKeys": {}
+    }
+  },
+  {
+    "setup": {
+      "game": "drop",
+      "mode": "practice",
+      "device": "keyboard",
+      "seed": 17,
+      "dropPhysics": 3,
+      "arena": "pins"
+    },
+    "actions": [
+      {
+        "type": "tap",
+        "x": 45,
+        "t": 0,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 112,
+        "t": 50,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 179,
+        "t": 100,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 246,
+        "t": 150,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 313,
+        "t": 200,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 110,
+        "t": 250,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 177,
+        "t": 300,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 244,
+        "t": 350,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 311,
+        "t": 400,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 108,
+        "t": 450,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 175,
+        "t": 500,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 242,
+        "t": 550,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 309,
+        "t": 600,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 106,
+        "t": 650,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 173,
+        "t": 700,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 240,
+        "t": 750,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 307,
+        "t": 800,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 104,
+        "t": 850,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 171,
+        "t": 900,
+        "source": "keyboard"
+      },
+      {
+        "type": "tap",
+        "x": 238,
+        "t": 950,
+        "source": "keyboard"
+      }
+    ],
+    "ticks": 1000,
+    "report": {
+      "score": 100,
+      "rankScore": 100,
+      "level": 2,
+      "complete": false,
+      "reason": "",
+      "ticks": 1000,
+      "timeMs": 16667,
+      "details": {
+        "accuracy": 100,
+        "mistakes": 0,
+        "moves": 0,
+        "result": 100,
+        "timeMs": 16667,
+        "bestCombo": 0,
+        "physics": "soft3",
+        "arena": "pins"
+      },
+      "badKeys": {}
+    }
+  }
+]

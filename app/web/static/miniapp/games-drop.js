@@ -134,6 +134,7 @@
         get,
         chapter,
         friction,
+        surfaces,
         collide,
         preview,
         draw

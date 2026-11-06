@@ -24,7 +24,7 @@ def solve_debug(setup, wrong=0):
           function send(a){const e={...a,source:w.device,t:w.tick};events.push(e);W.input(w,e);}
           while(!w.ended){const task=w.tasks[w.index];W.advance(w,20);
             send({type:'line',i:task.line});
-            W.advance(w,20);send({type:'answer',i:wrong-->0?(task.answer+1)%3:task.answer});
+            W.advance(w,20);send(task.freeAnswer?{type:'fix',value:wrong-->0?'wrong':task.options[task.answer]}:{type:'answer',i:wrong-->0?(task.answer+1)%3:task.answer});
             if(!w.ended){W.advance(w,20);send({type:'next'});}}
           return {events,ticks:w.tick,report:W.report(w)};}""")
         return vm.call("solve", setup, wrong)
@@ -39,8 +39,8 @@ def finish(store, session, trace, player="p1"):
 @pytest.mark.parametrize("game", list(arcade_journey.catalogue()))
 def test_all_adventures_have_twenty_four_stages_and_never_progress_by_waiting(game):
     stages = arcade_journey.catalogue()[game]["stages"]
-    assert [m["stage"] for m in stages] == list(range(1, 25))
-    assert len({m["title"] for m in stages}) == 6
+    assert [m["stage"] for m in stages] == list(range(1, (97 if game in {"typing", "debug"} else 25)))
+    assert len({m["title"] for m in stages}) == (8 if game in {"typing", "debug"} else 6)
     for stage in (1, 12, 24):
         report = arcade_runtime.verify(
             dict(
@@ -85,14 +85,14 @@ def test_unlocked_stages_belong_to_owner_and_duplicate_result_does_not_pay_again
 
 
 def test_chapters_unlock_active_tools_and_weekly_award_is_shared_with_ranked(store):
-    for stage in range(1, 9):
+    for stage in range(1, 25):
         session = store.session("p1", "debug", "journey", "keyboard", stage)
         finish(store, session, solve_debug(session["setup"]))
     profile = store.profile("p1")
     assert profile["journeys"]["debug"]["charges"] == 2
     assert profile["journeys"]["debug"]["keepsakes"] == [1, 2]
     assert store.session("p1", "debug", "journey", "keyboard")["setup"]["journey"] == dict(
-        stage=9, charges=2
+        stage=25, charges=2
     )
     # The first two chapters have goals under the weekly target, so no passive award exists.
     assert not profile["awards"]
@@ -120,6 +120,8 @@ def test_every_game_has_a_playable_route_on_mobile_and_desktop(arcade, width):
     page.set_viewport_size(dict(width=width, height=900))
     for game in arcade_journey.catalogue():
         page.locator(f'.game-card[data-game="{game}"]').click()
+        if game == 'react':
+            page.locator('[data-benchmark-react]').click()
         page.locator("[data-menu-levels]").click()
         if game == "hill":
             page.locator('[data-garage-tab="missions"]').click()
@@ -130,7 +132,7 @@ def test_every_game_has_a_playable_route_on_mobile_and_desktop(arcade, width):
             continue
         hub = page.locator(".journey-hub")
         assert hub.is_visible()
-        assert page.locator(".journey-stop").count() == 24
+        assert page.locator(".journey-stop").count() == len(arcade_journey.catalogue()[game]["stages"])
         assert page.locator(".journey-stop:not(:disabled)").count() == 1
         assert hub.evaluate("(n)=>n.scrollWidth<=n.clientWidth"), game
         assert page.locator("#gameDialog").evaluate("(n)=>n.scrollWidth<=n.clientWidth"), game
@@ -173,7 +175,7 @@ def test_adventure_starts_real_game_and_saves_result_across_reentry(arcade):
     page.locator("[data-journey-map]").click()
     assert page.locator('[data-journey-play="2"]').is_visible()
     page.locator(".game-close").click()
-    assert "1 из 24 пройдено" in page.locator('.game-card[data-game="debug"]').inner_text()
+    assert "1 из 96 пройдено" in page.locator('.game-card[data-game="debug"]').inner_text()
     page.locator('.game-card[data-game="debug"]').click()
     page.locator("[data-menu-levels]").click()
     assert page.locator('[data-journey-play="2"]').is_visible()
@@ -247,8 +249,8 @@ def test_2048_exchange_is_a_real_two_cell_choice_and_spends_only_after_selection
 
 def test_soft_drop_is_selected_by_server_and_bad_session_parameters_are_rejected(store):
     session = store.session("p1", "drop", "ranked", "keyboard")
-    assert session["setup"]["dropPhysics"] == 3
-    assert arcade_runtime.verify(session["setup"], [], 1)["details"]["physics"] == "soft3"
+    assert session["setup"]["dropPhysics"] == 4
+    assert arcade_runtime.verify(session["setup"], [], 1)["details"]["physics"] == "soft4"
     for stage in (True, 0, 25, -1):
         with pytest.raises(ArcadeError):
             store.session("p1", "debug", "journey", "keyboard", stage)
@@ -272,7 +274,7 @@ def test_verified_adventure_win_survives_pagehide_marked_as_abandoned(store):
 
 
 def test_adventure_weekly_reward_and_ranked_reward_share_the_same_once_only_credit(store):
-    for stage in range(1, 11):
+    for stage in range(1, 27):
         session = store.session("p1", "debug", "journey", "keyboard", stage)
         finish(store, session, solve_debug(session["setup"]))
     profile = store.profile("p1")
@@ -289,7 +291,7 @@ def test_adventure_result_collects_weekly_ac_automatically_through_the_real_inte
     page, store = arcade
     store.clock = Clock()
     with store.db() as db:
-        for stage in range(1, 10):
+        for stage in range(1, 26):
             db.execute(
                 "INSERT INTO arcade_journeys VALUES(?,?,?,?,?,?,?)",
                 ("p1", "debug", stage, 3, 10, store.clock(), "{}"),
@@ -297,7 +299,7 @@ def test_adventure_result_collects_weekly_ac_automatically_through_the_real_inte
     page.reload()
     page.locator('.game-card[data-game="debug"]').click()
     page.locator("[data-menu-levels]").click()
-    page.locator('[data-journey-play="10"]').click()
+    page.locator('[data-journey-play="26"]').click()
     page.locator(".arcade-countdown").wait_for(state="detached")
     with store.db() as db:
         setup = json.loads(

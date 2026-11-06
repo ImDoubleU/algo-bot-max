@@ -57,7 +57,7 @@ def finish_debug(store, player="p1", mode="ranked"):
         session["setup"],
         """
       for(let i=0;i<8;i++){W.advance(w,12);send({type:'line',i:w.tasks[i].line});
-        W.advance(w,12);send({type:'answer',i:w.tasks[i].answer});
+        W.advance(w,12);send(w.tasks[i].freeAnswer?{type:'fix',value:w.tasks[i].options[w.tasks[i].answer]}:{type:'answer',i:w.tasks[i].answer});
         W.advance(w,12);send({type:'next'});}
     """,
     )
@@ -425,6 +425,8 @@ def test_all_games_start_without_pause_finish_naturally_and_fit(arcade, width):
     assert page.locator(".game-card").count() == len(GAMES)
     for game in GAMES:
         page.locator(f'.game-card[data-game="{game}"]').click()
+        if game == 'react':
+            page.locator('[data-benchmark-react]').click()
         page.locator('[data-mode="ranked"]').click()
         page.wait_for_function("document.querySelector('#gameClock')?.textContent.length>0")
         assert page.locator(".arcade-pause,#gameFinish").count() == 0
@@ -487,6 +489,8 @@ def test_sections_mastery_and_server_saved_selection_survive_reload(arcade):
 def test_first_time_tutorial_requires_a_successful_action(arcade, game):
     page, store = arcade
     page.locator(f'.game-card[data-game="{game}"]').click()
+    if game == "react":
+        page.locator('[data-benchmark-react]').click()
     if game == "kopatych":
         page.locator("[data-menu-levels]").click()
         page.locator("[data-farm-sprint]").first.click()
@@ -500,12 +504,18 @@ def test_first_time_tutorial_requires_a_successful_action(arcade, game):
     elif game == "evolve":
         page.locator('[data-cell="0"]').click()
         page.locator('[data-cell="1"]').click()
+        page.locator('[data-cell="1"]').click()
+        page.locator('[data-rescue="0"]').click()
     elif game == "typing":
         page.locator(".typing-input").press_sequentially("кот")
     elif game == "debug":
-        task = page.evaluate("ArcadeWorld.create({game:'debug',seed:41,mode:'practice'}).tasks[0]")
+        task = page.evaluate("ArcadeWorld.create({game:'debug',seed:41,mode:'practice',lessonVersion:2}).tasks[0]")
         page.locator(f'[data-line="{task["line"]}"]').click()
-        page.locator(f'[data-option="{task["answer"]}"]').click()
+        if task.get('freeAnswer'):
+            page.locator('#debugFix').fill(task['options'][task['answer']])
+            page.locator('.debug-fix-form').evaluate('(f)=>f.requestSubmit()')
+        else:
+            page.locator(f'[data-option="{task["answer"]}"]').click()
     elif game == "2048":
         page.keyboard.press("ArrowLeft")
     elif game == "drop":
@@ -555,7 +565,11 @@ def test_ui_generated_python_completion_award_and_replay(arcade):
     tasks = page.evaluate("s=>ArcadeWorld.create(s).tasks", json.loads(session["setup"]))
     for task in tasks:
         page.locator(f'[data-line="{task["line"]}"]').click()
-        page.locator(f'[data-option="{task["answer"]}"]').click()
+        if task.get('freeAnswer'):
+            page.locator('#debugFix').fill(task['options'][task['answer']])
+            page.locator('.debug-fix-form').evaluate('(f)=>f.requestSubmit()')
+        else:
+            page.locator(f'[data-option="{task["answer"]}"]').click()
         page.locator("[data-next]").click()
     page.locator("[data-again]").wait_for()
     assert store.profile("p1")["best"]["debug"] == 8

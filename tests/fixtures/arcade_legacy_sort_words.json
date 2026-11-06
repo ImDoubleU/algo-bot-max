@@ -1,0 +1,366 @@
+[
+  {
+    "setup": {
+      "game": "words",
+      "mode": "practice",
+      "device": "keyboard",
+      "seed": 17
+    },
+    "actions": [
+      {
+        "type": "word",
+        "value": "кот",
+        "t": 30,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "ток",
+        "t": 60,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "нос",
+        "t": 90,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "сон",
+        "t": 120,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "сок",
+        "t": 150,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "рот",
+        "t": 180,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "рок",
+        "t": 210,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "пот",
+        "t": 240,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "лес",
+        "t": 270,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "вес",
+        "t": 300,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "вид",
+        "t": 330,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "лед",
+        "t": 360,
+        "source": "keyboard"
+      }
+    ],
+    "ticks": 10800,
+    "report": {
+      "score": 12,
+      "rankScore": 12,
+      "level": 2,
+      "complete": true,
+      "reason": "Время вышло — слова сохранены",
+      "ticks": 10800,
+      "timeMs": 180000,
+      "details": {
+        "accuracy": 100,
+        "mistakes": 0,
+        "moves": 0,
+        "result": 12,
+        "timeMs": 180000,
+        "bestCombo": 0
+      },
+      "badKeys": {}
+    }
+  },
+  {
+    "setup": {
+      "game": "words",
+      "mode": "practice",
+      "device": "keyboard",
+      "seed": 42
+    },
+    "actions": [
+      {
+        "type": "word",
+        "value": "мир",
+        "t": 30,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "пир",
+        "t": 60,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "мор",
+        "t": 90,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "рог",
+        "t": 120,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "маг",
+        "t": 150,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "миг",
+        "t": 180,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "гора",
+        "t": 210,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "игра",
+        "t": 240,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "лес",
+        "t": 270,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "вес",
+        "t": 300,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "вид",
+        "t": 330,
+        "source": "keyboard"
+      },
+      {
+        "type": "word",
+        "value": "лед",
+        "t": 360,
+        "source": "keyboard"
+      }
+    ],
+    "ticks": 10800,
+    "report": {
+      "score": 12,
+      "rankScore": 12,
+      "level": 2,
+      "complete": true,
+      "reason": "Время вышло — слова сохранены",
+      "ticks": 10800,
+      "timeMs": 180000,
+      "details": {
+        "accuracy": 100,
+        "mistakes": 0,
+        "moves": 0,
+        "result": 12,
+        "timeMs": 180000,
+        "bestCombo": 0
+      },
+      "badKeys": {}
+    }
+  },
+  {
+    "setup": {
+      "game": "sort",
+      "mode": "practice",
+      "device": "keyboard",
+      "seed": 17
+    },
+    "actions": [
+      {
+        "type": "pour",
+        "from": 3,
+        "to": 4,
+        "single": true,
+        "t": 10,
+        "source": "keyboard"
+      },
+      {
+        "type": "pour",
+        "from": 4,
+        "to": 0,
+        "single": true,
+        "t": 20,
+        "source": "keyboard"
+      },
+      {
+        "type": "pour",
+        "from": 1,
+        "to": 0,
+        "single": true,
+        "t": 30,
+        "source": "keyboard"
+      },
+      {
+        "type": "pour",
+        "from": 2,
+        "to": 0,
+        "single": true,
+        "t": 40,
+        "source": "keyboard"
+      },
+      {
+        "type": "pour",
+        "from": 3,
+        "to": 1,
+        "single": true,
+        "t": 50,
+        "source": "keyboard"
+      },
+      {
+        "type": "pour",
+        "from": 3,
+        "to": 0,
+        "single": true,
+        "t": 60,
+        "source": "keyboard"
+      },
+      {
+        "type": "pour",
+        "from": 3,
+        "to": 2,
+        "single": true,
+        "t": 70,
+        "source": "keyboard"
+      }
+    ],
+    "ticks": 70,
+    "report": {
+      "score": 1,
+      "rankScore": 1,
+      "level": 1,
+      "complete": false,
+      "reason": "",
+      "ticks": 70,
+      "timeMs": 1167,
+      "details": {
+        "accuracy": 100,
+        "mistakes": 0,
+        "moves": 7,
+        "result": 1,
+        "timeMs": 1167,
+        "bestCombo": 0
+      },
+      "badKeys": {}
+    }
+  },
+  {
+    "setup": {
+      "game": "sort",
+      "mode": "practice",
+      "device": "keyboard",
+      "seed": 42
+    },
+    "actions": [
+      {
+        "type": "pour",
+        "from": 0,
+        "to": 1,
+        "single": true,
+        "t": 10,
+        "source": "keyboard"
+      },
+      {
+        "type": "pour",
+        "from": 2,
+        "to": 0,
+        "single": true,
+        "t": 20,
+        "source": "keyboard"
+      },
+      {
+        "type": "pour",
+        "from": 4,
+        "to": 1,
+        "single": true,
+        "t": 30,
+        "source": "keyboard"
+      },
+      {
+        "type": "pour",
+        "from": 4,
+        "to": 2,
+        "single": true,
+        "t": 40,
+        "source": "keyboard"
+      },
+      {
+        "type": "pour",
+        "from": 4,
+        "to": 1,
+        "single": true,
+        "t": 50,
+        "source": "keyboard"
+      },
+      {
+        "type": "pour",
+        "from": 4,
+        "to": 1,
+        "single": true,
+        "t": 60,
+        "source": "keyboard"
+      }
+    ],
+    "ticks": 60,
+    "report": {
+      "score": 1,
+      "rankScore": 1,
+      "level": 1,
+      "complete": false,
+      "reason": "",
+      "ticks": 60,
+      "timeMs": 1000,
+      "details": {
+        "accuracy": 100,
+        "mistakes": 0,
+        "moves": 6,
+        "result": 1,
+        "timeMs": 1000,
+        "bestCombo": 0
+      },
+      "badKeys": {}
+    }
+  }
+]

@@ -84,7 +84,11 @@ def test_reward_notice_survives_a_lost_finish_response_in_the_actual_window(arca
     page.route("**/sessions/*/finish", lose_response, times=1)
     for task in tasks:
         page.locator(".debug-code button").nth(task["line"]).click()
-        page.locator("[data-option]").nth(task["answer"]).click()
+        if task.get('freeAnswer'):
+            page.locator('#debugFix').fill(task['options'][task['answer']])
+            page.locator('.debug-fix-form').evaluate('(f)=>f.requestSubmit()')
+        else:
+            page.locator('[data-option]').nth(task['answer']).click()
         page.locator("[data-next]").click()
     page.locator("[data-retry]").click()
     page.locator(".arcade-reward-receipt").wait_for()
