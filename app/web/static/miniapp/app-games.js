@@ -29,7 +29,11 @@
         id: 'pilot:' + Number(state.account?.max_user_id || apiContext.maxUserId),
         name: state.account?.display_name || 'Участник тестирования'
     }] : window.ALGO_GAME_PLAYERS || [];
-    let selected = localStorage.getItem("arcade-player-v3") || actors[0]?.id,
+    let savedPlayer = null;
+    if (!pilot) {
+        try { savedPlayer = window.localStorage.getItem("arcade-player-v3"); } catch {}
+    }
+    let selected = savedPlayer || actors[0]?.id,
         profile = null,
         tab = "games",
         filter = "all",
@@ -228,7 +232,7 @@
         const picker=$("#gamesPlayer", root);
         if(picker)picker.onchange = async e => {
             selected = e.target.value;
-            localStorage.setItem("arcade-player-v3", selected);
+            try { window.localStorage.setItem("arcade-player-v3", selected); } catch {}
             profile = null;
             boardCache.clear();
             restoring = true;
@@ -709,6 +713,7 @@
             wordDictionary: 2,
             lessonVersion: 2,
             evolveRules: 2,
+            clockRules: 2,
             ...(run.g.id === 'drop' ? {
                 dropPhysics: 5,
                 arena: run.arena || 'classic'
@@ -876,6 +881,8 @@
         run.frames = [];
         run.playedMs = 0;
         run.lastCue = 0;
+        delete $('#gameClock',run.dialog).dataset.clockText;
+        $('#gameClock',run.dialog).classList.remove('is-intermission');
         mount(run);
         $('.game-hud', run.dialog).hidden = false;
         $('.arcade-live-goal', run.dialog).hidden = false;
@@ -1031,21 +1038,26 @@
             g = run.g;
         $("#gameScore", d).textContent = w.score;
         $("#gameLevel", d).textContent = `Сложность ${w.level}`;
-        if (run.phase !== "ready") $("#gameClock", d).textContent = (w.roundSeconds || g.seconds || w.id === "typing") ? `${Math.max(0,Math.ceil((w.roundSeconds||g.seconds||60)-w.time))} с` : w.id === "memory" && !w.between ? `${Math.max(0,Math.ceil(w.left))} с` : w.id === "debug" ? `${Math.min(8,w.index+1)} / 8` : `${Math.floor(w.time)} с`;
+        if (run.phase !== "ready") {
+            const clock=ArcadeClock.view(w),node=$('#gameClock',d),
+                value=ArcadeClock.format(clock.kind==='countdown'?Math.ceil(clock.value):clock.value),
+                text=clock.label+' '+value;
+            if(node.dataset.clockText!==text) {
+                node.innerHTML=`<span class="game-clock-caption">${clock.label}</span><b>${value}</b>`;
+                node.dataset.clockText=text;
+            }
+            node.classList.toggle('is-intermission',clock.paused);
+            node.setAttribute('aria-label',text);
+        }
         if (w.journey) {
             const j = w.journey;
             $('#gameLevel', d).textContent = 'Уровень ' + j.stage;
-            if (run.phase !== 'ready') {
-                const left = Math.max(0, Math.ceil(j.seconds - w.time));
-                $('#gameClock', d).textContent = left >= 60 ? Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') : left + ' с';
-            }
             $('.arcade-live-goal progress', d).max = j.goal;
             $('.arcade-live-goal progress', d).value = Math.min(j.goal, w.score);
             $('.arcade-live-goal span', d).textContent = ArcadeJourneyView.labels(j) + (j.moves ? ' · осталось ' + Math.max(0, Math.ceil(j.moves - j.movesUsed)) + ' ходов' : '');
             ArcadeJourneyView.tools(run);
             return;
         }
-        if (w.id === 'react') $('#gameClock', d).textContent = w.hits.length ? Math.round(w.hits.reduce((a, b) => a + b, 0) / w.hits.length) + ' мс' : '— мс';
         const q = profile.goals[g.id],
             next = profile.achievements.filter(a => a.game === g.id && !a.unlocked).sort((a, b) => a.tier - b.tier)[0],
             live = ArcadeResults.liveGoal(w, g, q, next, run.mode === 'practice');

@@ -539,7 +539,10 @@
                 if (key !== signature) {
                     signature = key;
                     const grid = $(".memory-grid", stage);
-                    grid.style.gridTemplateColumns = `repeat(${w.cards.length>=20?6:4},minmax(0,1fr))`;
+                    const columns=w.cards.length>=20?6:4;
+                    grid.style.gridTemplateColumns = `repeat(${columns},minmax(0,1fr))`;
+                    grid.style.setProperty('--memory-columns',columns);
+                    grid.style.setProperty('--memory-rows',Math.ceil(w.cards.length/columns));
                     grid.innerHTML = w.cards.map((v, i) => `<button data-card="${i}" class="${w.matched.includes(i)?"matched":(w.opened.includes(i)||peek)?"flipped":""}" ${w.matched.includes(i)?"disabled":""} aria-label="Карточка ${i+1}">${w.matched.includes(i)||w.opened.includes(i)||peek?"":"✦"}</button>`).join("");
                     [...grid.children].forEach((b, i) => {
                         if (w.matched.includes(i) || w.opened.includes(i) || peek) S.buttonCanvas(b, S.memory[w.cards[i]], options);
@@ -590,6 +593,7 @@
     window.ArcadeView = {
         mount: (game, stage, send, options) => {
             const view=mount(game,stage,send,options);
+            window.ArcadeViewport?.bind(stage,options.signal);
             return window.ArcadeFeedback?.wrap(game,view,stage,options)||view;
         }
     };

@@ -155,6 +155,7 @@
             weak: String(setup.weak || "").slice(0, 10),
             badKeys: {}
         };
+        if(setup.clockRules>=2)Object.assign(w,{clockRules:2,activeTicks:0});
         if(['typing','debug'].includes(w.id))w.lessonVersion=setup.lessonVersion||1;
         if (w.id === 'sort') w.sortRules = setup.sortRules || 1;
         if (w.id === 'words') {
@@ -571,6 +572,12 @@
     function step(w) {
         if (w.ended) return;
         w.tick++;
+        if(w.clockRules>=2&&ArcadeClock.intermission(w)&&w.id!=='react') {
+            w.time+=DT;
+            if(w.tick>=MAX_TICKS)end(w,'Партия завершена');
+            return;
+        }
+        ArcadeClock.tick(w);
         if (w.id !== "typing" || w.started) w.time += DT;
         const c = progress(w);
         if (w.id === "orbit") {
@@ -677,7 +684,7 @@
         if(w.expedition)ArcadeExpedition.step(w,helpers());
         w.rankScore = w.id === "2048" ? w.points || 0 : w.score;
         if (w.journey) ArcadeJourney.step(w, helpers());
-        if (w.roundSeconds && w.time >= w.roundSeconds) end(w, "Время соревнования вышло");
+        if (w.roundSeconds && ArcadeClock.time(w) >= w.roundSeconds) end(w, "Время соревнования вышло");
         if (w.tick >= MAX_TICKS) end(w, "Партия завершена");
     }
 
@@ -1002,11 +1009,12 @@
             complete: w.ended,
             reason: w.reason,
             ticks: w.tick,
-            timeMs: Math.round(w.time * 1000),
+            timeMs: Math.round(ArcadeClock.time(w) * 1000),
             details: {
                 ...w.details,
                 result: w.score,
-                timeMs: Math.round(w.time * 1000),
+                timeMs: Math.round(ArcadeClock.time(w) * 1000),
+                ...(w.clockRules>=2?{clockRules:2,elapsedTimeMs:Math.round(w.time*1000)}:{}),
                 bestCombo: w.bestCombo || 0,
                 ...(w.id === 'drop' && w.softDrop ? {
                     physics: w.dropPhysics>=5?'soft5':w.dropPhysics>=4?'soft4':w.dropPhysics === 3 ? 'soft3' : 'soft2',

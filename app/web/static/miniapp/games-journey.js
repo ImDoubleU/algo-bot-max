@@ -534,7 +534,7 @@
       for (const b of w.balls)
         if (b.age < 1.5) b.vx += Math.sin(w.time * 1.3) * H.DT * 8;
     check(w, H);
-    if (!w.ended && w.time >= j.seconds) H.end(w, 'Время задания вышло');
+    if (!w.ended && ArcadeClock.time(w) >= j.seconds) H.end(w, 'Время задания вышло');
   }
 
   function quality(w) {
@@ -558,7 +558,7 @@
     if (w.id === 'bubbles') return [j.movesUsed <= Math.ceil(j.goal / 18) + 10, j.movesUsed <= Math.ceil(j.goal / 30) + 5];
     if (w.id === 'sort') return [j.movesUsed <= j.goal * 110, j.movesUsed <= j.goal * 65];
     if (w.id === 'words') return [j.mistakes <= 2, j.mistakes === 0 && w.allWords.filter(a => a.length >= 5).length >= Math.ceil(j.goal / 3)];
-    return [j.mistakes <= 2, j.mistakes === 0 && w.time <= j.seconds * .75];
+    return [j.mistakes <= 2, j.mistakes === 0 && ArcadeClock.time(w) <= j.seconds * .75];
   }
 
   function check(w, H) {

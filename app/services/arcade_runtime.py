@@ -26,6 +26,7 @@ def sources() -> str:
             "games-drop.js",
             "games-drop-stable.js",
             "games-drop-soft.js",
+            "games-clock.js",
             "games-world.js",
             "games-benchmarks.js",
         )

@@ -434,7 +434,7 @@ def test_all_games_start_without_pause_finish_naturally_and_fit(arcade, width):
         if game == "typing":
             page.locator(".typing-input").press_sequentially("Кос")
             page.wait_for_function(
-                "/^\\d+ с$/.test(document.querySelector('#gameClock').textContent)"
+                "/^\\d+:\\d{2}$/.test(document.querySelector('#gameClock b')?.textContent)"
             )
         elif game == "2048":
             page.keyboard.press("ArrowLeft")
@@ -591,7 +591,7 @@ def test_first_character_starts_typing_timer_and_new_page_restores_results(arcad
         assert db.execute("SELECT started FROM arcade_sessions").fetchone()[0] is None
     sample = page.locator(".typing-passage").inner_text()[:3]
     page.locator(".typing-input").press_sequentially(sample)
-    page.wait_for_function("/^\\d+ с$/.test(document.querySelector('#gameClock').textContent)")
+    page.wait_for_function("/^\\d+:\\d{2}$/.test(document.querySelector('#gameClock b')?.textContent)")
     finish_naturally(page, store)
     page.locator("[data-back]").click()
     other = page.context.new_page()
@@ -874,7 +874,7 @@ def test_expansion_accepts_real_touch_input_and_onscreen_letters(arcade):
     page.locator("[data-menu-levels]").tap()
     page.locator("[data-farm-sprint]").first.tap()
     page.locator('[data-mode="ranked"]').tap()
-    page.wait_for_function("document.querySelector('#gameClock')?.textContent==='90 с'")
+    page.wait_for_function("document.querySelector('#gameClock b')?.textContent==='1:30'")
     for _ in range(3):
         page.locator(".kopatych-tap").tap()
         page.wait_for_timeout(100)
@@ -1027,7 +1027,7 @@ def test_farm_tournament_remains_separate_from_passive_carrots(arcade):
     page.locator("[data-farm-sprint]").first.click()
     assert page.locator("#kopatychFarm").count() == 0
     page.locator('[data-mode="ranked"]').click()
-    page.wait_for_function("document.querySelector('#gameClock')?.textContent==='90 с'")
+    page.wait_for_function("document.querySelector('#gameClock b')?.textContent==='1:30'")
     finish_naturally(page, store)
     page.locator("[data-back]").click()
     assert not store.profile("p1")["goals"]["kopatych"]["eligible"]

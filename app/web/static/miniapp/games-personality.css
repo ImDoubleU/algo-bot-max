@@ -45,7 +45,6 @@
 .game-dialog[data-game="2048"] .game-stage{background:#ead7bb;background-image:repeating-linear-gradient(5deg,transparent 0 22px,#c1a1730c 23px 24px)}
 .game-dialog[data-game="2048"] .game-hud{background:#f5e7cf;border-bottom:4px solid #caa578}
 .game-dialog[data-game="2048"] .game-hud>span:first-child{background:#fff7e7;border:1px solid #dbc19c;border-bottom:4px solid #d3b087;border-radius:10px;padding:8px 11px}
-.game-dialog[data-game="2048"]:not([data-play-mode=journey]) #gameClock,.game-dialog[data-game=blocks]:not([data-play-mode=journey]) #gameClock,.game-dialog[data-game=drop]:not([data-play-mode=journey]) #gameClock{display:none}
 .game-dialog[data-game="2048"] .number-game{padding:24px 20px 27px}
 .game-dialog[data-game="2048"] .number-grid{border:7px solid #b28a60;border-radius:17px;background:#c8a27a;box-shadow:inset 0 3px #9f744b,0 6px #936b47;padding:7px;gap:7px}
 .game-dialog[data-game="2048"] .number-cell{border-radius:7px;box-shadow:inset 0 -3px #996e3a22}

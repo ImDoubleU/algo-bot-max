@@ -363,6 +363,7 @@ class ArcadeStore:
                 "mode": mode,
                 "device": device,
                 "continuous": True,
+                "clockRules": 2,
                 "weak": "".join(sorted(weak, key=weak.get, reverse=True)[:6])
                 if mode == "practice"
                 else "",

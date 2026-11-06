@@ -26,7 +26,7 @@
         $('.evolve-grid').innerHTML=w.cells.map((v,i)=>`<button data-cell="${i}" aria-pressed="${w.selected===i}" class="${w.selected===i?'selected':''} ${e.orders.includes(v)?'is-requested':''}" aria-label="${ArcadeExpedition.names[v]}, уровень ${v+1}"><small>${v+1}</small></button>`).join('');
         [...$('.evolve-grid').children].forEach((n,i)=>ArcadeSprites.buttonCanvas(n,w.cells[i],{...options,spriteSize:90}));
         const value=w.selected>=0?w.cells[w.selected]:-1;
-        $('.expedition-selection').textContent=value<0?'Объединяй одинаковых или выбирай зверя для спасения':
+        $('.expedition-selection').textContent=value<0?'Выбери пару или спаси зверя':
           e.orders.includes(value)?ArcadeExpedition.names[value]+' ждёт эвакуации — нажми «Спасти»':
           'Найди пару: '+ArcadeExpedition.names[value];
         const powers=[['grow','Росток','Улучшить малыша',1,e.discovered.includes(1),value>=0&&value<2],

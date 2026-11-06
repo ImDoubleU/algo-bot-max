@@ -128,6 +128,7 @@
             if(grid.children.length!==w.tubes.length) {
                 cancel();signatures=[];
                 grid.style.setProperty('--tube-columns',w.tubes.length<=5?w.tubes.length:Math.ceil(w.tubes.length/2));
+                grid.style.setProperty('--tube-rows',w.tubes.length<=5?1:2);
                 grid.innerHTML=w.tubes.map((_,i)=>`<button data-tube="${i}" class="sort-tube"><span class="sort-glass"></span><small>${i+1}</small></button>`).join('');
             }
             w.tubes.forEach((t,i)=>{

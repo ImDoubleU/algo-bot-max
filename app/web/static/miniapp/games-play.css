@@ -1,4 +1,8 @@
 /* Readable game chrome, boards, pause and results share the menu's visual language. */
+.game-dialog #gameClock{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:80px;font-variant-numeric:tabular-nums}
+.game-dialog #gameClock .game-clock-caption{font:600 14px/1.2 'Segoe UI',sans-serif;color:inherit;white-space:nowrap}
+.game-dialog #gameClock>b{font-size:21px;line-height:1.2;color:inherit}
+.game-dialog #gameClock.is-intermission{color:#8e8498}
 .game-dialog { --play-accent: #8056aa; --play-wash: #eee6f7; --play-paper: #f6f5fb; border-color: #e2dbea; background: var(--play-paper); color: #342b42; }
 .game-dialog > header { flex-shrink: 0; gap: 10px; padding: 16px 20px; border-bottom: 1px solid #e7e1ee; background: #fff; }
 .game-dialog > header h2 { color: #30263e; }
