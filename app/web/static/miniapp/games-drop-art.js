@@ -3,8 +3,10 @@
   'use strict';
   const colors=['#b8a0de','#b5d88c','#efad86','#ead487','#b3cde6','#e6b598','#a4cfbc','#c4b2e5'];
   function draw(c,level,x,y,r,options={}) {
-    c.save();c.translate(x,y);
-    const q=Math.max(-.055,Math.min(.15,options.squash||0)),axis=options.axis??Math.PI/2;
+    const q=Math.max(-.14,Math.min(.30,options.squash||0)),axis=options.axis??Math.PI/2;
+    // Keep the bottom touching its support while the jelly flattens.
+    const settle=options.supported&&q>0?r*q*Math.sin(axis)**2:0;
+    c.save();c.translate(x,y+settle);
     c.rotate(axis);c.scale(1-q,1/(1-q));c.rotate((options.angle||0)-axis);
     const g=c.createRadialGradient(-r*.33,-r*.4,r*.06,0,0,r*1.18);
     g.addColorStop(0,'#fff9e8');g.addColorStop(.28,colors[level]);g.addColorStop(1,colors[level]);

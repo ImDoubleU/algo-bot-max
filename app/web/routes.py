@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from app.core.config import get_settings
 from app.services.crm_import import build_crm_import_template
@@ -18,7 +18,15 @@ MINIAPP_INDEX = STATIC_ROOT / "miniapp" / "index.html"
 
 
 @router.get("/miniapp", include_in_schema=False)
-async def miniapp_index() -> FileResponse:
+async def miniapp_index() -> Response:
+    settings = get_settings()
+    if settings.arcade_pilot_enabled:
+        from app.web.arcade_pilot import inject_pilot
+
+        return HTMLResponse(
+            inject_pilot(MINIAPP_INDEX.read_text(encoding="utf-8"), settings.arcade_pilot_max_ids),
+            headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+        )
     return FileResponse(
         MINIAPP_INDEX,
         headers={

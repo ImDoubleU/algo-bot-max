@@ -5,9 +5,13 @@
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   function wake(b){b.sleep=false;b.still=0;}
   function press(b,load,axis) {
-    b.softLoad=Math.max(b.softLoad||0,Math.min(.15,load));
+    const pressure=Math.min(.30,load),extra=Math.max(0,pressure-(b.softLoad||0));
+    b.softLoad=Math.max(b.softLoad||0,pressure);
+    // An impact is an impulse, rather than a one-substep spring target.
+    // Visual deformation never feeds back into collision radii or velocities.
+    b.squashV=(b.squashV||0)+extra*18;
     const delta=Math.atan2(Math.sin(2*(axis-b.squashAxis)),Math.cos(2*(axis-b.squashAxis)))/2;
-    b.squashAxis+=delta*.12;
+    if(extra>0)b.squashAxis+=delta;
   }
   function staticContact(b,nx,ny,depth) {
     if(ny<-.35)b.supported=true;
@@ -17,7 +21,7 @@
       const restitution=speed<-35?.16:0,impulse=-(1+restitution)*speed;
       b.vx+=nx*impulse;b.vy+=ny*impulse;
       ArcadeDrop.friction(b,nx,ny,impulse);
-      if(-speed>35)press(b,.025-speed/2200,Math.atan2(ny,nx));
+      if(-speed>35)press(b,.045-speed/1100,Math.atan2(ny,nx));
     }
   }
   function boundaries(w,b) {
@@ -34,7 +38,7 @@
     const result={id:++w.nextId,level,r:H.rad[level],x:(a.x*ma+b.x*mb)/total,
       y:(a.y*ma+b.y*mb)/total,vx:(a.vx*ma+b.vx*mb)/total,
       vy:(a.vy*ma+b.vy*mb)/total,spin:clamp((a.spin+b.spin)*.5,-4,4),
-      angle:(a.angle+b.angle)*.5,age:0,squash:.09,squashV:0,
+      angle:(a.angle+b.angle)*.5,age:0,squash:.18,squashV:-.6,
       squashAxis:Math.PI/2,softLoad:0,sleep:false,still:0,supported:false};
     result.x=clamp(result.x,12+result.r,348-result.r);result.y=Math.min(result.y,416-result.r);
     w.balls[i]=result;w.balls.splice(j,1);w.score+=2**(level+1);
@@ -72,15 +76,15 @@
           a.vx-=friction*tx*ia;a.vy-=friction*ty*ia;
           b.vx+=friction*tx*ib;b.vy+=friction*ty*ib;
           a.spin-=2*friction*ia/a.r;b.spin-=2*friction*ib/b.r;
-          if(-relative>25){press(a,.02-relative/2400,Math.atan2(ny,nx));press(b,.02-relative/2400,Math.atan2(ny,nx));}
+          if(-relative>25){press(a,.04-relative/1200,Math.atan2(ny,nx));press(b,.04-relative/1200,Math.atan2(ny,nx));}
         }
       }
       for(const b of w.balls)boundaries(w,b);
     }
     for(const b of w.balls) {
       const target=Math.max(b.softLoad,b.supported?.025:0);
-      b.squashV+=(target-b.squash)*160*dt;b.squashV*=Math.exp(-15*dt);
-      b.squash=clamp(b.squash+b.squashV*dt,-.055,.15);
+      b.squashV+=(target-b.squash)*150*dt;b.squashV*=Math.exp(-10.5*dt);
+      b.squash=clamp(b.squash+b.squashV*dt,-.14,.30);
       b.vx=clamp(b.vx,-500,500);b.vy=clamp(b.vy,-700,700);b.spin=clamp(b.spin,-8,8);
       if(b.supported&&Math.hypot(b.vx,b.vy)<2.5&&Math.abs(b.spin)<.22)b.still=(b.still||0)+dt;
       else if(b.sleep&&!b.supported)wake(b);else if(!b.sleep)b.still=0;

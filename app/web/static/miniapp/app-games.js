@@ -1,7 +1,8 @@
 /* Local arcade client. Ranked scores, achievements and prizes belong to the server. */
 (() => {
     "use strict";
-    if (!window.ALGO_GAMES_PROTOTYPE || !localDemoHost || !apiContext.demoMode) return;
+    const pilot = !!window.ALGO_ARCADE_PILOT;
+    if (!pilot && (!window.ALGO_GAMES_PROTOTYPE || !localDemoHost || !apiContext.demoMode)) return;
     const E = AlgoGameEngine,
         W = ArcadeWorld,
         V = ArcadeView,
@@ -9,7 +10,7 @@
         M = AlgoGameMotion;
     const $ = (s, r = document) => r.querySelector(s),
         root = $("#gamesRoot"),
-        apiRoot = window.ALGO_ARCADE_API;
+        apiRoot = pilot ? '/api/v1/miniapp/arcade' : window.ALGO_ARCADE_API;
     const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({
         "&": "&amp;",
         "<": "&lt;",
@@ -24,7 +25,10 @@
         const g = E.games.find(g => g.id === id);
         return id === "2048" ? `плитка ${g.goal}` : `${g.goal} ${g.unit}`;
     };
-    const actors = window.ALGO_GAME_PLAYERS || [];
+    const actors = pilot ? [{
+        id: 'pilot:' + Number(state.account?.max_user_id || apiContext.maxUserId),
+        name: state.account?.display_name || 'Участник тестирования'
+    }] : window.ALGO_GAME_PLAYERS || [];
     let selected = localStorage.getItem("arcade-player-v3") || actors[0]?.id,
         profile = null,
         tab = "games",
@@ -48,17 +52,18 @@
         admin = false,
         keepalive = false
     } = {}) {
-        if (!apiRoot || !actor()?.token) throw Error("Локальный сервер игр недоступен. Перезапусти демку.");
-        const token = admin ? window.pizzaPreview?.token : actor().token;
+        if (pilot && !window.AlgoArcadePilot?.canOpen()) throw Error('Нет доступа к тестированию игр.');
+        if (!pilot && (!apiRoot || !actor()?.token)) throw Error("Локальный сервер игр недоступен. Перезапусти демку.");
+        const token = pilot ? null : admin ? window.pizzaPreview?.token : actor().token;
         const controller = new AbortController(),
             timeout = keepalive ? null : setTimeout(() => controller.abort(), 15000);
         try {
-            const response = await fetch(apiRoot + path, {
+            const response = await (pilot ? apiFetch : fetch)(apiRoot + path, {
                 method,
                 keepalive,
                 signal: controller.signal,
                 headers: {
-                    "X-Miniapp-Token": token,
+                    ...(token ? {"X-Miniapp-Token": token} : {}),
                     "Content-Type": "application/json"
                 },
                 body: body === undefined ? undefined : JSON.stringify(body)
@@ -145,6 +150,7 @@
         }, 180);
     }
     async function render() {
+        if (pilot && !window.AlgoArcadePilot?.canOpen()) return;
         if (!root) return;
         if (!profile) {
             root.innerHTML = '<div class="arcade-loading" role="status">Загружаем игры…</div>';
@@ -215,7 +221,12 @@
             void drawBoard(content, "overall");
         }
         root.onclick = handleRoot;
-        $("#gamesPlayer", root).onchange = async e => {
+        if(pilot) {
+            $('.games-player-picker',root).remove();
+            $('.games-heading',root).insertAdjacentHTML('afterend','<p class="arcade-pilot-note">Тестирование · награды не расходуются в магазине</p>');
+        }
+        const picker=$("#gamesPlayer", root);
+        if(picker)picker.onchange = async e => {
             selected = e.target.value;
             localStorage.setItem("arcade-player-v3", selected);
             profile = null;

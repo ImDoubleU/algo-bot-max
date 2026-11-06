@@ -1,7 +1,7 @@
 """Isolated, transactional local arcade backend. No school wallet or binding writes.
 
 All ranked scores are replayed by arcade_runtime. SQLite is deliberately separate
-from the collection preview and production databases. Public mounting is not enabled.
+from collection and school databases. Production mounting is an allowlisted staff pilot.
 """
 
 import asyncio

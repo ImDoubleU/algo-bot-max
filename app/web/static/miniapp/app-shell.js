@@ -662,7 +662,10 @@ function setView(view) {
   const nextView = allowedViews.includes(view) ? view : "dashboard";
   const previousView = state.view;
   if (previousView === "games" && nextView !== "games") window.algoGames?.close();
-  if (nextView === "games") window.algoGames?.render();
+  if (nextView === "games") {
+    if (window.AlgoArcadePilot) void window.AlgoArcadePilot.render();
+    else window.algoGames?.render();
+  }
   if ((nextView === "store" || (["orders", "wallet"].includes(nextView) &&
       ["student", "parent"].includes(state.role))) && typeof pizzaLoad === "function") void pizzaLoad();
   if (previousView === "feedback" && typeof feedbackCaptureUi === "function" && feedbackState.restored) { feedbackCaptureUi(); feedbackPersist(); }
@@ -725,7 +728,8 @@ function roleViews(role) {
   const views = (ROLE_VIEWS[role] || ROLE_VIEWS.student).filter(
     (view) => view !== "feedback" || canAccessFeedback(),
   );
-  if (localDemoHost && apiContext.demoMode && window.ALGO_GAMES_PROTOTYPE) views.push("games");
+  if ((localDemoHost && apiContext.demoMode && window.ALGO_GAMES_PROTOTYPE) ||
+      window.AlgoArcadePilot?.canOpen()) views.push("games");
   if (role === "teacher" && primaryStaffRole() === "teacher") {
     return views.filter((view) => !["report", "broadcasts"].includes(view));
   }

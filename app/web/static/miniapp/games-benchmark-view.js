@@ -7,8 +7,8 @@
     return `<section class="benchmark-hub"><h3>Проверь себя</h3><div class="benchmark-tests"><button data-benchmark-react><b>Реакция</b><span>Поймай зелёный сигнал</span><i>↗</i></button>${Object.entries(B.catalogue).map(([id,c])=>`<button data-benchmark="${id}"><b>${c.name}</b><span>${c.hint}</span><i>↗</i></button>`).join('')}</div></section>`;
   }
   function shape(s) {
-    const mx=Math.max(...s.map(p=>p[0]))+1,my=Math.max(...s.map(p=>p[1]))+1;
-    return `<svg viewBox="0 0 120 120" aria-hidden="true">${s.map(([x,y])=>`<rect x="${(120-mx*24)/2+x*24}" y="${(120-my*24)/2+y*24}" width="21" height="21" rx="3"/>`).join('')}</svg>`;
+    const mx=Math.max(...s.map(p=>p[0]))+1,my=Math.max(...s.map(p=>p[1]))+1,cell=Math.min(24,104/Math.max(mx,my));
+    return `<svg viewBox="0 0 120 120" aria-hidden="true">${s.map(([x,y])=>`<rect x="${(120-mx*cell)/2+x*cell}" y="${(120-my*cell)/2+y*cell}" width="${cell-2}" height="${cell-2}" rx="3"/>`).join('')}</svg>`;
   }
   async function open(api,test,back) {
     if(current)return;
@@ -80,16 +80,25 @@
       lit=w.test==='sequence'&&w.phase==='show'&&w.tick-w.since<w.pattern.length*34?
         ((w.tick-w.since)%34<24?w.pattern[Math.floor((w.tick-w.since)/34)]:-1):-1,
       signature=JSON.stringify([w.phase,w.score,w.mistakes,w.word,w.number,w.shape,w.index,lit]);
-    if(signature===s.signature)return;s.signature=signature;
+    if(signature===s.signature){clock(s);return;}s.signature=signature;
     const meta=`<div class="benchmark-meta"><span>Результат <b>${w.score}</b></span>${['verbal','spatial'].includes(w.test)?`<span>Ошибки <b>${w.mistakes} / 3</b></span>`:''}</div>`;
     let body='';
     if(w.test==='number')body=w.phase==='show'?`<p class="benchmark-instruction">Запомни число</p><div class="benchmark-number" style="font-size:${Math.max(18,Math.min(46,235/(w.number.length*.62)))}px">${w.number}</div>`:
       '<form class="benchmark-number-form"><label for="benchmarkNumber">Какое число было?</label><input id="benchmarkNumber" inputmode="numeric" pattern="[0-9]*" maxlength="32" autocomplete="off" aria-label="Число по памяти"><button class="benchmark-primary">Проверить</button></form>';
     if(w.test==='verbal')body=`<p class="benchmark-instruction">Это слово уже встречалось?</p><div class="benchmark-word">${w.word}</div><div class="benchmark-choice-row"><button data-bench-word="seen">Было</button><button data-bench-word="new">Новое</button></div>`;
     if(w.test==='sequence')body=`<p class="benchmark-instruction">${w.phase==='show'?'Запомни маршрут':'Повтори маршрут · '+w.index+' / '+w.pattern.length}</p><div class="benchmark-sequence">${Array.from({length:9},(_,i)=>`<button data-bench-cell="${i}" class="${i===lit?'is-lit':''}" ${w.phase==='show'?'disabled':''} aria-label="Клетка ${i+1}"></button>`).join('')}</div>`;
-    if(w.test==='spatial')body=`<p class="benchmark-instruction">Та же фигура после поворота. Без отражения.</p><div class="benchmark-shape">${shape(w.shape)}</div><div class="benchmark-shape-options">${w.choices.map((p,i)=>`<button data-bench-choice="${i}" aria-label="Вариант ${i+1}">${shape(p)}<b>${i+1}</b></button>`).join('')}</div>`;
+    if(w.test==='spatial')body=`${w.difficulty?`<div class="benchmark-spatial-clock"><div><b>Этап ${w.difficulty.level} · ${w.choices.length} ${w.choices.length===4?"варианта":"вариантов"}</b><span>Всего <span data-bench-total-time></span></span></div><label>На ответ <strong data-bench-round-time role="timer" aria-live="off"></strong></label><progress aria-label="Время на ответ" max="${w.difficulty.seconds}"></progress></div>${w.lastOutcome==='timeout'?'<p class="benchmark-timeout" role="status">Время вышло. Следующая фигура.</p>':''}`:''}<p class="benchmark-instruction">Та же фигура после поворота. Без отражения.</p><div class="benchmark-shape">${shape(w.shape)}</div><div class="benchmark-shape-options ${w.choices.length>4?'is-many':''}">${w.choices.map((p,i)=>`<button data-bench-choice="${i}" aria-label="Вариант ${i+1}">${shape(p)}<b>${i+1}</b></button>`).join('')}</div>`;
     main.innerHTML=meta+'<section class="benchmark-play">'+body+'</section>';
+    if(w.test==='spatial')s.d.scrollTop=0;
     main.querySelector('#benchmarkNumber')?.focus({preventScroll:true});
+    clock(s);
+  }
+  function clock(s) {
+    const w=s.world,box=s.d.querySelector('.benchmark-spatial-clock');if(!box||!w.difficulty)return;
+    const left=Math.max(0,(w.until-w.tick)/60),total=Math.max(0,Math.ceil(B.catalogue.spatial.limit-w.time));
+    box.querySelector('[data-bench-round-time]').textContent=Math.ceil(left)+' с';
+    box.querySelector('[data-bench-total-time]').textContent=Math.floor(total/60)+':'+String(total%60).padStart(2,'0');
+    box.querySelector('progress').value=left;box.classList.toggle('is-urgent',left<=3);
   }
   async function finish(s) {
     if(current!==s||s.phase==='saving')return;s.phase='saving';cancelAnimationFrame(s.raf);

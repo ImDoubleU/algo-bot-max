@@ -50,6 +50,12 @@ class BenchmarkStore:
               CREATE INDEX IF NOT EXISTS arcade_bench_player
                 ON arcade_benchmark_runs(player,test,created DESC);
             """)
+            columns = {r[1] for r in db.execute("PRAGMA table_info(arcade_benchmark_sessions)")}
+            if "rules" not in columns:
+                db.execute(
+                    "ALTER TABLE arcade_benchmark_sessions "
+                    "ADD COLUMN rules INTEGER NOT NULL DEFAULT 1"
+                )
 
     def start(self, player, test):
         if test not in TESTS:
@@ -63,11 +69,13 @@ class BenchmarkStore:
             if count >= 20:
                 raise ArcadeError("Подожди минуту перед следующей попыткой.")
             session, seed = secrets.token_urlsafe(24), secrets.randbits(32)
+            rules = 2 if test == "spatial" else 1
             db.execute(
-                "INSERT INTO arcade_benchmark_sessions VALUES(?,?,?,?,?)",
-                (session, player, test, seed, self.arcade.clock()),
+                "INSERT INTO arcade_benchmark_sessions(id,player,test,seed,created,rules) "
+                "VALUES(?,?,?,?,?,?)",
+                (session, player, test, seed, self.arcade.clock(), rules),
             )
-        return dict(id=session, setup=dict(test=test, seed=seed))
+        return dict(id=session, setup=dict(test=test, seed=seed, rules=rules))
 
     def finish(self, player, session, events, ticks):
         with self.arcade.db() as db:
@@ -88,7 +96,7 @@ class BenchmarkStore:
                 or ticks / 60 > self.arcade.clock() - row["created"] + 0.2
             ):
                 raise ArcadeError("Время попытки не совпало. Начни тест заново.")
-            setup = dict(test=row["test"], seed=row["seed"])
+            setup = dict(test=row["test"], seed=row["seed"], rules=row["rules"])
         try:
             with arcade_runtime.context() as vm:
                 report = vm.call("ArcadeBenchmarks.verify", setup, events, ticks, timeout_sec=3)
@@ -119,22 +127,25 @@ class BenchmarkStore:
             raise ArcadeError("Такого теста нет.")
         with self.arcade.db() as db:
             self.arcade._player(db, player)
+            rules = 2 if test == "spatial" else 1
             history = [
                 dict(row)
                 for row in db.execute(
-                    "SELECT score,created FROM arcade_benchmark_runs WHERE player=? AND test=? "
+                    "SELECT score,created,COALESCE(json_extract(report,'$.rules'),1) rules "
+                    "FROM arcade_benchmark_runs WHERE player=? AND test=? "
                     "ORDER BY created DESC LIMIT 10",
                     (player, test),
                 )
             ]
             rows = db.execute(
-                "SELECT MAX(score) score FROM arcade_benchmark_runs WHERE test=? GROUP BY player",
-                (test,),
+                "SELECT MAX(score) score FROM arcade_benchmark_runs WHERE test=? "
+                "AND COALESCE(json_extract(report,'$.rules'),1)=? GROUP BY player",
+                (test, rules),
             ).fetchall()
             best = db.execute(
                 "SELECT COALESCE(MAX(score),0) FROM arcade_benchmark_runs "
-                "WHERE player=? AND test=?",
-                (player, test),
+                "WHERE player=? AND test=? AND COALESCE(json_extract(report,'$.rules'),1)=?",
+                (player, test, rules),
             ).fetchone()[0]
         reference = REFERENCES[test]
         return dict(

@@ -255,7 +255,7 @@
                     }
                     for (const b of w.balls) {
                         if(w.dropPhysics>=4) {
-                            ArcadeDropArt.draw(c,b.level,b.x,b.y,b.r,{...options,angle:b.angle,squash:b.squash,axis:b.squashAxis});
+                            ArcadeDropArt.draw(c,b.level,b.x,b.y,b.r,{...options,angle:b.angle,squash:b.squash,axis:b.squashAxis,supported:b.supported});
                             continue;
                         }
                         c.save();

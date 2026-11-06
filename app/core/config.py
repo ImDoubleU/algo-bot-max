@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     app_timezone: str = Field(default="Europe/Moscow", alias="APP_TIMEZONE")
     api_v1_prefix: str = "/api/v1"
     group_collections_enabled: bool = Field(default=False, alias="GROUP_COLLECTIONS_ENABLED")
+    arcade_pilot_enabled: bool = Field(default=False, alias="ARCADE_PILOT_ENABLED")
+    arcade_pilot_max_ids: list[int] = Field(default_factory=list, alias="ARCADE_PILOT_MAX_IDS")
+    arcade_pilot_db_path: str = Field(
+        default="data/arcade-pilot.sqlite3", alias="ARCADE_PILOT_DB_PATH"
+    )
     group_collection_notifications_enabled: bool = Field(
         default=True, alias="GROUP_COLLECTION_NOTIFICATIONS_ENABLED")
 

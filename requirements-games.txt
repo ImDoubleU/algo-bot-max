@@ -1,2 +1,2 @@
-# Optional local arcade server and deterministic result verification.
+# Optional arcade preview/private pilot and deterministic result verification.
 mini-racer==0.14.1

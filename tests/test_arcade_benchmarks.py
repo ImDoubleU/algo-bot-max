@@ -82,15 +82,57 @@ def test_spatial_choices_are_distinct_and_only_one_matches_under_rotation():
             return s.map(([a,b])=>[a-x,b-y]).map(p=>p.join(',')).sort().join(';');};
           const canon=s=>{const out=[];for(let n=0;n<4;n++){
             out.push(norm(s));s=s.map(([x,y])=>[-y,x]);}return out.sort()[0];};
-          for(let seed=1;seed<=100;seed++){
-            const w=ArcadeBenchmarks.create({test:'spatial',seed});
+          for(let seed=1;seed<=100;seed++)for(const rules of [1,2]){
+            const w=ArcadeBenchmarks.create({test:'spatial',seed,rules});
             for(let n=0;n<30;n++){
-              if(new Set(w.choices.map(norm)).size!==4)return false;
+              if(new Set(w.choices.map(norm)).size!==(w.difficulty?.cards||4))return false;
               if(w.choices.filter(s=>canon(s)===canon(w.shape)).length!==1)return false;
               ArcadeBenchmarks.advance(w,12);ArcadeBenchmarks.input(w,{type:'choice',i:w.correct});
             }
           }return true;
         })()""")
+
+
+def test_spatial_progression_deadlines_and_replay_are_authoritative(store):
+    service = BenchmarkStore(store)
+    session = service.start("p1", "spatial")
+    assert session["setup"]["rules"] == 2
+    with arcade_runtime.context() as vm:
+        vm.eval("""function timedPilot(setup){
+          const B=ArcadeBenchmarks,w=B.create(setup),events=[],stages=[];
+          for(let n=0;n<21;n++){
+            if([0,5,12,20].includes(n))stages.push({...w.difficulty});
+            B.advance(w,12);const e={type:'choice',i:w.correct,t:w.tick};
+            events.push(e);if(!B.input(w,e))throw Error('Option rejected');
+          }
+          B.advance(w,5400);return {stages,events,ticks:w.tick,report:B.report(w)};
+        }""")
+        run = vm.call("timedPilot", session["setup"])
+    assert [r["cards"] for r in run["stages"]] == [4, 6, 8, 8]
+    assert [r["seconds"] for r in run["stages"]] == [12, 10, 8, 6]
+    assert [r["cells"] for r in run["stages"]] == [4, 5, 6, 7]
+    assert run["report"]["score"] == 21
+    assert run["report"]["timeouts"] == run["report"]["mistakes"] == 3
+    store.clock.advance(run["ticks"] / 60 + 1)
+    assert (
+        service.finish("p1", session["id"], run["events"], run["ticks"])["report"] == run["report"]
+    )
+
+
+def test_spatial_old_session_and_record_survive_rules_upgrade(store):
+    service = BenchmarkStore(store)
+    with store.db() as db:
+        db.execute(
+            "INSERT INTO arcade_benchmark_sessions(id,player,test,seed,created) "
+            "VALUES('legacy','p1','spatial',17,?)",
+            (store.clock(),),
+        )
+    run = trace(dict(test="spatial", seed=17))
+    store.clock.advance(run["ticks"] / 60 + 1)
+    service.finish("p1", "legacy", run["events"], run["ticks"])
+    stats = service.stats("p1", "spatial")
+    assert stats["history"][0]["score"] == 12 and stats["history"][0]["rules"] == 1
+    assert stats["best"] == 0  # Old unlimited questions are not a new-rules record.
 
 
 @pytest.mark.parametrize("width", [320, 1440])

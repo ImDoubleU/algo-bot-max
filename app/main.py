@@ -41,6 +41,12 @@ async def lifespan(_: FastAPI):
     collection_worker = (
         asyncio.create_task(collection_loop()) if settings.group_collections_enabled else None
     )
+    arcade_worker = None
+    if settings.arcade_pilot_enabled:
+        from app.api.routes.arcade import pilot_store
+        from app.services.arcade import maintenance_worker
+
+        arcade_worker = asyncio.create_task(maintenance_worker(pilot_store()))
     try:
         # Surface startup errors before the service reports ready.
         if pending_worker:
@@ -49,6 +55,10 @@ async def lifespan(_: FastAPI):
                 pending_worker.result()
         yield
     finally:
+        if arcade_worker:
+            arcade_worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await arcade_worker
         if collection_worker:
             collection_worker.cancel()
             with suppress(asyncio.CancelledError):
@@ -97,6 +107,13 @@ def create_app() -> FastAPI:
 
     app.add_exception_handler(StarletteHTTPException, audited_http_exception)
     app.include_router(api_router, prefix=settings.api_v1_prefix)
+    if settings.arcade_pilot_enabled:
+        from app.api.routes.arcade import make_pilot_router
+
+        app.include_router(
+            make_pilot_router(), prefix=settings.api_v1_prefix + "/miniapp/arcade",
+            tags=["private arcade pilot"],
+        )
     app.include_router(web_router)
     app.mount("/miniapp/static", StaticFiles(directory=STATIC_ROOT / "miniapp"), name="miniapp")
     product_media_root = Path(settings.product_media_root).expanduser().resolve()

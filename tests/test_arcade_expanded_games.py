@@ -156,6 +156,30 @@ def test_drop_v4_piles_sleep_maximum_bodies_do_not_merge_again_and_values_stay_f
     assert result["maxCount"] == 2 and result["maxScore"] == 0, result
 
 
+def test_drop_impact_squashes_rebounds_and_settles_without_moving_the_collision_circle():
+    with arcade_runtime.context() as vm:
+        result = json.loads(
+            vm.eval("""JSON.stringify((()=>{
+          const W=ArcadeWorld,w=W.create({game:'drop',seed:17,mode:'practice',dropPhysics:4});
+          w.balls=[{id:1,level:4,r:W.rad[4],x:180,y:90,vx:0,vy:0,
+            spin:0,angle:0,age:0,squash:0}];w.nextId=1;
+          const other=JSON.parse(JSON.stringify(w)),values=[];
+          for(let i=0;i<240;i++){
+            W.advance(w,1);W.advance(other,1);other.balls[0].squash=.3;
+            const a=w.balls[0],b=other.balls[0];
+            if(a.x!==b.x||a.y!==b.y||a.vx!==b.vx||a.vy!==b.vy)throw Error('Visual physics');
+            values.push(a.squash);
+          }
+          return {peak:Math.max(...values),rebound:Math.min(...values),
+            settled:values.at(-1),radius:w.balls[0].r,expected:W.rad[4]};
+        })())""")
+        )
+    assert 0.20 < result["peak"] <= 0.30
+    assert result["rebound"] < -0.01
+    assert abs(result["settled"] - 0.025) < 0.001
+    assert result["radius"] == result["expected"]
+
+
 @pytest.mark.parametrize("width", [320, 1440])
 def test_grouped_ball_flight_stays_in_the_board_and_rapid_click_does_not_double_move(arcade, width):
     page, _ = arcade
