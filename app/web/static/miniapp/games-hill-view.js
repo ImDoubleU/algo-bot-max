@@ -118,7 +118,7 @@
                 canvas.height = Math.round(height * dpr);
             }
             c.setTransform(dpr, 0, 0, dpr, 0, 0);
-            const scale = Math.min(width < 500 ? 21 : 29, Math.max(12, height / 5)),
+            const scale = Math.min(width < 500 ? 25 : 33, Math.max(12, height / 5)),
                 camera = h.x - width * .34 / scale,
                 base = Math.max(H.terrain(w, h.x), h.y - 4),
                 x = wx => (wx - camera) * scale,
@@ -209,49 +209,15 @@
                 c.font = 'bold 11px system-ui';
                 c.fillText(n * 100 + ' м', px, py - 30);
             }
-            // Springs connect the moving body to independently compressed wheel centres.
-            c.strokeStyle = '#bec7b8';
-            c.lineWidth = 3;
-            for (let i = 0; i < h.wheels.length; i++) {
-                const wheel = h.wheels[i],
-                    offset = i ? 1.22 : -1.22,
-                    ax = h.x + offset * Math.cos(h.angle) + .18 * Math.sin(h.angle),
-                    ay = h.y + offset * Math.sin(h.angle) - .18 * Math.cos(h.angle);
-                c.beginPath();
-                c.moveTo(x(ax), y(ay));
-                for (let j = 1; j <= 6; j++) c.lineTo(x(ax) + (j % 2 ? 3 : -3), y(ay) + (y(wheel.y) - y(ay)) * j / 7);
-                c.lineTo(x(wheel.x), y(wheel.y));
-                c.stroke();
-                c.save();
-                c.translate(x(wheel.x), y(wheel.y));
-                c.rotate(h.x / .46);
-                c.fillStyle = '#344139';
-                c.beginPath();
-                c.arc(0, 0, .46 * scale, 0, 7);
-                c.fill();
-                c.strokeStyle = '#192b24';
-                c.lineWidth = 3;
-                c.stroke();
-                c.fillStyle = '#c9c5b3';
-                c.beginPath();
-                c.arc(0, 0, .25 * scale, 0, 7);
-                c.fill();
-                c.strokeStyle = '#637164';
-                c.lineWidth = 2;
-                c.beginPath();
-                c.moveTo(-.23 * scale, 0);
-                c.lineTo(.23 * scale, 0);
-                c.moveTo(0, -.23 * scale);
-                c.lineTo(0, .23 * scale);
-                c.stroke();
-                c.restore();
-            }
+            // Suspension sits behind the shell; tires stay visible in front of the body.
+            ArcadeHillArt.drawSuspension(c, h, x, y, scale);
             c.save();
             c.translate(x(h.x), y(h.y));
             c.rotate(-h.angle);
             c.scale(scale, -scale);
             ArcadeHillArt.drawBody(c, h);
             c.restore();
+            ArcadeHillArt.drawWheels(c, h, x, y, scale);
             if (h.contact && h.gas && !paused && options.quality() !== 'low') {
                 c.fillStyle = route.soil + 'aa';
                 for (let i = 0; i < 7; i++) {
