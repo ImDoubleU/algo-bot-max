@@ -275,8 +275,8 @@
   function upgrade(f, i, small = false) {
     return `<button class="farm-upgrade ${small?'is-compact':''} ${i.locked?'is-locked':''}" data-farm-action="buy" data-item="${i.id}" ${i.locked||i.maxed?'disabled':''} ${i.locked?`title="С ${i.unlock} уровня"`:''}>
       <span class="farm-upgrade-icon">${F().item(i.id)}</span>
-      <span class="farm-upgrade-info"><b>${esc(i.name)}</b><span class="farm-upgrade-level">${i.level}/${i.maximum}${i.locked?' · С '+i.unlock+' уровня':''}</span>${effectMarkup(i.effect,i.maxed)}</span>
-      <strong class="farm-upgrade-price">${i.maxed?'Максимум':money(i.cost)}${!i.maxed&&(i.resource_cost.seeds||i.resource_cost.materials)?`<span class="farm-item-resources">${resourceCost(i.resource_cost)}</span><span class="farm-find-resource" hidden></span>`:''}</strong></button>`;
+      <span class="farm-upgrade-info"><b>${esc(i.name)}</b><span class="farm-upgrade-level">${i.level}/${i.maximum}</span>${effectMarkup(i.effect,i.maxed)}</span>
+      <strong class="farm-upgrade-price">${i.locked?'С '+i.unlock+' уровня':i.maxed?'Максимум':money(i.cost)}${!i.locked&&!i.maxed&&(i.resource_cost.seeds||i.resource_cost.materials)?`<span class="farm-item-resources">${resourceCost(i.resource_cost)}</span><span class="farm-find-resource" hidden></span>`:''}</strong></button>`;
   }
 
   function effectMarkup(e, maxed = false) {

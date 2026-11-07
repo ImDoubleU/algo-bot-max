@@ -85,7 +85,7 @@ def inject_games(source: str) -> str:
         '<script src="/miniapp/static/games-hill-view.js?v=6"></script>'
         '<script src="/miniapp/static/games-hill-garage.js?v=4"></script>'
         '<script src="/miniapp/static/games-farm-art.js?v=4"></script>'
-        '<script src="/miniapp/static/games-farm.js?v=6"></script>'
+        '<script src="/miniapp/static/games-farm.js?v=7"></script>'
         '<script src="/miniapp/static/games-journey-view.js?v=8"></script>'
         '<script src="/miniapp/static/games-menu.js?v=5"></script>'
         '<script src="/miniapp/static/games-personality.js?v=4"></script>'
