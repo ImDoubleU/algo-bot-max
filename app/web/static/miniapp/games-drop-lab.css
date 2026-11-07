@@ -18,4 +18,10 @@
  .game-dialog[data-game=drop] .game-stage[data-has-canvas]{padding:0}
  .game-dialog[data-game=drop] .arcade-menu-art{height:64px;margin-bottom:8px}
  .game-dialog[data-game=drop] .arcade-menu-art canvas{height:64px;width:150px}
+ .game-dialog[data-game=drop] .arcade-arena-screen{padding:10px 12px}
+ .game-dialog[data-game=drop] .arcade-arena-screen h3{font-size:20px;margin:0 0 10px}
+ .game-dialog[data-game=drop] .arcade-arena-grid{gap:8px}
+ .game-dialog[data-game=drop] .arcade-arena-grid button{min-height:72px;padding:6px;gap:3px}
+ .game-dialog[data-game=drop] .arcade-arena-grid svg{height:38px}
+ .game-dialog[data-game=drop] .arcade-arena-grid b{font-size:15px}
 }

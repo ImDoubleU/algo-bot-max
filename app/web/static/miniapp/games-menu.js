@@ -37,7 +37,8 @@
     }
 
     function arenas(selected) {
-        return `<section class="arcade-arena-screen"><h3>Тренировка</h3><div class="arcade-arena-grid" role="group" aria-label="Выбор арены">${ArcadeDrop.arenas.map(a => `<button data-arena="${a.id}" aria-pressed="${a.id===selected}"><svg viewBox="0 0 100 76" aria-hidden="true"><path d="M5 5V71H95V5"/>${a.lines.map(([ax,ay,bx,by])=>`<path d="M${(ax-12)/336*90+5} ${(ay-79)/337*66+5}L${(bx-12)/336*90+5} ${(by-79)/337*66+5}"/>`).join('')}${a.pins.map(([x,y,r])=>`<circle cx="${(x-12)/336*90+5}" cy="${(y-79)/337*66+5}" r="${r/336*90}"/>`).join('')}</svg><b>${esc(a.name)}</b></button>`).join('')}</div><button class="arcade-menu-start" data-practice-start>Играть</button></section>`;
+        const arenas=window.ArcadeDropLab?.arenas||ArcadeDrop.arenas;
+        return `<section class="arcade-arena-screen"><h3>Тренировка</h3><div class="arcade-arena-grid" role="group" aria-label="Выбор арены">${arenas.map(a => `<button data-arena="${a.id}" aria-pressed="${a.id===selected}"><svg viewBox="0 0 100 76" aria-hidden="true"><path d="M5 5V71H95V5"/>${a.lines.map(([ax,ay,bx,by])=>`<path d="M${(ax-12)/336*90+5} ${(ay-79)/337*66+5}L${(bx-12)/336*90+5} ${(by-79)/337*66+5}"/>`).join('')}${a.pins.map(([x,y,r])=>`<circle cx="${(x-12)/336*90+5}" cy="${(y-79)/337*66+5}" r="${r/336*90}"/>`).join('')}</svg><b>${esc(a.name)}</b></button>`).join('')}</div><button class="arcade-menu-start" data-practice-start>Играть</button></section>`;
     }
 
     window.ArcadeMenu = {

@@ -115,13 +115,14 @@
         label(c,'Не заполняй выше линии',180,line+17,12,'#f7b29b','center');
       }
       // Different practice arenas have tangible, softly coloured obstacles.
-      const arena=ArcadeDrop.get(w.arena);
-      c.strokeStyle='#739b99';c.lineWidth=5;c.lineCap='round';
-      for(const [ax,ay,bx,by] of arena.lines){c.beginPath();c.moveTo(ax,ay);c.lineTo(bx,by);c.stroke();}
-      for(const [x,y,r] of arena.pins){c.fillStyle='#466b73';c.beginPath();c.arc(x,y,r,0,Math.PI*2);c.fill();
-        c.strokeStyle='#89aba6';c.lineWidth=2;c.stroke();}
+      const arena=ArcadeDropLab.get(w.arena);
+      c.beginPath();c.moveTo(12,430);
+      for(const [x,y] of arena.points)c.lineTo(x,y);
+      c.lineTo(348,430);c.closePath();c.fillStyle='#0c202b';c.fill();
+      c.beginPath();arena.points.forEach(([x,y],i)=>i?c.lineTo(x,y):c.moveTo(x,y));
+      c.strokeStyle='#81a9a2';c.lineWidth=3;c.stroke();
       const level=w.queue[0],r=ArcadeWorld.rad[level],x=clamp(aim,12+r,348-r),
-        landing=ArcadeDrop.preview(w,x,r);
+        landing=ArcadeDropLab.preview(w,x,r);
       if(canPlay()&&!w.ended){
         c.strokeStyle='#d0e3cc45';c.lineWidth=1;c.setLineDash([2,5]);c.beginPath();
         c.moveTo(x,Math.max(72,46+r));c.lineTo(x,landing-r);c.stroke();c.setLineDash([]);

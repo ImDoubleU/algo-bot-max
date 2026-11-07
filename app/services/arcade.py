@@ -338,7 +338,7 @@ class ArcadeStore:
             mode == "practice"
             and (
                 game == "drop"
-                and arena in ("classic", "bowl", "slopes", "pins")
+                and arena in ("classic", "bowl", "slopes", "pins", "arch", "saddle", "tilt", "wave")
                 or game == "hill"
                 and arena in dict(arcade_hill.ROUTES)
             )

@@ -5,6 +5,23 @@
   const N=12,TAU=Math.PI*2,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const rest=Array.from({length:N},(_,i)=>({x:Math.cos(i*TAU/N),y:Math.sin(i*TAU/N)}));
   const unitArea=N*Math.sin(TAU/N)/2;
+  const arenas=[
+    ['classic','Капсула',t=>416],
+    ['bowl','Чаша',t=>416-88*Math.abs(t)**2.4],
+    ['slopes','Воронка',t=>416-95*Math.abs(t)**3],
+    ['pins','Дюны',t=>404-12*Math.cos(3*Math.PI*t)],
+    ['arch','Купол',t=>416-42*(1-t*t)**2],
+    ['saddle','Две чаши',t=>400-16*Math.cos(2*Math.PI*t)],
+    ['tilt','Скат',t=>389+27*t],
+    ['wave','Волна',t=>388+20*Math.sin(Math.PI*t/2)+8*t],
+  ].map(([id,name,fn])=>{
+    const height=x=>fn(clamp((x-180)/168,-1,1)),
+      slope=x=>(height(x+.25)-height(x-.25))/.5,
+      points=Array.from({length:49},(_,i)=>{const x=12+i*7;return [x,height(x)];});
+    return {id,name,height,slope,points,pins:[],lines:points.slice(1).map((p,i)=>[...points[i],...p])};
+  });
+  const get=id=>arenas.find(a=>a.id===id)||arenas[0];
+  const chapter=stage=>['classic','bowl','slopes','pins','arch','saddle'][Math.floor((stage-1)/4)]||'classic';
   function init(b) {
     if(b.nodes)return;
     b.nodes=rest.map(p=>({x:b.x+p.x*b.r,y:b.y+p.y*b.r,ox:b.x+p.x*b.r,oy:b.y+p.y*b.r,
@@ -51,20 +68,19 @@
     }
   }
   function walls(w,b) {
-    ArcadeDrop.surfaces(w.arena,b,(x,y,r)=>{
-      const dx=x-b.x,dy=y-b.y,d=Math.hypot(dx,dy),nx=d>.001?dx/d:0,ny=d>.001?dy/d:1,
-        depth=support(b,nx,ny)+r+2-d;
-      if(depth>0){press(b,nx,ny,Math.min(8,depth*.8));if(ny>.3)b.supported=true;}
-    });
+    const ground=get(w.arena);
     for(const p of b.nodes){
       p.x=clamp(p.x,12,348);
-      if(p.y>=416){p.y=416;b.supported=true;p.floor=true;}
-      ArcadeDrop.surfaces(w.arena,p,(x,y,r)=>{
-        // Edges act as rounded rails, not infinitely thin one-way surfaces.
-        const dx=p.x-x,dy=p.y-y,d=Math.hypot(dx,dy),reach=r+2;
-        if(d<reach){const nx=d>.001?dx/d:0,ny=d>.001?dy/d:-1;
-          p.x=x+nx*reach;p.y=y+ny*reach;if(ny<-.3)b.supported=true;}
-      });
+      if(p.x<12.02)b.leftWall=true;if(p.x>347.98)b.rightWall=true;
+      const h=ground.height(p.x),depth=p.y-h;
+      if(depth>=-.02){
+        b.supported=true;b.grounded=true;p.floor=true;
+        if(depth>0){
+          const slope=ground.slope(p.x),normal=1+slope*slope;
+          p.x=clamp(p.x+slope*depth/normal,12,348);
+          p.y=Math.min(p.y-depth/normal,ground.height(p.x));
+        }
+      }
     }
   }
   function support(b,nx,ny){
@@ -81,13 +97,15 @@
       p.x-=nx*shift;p.y-=ny*shift;
     }
   }
+  const blocked=(body,x,y)=>body.grounded&&y>.25||body.leftWall&&x<-.25||body.rightWall&&x>.25;
   function merge(w,i,j,H){
     const a=w.balls[i],b=w.balls[j],total=a.mass+b.mass,level=a.level+1,
       next={id:++w.nextId,level,r:H.rad[level],x:(a.x*a.mass+b.x*b.mass)/total,
         y:(a.y*a.mass+b.y*b.mass)/total,vx:(a.vx*a.mass+b.vx*b.mass)/total,
         vy:Math.max(0,(a.vy*a.mass+b.vy*b.mass)/total),age:0,
         spin:clamp((a.spin+b.spin)/2,-2,2),angle:0};
-    next.x=clamp(next.x,12+next.r,348-next.r);next.y=Math.min(next.y,416-next.r);
+    next.x=clamp(next.x,12+next.r,348-next.r);
+    next.y=Math.min(next.y,get(w.arena).height(next.x)-next.r);
     init(next);w.balls[i]=next;w.balls.splice(j,1);
     w.score+=2**(level+1);w.labMerges=(w.labMerges||0)+1;
     H.emit(w,'merge',{x:next.x,y:next.y,level});
@@ -95,7 +113,7 @@
   function step(w,dt,c,H){
     w.cool=Math.max(0,w.cool-dt);
     for(const b of w.balls){
-      init(b);b.age+=dt;b.supported=false;
+      init(b);b.age+=dt;b.supported=false;b.grounded=false;b.leftWall=false;b.rightWall=false;
       if(b.sleep){walls(w,b);continue;}
       const kickX=(b.vx||0)-(b.nodeVX||0),kickY=(b.vy||0)-(b.nodeVY||0);
       for(const p of b.nodes){
@@ -122,8 +140,9 @@
         if(overlap>.15){
           if(a.sleep){a.sleep=false;for(const p of a.nodes){p.ox=p.x;p.oy=p.y;}}
           if(b.sleep){b.sleep=false;for(const p of b.nodes){p.ox=p.x;p.oy=p.y;}}
-          const depth=Math.min(overlap*.65,8),total=a.mass+b.mass;
-          press(a,nx,ny,depth*b.mass/total);press(b,-nx,-ny,depth*a.mass/total);
+          const depth=Math.min(overlap*.65,8),
+            ia=blocked(a,-nx,-ny)?0:1/a.mass,ib=blocked(b,nx,ny)?0:1/b.mass,total=ia+ib;
+          if(total){press(a,nx,ny,depth*ia/total);press(b,-nx,-ny,depth*ib/total);}
           centre(a);centre(b);
         }
       }
@@ -153,5 +172,21 @@
     w.danger=high?w.danger+dt:Math.max(0,w.danger-dt*2);
     if(w.danger>2.5)H.end(w,'Капсула заполнена');
   }
-  window.ArcadeDropLab={step,init,centre,rest,unitArea};
+  function preview(w,x,r){
+    const ground=get(w.arena);
+    let y=Math.min(...rest.map(p=>ground.height(x+p.x*r)-p.y*r));
+    // Sweep a round incoming skin against the exact edges of the settled skins.
+    for(const b of w.balls){
+      const nodes=b.nodes||rest.map(p=>({x:b.x+p.x*b.r,y:b.y+p.y*b.r}));
+      for(let i=0;i<nodes.length;i++){
+        const a=nodes[i],d=nodes[(i+1)%nodes.length],dx=d.x-a.x;
+        for(const t of [0,.5,1]){
+          const px=a.x+dx*t,py=a.y+(d.y-a.y)*t,delta=Math.abs(px-x);
+          if(delta<r)y=Math.min(y,py-Math.sqrt(r*r-delta*delta));
+        }
+      }
+    }
+    return Math.max(74+r,y);
+  }
+  window.ArcadeDropLab={step,init,centre,rest,unitArea,arenas,get,chapter,preview};
 })();

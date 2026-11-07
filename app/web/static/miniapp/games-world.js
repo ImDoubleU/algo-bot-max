@@ -227,7 +227,7 @@
             balls: [],
             softDrop: setup.dropPhysics >= 2 || w.mode === 'journey',
             dropPhysics: setup.dropPhysics || (w.mode === 'journey' ? 2 : 1),
-            arena: setup.dropPhysics >= 3 ? (w.mode === 'journey' ? ArcadeDrop.chapter(setup.journey.stage) : ArcadeDrop.get(setup.arena).id) : 'classic',
+            arena: setup.dropPhysics >= 3 ? (w.mode === 'journey' ? (setup.dropPhysics>=6?ArcadeDropLab.chapter(setup.journey.stage):ArcadeDrop.chapter(setup.journey.stage)) : setup.dropPhysics>=6?ArcadeDropLab.get(setup.arena).id:ArcadeDrop.get(setup.arena).id) : 'classic',
             aim: 180,
             queue: [0, Math.floor(range(w, 0, 3)), Math.floor(range(w, 0, 3))],
             cool: 0,

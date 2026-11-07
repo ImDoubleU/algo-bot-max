@@ -43,7 +43,9 @@ def test_merge_counts_once_and_final_creatures_do_not_merge_again():
     assert result["count"] == 2 and result["levels"] == [7, 7]
 
 
-@pytest.mark.parametrize("arena", ["classic", "bowl", "slopes", "pins"])
+@pytest.mark.parametrize(
+    "arena", ["classic", "bowl", "slopes", "pins", "arch", "saddle", "tilt", "wave"]
+)
 def test_long_drop_trace_stays_finite_bounded_and_verifiable(arena):
     setup = dict(
         game="drop",
@@ -61,7 +63,8 @@ def test_long_drop_trace_stays_finite_bounded_and_verifiable(arena):
       for(const b of w.balls){
         if(![b.x,b.y,b.vx,b.vy,...b.nodes.flatMap(p=>[p.x,p.y])].every(Number.isFinite))
           throw Error('Non-finite soft body');
-        if(b.nodes.some(p=>p.x<11.99||p.x>348.01||p.y>416.01))throw Error('Outside capsule');
+        if(b.nodes.some(p=>p.x<11.99||p.x>348.01||
+          p.y>ArcadeDropLab.get(w.arena).height(p.x)+.01))throw Error('Outside capsule');
         const area=b.nodes.reduce((s,p,i)=>{const n=b.nodes[(i+1)%12];
           return s+(p.x*n.y-p.y*n.x)/2},0)/(ArcadeDropLab.unitArea*b.r*b.r);
         if(area<.70||area>1.15)throw Error('Lost volume '+area);
@@ -86,6 +89,9 @@ def test_touch_aim_release_cancel_and_new_board_fit_on_webkit(arcade, width, hei
     page.locator('.game-card[data-game="drop"]').click()
     assert page.locator(".arcade-menu-art canvas").is_visible()
     page.locator('[data-mode="practice"]').click()
+    assert page.locator("[data-arena]").count() == 8
+    arena = {320: "arch", 390: "wave", 1440: "saddle"}[width]
+    page.locator(f'[data-arena="{arena}"]').click()
     page.locator("[data-practice-start]").click()
     page.locator("#gameClock b").wait_for()
     canvas = page.locator(".drop-lab-canvas")
@@ -119,6 +125,7 @@ def test_touch_aim_release_cancel_and_new_board_fit_on_webkit(arcade, width, hei
             "SELECT setup FROM arcade_sessions ORDER BY created DESC LIMIT 1"
         ).fetchone()
         assert json.loads(row["setup"])["dropPhysics"] == 6
+        assert json.loads(row["setup"])["arena"] == arena
 
 
 def test_compact_pile_uses_particle_outline_and_keeps_creatures_readable(arcade):
