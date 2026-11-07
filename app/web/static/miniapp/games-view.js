@@ -40,6 +40,7 @@
     }
 
     function mount(game, stage, send, options) {
+        if(game==='drop'&&options.dropPhysics>=6)return ArcadeDropLabView.mount(stage,send,options);
         if (game==='hill') return ArcadeHillView.mount(stage,send,options);
         if(game==='evolve'&&options.expedition)return ArcadeExpeditionView.mount(stage,send,options);
         if (window.ArcadeExtraView?.has(game)) return window.ArcadeExtraView.mount(game, stage, send, options);
@@ -594,6 +595,7 @@
         mount: (game, stage, send, options) => {
             const view=mount(game,stage,send,options);
             window.ArcadeViewport?.bind(stage,options.signal);
+            if(game==='drop'&&options.dropPhysics>=6)return view;
             return window.ArcadeFeedback?.wrap(game,view,stage,options)||view;
         }
     };

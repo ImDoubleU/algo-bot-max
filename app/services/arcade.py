@@ -91,10 +91,11 @@ class ArcadeError(ValueError):
 
 
 class ArcadeStore:
-    def __init__(self, path: Path, clock=time.time):
+    def __init__(self, path: Path, clock=time.time, *, rewards_enabled=True):
         self.path = Path(path).resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.clock = clock
+        self.default_rewards_enabled = rewards_enabled
         with self.db() as db:
             db.executescript("""
               CREATE TABLE IF NOT EXISTS arcade_journeys(
@@ -105,6 +106,8 @@ class ArcadeStore:
               CREATE TABLE IF NOT EXISTS arcade_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
               CREATE TABLE IF NOT EXISTS arcade_players(id TEXT PRIMARY KEY,name TEXT NOT NULL,
                 group_name TEXT NOT NULL,settings TEXT NOT NULL);
+              CREATE TABLE IF NOT EXISTS arcade_reward_policy(
+                player TEXT PRIMARY KEY REFERENCES arcade_players(id), enabled INTEGER NOT NULL);
               CREATE TABLE IF NOT EXISTS arcade_sessions(id TEXT PRIMARY KEY,player TEXT NOT NULL,
                 game TEXT NOT NULL,mode TEXT NOT NULL,device TEXT NOT NULL,seed INTEGER NOT NULL,
                 created REAL NOT NULL,started REAL,paused REAL,pause_seconds REAL NOT NULL
@@ -178,6 +181,18 @@ class ArcadeStore:
                         json.dumps(DEFAULT_SETTINGS),
                     ),
                 )
+                if "rewards_enabled" in player:
+                    db.execute(
+                        "INSERT INTO arcade_reward_policy VALUES(?,?) "
+                        "ON CONFLICT(player) DO UPDATE SET enabled=excluded.enabled",
+                        (player["id"], int(player["rewards_enabled"] is True)),
+                    )
+
+    def _rewards_enabled(self, db, player):
+        row = db.execute(
+            "SELECT enabled FROM arcade_reward_policy WHERE player=?", (player,)
+        ).fetchone()
+        return bool(row[0]) if row else self.default_rewards_enabled
 
     def _player(self, db, player):
         row = db.execute("SELECT * FROM arcade_players WHERE id=?", (player,)).fetchone()
@@ -192,6 +207,11 @@ class ArcadeStore:
         )
 
     def _award(self, db, player, kind, period, key, amount, label, claimed=False):
+        enabled = self._rewards_enabled(db, player)
+        if not enabled:
+            if kind == "podium":
+                return None
+            amount = 0  # A non-monetary completion marker still unlocks the achievement.
         inserted = db.execute(
             "INSERT OR IGNORE INTO arcade_awards VALUES(?,?,?,?,?,?,?,?,NULL)",
             (key, player, kind, period, amount, label, self.clock(), int(claimed)),
@@ -201,10 +221,12 @@ class ArcadeStore:
                 "UPDATE arcade_awards SET claimed=1 WHERE id=? AND player=? AND claimed=0",
                 (key, player),
             ).rowcount
-            return key if inserted or collected else None
+            return key if enabled and (inserted or collected) else None
         return None
 
     def _credit(self, db, player):
+        if not self._rewards_enabled(db, player):
+            return
         period = week_key(self.clock())
         rows = db.execute(
             """SELECT * FROM arcade_awards WHERE player=? AND claimed=1 AND credited IS NULL
@@ -227,6 +249,9 @@ class ArcadeStore:
         )
 
     def _receipt(self, db, session):
+        owner = db.execute("SELECT player FROM arcade_sessions WHERE id=?", (session,)).fetchone()
+        if owner and not self._rewards_enabled(db, owner[0]):
+            return {"awards": [], "credited": 0, "pending": 0}
         row = db.execute(
             "SELECT payload FROM arcade_receipts WHERE session=?", (session,)
         ).fetchone()
@@ -369,7 +394,7 @@ class ArcadeStore:
                 else "",
             }
             if game == "drop":
-                setup["dropPhysics"] = 5
+                setup["dropPhysics"] = 6
                 setup["arena"] = arena or "classic"
             if game == "sort" and mode == "ranked":
                 setup["roundSeconds"] = 600
@@ -664,7 +689,7 @@ class ArcadeStore:
                 continue
             details = report["details"]
             # Preserve old replays and earned awards, but don't mix different physics in a board.
-            if game == "drop" and details.get("physics") != "soft5":
+            if game == "drop" and details.get("physics") != "lab6":
                 continue
             key = (
                 -row["rank_score"],
@@ -735,7 +760,7 @@ class ArcadeStore:
         )
         for i, row in enumerate(items):
             row["rank"] = i + 1
-            row["prizeEligible"] = row["games"] >= 3
+            row["prizeEligible"] = row["games"] >= 3 and self._rewards_enabled(db, row["player"])
             row["league"] = league(row["score"], row["games"])
         return items
 
@@ -791,7 +816,7 @@ class ArcadeStore:
                 (now - 7200,),
             )
 
-    def board(self, game="overall", period="week", device="keyboard"):
+    def board(self, game="overall", period="week", device="keyboard", viewer=None):
         self.maintain()
         period = "all" if period == "all" else season_key(self.clock())
         with self.db() as db:
@@ -811,12 +836,18 @@ class ArcadeStore:
             for row in history:
                 row["winners"] = json.loads(row["winners"])
                 row.pop("standings")
+            monetary = viewer is None or self._rewards_enabled(db, viewer)
+            if not monetary:
+                for row in history:
+                    row["winners"] = [
+                        {k: v for k, v in r.items() if k != "prize"} for r in row["winners"]
+                    ]
             return {
                 "rows": rows,
                 "history": history,
                 "week": week_key(self.clock()),
                 "season": season_info(self.clock()),
-                "prizes": PRIZES,
+                "prizes": PRIZES if monetary else [],
                 "min_games": 3,
                 "server_time": iso(self.clock()),
                 "device": device,
@@ -826,6 +857,7 @@ class ArcadeStore:
         self.maintain()
         with self.db() as db:
             person = self._player(db, player)
+            monetary = self._rewards_enabled(db, player)
             rows = [
                 dict(r)
                 for r in db.execute(
@@ -934,7 +966,15 @@ class ArcadeStore:
                 (r for r in self._overall(db, season_key(self.clock())) if r["player"] == player),
                 None,
             )
+            if not monetary:
+                for badge in badges:
+                    badge["reward"] = 0
+                for goal in goals.values():
+                    goal["reward"] = 0
+                awards = [{**a, "amount": 0} for a in awards]
+                credits = []
             return {
+                "rewardsEnabled": monetary,
                 "mastery": mastery(mastery_journeys, badges + legacy_badges),
                 "competition": {
                     "score": standing["score"] if standing else 0,
@@ -959,6 +999,8 @@ class ArcadeStore:
 
     def claim(self, player, key):
         with self.db() as db:
+            if not self._rewards_enabled(db, player):
+                raise ArcadeError("Астрокоины за игры доступны только ученикам.")
             row = db.execute(
                 "SELECT * FROM arcade_awards WHERE id=? AND player=?", (key, player)
             ).fetchone()

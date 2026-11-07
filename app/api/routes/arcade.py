@@ -20,7 +20,9 @@ def pilot_store():
     from app.services.arcade import ArcadeStore
 
     settings = get_settings()
-    return ArcadeStore(Path(settings.arcade_pilot_db_path).expanduser().resolve())
+    return ArcadeStore(
+        Path(settings.arcade_pilot_db_path).expanduser().resolve(), rewards_enabled=False
+    )
 
 
 async def authenticate(request: Request):
@@ -56,6 +58,7 @@ async def authenticate(request: Request):
             "id": f"pilot:{identity.max_user_id}",
             "name": name or account.display_name or "Участник тестирования",
             "group": "Тестирование игр",
+            "rewards_enabled": False,
         }
     # Do not consult child/parent links or change school wallets in this pilot.
     await asyncio.to_thread(pilot_store().register, [player])

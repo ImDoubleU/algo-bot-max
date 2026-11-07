@@ -6,11 +6,11 @@ import re
 
 def inject_pilot(source: str, max_ids: list[int]) -> str:
     config = json.dumps({"ids": sorted({i for i in max_ids if i > 0})})
-    source = re.sub(r"(app-(?:core|shell)\.js)\?v=[^\"]+", r"\1?v=arcade-pilot-2", source)
+    source = re.sub(r"(app-(?:core|shell)\.js)\?v=[^\"]+", r"\1?v=arcade-pilot-3", source)
     source = source.replace(
         '<script src="/miniapp/static/app-shell.js',
         f'<script type="application/json" id="arcadePilotConfig">{config}</script>'
-        '<script src="/miniapp/static/app-arcade-pilot.js?v=2"></script>'
+        '<script src="/miniapp/static/app-arcade-pilot.js?v=3"></script>'
         '<script src="/miniapp/static/app-shell.js',
         1,
     )

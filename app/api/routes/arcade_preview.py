@@ -121,14 +121,14 @@ def make_router(store: ArcadeStore, authenticate: Callable[[Request], Awaitable[
     async def boards(
         request: Request, game: str = "overall", period: str = "week", device: str = "keyboard"
     ):
-        await authenticate(request)
+        actor = await authenticate(request)
         if (
             game not in {"overall", *GAMES}
             or period not in ("week", "all")
             or device not in ("keyboard", "touch")
         ):
             raise HTTPException(400, "Неизвестный рейтинг.")
-        return await call(store.board, game, period, device)
+        return await call(store.board, game, period, device, actor["player"])
 
     @router.post("/sessions")
     async def create(request: Request, payload: NewSession):

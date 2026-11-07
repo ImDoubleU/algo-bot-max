@@ -27,8 +27,8 @@
             target = medal?.target || game.goal,
             details = world.details,
             rules = medal?.requirements || (world.id === 'typing' ? {accuracy: 90} : {});
-        if (!practice && goal.claimed && !next) return {target, text: 'Все награды этой игры получены'};
-        if (world.score < target) return {target, text: `До ${practice?'цели':medal?'достижения':'награды'}: ${target-world.score} ${game.unit}`};
+        if (!practice && goal.claimed && !next) return {target, text: 'Все достижения этой игры открыты'};
+        if (world.score < target) return {target, text: `До ${medal?'достижения':'цели'}: ${target-world.score} ${game.unit}`};
         if (rules.accuracy && details.accuracy < rules.accuracy) return {target, text: `Точность ${details.accuracy}% · нужно ${rules.accuracy}%`};
         if (rules.mistakes === 0 && details.mistakes) return {target, text: 'Для медали нужна игра без ошибок'};
         if (rules.reactionMs && (!details.reactionMs || details.reactionMs > rules.reactionMs)) return {target, text: `Для медали реакция до ${rules.reactionMs} мс`};

@@ -410,7 +410,11 @@ def arcade(browser, tmp_path, request):
         "const st=window.setTimeout;window.setTimeout=(f,t,...a)=>st(f,t===650?1:t,...a)"
     )
     page.on("pageerror", lambda e: errors.append(str(e)))
-    page.goto("http://127.0.0.1:8779/miniapp?demo=1&demo_role=student&view=games")
+    page.goto(
+        "http://127.0.0.1:8779/miniapp?demo=1&demo_role=student&view=games",
+        wait_until="domcontentloaded",
+        timeout=15000,
+    )
     page.locator(".game-card").first.wait_for()
     yield page, store
     context.close()
@@ -425,8 +429,8 @@ def test_all_games_start_without_pause_finish_naturally_and_fit(arcade, width):
     assert page.locator(".game-card").count() == len(GAMES)
     for game in GAMES:
         page.locator(f'.game-card[data-game="{game}"]').click()
-        if game == 'react':
-            page.locator('[data-benchmark-react]').click()
+        if game == "react":
+            page.locator("[data-benchmark-react]").click()
         page.locator('[data-mode="ranked"]').click()
         page.wait_for_function("document.querySelector('#gameClock')?.textContent.length>0")
         assert page.locator(".arcade-pause,#gameFinish").count() == 0
@@ -490,7 +494,7 @@ def test_first_time_tutorial_requires_a_successful_action(arcade, game):
     page, store = arcade
     page.locator(f'.game-card[data-game="{game}"]').click()
     if game == "react":
-        page.locator('[data-benchmark-react]').click()
+        page.locator("[data-benchmark-react]").click()
     if game == "kopatych":
         page.locator("[data-menu-levels]").click()
         page.locator("[data-farm-sprint]").first.click()
@@ -509,11 +513,13 @@ def test_first_time_tutorial_requires_a_successful_action(arcade, game):
     elif game == "typing":
         page.locator(".typing-input").press_sequentially("кот")
     elif game == "debug":
-        task = page.evaluate("ArcadeWorld.create({game:'debug',seed:41,mode:'practice',lessonVersion:2}).tasks[0]")
+        task = page.evaluate(
+            "ArcadeWorld.create({game:'debug',seed:41,mode:'practice',lessonVersion:2}).tasks[0]"
+        )
         page.locator(f'[data-line="{task["line"]}"]').click()
-        if task.get('freeAnswer'):
-            page.locator('#debugFix').fill(task['options'][task['answer']])
-            page.locator('.debug-fix-form').evaluate('(f)=>f.requestSubmit()')
+        if task.get("freeAnswer"):
+            page.locator("#debugFix").fill(task["options"][task["answer"]])
+            page.locator(".debug-fix-form").evaluate("(f)=>f.requestSubmit()")
         else:
             page.locator(f'[data-option="{task["answer"]}"]').click()
     elif game == "2048":
@@ -565,9 +571,9 @@ def test_ui_generated_python_completion_award_and_replay(arcade):
     tasks = page.evaluate("s=>ArcadeWorld.create(s).tasks", json.loads(session["setup"]))
     for task in tasks:
         page.locator(f'[data-line="{task["line"]}"]').click()
-        if task.get('freeAnswer'):
-            page.locator('#debugFix').fill(task['options'][task['answer']])
-            page.locator('.debug-fix-form').evaluate('(f)=>f.requestSubmit()')
+        if task.get("freeAnswer"):
+            page.locator("#debugFix").fill(task["options"][task["answer"]])
+            page.locator(".debug-fix-form").evaluate("(f)=>f.requestSubmit()")
         else:
             page.locator(f'[data-option="{task["answer"]}"]').click()
         page.locator("[data-next]").click()
@@ -591,7 +597,9 @@ def test_first_character_starts_typing_timer_and_new_page_restores_results(arcad
         assert db.execute("SELECT started FROM arcade_sessions").fetchone()[0] is None
     sample = page.locator(".typing-passage").inner_text()[:3]
     page.locator(".typing-input").press_sequentially(sample)
-    page.wait_for_function("/^\\d+:\\d{2}$/.test(document.querySelector('#gameClock b')?.textContent)")
+    page.wait_for_function(
+        "/^\\d+:\\d{2}$/.test(document.querySelector('#gameClock b')?.textContent)"
+    )
     finish_naturally(page, store)
     page.locator("[data-back]").click()
     other = page.context.new_page()

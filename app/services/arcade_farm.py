@@ -2,7 +2,6 @@
 
 import copy
 import hashlib
-import hmac
 import json
 import math
 from datetime import datetime, timedelta
@@ -406,6 +405,18 @@ def income_factor(upgrades):
     )
 
 
+def tap_income_basis(production):
+    """Keep the early farm exact, then decouple clicks from exponential factories.
+
+    Production itself keeps its full value, including offline harvest. Only its
+    extra contribution to manual tools saturates, continuously and monotonically.
+    """
+    knee = 100000
+    if production <= knee:
+        return production
+    return knee + int(knee * math.log1p((production - knee) / knee))
+
+
 def stats(state, now_ms):
     upgrades = {key: state["items"].get(key, 0) for key in BY_ID}
     production = (
@@ -422,7 +433,8 @@ def stats(state, now_ms):
         + 120 * upgrades["autoshovel"]
         + 350 * upgrades["exosuit"]
     )
-    scaled = production * shovel // 400000 + production * tractor // 160000
+    manual_basis = tap_income_basis(production)
+    scaled = manual_basis * shovel // 400000 + manual_basis * tractor // 160000
     raw_tap = flat + scaled
     gloves = max(upgrades["gloves"], raw_tap * 12 * upgrades["gloves"] // 100)
     tap = (raw_tap + gloves) * (100 + 6 * upgrades["workshop"]) // 100
@@ -433,6 +445,7 @@ def stats(state, now_ms):
         base_tap=tap,
         tap_flat=flat,
         tap_income=scaled,
+        tap_income_basis=manual_basis,
         tap_gloves=gloves,
         tap_workshop=tap - raw_tap - gloves,
         energy_max=500 + 750 * upgrades["battery"],
@@ -565,22 +578,6 @@ class FarmStore(ProgressionMixin):
         day = datetime.fromtimestamp(now / 1000, MOSCOW).date().isoformat()
         if state["daily"] and state["daily"]["day"] >= day:
             return
-        secret = db.execute("SELECT value FROM arcade_meta WHERE key='secret'").fetchone()[0]
-        eligible = [
-            item["id"]
-            for item in ITEMS
-            if item["unlock"] <= level(state["earned"])
-            and state["items"][item["id"]] < item["maximum"]
-            and all(
-                state["resources"][key] >= item.get(key, 0) * (state["items"][item["id"]] + 1)
-                for key in ("seeds", "materials")
-            )
-        ]
-        eligible.sort(
-            key=lambda key: hmac.new(
-                secret.encode(), f"farm-combo:{player}:{day}:{key}".encode(), hashlib.sha256
-            ).hexdigest()
-        )
         state["daily"] = dict(
             day=day,
             taps=0,
@@ -589,7 +586,6 @@ class FarmStore(ProgressionMixin):
             upgrades=0,
             bought=[],
             claimed=[],
-            combo=eligible[:3],
             boosts=0,
             refills=0,
             deliveries=0,
@@ -654,9 +650,6 @@ class FarmStore(ProgressionMixin):
             DAILY_REWARDS[(streak - 1) % 7],
             self._daily_terms(state)["income"] * (3, 4, 5, 6, 8, 10, 15)[(streak - 1) % 7] // 60,
         )
-
-    def _combo_reward(self, state):
-        return max(600, self._daily_terms(state)["income"] // 6)
 
     def _quests(self, state):
         daily = state["daily"]
@@ -867,12 +860,6 @@ class FarmStore(ProgressionMixin):
         for q in self._quests(state):
             if q["ready"]:
                 rewards.append(dict(kind="quest", id=q["id"], amount=q["reward"]))
-        if (
-            daily["combo"]
-            and "combo" not in daily["claimed"]
-            and all(key in daily["bought"] for key in daily["combo"])
-        ):
-            rewards.append(dict(kind="quest", id="combo", amount=self._combo_reward(state)))
         metrics = self._metrics(state)
         for key, _name, metric, target, reward in BADGES:
             if (
@@ -1101,12 +1088,7 @@ class FarmStore(ProgressionMixin):
                 claimed=bonus_claimed,
                 rewards=[self._daily_reward(state, n) for n in range(1, 8)],
                 reset_at=int(next_day.timestamp() * 1000),
-                combo=daily["combo"],
                 bought=daily["bought"],
-                combo_claimed="combo" in daily["claimed"],
-                combo_ready=bool(daily["combo"])
-                and all(key in daily["bought"] for key in daily["combo"]),
-                combo_reward=self._combo_reward(state),
                 boosts_left=2 - daily["boosts"],
                 refills_left=2 - daily["refills"],
                 refill_seconds=max(0, math.ceil((state["refill_after"] - now) / 1000)),
@@ -1292,14 +1274,8 @@ class FarmStore(ProgressionMixin):
                 result["amount"] = bonus["reward"]
                 self._event(db, player, "daily", result["amount"], f"День {state['streak']}")
             elif action == "claim_quest":
-                if item == "combo":
-                    ready = bool(daily["combo"]) and all(
-                        key in daily["bought"] for key in daily["combo"]
-                    )
-                    reward = self._combo_reward(state)
-                else:
-                    quest = next((q for q in self._quests(state) if q["id"] == item), None)
-                    ready, reward = bool(quest and quest["ready"]), quest["reward"] if quest else 0
+                quest = next((q for q in self._quests(state) if q["id"] == item), None)
+                ready, reward = bool(quest and quest["ready"]), quest["reward"] if quest else 0
                 if not ready or item in daily["claimed"]:
                     raise ArcadeError("Задание ещё не выполнено или награда уже получена.")
                 daily["claimed"].append(item)

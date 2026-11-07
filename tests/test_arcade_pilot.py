@@ -58,6 +58,8 @@ async def test_only_allowed_signed_staff_can_access_and_identity_cannot_be_selec
     second = (await c.get("/arcade/profile", headers=auth(910002))).json()
     assert first["player"]["id"] == "pilot:910001"
     assert second["player"]["id"] == "pilot:910002"
+    assert first["rewardsEnabled"] is False and second["rewardsEnabled"] is False
+    assert first["balance"] == second["balance"] == 0
     payload = dict(game="drop", mode="practice", device="keyboard")
     session = (await c.post("/arcade/sessions", headers=auth(910001), json=payload)).json()
     denied = await c.post(f"/arcade/sessions/{session['id']}/clock/start", headers=auth(910002))

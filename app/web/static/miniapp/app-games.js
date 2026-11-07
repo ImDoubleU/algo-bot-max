@@ -194,6 +194,8 @@
         });
     }
 
+    function money() {return profile?.rewardsEnabled!==false;}
+
     function tabs() {
         return [
             ["games", "Игры"],
@@ -202,7 +204,7 @@
             ["looks", "Образы"],
             ["progress", "Прогресс"],
             ["rewards", "Награды"]
-        ].map(([id, name]) => `<button data-tab="${id}" class="${tab===id?"active":""}" aria-pressed="${tab===id}">${name}</button>`).join("");
+        ].filter(([id])=>id!=='rewards'||money()).map(([id, name]) => `<button data-tab="${id}" class="${tab===id?"active":""}" aria-pressed="${tab===id}">${name}</button>`).join("");
     }
 
     function draw() {
@@ -211,8 +213,9 @@
             $("[data-reload]", root).onclick = () => render();
             return;
         }
+        if(!money()&&tab==='rewards')tab='games';
         root.innerHTML = `<div class="games-heading"><div class="games-lobby-title"><h1>Игры</h1></div><div class="arcade-account"><label class="games-player-picker"><span class="games-player-label">Игрок</span><select id="gamesPlayer" aria-label="Игрок">${actors.map(p=>`<option value="${esc(p.id)}" ${p.id===actor().id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></label><button class="arcade-settings" aria-label="Настройки игр" data-settings>⚙</button></div></div>
-      ${tab!=='leaders'?`<div class="arcade-lobby-status">${masteryMarkup()}<button class="arcade-reward-overview" data-tab="rewards"><span class="arcade-reward-balance"><span>Награды</span><strong>${profile.balance} <span>AC</span></strong></span></button></div>`:''}
+      ${tab!=='leaders'?`<div class="arcade-lobby-status">${masteryMarkup()}${money()?`<button class="arcade-reward-overview" data-tab="rewards"><span class="arcade-reward-balance"><span>Награды</span><strong>${profile.balance} <span>AC</span></strong></span></button>`:''}</div>`:''}
       <nav class="games-tabs" aria-label="Разделы игр">${tabs()}</nav><div id="arcadeTabContent"></div>`;
         const content = $("#arcadeTabContent", root);
         if (tab === "games") content.innerHTML = cards();
@@ -227,7 +230,7 @@
         root.onclick = handleRoot;
         if(pilot) {
             $('.games-player-picker',root).remove();
-            $('.games-heading',root).insertAdjacentHTML('afterend','<p class="arcade-pilot-note">Тестирование · награды не расходуются в магазине</p>');
+            $('.games-heading',root).insertAdjacentHTML('afterend','<p class="arcade-pilot-note">Тестирование игр</p>');
         }
         const picker=$("#gamesPlayer", root);
         if(picker)picker.onchange = async e => {
@@ -293,7 +296,7 @@
             const q = profile.goals[g.id], journey = profile.journeys[g.id],
                 cleared = journey?.cleared || 0, maximum=journey?.maximum||24,
                 progressText = g.id==='react' ? '5 тестов · реакция и память' : g.persistent ? 'Огород и турнир' : journey ? cleared===maximum ? 'Все уровни пройдены' : cleared ? `${cleared} из ${maximum} пройдено` : maximum===24?'24 уровня':`${maximum} уровней` : `Цель: ${goal(g.id)}`;
-            return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><span class="game-card-art">${art(g.id)}</span><span class="game-card-body"><h3>${g.name}</h3><span class="game-card-bottom"><span>${progressText}</span>${!q.claimed||!q.credited?`<span class="game-reward">${q.claimed?'Начисляется':`+${q.reward} AC`}</span>`:''}</span>${journey&&cleared?`<progress class="game-card-progress" aria-label="Пройденные уровни: ${cleared} из ${maximum}" value="${cleared}" max="${maximum}"></progress>`:''}</span></button><button class="game-card-leader" data-leader="${g.id}" aria-label="Лидеры: ${g.name}" title="Лидеры">${trophy}</button></div>`;
+            return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><span class="game-card-art">${art(g.id)}</span><span class="game-card-body"><h3>${g.name}</h3><span class="game-card-bottom"><span>${progressText}</span>${money()&&(!q.claimed||!q.credited)?`<span class="game-reward">${q.claimed?'Начисляется':`+${q.reward} AC`}</span>`:''}</span>${journey&&cleared?`<progress class="game-card-progress" aria-label="Пройденные уровни: ${cleared} из ${maximum}" value="${cleared}" max="${maximum}"></progress>`:''}</span></button><button class="game-card-leader" data-leader="${g.id}" aria-label="Лидеры: ${g.name}" title="Лидеры">${trophy}</button></div>`;
         }).join("")}</div>`;
     }
 
@@ -302,7 +305,8 @@
     }
 
     function achievements() {
-        return ArcadeJourneyView.collection(profile.journeys) + `<div class="arcade-tier-key"><span>Бронза · сильный результат</span><span>Серебро · эксперт</span><span>Золото · мастерство</span></div><div class="games-achievement-grid">${profile.achievements.map(a=>`<article class="game-achievement ${a.unlocked?"unlocked":""}"><span class="achievement-medal ${E.games.find(g=>g.id===a.game).color}">${art(a.game)}<i>${["I","II","III"][a.tier]}</i></span><div><h3>${title(a.game)} · ${["бронза","серебро","золото"][a.tier]}</h3><p>${achievementText(a)}</p><progress max="${a.target}" value="${a.value}"></progress><small>${a.value} / ${a.target}</small></div><button data-claim="${esc(a.id)}" ${!a.unlocked||a.claimed?"disabled":""}>${a.credited?"✓ Получено":a.claimed?"Начисляется":`+${a.reward} AC`}</button></article>`).join("")}</div>`;
+        const action=a=>money()?`<button data-claim="${esc(a.id)}" ${!a.unlocked||a.claimed?"disabled":""}>${a.credited?"✓ Получено":a.claimed?"Начисляется":`+${a.reward} AC`}</button>`:`<span class="achievement-status">${a.unlocked?'✓ Открыто':'Не открыто'}</span>`;
+        return ArcadeJourneyView.collection(profile.journeys) + `<div class="arcade-tier-key"><span>Бронза · сильный результат</span><span>Серебро · эксперт</span><span>Золото · мастерство</span></div><div class="games-achievement-grid">${profile.achievements.map(a=>`<article class="game-achievement ${a.unlocked?"unlocked":""}"><span class="achievement-medal ${E.games.find(g=>g.id===a.game).color}">${art(a.game)}<i>${["I","II","III"][a.tier]}</i></span><div><h3>${title(a.game)} · ${["бронза","серебро","золото"][a.tier]}</h3><p>${achievementText(a)}</p><progress max="${a.target}" value="${a.value}"></progress><small>${a.value} / ${a.target}</small></div>${action(a)}</article>`).join("")}</div>`;
     }
 
     function rewards() {
@@ -438,12 +442,12 @@
         return `<section class="arcade-ranking ${combined?'games-overall':'ranking-single-game'}" aria-label="${combined?'Общий рейтинг':esc(title(game))}">
           <header class="ranking-heading"><div><h3>${combined?'Общий рейтинг':esc(title(game))}</h3><p>${subtitle}</p></div>${periodControls}</header>
           ${speed.has(game)?`<div class="games-leader-period ranking-device" aria-label="Управление">${[['keyboard','Клавиатура / мышь'],['touch','Касания']].map(([id,name])=>`<button data-board-device="${id}" aria-pressed="${id===device}">${name}</button>`).join('')}</div>`:''}
-          ${combined&&weekly?`<section class="ranking-prizes" aria-label="Призы сезона"><div class="ranking-prize-intro"><h4>Призы сезона</h4></div><div class="ranking-prize-strip">${data.prizes.map((amount,i)=>`<div class="ranking-prize"><span>${i+1} место</span><strong>${amount} <small>AC</small></strong></div>`).join('')}</div></section><div class="ranking-qualification ${missing?'':'is-qualified'}"><b>${qualification}</b><progress max="${minimum}" value="${Math.min(minimum,mine?.games||0)}" aria-label="Цели в ${Math.min(minimum,mine?.games||0)} из ${minimum} игр"></progress></div>`:''}
+          ${money()&&combined&&weekly?`<section class="ranking-prizes" aria-label="Призы сезона"><div class="ranking-prize-intro"><h4>Призы сезона</h4></div><div class="ranking-prize-strip">${data.prizes.map((amount,i)=>`<div class="ranking-prize"><span>${i+1} место</span><strong>${amount} <small>AC</small></strong></div>`).join('')}</div></section><div class="ranking-qualification ${missing?'':'is-qualified'}"><b>${qualification}</b><progress max="${minimum}" value="${Math.min(minimum,mine?.games||0)}" aria-label="Цели в ${Math.min(minimum,mine?.games||0)} из ${minimum} игр"></progress></div>`:''}
           <div class="ranking-list-heading"><span aria-label="Место">№</span><span>Игрок</span>${combined?'<span class="ranking-games-column">Игры</span>':''}<span>${combined?'Очки':'Результат'}</span></div>
           ${shown.length?`<ol class="ranking-list">${players}</ol>`:'<div class="ranking-empty"><h4>Пока нет результатов</h4><p>Заверши игру в режиме «Соревнование».</p></div>'}
           ${game==='drop'?'<p class="ranking-note">В рейтинге — Космопорт с новой физикой. Прежние партии остались в истории.</p>':''}
-          ${combined?`<details class="ranking-rules"><summary>Как получить очки и призы</summary><div class="ranking-rules-content"><h4>Очки за место в каждой игре</h4><div class="ranking-point-key">${E.placePoints.map((points,i)=>`<div><span>${i+1} место</span><strong>${points}</strong></div>`).join('')}</div><p>Начиная с 11-го места — по 5 очков. В общий рейтинг идёт один лучший результат за каждую игру, если выполнена её цель. Для печати нужна точность от 90%.</p><p>Прохождение уровней, XP и достижения дают мастерство, а общий рейтинг считается по результатам «Соревнования».</p><h4>Ранги сезона</h4><ul class="ranking-league-key">${[[0,'Бронза'],[200,'Серебро'],[450,'Золото'],[800,'Алмаз'],[1200,'Космос']].map(([points,name])=>`<li><b>${name}</b><span>от ${points} очков</span></li>`).join('')}</ul><p>Для ранга нужны цели в ${minimum} разных играх в текущем сезоне. Сезон длится 14 дней. Итоги — по понедельникам раз в две недели в 00:00 МСК. При равных очках выше игрок с большим числом игр, затем первых мест, затем с более ранним результатом.</p><p>Клавиатура и касания сравниваются отдельно в скоростных играх; в общий рейтинг идёт один лучший вклад за игру.</p></div></details>`:''}
-          ${combined&&winners.length?`<details class="ranking-history"><summary>Победители прошлых сезонов</summary>${winners.map(w=>`<section><h4>${w.days===7?'Неделя':'Сезон'} с ${weekLabel(w.week)}</h4>${w.winners.map(r=>`<div><span>${esc(r.name)}</span><strong>+${r.prize} AC</strong></div>`).join('')}</section>`).join('')}</details>`:''}
+          ${combined?`<details class="ranking-rules"><summary>Как получить очки${money()?' и призы':''}</summary><div class="ranking-rules-content"><h4>Очки за место в каждой игре</h4><div class="ranking-point-key">${E.placePoints.map((points,i)=>`<div><span>${i+1} место</span><strong>${points}</strong></div>`).join('')}</div><p>Начиная с 11-го места — по 5 очков. В общий рейтинг идёт один лучший результат за каждую игру, если выполнена её цель. Для печати нужна точность от 90%.</p><p>Прохождение уровней, XP и достижения дают мастерство, а общий рейтинг считается по результатам «Соревнования».</p><h4>Ранги сезона</h4><ul class="ranking-league-key">${[[0,'Бронза'],[200,'Серебро'],[450,'Золото'],[800,'Алмаз'],[1200,'Космос']].map(([points,name])=>`<li><b>${name}</b><span>от ${points} очков</span></li>`).join('')}</ul><p>Для ранга нужны цели в ${minimum} разных играх в текущем сезоне. Сезон длится 14 дней. Итоги — по понедельникам раз в две недели в 00:00 МСК. При равных очках выше игрок с большим числом игр, затем первых мест, затем с более ранним результатом.</p><p>Клавиатура и касания сравниваются отдельно в скоростных играх; в общий рейтинг идёт один лучший вклад за игру.</p></div></details>`:''}
+          ${money()&&combined&&winners.length?`<details class="ranking-history"><summary>Победители прошлых сезонов</summary>${winners.map(w=>`<section><h4>${w.days===7?'Неделя':'Сезон'} с ${weekLabel(w.week)}</h4>${w.winners.map(r=>`<div><span>${esc(r.name)}</span><strong>+${r.prize} AC</strong></div>`).join('')}</section>`).join('')}</details>`:''}
         </section>`;
     }
 
@@ -626,6 +630,7 @@
         host.innerHTML = g.id==='react'&&screen==='menu'?ArcadeBenchmarkView.hub():screen === 'levels' ? ArcadeMenu.levels(g.id, profile.journeys[g.id], run.selectedJourney) :
             screen === 'arenas' ? ArcadeMenu.arenas(run.arena || 'classic') : ArcadeMenu.home(g);
         host.scrollTop = 0;
+        if(g.id==='drop'&&screen==='menu')ArcadeDropLabView.menu(host);
         host.onclick = e => {
             const button = e.target.closest('button');
             if (!button || button.disabled) return;
@@ -681,6 +686,7 @@
             device: run.world.device,
             mode: run.world.mode,
             expedition: !!run.world.expedition,
+            dropPhysics: run.world.dropPhysics,
             skin: run.world.journey ? ['base', 'mint', 'sun', 'nebula', 'mint', 'nebula'][run.world.journey.chapter % 6] : profile.settings.skin,
             theme: run.world.journey ? ['space', 'forest', 'sunset', 'nebula', 'forest', 'nebula'][run.world.journey.chapter % 6] : profile.settings.theme === 'space' ? ({
                 bugs: 'forest',
@@ -715,7 +721,7 @@
             evolveRules: 2,
             clockRules: 2,
             ...(run.g.id === 'drop' ? {
-                dropPhysics: 5,
+                dropPhysics: 6,
                 arena: run.arena || 'classic'
             } : {}),
             ...(run.g.id === 'hill' ? {
@@ -1231,6 +1237,7 @@
             device,
             readOnly: true,
             expedition: !!frames[0]?.expedition,
+            dropPhysics: frames[0]?.dropPhysics,
             paused: () => true,
             theme: profile.settings.theme,
             skin: profile.settings.skin,

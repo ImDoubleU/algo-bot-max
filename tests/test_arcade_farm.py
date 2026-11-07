@@ -123,7 +123,8 @@ def test_manual_tools_grow_with_the_farm_and_breakdown_matches_real_harvest(farm
     assert act(farm, "tap")["result"]["amount"] == v["base_tap"]
     offer = next(i for i in before["items"] if i["id"] == "irrigation")
     after = act(farm, "buy", "irrigation")["farm"]
-    assert after["stats"]["base_tap"] > v["base_tap"]
+    assert after["stats"]["base_tap"] >= v["base_tap"]
+    assert after["stats"]["per_hour"] > v["per_hour"]
     assert after["stats"]["base_tap"] - v["base_tap"] == offer["manual_gain_from_income"]
     act(farm, "boost")
     assert act(farm, "tap")["result"]["amount"] == 2 * after["stats"]["base_tap"]
@@ -283,7 +284,7 @@ def test_trial_counts_only_accepted_inputs_before_deadline_and_rewards_once(farm
     farm.arcade.clock.advance(1000)  # A successful attempt stays claimable after its deadline.
     key = str(uuid.uuid4())
     after = act(farm, "claim_trial", trial["project_id"], key=key)["farm"]
-    assert after["activities"]["resources"] == {"seeds": 4, "materials": 4}
+    assert after["activities"]["resources"] == {"seeds": 7, "materials": 8}
     assert after["activities"]["counts"]["trials"] == 1
     assert act(farm, "claim_trial", trial["project_id"], key=key)["duplicate"]
     with pytest.raises(ArcadeError):
@@ -638,19 +639,17 @@ def test_daily_quests_require_real_actions_and_each_reward_is_once(farm):
     assert act(farm, "claim_quest", "passive")["result"]["amount"] == 180
 
 
-def test_daily_combo_is_fixed_and_milestones_do_not_unlock_from_gifts(farm):
+def test_daily_combo_is_removed_and_milestones_do_not_unlock_from_gifts(farm):
     state = farm.get("p1")
-    combo = state["daily"]["combo"]
-    assert len(combo) == 3 and set(combo) == {"shovel", "battery", "beds"}
+    assert "combo" not in state["daily"]
     seed(farm, balance=100000)
     with pytest.raises(ArcadeError):
         act(farm, "claim_badge", "first_harvest")
     with pytest.raises(ArcadeError):
         act(farm, "claim_quest", "combo")
-    for item in combo:
+    for item in ["shovel", "battery", "beds"]:
         act(farm, "buy", item)
-    assert farm.get("p1")["daily"]["combo"] == combo
-    assert act(farm, "claim_quest", "combo")["result"]["amount"] == 600
+    assert "combo" not in farm.get("p1")["daily"]
     with pytest.raises(ArcadeError):
         act(farm, "claim_quest", "combo")
     farm.arcade.clock.advance(4 * 3600)
@@ -874,7 +873,7 @@ def test_daily_goals_and_prizes_are_useful_late_game_and_fixed_for_the_day(farm)
     items["lighthouse"] -= 1
     seed(farm, items=items, resources=dict(seeds=0, materials=0), daily=None)
     end = farm.get("p1")
-    assert not end["daily"]["combo"]
+    assert "combo" not in end["daily"]
     assert next(q for q in end["quests"] if q["id"] == "upgrade")["unit"] == "морковок вручную"
     assert next(q for q in end["quests"] if q["id"] == "variety")["unit"] == "морковок без нажатий"
 
@@ -890,10 +889,10 @@ def test_trial_energy_check_does_not_spend_seeds_and_cooldown_uses_start_time(fa
     for _ in range(30):
         act(farm, "tap", count=8)
         farm.arcade.clock.advance(1)
-    # Delayed reward collection should not shift the next attempt by another day.
+    # Delayed collection cannot shift the next attempt by another six hours.
     farm.arcade.clock.advance(3600)
     act(farm, "claim_trial", trial["project_id"])
-    left = (trial["started_at"] + 86400000 - farm._now()) / 1000
+    left = (trial["started_at"] + 21600000 - farm._now()) / 1000
     assert farm.get("p1")["activities"]["trial_wait"] == left
     farm.arcade.clock.advance(left)
     assert act(farm, "start_trial", "harvest")["farm"]["activities"]["trial"]

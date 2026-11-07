@@ -249,8 +249,8 @@ def test_2048_exchange_is_a_real_two_cell_choice_and_spends_only_after_selection
 
 def test_soft_drop_is_selected_by_server_and_bad_session_parameters_are_rejected(store):
     session = store.session("p1", "drop", "ranked", "keyboard")
-    assert session["setup"]["dropPhysics"] == 4
-    assert arcade_runtime.verify(session["setup"], [], 1)["details"]["physics"] == "soft4"
+    assert session["setup"]["dropPhysics"] == 6
+    assert arcade_runtime.verify(session["setup"], [], 1)["details"]["physics"] == "lab6"
     for stage in (True, 0, 25, -1):
         with pytest.raises(ArcadeError):
             store.session("p1", "debug", "journey", "keyboard", stage)

@@ -117,9 +117,9 @@ LATE_ITEMS = [
 CROPS = [
     dict(id="radish", name="Быстрый сорт", unlock=3, seconds=600, cost=100, energy=20, seeds=1),
     dict(
-        id="amber", name="Янтарная морковь", unlock=10, seconds=2700, cost=1000, energy=50, seeds=4
+        id="amber", name="Янтарная морковь", unlock=10, seconds=2700, cost=1000, energy=50, seeds=6
     ),
-    dict(id="moon", name="Лунный сорт", unlock=30, seconds=10800, cost=10000, energy=100, seeds=10),
+    dict(id="moon", name="Лунный сорт", unlock=30, seconds=10800, cost=10000, energy=100, seeds=30),
 ]
 ROUTES = [
     dict(
@@ -175,7 +175,7 @@ RESEARCH = [
         cost=5000,
         requires="garden_notes",
         requires_level=1,
-        text="+1 семя с редкой грядки за уровень",
+        text="Урожай семян: ×2, ×3 и ×4",
     ),
     dict(
         id="trail_maps",
@@ -222,8 +222,8 @@ TRIALS = [
         goal=240,
         seconds=120,
         seeds=1,
-        reward_seeds=3,
-        reward_materials=4,
+        reward_seeds=6,
+        reward_materials=8,
     ),
     dict(
         id="master",
@@ -232,8 +232,8 @@ TRIALS = [
         goal=500,
         seconds=180,
         seeds=2,
-        reward_seeds=6,
-        reward_materials=9,
+        reward_seeds=12,
+        reward_materials=18,
     ),
     dict(
         id="legend",
@@ -242,8 +242,8 @@ TRIALS = [
         goal=900,
         seconds=240,
         seeds=4,
-        reward_seeds=12,
-        reward_materials=18,
+        reward_seeds=24,
+        reward_materials=36,
     ),
 ]
 UNLOCKS = {
@@ -563,6 +563,8 @@ def energy_regen_milli(state):
 
 class ProgressionMixin:
     def _progress_defaults(self, state):
+        if state.get("daily"):
+            state["daily"].pop("combo", None)
         state.setdefault("badge_targets", {})
         if "manual_milestone_500000" in state["badges"]:
             state["badge_targets"].setdefault("manual_milestone_500000", 500000)
@@ -589,7 +591,16 @@ class ProgressionMixin:
     def _progress_snapshot(self, state, lv):
         research = state["research"]
         now = state["last_ms"]
-        plots = [{**c, "seeds": c["seeds"] + research["seed_sorting"]} for c in CROPS]
+        plots = []
+        for crop in CROPS:
+            seeds = crop["seeds"] * (1 + research["seed_sorting"])
+            plots.append(
+                {
+                    **crop,
+                    "seeds": seeds,
+                    "seeds_per_hour": round(seeds * 3600 / crop["seconds"], 2),
+                }
+            )
         routes = [
             {
                 **r,
@@ -662,7 +673,7 @@ class ProgressionMixin:
             t = state["trial"]
             state["trial"] = None
             state["activity_counts"]["trials"] += 1
-            state["trial_after"] = max(state["trial_after"], t["started_at"] + 86400000)
+            state["trial_after"] = max(state["trial_after"], t["started_at"] + 21600000)
         for key in ("seeds", "materials"):
             state["resources"][key] += reward.get(key, 0)
 
