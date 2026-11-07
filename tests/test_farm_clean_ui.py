@@ -39,6 +39,7 @@ def test_upgrade_cards_are_readable_and_daily_combo_is_absent(arcade, width):
         >= 18
     )
     assert "→" in page.locator(".farm-shop-grid").inner_text()
+    assert "Доход этой постройки" not in page.locator(".farm-shop-grid").inner_text()
     assert page.locator("#kopatychFarm").evaluate("n=>n.scrollWidth<=n.clientWidth")
     captures = Path(__file__).parents[1] / ".deploy_tmp/farm-clean-ui"
     captures.mkdir(exist_ok=True)

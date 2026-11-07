@@ -276,7 +276,7 @@
     const e = i.effect;
     return `<button class="farm-upgrade ${small?'is-compact':''} ${i.locked?'is-locked':''}" data-farm-action="buy" data-item="${i.id}" ${i.locked||i.maxed?'disabled':''} ${i.locked?`title="С ${i.unlock} уровня"`:''}>
       <span class="farm-upgrade-icon">${F().item(i.id)}</span>
-      <span class="farm-upgrade-info"><b>${esc(i.name)}</b><span class="farm-effect"><span>${esc(e.label)}</span><span><b>${decimal(e.current)}</b>${!i.maxed?`<i>→</i><strong>${decimal(e.next)}</strong>`:''} ${esc(e.unit)}</span></span></span>
+      <span class="farm-upgrade-info"><b>${esc(i.name)}</b><span class="farm-effect">${e.label==='Доход этой постройки'?'':`<span>${esc(e.label)}</span>`}<span><b>${decimal(e.current)}</b>${!i.maxed?`<i>→</i><strong>${decimal(e.next)}</strong>`:''} ${esc(e.unit)}</span></span></span>
       <strong class="farm-upgrade-price">${i.maxed?'Максимум':money(i.cost)}${!i.maxed&&(i.resource_cost.seeds||i.resource_cost.materials)?`<span class="farm-item-resources">${resourceCost(i.resource_cost)}</span>`:''}</strong></button>`;
   }
 
