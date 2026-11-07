@@ -125,6 +125,8 @@
 
 Изображения открываются в полном размере по нажатию.
 
+### Кабинеты и награды
+
 | Магазин наград | Обработка заказов |
 | --- | --- |
 | [![Каталог: категории, избранное, наличие и цены в AC](docs/screenshots/store.png)](docs/screenshots/store.png) | [![Заказы: резервирование, доставка и выдача ученикам](docs/screenshots/orders.png)](docs/screenshots/orders.png) |
@@ -133,12 +135,19 @@
 | **Банк ученика** | **Подключение учеников и родителей** |
 | [![Вклад ученика, накопления и проценты](docs/screenshots/bank.png)](docs/screenshots/bank.png) | [![Поиск учеников и состояние подключений у преподавателя](docs/screenshots/teacher-qr.png)](docs/screenshots/teacher-qr.png) |
 
-<details>
-<summary><strong>Обращение в поддержку с телефона</strong></summary>
+### Управление и передача заказов
 
-<img src="docs/screenshots/help-mobile.png" alt="Форма обращения: роль, имя, фамилия, описание и фотографии" width="390">
+| Товары и остатки у директора | Настройка сотрудников |
+| --- | --- |
+| [![Каталог директора: товары, остатки, редактирование и импорт](docs/screenshots/products-management.png)](docs/screenshots/products-management.png) | [![Сотрудники: приглашения, роли и настройки](docs/screenshots/staff-management.png)](docs/screenshots/staff-management.png) |
+| **Карточка ученика** | **Импорт учеников и групп** |
+| [![Карточка ученика: обучение, баланс, связанные аккаунты и история](docs/screenshots/student-profile.png)](docs/screenshots/student-profile.png) | [![Проверка импорта: строки, группы, курсы и распределение по городам](docs/screenshots/students-import.png)](docs/screenshots/students-import.png) |
+| **Передача заказов директором** | **Заказы со стороны ученика** |
+| [![Распределение заказов по площадкам и преподавателям](docs/screenshots/order-transfer.png)](docs/screenshots/order-transfer.png) | [![Состав, стоимость и статусы заказов ученика](docs/screenshots/customer-orders.png)](docs/screenshots/customer-orders.png) |
 
-</details>
+**Подготовка рассылки и проверка получателей**
+
+![Рассылка ученикам и родителям: проверка аудитории и вид сообщения в MAX](docs/screenshots/broadcasts.png)
 
 ## Игры
 
