@@ -90,7 +90,7 @@
 #kopatychFarm .farm-total-stats>div{min-width:0}
 .farm-shop-grid .farm-upgrade{min-height:0;align-items:center}
 .farm-shop-grid .farm-upgrade-info>b{font-size:19px}
-.farm-upgrade .farm-effect{background:none;padding:0;margin:9px 0 0;gap:6px}
+.farm-upgrade .farm-effect{background:none;border:0;padding:0;margin:0;gap:6px}
 .farm-upgrade .farm-effect>span:first-child{font-size:15px;line-height:1.3}
 .farm-upgrade .farm-effect>span:last-child{font-size:19px;line-height:1.3;gap:7px}
 .farm-upgrade .farm-item-resources{font-size:15px;padding:0;flex-basis:auto;line-height:1.4}
