@@ -1078,8 +1078,8 @@ def test_farm_explains_purchase_and_collects_delivery_and_its_rewards_together(a
     assert bed.locator(".farm-effect strong").inner_text() == "90"
     bed.click()
     page.wait_for_function("document.querySelector('[data-farm-income]').textContent==='+210'")
-    page.locator(".farm-production summary").click()
-    assert "Грядки" in page.locator(".farm-production-rows").inner_text()
+    assert bed.locator(".farm-upgrade-level").inner_text() == "1/25"
+    assert bed.locator(".farm-effect b").inner_text() == "90"
     page.locator('.farm-tabs [data-farm-tab="tasks"]').click()
     page.locator('.farm-task-filters [data-task-view="orders"]').click()
     page.locator('[data-farm-action="start_order"][data-item="basket"]').click()
@@ -1256,7 +1256,7 @@ def test_farm_trial_uses_the_actual_harvest_and_collects_resource_prize(arcade):
     page.wait_for_function("!document.querySelector('.farm-trial')")
     after = farm.get("p1")
     assert after["activities"]["counts"]["trials"] == 1
-    assert after["activities"]["resources"] == {"seeds": 4, "materials": 4}
+    assert after["activities"]["resources"] == {"seeds": 7, "materials": 8}
     assert not store.profile("p1")["awards"]
 
 
@@ -1336,7 +1336,7 @@ def test_farm_purchase_routes_missing_resources_to_source_and_returns_without_sp
     assert page.locator(".farm-resource-guide").is_visible()
     if target is None:
         assert page.locator("[data-resource-route]").count() == 2
-        page.locator('[data-resource-route="materials"]').click()
+        # Even when both resources are missing, Find opens a source immediately.
         target = "expedition"
     assert page.locator(f'[data-activity-view="{target}"]').get_attribute("aria-pressed") == "true"
     assert not actions
@@ -1427,7 +1427,7 @@ def test_farm_endgame_large_balances_rewards_and_completed_collection_fit_all_ta
     page.locator('[data-task-view="daily"]').click()
     assert page.locator(".farm-days").evaluate("(n)=>n.scrollWidth<=n.clientWidth")
     assert page.locator(".farm-content").evaluate("(n)=>n.scrollWidth<=n.clientWidth")
-    assert page.locator(".farm-combo").inner_text() == "Сегодня без комбо."
+    assert page.locator(".farm-combo").count() == 0
     page.locator('[data-task-view="badges"]').click()
     assert page.locator('.farm-section-title [data-badge-category="all"]').inner_text() == "Все 105"
     page.locator('[data-badge-category="all"]').click()

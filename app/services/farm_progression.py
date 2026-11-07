@@ -57,7 +57,7 @@ LATE_ITEMS = [
         maximum=20,
         base=1200000,
         seeds=3,
-        materials=5,
+        materials=8,
         text="Редкие растения и большой постоянный урожай",
     ),
     dict(
@@ -70,7 +70,7 @@ LATE_ITEMS = [
         unlock=32,
         maximum=10,
         seeds=3,
-        materials=8,
+        materials=12,
         text="Каждый уровень добавляет материал к награде за испытание",
     ),
     dict(
@@ -84,7 +84,7 @@ LATE_ITEMS = [
         maximum=20,
         base=4000000,
         seeds=5,
-        materials=10,
+        materials=18,
         text="Новые земли высоко над долиной",
     ),
     dict(
@@ -97,7 +97,7 @@ LATE_ITEMS = [
         unlock=40,
         maximum=15,
         seeds=6,
-        materials=12,
+        materials=24,
         text="Добавляет 350 к основе ручного сбора за уровень",
     ),
     dict(
@@ -110,8 +110,8 @@ LATE_ITEMS = [
         unlock=48,
         maximum=10,
         seeds=10,
-        materials=20,
-        text="Каждый уровень добавляет материал к награде за экспедицию",
+        materials=36,
+        text="Каждый уровень добавляет 3 материала за час маршрута",
     ),
 ]
 CROPS = [
@@ -140,7 +140,7 @@ ROUTES = [
         cost=3000,
         energy=200,
         seeds=1,
-        materials=12,
+        materials=18,
     ),
     dict(
         id="sky",
@@ -150,8 +150,30 @@ ROUTES = [
         cost=20000,
         energy=400,
         seeds=2,
-        materials=36,
+        materials=72,
         requires_item="balloon",
+    ),
+    dict(
+        id="highland",
+        name="Горный перевал",
+        unlock=36,
+        seconds=14400,
+        cost=100000,
+        energy=450,
+        seeds=3,
+        materials=180,
+        requires_item="highland",
+    ),
+    dict(
+        id="summit",
+        name="За облаками",
+        unlock=48,
+        seconds=21600,
+        cost=500000,
+        energy=500,
+        seeds=5,
+        materials=360,
+        requires_item="lighthouse",
     ),
 ]
 RESEARCH = [
@@ -255,7 +277,9 @@ UNLOCKS = {
     18: ["Испытания"],
     24: ["Небесные острова"],
     30: ["Лунный сорт", "Испытание мастера"],
+    36: ["Горный перевал"],
     42: ["Легендарное испытание"],
+    48: ["За облаками"],
 }
 PROGRESSION_ACTIONS = {
     "start_plot",
@@ -601,22 +625,46 @@ class ProgressionMixin:
                     "seeds_per_hour": round(seeds * 3600 / crop["seconds"], 2),
                 }
             )
-        routes = [
-            {
-                **r,
-                "seconds": math.ceil(r["seconds"] * (100 - 5 * research["trail_maps"]) / 100),
-                "materials": r["materials"] + state["items"].get("lighthouse", 0),
-            }
-            for r in ROUTES
-        ]
+        routes = []
+        for r in ROUTES:
+            seconds = math.ceil(r["seconds"] * (100 - 5 * research["trail_maps"]) / 100)
+            materials = r["materials"] + state["items"].get("lighthouse", 0) * math.ceil(
+                r["seconds"] / 1200
+            )
+            reasons = [f"С {r['unlock']} уровня"] if lv < r["unlock"] else []
+            requirement = next((i for i in LATE_ITEMS if i["id"] == r.get("requires_item")), None)
+            if requirement and not state["items"].get(requirement["id"], 0):
+                reasons.append(f"Нужно построить: {requirement['name']}")
+            routes.append(
+                {
+                    **r,
+                    "seconds": seconds,
+                    "materials": materials,
+                    "materials_per_hour": round(materials * 3600 / seconds, 2),
+                    "lock_reasons": reasons,
+                }
+            )
         nodes = []
         for r in RESEARCH:
             n = research[r["id"]]
             cost = {k: r[k] * (n + 1) for k in ("cost", "seeds", "materials")}
-            locked = lv < r["unlock"] or research.get(r.get("requires"), 0) < r.get(
-                "requires_level", 0
+            reasons = [f"С {r['unlock']} уровня"] if lv < r["unlock"] else []
+            prerequisite = next((p for p in RESEARCH if p["id"] == r.get("requires")), None)
+            if prerequisite and research[prerequisite["id"]] < r["requires_level"]:
+                reasons.append(
+                    f"Нужно: {prerequisite['name']} {r['requires_level']}/{prerequisite['maximum']}"
+                )
+            nodes.append(
+                {
+                    **r,
+                    **cost,
+                    "level": n,
+                    "locked": bool(reasons),
+                    "lock_reasons": reasons,
+                    "maxed": n >= r["maximum"],
+                    "effect": self._research_effect(state, r, lv),
+                }
             )
-            nodes.append({**r, **cost, "level": n, "locked": locked, "maxed": n >= r["maximum"]})
         trials = [
             {
                 **t,
@@ -636,6 +684,71 @@ class ProgressionMixin:
             trial_wait=max(0, math.ceil((state["trial_after"] - now) / 1000)),
             counts=state["activity_counts"],
         )
+
+    def _research_effect(self, state, definition, lv):
+        """Show the next purchase against this farm, including time saved by percentages."""
+        key = definition["id"]
+        n = state["research"][key]
+        following = min(n + 1, definition["maximum"])
+        if key == "garden_notes":
+            current = energy_regen_milli(state) / 1000
+            effect = dict(
+                label="Восстановление энергии",
+                unit="/ с",
+                current=current,
+                next=round(current + (following - n) / 10, 2),
+            )
+        elif key == "seed_sorting":
+            crop = max(
+                (c for c in CROPS if c["unlock"] <= lv), key=lambda c: c["unlock"], default=CROPS[0]
+            )
+            effect = dict(
+                label=f"Семена · {crop['name']}",
+                unit="за урожай",
+                current=crop["seeds"] * (1 + n),
+                next=crop["seeds"] * (1 + following),
+            )
+        elif key == "trail_maps":
+            route = max(
+                (
+                    r
+                    for r in ROUTES
+                    if r["unlock"] <= lv
+                    and (not r.get("requires_item") or state["items"].get(r["requires_item"], 0))
+                ),
+                key=lambda r: r["unlock"],
+                default=ROUTES[0],
+            )
+            effect = dict(
+                label=f"Время · {route['name']}",
+                unit="",
+                format="duration",
+                current=math.ceil(route["seconds"] * (100 - 5 * n) / 100),
+                next=math.ceil(route["seconds"] * (100 - 5 * following) / 100),
+            )
+        elif key == "soil_calendar":
+            current = 4 + 4 * state["items"].get("silo", 0) + 2 * n
+            effect = dict(
+                label="Накопление без захода",
+                unit="ч",
+                current=current,
+                next=current + 2 * (following - n),
+            )
+        else:
+            trial = max(
+                (t for t in TRIALS if t["unlock"] <= lv),
+                key=lambda t: t["unlock"],
+                default=TRIALS[0],
+            )
+            effect = dict(
+                label=f"Время · {trial['name']}",
+                unit="",
+                format="duration",
+                current=trial["seconds"] + 15 * n,
+                next=trial["seconds"] + 15 * following,
+            )
+        effect["gain"] = round(effect["next"] - effect["current"], 2)
+        return effect
 
     def _progress_rewards(self, state):
         rewards = []
@@ -689,7 +802,7 @@ class ProgressionMixin:
             if state["projects"][kind]:
                 raise ArcadeError("Сначала забери результат текущего дела.")
             if definition.get("requires_item") and not state["items"][definition["requires_item"]]:
-                raise ArcadeError("Сначала построй аэростат.")
+                raise ArcadeError(". ".join(definition["lock_reasons"]) + ".")
             energy = definition["energy"] * 1000
             if state["energy_milli"] < energy:
                 raise ArcadeError("Нужно больше энергии. Дай Копатычу отдохнуть.")
@@ -722,8 +835,12 @@ class ProgressionMixin:
             state["activity_counts"]["watering"] += 1
         elif action == "research":
             r = next((r for r in v["research"] if r["id"] == item), None)
-            if not r or r["locked"] or r["maxed"]:
-                raise ArcadeError("Исследование ещё не открыто или уже завершено.")
+            if not r:
+                raise ArcadeError("Исследование не найдено.")
+            if r["locked"]:
+                raise ArcadeError(". ".join(r["lock_reasons"]) + ".")
+            if r["maxed"]:
+                raise ArcadeError(f"Исследование завершено: {r['level']}/{r['maximum']}.")
             self._pay_resources(state, r)
             state["research"][item] += 1
             state["activity_counts"]["research"] += 1

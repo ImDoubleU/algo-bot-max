@@ -772,14 +772,11 @@ class FarmStore(ProgressionMixin):
         bonus = self._neighbors(state)["bonus"]
         offers = []
         for definition in ORDERS:
-            profit = math.ceil(
-                max(
-                    definition["profit"],
-                    income * definition["seconds"] / 3600 * definition["factor"],
-                )
-                * (100 + bonus)
-                / 100
+            base_profit = max(
+                definition["profit"],
+                income * definition["seconds"] / 3600 * definition["factor"],
             )
+            profit = math.ceil(base_profit * (100 + bonus) / 100)
             offers.append(
                 {
                     **definition,
@@ -791,6 +788,7 @@ class FarmStore(ProgressionMixin):
                     ),
                     "income_minutes": round(profit * 60 / income),
                     "bonus": bonus,
+                    "bonus_amount": profit - math.ceil(base_profit),
                 }
             )
         return offers
@@ -945,10 +943,6 @@ class FarmStore(ProgressionMixin):
                     if item["id"] == "well"
                     else ("offline_hours", "Накопление без захода", "ч")
                     if item["id"] == "silo"
-                    else ("delivery_speed", "Сокращение срока доставки", "%")
-                    if item["id"] == "logistics"
-                    else ("growth_percent", "Прирост за уровень постройки", "%")
-                    if item["id"] == "seedlab"
                     else ("trial_material_bonus", "Бонус материалов за испытание", "/ испытание")
                     if item["id"] == "foundry"
                     else (
@@ -963,6 +957,22 @@ class FarmStore(ProgressionMixin):
                     else ("per_hour", "Доход всей фермы", "/ ч")
                 )
                 effect = dict(label=label, unit=unit, current=values[field], next=upgraded[field])
+            if item["id"] == "logistics":
+                order = max((o for o in ORDERS if o["unlock"] <= lv), key=lambda o: o["unlock"])
+                effect = dict(
+                    label=f"Время доставки · {order['name']}",
+                    unit="",
+                    format="duration",
+                    current=math.ceil(order["seconds"] * (100 - values["delivery_speed"]) / 100),
+                    next=math.ceil(order["seconds"] * (100 - upgraded["delivery_speed"]) / 100),
+                )
+            if item["id"] == "lighthouse":
+                effect = dict(
+                    label="Материалы за час маршрута",
+                    unit="/ ч",
+                    current=count * 3,
+                    next=min(count + 1, item["maximum"]) * 3,
+                )
             effect["gain"] = round(effect["next"] - effect["current"], 2)
             items.append(
                 {

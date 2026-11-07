@@ -33,8 +33,8 @@ def test_upgrade_cards_are_readable_and_daily_combo_is_absent(arcade, width):
     )
     assert page.locator(".farm-shop-grid .farm-upgrade-info small").count() == 0
     assert (
-        page.locator(".farm-shop-grid .farm-effect").first.evaluate(
-            "n=>parseFloat(getComputedStyle(n.lastElementChild).fontSize)"
+        page.locator(".farm-shop-grid .farm-effect-values").first.evaluate(
+            "n=>parseFloat(getComputedStyle(n).fontSize)"
         )
         >= 18
     )

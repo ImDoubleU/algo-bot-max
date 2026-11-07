@@ -151,6 +151,15 @@
       ${moon?'<g fill="#e5d795"><path d="m30 26 3-7 3 7 7 3-7 3-3 7-3-7-7-3Z"/><circle cx="122" cy="19" r="2"/><path d="M122 49q-12-5-5-17-1 11 10 10Z"/></g>':amber?'<g fill="#efce76"><path d="m29 40 5-13 5 13 13 5-13 5-5 13-5-13-13-5Z"/><circle cx="122" cy="65" r="3"/></g>':'<path d="M25 45q-11-3-10-11 11-3 16 7" fill="#bdcb9b"/>'}`, '0 0 160 130');
   }
   function route(id){
+    if(id==='highland'||id==='summit'){
+      const summit=id==='summit';
+      return wrap(`<rect x="1" y="1" width="248" height="128" rx="5" fill="${summit?'#e1e5ed':'#e3e9df'}"/>
+        <circle cx="205" cy="26" r="15" fill="#edd392"/>
+        <path d="M0 116 62 21l42 58 43-70 103 115v6H0Z" fill="${summit?'#9ca7bb':'#9cad98'}"/>
+        <path d="m44 48 18-27 22 30-21-8Zm76-8 27-31 30 34-29-11Z" fill="#f6f3e5"/>
+        <path d="M0 130 60 76l57 54 52-60 81 60" fill="#788f7c"/>
+        ${summit?'<g fill="#f7f5ec"><ellipse cx="47" cy="93" rx="58" ry="14"/><ellipse cx="203" cy="68" rx="61" ry="15"/></g><path d="M111 106h19V68h-19Zm-4-38 13-17 14 17Z" fill="#ceaf73"/><path d="m120 52 28-12v21Z" fill="#e1c16e"/>':'<path d="M105 130q38-22 19-43T147 41" stroke="#e3cc9d" stroke-width="7" fill="none"/><path d="m142 46 5-5 4 7" stroke="#f4e9cd" fill="none"/>'}`, '0 0 250 130');
+    }
     const sky=id==='sky',coast=id==='coast';
     return wrap(`<rect x="1" y="1" width="248" height="128" rx="5" fill="${sky?'#e7e5d7':coast?'#dfeae1':'#e8ecd6'}"/>
       <circle cx="204" cy="28" r="14" fill="#ead198"/><path d="M0 78q62-50 139-4t111-20v76H0Z" fill="#c3d1ae"/><path d="M0 108q82-47 164-7t86-3v32H0Z" fill="#a9bd8d"/>
