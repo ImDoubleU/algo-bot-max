@@ -1191,6 +1191,10 @@ function orderSearchText(order) {
     order.id,
     order.backendId,
     order.student,
+    order.schoolName,
+    order.groupName,
+    order.teacherName,
+    order.venueName,
     order.item,
     order.warehouse,
     order.rawStatus,
@@ -1206,11 +1210,20 @@ function orderSearchText(order) {
     .toLowerCase();
 }
 
+function otherCityOrdersForStage(stage) {
+  return ordersForCurrentRole().filter((order) => {
+    if (!orderIsFromOtherTenant(order) || orderIsDigital(order)) return false;
+    if (stage === "assign") return ["created", "reserved", "problem"].includes(order.rawStatus);
+    if (order.rawStatus !== "awaiting_delivery") return false;
+    return stage === "route" ? orderIsFullyPicked(order) : stage === "collect" && !orderIsFullyPicked(order);
+  });
+}
+
 function filteredOrders() {
   const query = state.orderSearch.trim().toLowerCase();
   const fulfillmentStage = fulfillmentStageForOrderFilter();
   const sourceOrders = fulfillmentStage
-    ? fulfillmentSnapshotOrdersForStage(fulfillmentStage)
+    ? [...fulfillmentSnapshotOrdersForStage(fulfillmentStage), ...otherCityOrdersForStage(fulfillmentStage)]
     : ordersForCurrentRole();
   return sourceOrders.filter((order) => {
     if (fulfillmentStage) return !query || orderSearchText(order).includes(query);
@@ -1369,9 +1382,9 @@ function renderOrderStatusTabs() {
     ? [
         ["all", "Все", roleOrders.length],
         ["electronic", "Электронные", countByStatus("electronic")],
-        ["fulfillment_assign", "Назначить склад", fulfillmentSnapshotOrdersForStage("assign").length],
-        ["fulfillment_collect", "Собрать", fulfillmentSnapshotOrdersForStage("collect").length],
-        ["fulfillment_route", "Распределить", fulfillmentSnapshotOrdersForStage("route").length],
+        ["fulfillment_assign", "Назначить склад", fulfillmentSnapshotOrdersForStage("assign").length + otherCityOrdersForStage("assign").length],
+        ["fulfillment_collect", "Собрать", fulfillmentSnapshotOrdersForStage("collect").length + otherCityOrdersForStage("collect").length],
+        ["fulfillment_route", "Распределить", fulfillmentSnapshotOrdersForStage("route").length + otherCityOrdersForStage("route").length],
         ["delivered_to_venue", "На площадке", countByStatus("delivered_to_venue")],
         ["transferred_to_teacher", "У учителя", countByStatus("transferred_to_teacher")],
         ["issued_to_student", "Получены", countByStatus("issued_to_student")],
@@ -2049,8 +2062,9 @@ function renderOrders() {
   );
   const ordersTable = qs("#ordersTable");
   const managerWorkflowStage = fulfillmentStageForOrderFilter();
-  if (ordersTable) ordersTable.hidden = Boolean(managerWorkflowStage);
-  if (managerWorkflowStage) {
+  const otherCityOrders = managerWorkflowStage ? filteredOrders().filter(orderIsFromOtherTenant) : [];
+  if (ordersTable) ordersTable.hidden = Boolean(managerWorkflowStage && !otherCityOrders.length);
+  if (managerWorkflowStage && !otherCityOrders.length) {
     if (ordersTable) ordersTable.innerHTML = "";
     return;
   }
@@ -2064,7 +2078,9 @@ function renderOrders() {
 
   const pendingIds = new Set(isTeacherOrderView() && fulfillmentSummary && !fulfillmentSummary.hidden
     ? orderFulfillmentSummaryOrders().filter(fulfillmentOrderMatchesSearch).map(fulfillmentOrderId) : []);
-  const visibleOrders = filteredOrders().filter((order) => !pendingIds.has(fulfillmentOrderId(order)));
+  const visibleOrders = filteredOrders().filter((order) =>
+    (!managerWorkflowStage || orderIsFromOtherTenant(order)) && !pendingIds.has(fulfillmentOrderId(order)),
+  );
   if (visibleOrders.length === 0) {
     ordersTable.innerHTML = pendingIds.size ? "" :
       '<div class="empty-state">Заказов по выбранному фильтру не найдено</div>';

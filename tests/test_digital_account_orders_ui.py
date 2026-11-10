@@ -76,4 +76,15 @@ def test_manager_can_open_order_from_other_city(feedback_browser):
     assert page.locator("#orderDialog").is_visible()
     assert "Бор" in page.locator("#orderDialogContent").inner_text()
     assert page.locator("[data-issue-digital-order]").is_visible()
+    page.locator("#closeOrderDialogButton").click()
+    page.evaluate("""() => {
+      apiContext.tenantSlug='n-novgorod';
+      const foreign=orders.find(o=>o.backendId==='demo-account-order');
+      foreign.rawStatus='reserved'; foreign.items[0].fulfillmentType='warehouse';
+      foreign.items[0].recipientField=null; foreign.items[0].recipientValue='';
+      state.orderStatusFilter='fulfillment_assign'; renderOrders();
+    }""")
+    assert page.locator("#ordersTable").is_visible()
+    assert page.locator('#ordersTable [data-open-order="demo-account-order"]').count() > 0
+    assert page.evaluate("otherCityOrdersForStage('assign').length") == 1
     context.close()
