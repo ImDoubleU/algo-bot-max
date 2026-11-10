@@ -432,6 +432,7 @@ function closeTenantDialog() {
 }
 
 async function switchTenant(tenantSlug) {
+  if (state.refreshing) return;
   if (!state.canManageTenants || !tenantSlug || tenantSlug === apiContext.tenantSlug) {
     closeTenantDialog();
     return;
@@ -578,82 +579,160 @@ function renderSyncStatus() {
   });
 }
 
+// Wait for an earlier request before forcing a fresh one; loaders otherwise skip it.
+async function refreshWhenIdle(busy, load) {
+  const deadline = Date.now() + 15000;
+  while (busy()) {
+    if (Date.now() >= deadline) throw new Error("Предыдущий запрос ещё выполняется");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return load();
+}
+
+async function refreshFeedbackData() {
+  if (apiContext.demoMode || !canAccessFeedback()) return;
+  await refreshWhenIdle(() => feedbackState.loading || feedbackState.scheduleSaving, async () => {
+    const context = feedbackContextStorageKey();
+    const [response, remote] = await Promise.all([
+      apiFetch(apiUrl("/api/v1/miniapp/feedback/catalog")), feedbackScheduleRequest(),
+    ]);
+    if (!response.ok) throw new Error(await parseApiError(response));
+    const catalog = await response.json();
+    if (!catalog || typeof catalog !== "object" || Array.isArray(catalog)
+        || !Object.keys(catalog).length || Object.values(catalog).some((lessons) =>
+          !Array.isArray(lessons) || !lessons.length || lessons.some((lesson) =>
+            !lesson || typeof lesson.title !== "string" || typeof lesson.educational_results !== "string"))) {
+      throw new Error("Не удалось обновить материалы курсов");
+    }
+    for (const entry of Object.values(remote.schedules)) feedbackValidateSchedule(entry.schedule, catalog);
+    // An unopened workspace still needs its normal account-scoped initialization.
+    if (context !== feedbackContextStorageKey() || feedbackState.contextKey !== context || !feedbackState.restored) return;
+    feedbackCaptureUi();
+    feedbackRememberMessage();
+    const dirtyGroup = feedbackState.editorDirty ? feedbackState.group : "";
+    const schedules = Object.assign(Object.create(null), feedbackState.schedules);
+    const versions = { ...feedbackState.serverVersions };
+    for (const group of Object.keys(versions)) {
+      if (group !== dirtyGroup && !Object.hasOwn(remote.schedules, group)) {
+        delete schedules[group]; delete versions[group];
+      }
+    }
+    for (const [group, entry] of Object.entries(remote.schedules)) {
+      if (group === dirtyGroup) continue; // Keep the original revision for conflict detection on save.
+      schedules[group] = entry.schedule; versions[group] = entry.revision;
+    }
+    feedbackState.catalog = catalog;
+    feedbackState.schedules = schedules; feedbackState.serverVersions = versions;
+    if (!dirtyGroup && feedbackState.tab === "groups" && schedules[feedbackState.group]) {
+      const row = schedules[feedbackState.group].rows.find((item) => item.id === feedbackState.rowId);
+      if (row) {
+        const next = { course: schedules[feedbackState.group].course, lesson: row.lesson, date: row.date,
+          offset: row.number - Number(row.lesson), repeat: row.repeat, customTopic: row.topic || "" };
+        if (Object.entries(next).some(([key, value]) => feedbackState[key] !== value) && feedbackState.text) feedbackState.stale = true;
+        Object.assign(feedbackState, next, { editor: structuredClone(schedules[feedbackState.group]) });
+      }
+    }
+    feedbackPersist();
+    if (state.view === "feedback") await renderFeedback();
+  });
+}
+
 async function refreshAllData() {
-  if (state.refreshing) return;
+  if (state.refreshing || state.tenantSaving) return;
   state.refreshing = true;
   renderSyncStatus();
-
   const errors = [];
+  const run = async (label, load) => {
+    try { await load(); } catch (error) { errors.push({ label, error }); }
+  };
   try {
+    // Session is authoritative for permissions, students, balances, links and orders.
     await loadSession();
+    if (applyAccessGate()) return;
+    const staff = ["teacher", "admin"].includes(state.role);
+    const views = roleViews(state.role);
+    const tasks = [run("Магазин", loadCatalog), run("Сводка", loadOpsSummary)];
+    if (views.includes("bank")) tasks.push(run("Банк", () => refreshWhenIdle(
+      () => state.bankLoading || state.bankManagementLoading, () => loadBankData(true))));
+    if (staff) tasks.push(run("Ученики", () => refreshWhenIdle(() => state.adminStudentsLoading, async () => {
+      await loadAdminStudents(true);
+      if (state.adminStudentsError) throw new Error(state.adminStudentsError);
+    })));
+    const historyKinds = new Set([...auditFeeds.keys()].filter((kind) =>
+      (kind === "actions" && staff) || (kind === "audit" && fullAuditEnabled()) ||
+      (kind.startsWith("student:") && staff && kind.slice(8) === state.studentProfileId)));
+    auditFeeds.forEach((feed, kind) => {
+      if (kind.startsWith("student:") && !historyKinds.has(kind)) {
+        feed.abort?.abort(); feed.generation += 1; feed.loading = false;
+        feed.loaded = false; feed.rows = []; feed.snapshot = ""; feed.more = false;
+      }
+    });
+    if (staff) historyKinds.add("actions");
+    if (fullAuditEnabled() && (state.adminTab === "audit" || auditFeeds.has("audit"))) historyKinds.add("audit");
+    for (const kind of historyKinds) tasks.push(run(kind === "audit" ? "Аудит" : "История", async () => {
+      await loadAuditFeed(kind, true);
+      if (auditFeed(kind).error) throw new Error(auditFeed(kind).error);
+    }));
+    if (hasStudentQrCapabilities()) tasks.push(run("QR-коды", () => refreshWhenIdle(
+      () => state.teacherInvitationsLoading, () => loadTeacherInvitations(true, true))));
+    if (state.availableRoles.includes("parent")) tasks.push(run("Подключения детей", () => refreshWhenIdle(
+      () => state.studentInvitationsLoading, async () => {
+        await loadParentInvitations();
+        if ([...state.studentInvitations.values()].some((item) => item.error)) throw new Error("Не все QR-коды загружены");
+      })));
+    if (views.includes("broadcasts")) tasks.push(run("Рассылки", () => refreshWhenIdle(
+      () => state.broadcastHistoryLoading || state.broadcastTargetOptionsLoading, async () => {
+        await Promise.all([loadBroadcastHistory(), loadBroadcastTargetOptions(true)]);
+        if (state.broadcastTargetOptionsError) throw new Error(state.broadcastTargetOptionsError);
+      })));
+    if (views.includes("report") && qs("#acReportDateFrom")?.value && qs("#acReportDateTo")?.value) {
+      tasks.push(run("Отчёт AC", () => refreshWhenIdle(() => state.accrualReportLoading, () => loadAccrualReport(true))));
+    }
+    if (!apiContext.demoMode) {
+      tasks.push(run("Сборы", () => refreshWhenIdle(() => pizzaState.loading, () => pizzaLoad(true))));
+      tasks.push(run("Поддержка", async () => {
+        await supportLoadContext(true);
+        if (supportState.owner) await refreshWhenIdle(() => supportState.deleting.size > 0
+          || Boolean(qs("[data-support-update][data-saving]")) || supportState.saving, () => supportLoadInbox(true));
+      }));
+      tasks.push(run("Обратная связь", refreshFeedbackData));
+    }
+    await Promise.all(tasks);
+    if (["student", "parent"].includes(state.role) && !apiContext.demoMode) {
+      state.loadedCartStudentIds.clear();
+      await run("Корзина", () => loadServerCart(state.activeStudentId, { strict: true, readOnly: true }));
+    }
+    // Registry refresh invalidates ledgers; reload the open card afterwards.
+    state.studentBankById?.clear();
+    if (state.studentProfileId && canViewStudentProfiles()) {
+      const id = state.studentProfileId;
+      await Promise.all([
+        run("История ученика", () => refreshWhenIdle(() => state.studentLedgerLoading.has(id), async () => {
+          await loadStudentLedger(id, true);
+          if (state.studentLedgerErrors.get(id)) throw new Error(state.studentLedgerErrors.get(id));
+        })),
+        run("Вклад ученика", () => refreshWhenIdle(() => state.studentBankLoading.has(id), async () => {
+          await loadStudentBank(id, true);
+          if (state.studentBankErrors.get(id)) throw new Error(state.studentBankErrors.get(id));
+        })),
+      ]);
+    }
+    // Keep actual editor nodes (including chosen files) across the final repaint.
+    const editors = qsa("#adminPanel .admin-editor").map((node) => ({ node, selector:
+      "." + [...node.classList].filter((name) => name !== "admin-editor").join(".") }));
+    refreshFulfillmentStageSnapshot();
+    renderAll();
+    editors.forEach(({ node, selector }) => qs(`#adminPanel ${selector}`)?.replaceWith(node));
+    if (!errors.length) state.lastSyncAt = new Date();
   } catch (error) {
-    errors.push(error);
-  }
-  if (applyAccessGate()) {
+    errors.push({ label: "Доступ и профиль", error });
+    applyAccessGate();
+  } finally {
     state.refreshing = false;
     renderSyncStatus();
-    return;
-  }
-  const refreshTasks = [loadCatalog(), loadOpsSummary()];
-  if (roleViews(state.role).includes("bank") && typeof loadBankData === "function") {
-    refreshTasks.push(loadBankData(true));
-  }
-  if (state.adminStudentsLoaded || isStaffStudentHistoryView()) {
-    refreshTasks.push(loadAdminStudents(true));
-  }
-  if (state.adminHistoryLoaded || ["history", "audit"].includes(state.adminTab)) {
-    refreshTasks.push(loadAdminHistory(true));
-  }
-  const results = await Promise.allSettled(refreshTasks);
-  results.forEach((result) => {
-    if (result.status === "rejected") errors.push(result.reason);
-  });
-  // Registry refresh invalidates ledger caches, so reload the open card afterwards.
-  if (state.studentProfileId && canViewStudentProfiles()) {
-    const profileResults = await Promise.allSettled([
-      loadStudentLedger(state.studentProfileId, true),
-      typeof loadStudentBank === "function"
-        ? loadStudentBank(state.studentProfileId, true) : Promise.resolve(),
-    ]);
-    profileResults.forEach((result) => {
-      if (result.status === "rejected") errors.push(result.reason);
-    });
-  }
-  state.studentInvitations = new Map();
-  state.studentInvitationsLoaded = false;
-  closeParentInvitationPreview();
-  state.teacherInvitations = new Map();
-  state.teacherInvitationsLoaded = false;
-  await loadParentInvitations();
-  if (hasStudentQrCapabilities() && state.dashboardMode === "qr") {
-    try {
-      await loadTeacherInvitations(true);
-    } catch (error) {
-      errors.push(error);
-    }
-  }
-  if (roleViews(state.role).includes("broadcasts")) {
-    state.broadcastHistoryLoaded = false;
-    state.broadcastTargetOptionsLoaded = false;
-    try {
-      await Promise.all([loadBroadcastHistory(), loadBroadcastTargetOptions(true)]);
-    } catch (error) {
-      errors.push(error);
-    }
-  }
-
-  state.lastSyncAt = new Date();
-  state.refreshing = false;
-  refreshFulfillmentStageSnapshot();
-  renderAll();
-  renderSyncStatus();
-  if (errors.length > 0) {
-    showNotice(
-      errors[0]?.message || "Часть данных не удалось обновить",
-      "danger",
-    );
-  } else {
-    showNotice("Данные обновлены");
+    if (errors.length) {
+      showNotice(`Не удалось обновить: ${[...new Set(errors.map((item) => item.label))].join(", ")}. Попробуйте ещё раз.`, "danger");
+    } else if (state.hasAccess) showNotice("Все данные обновлены");
   }
 }
 

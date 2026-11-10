@@ -1303,7 +1303,7 @@ function restoreCart(studentId = state.activeStudentId) {
   state.loadedCartStudentIds.add(scope);
 }
 
-async function loadServerCart(studentId = state.activeStudentId) {
+async function loadServerCart(studentId = state.activeStudentId, { strict = false, readOnly = false } = {}) {
   const scope = String(studentId || "");
   if (!canUseServerCart(scope) || !state.catalogLoaded) return;
   const syncKey = `${apiContext.tenantSlug || "default"}:${scope}`;
@@ -1331,7 +1331,7 @@ async function loadServerCart(studentId = state.activeStudentId) {
     }
     const serverItems = Array.isArray(result.items) ? result.items : [];
     if (serverItems.length === 0 && localCart.size > 0 && !serverKnown) {
-      await queueCartSync(scope);
+      if (!readOnly) await queueCartSync(scope);
       return;
     }
 
@@ -1348,6 +1348,7 @@ async function loadServerCart(studentId = state.activeStudentId) {
       renderCart();
     }
   } catch (error) {
+    if (strict) throw error;
     console.warn("Не удалось загрузить корзину ученика", error);
   }
 }
@@ -2468,7 +2469,7 @@ async function loadParentInvitations() {
   renderParentInvitations();
 }
 
-async function loadTeacherInvitations(force = false) {
+async function loadTeacherInvitations(force = false, strict = false) {
   if (apiContext.demoMode) {
     const qrStudents = studentsForStudentQrCapabilities();
     state.teacherInvitations = new Map(
@@ -2537,6 +2538,7 @@ async function loadTeacherInvitations(force = false) {
     );
     state.teacherInvitationsLoaded = true;
   } catch (error) {
+    if (strict) throw error;
     showNotice(error.message || "Не удалось загрузить QR-коды", "danger");
   } finally {
     state.teacherInvitationsLoading = false;

@@ -327,7 +327,7 @@ function supportRenderInbox(counts = {}) {
   refreshIcons();
 }
 
-async function supportLoadInbox() {
+async function supportLoadInbox(strict = false) {
   if (!supportState.owner || supportState.deleting.size) return;
   const sequence = ++supportState.sequence;
   qs("#supportInboxStatus").textContent = "Загрузка…";
@@ -339,7 +339,10 @@ async function supportLoadInbox() {
     supportReleaseImages();
     supportState.items = result.items; supportState.total = result.total; supportState.loaded = true;
     supportRenderInbox(result.counts); qs("#supportInboxStatus").textContent = "";
-  } catch (error) { if (sequence === supportState.sequence) qs("#supportInboxStatus").textContent = error.message; }
+  } catch (error) {
+    if (sequence === supportState.sequence) qs("#supportInboxStatus").textContent = error.message;
+    if (strict === true) throw error;
+  }
 }
 
 async function supportUpdate(event) {
@@ -427,12 +430,15 @@ async function supportDeleteTicket(id) {
   }
 }
 
-async function supportLoadContext() {
+async function supportLoadContext(strict = false) {
   if (apiContext.demoMode) return;
   try {
     const context = await supportApi("/context"); supportState.owner = context.inbox_enabled;
     qs("#supportInboxTab").hidden = !supportState.owner;
-  } catch (_) { /* Report form remains available when profile/session is unavailable. */ }
+  } catch (error) {
+    // Ordinary navigation keeps the report form available even during an outage.
+    if (strict === true) throw error;
+  }
 }
 
 document.addEventListener("click", (event) => {

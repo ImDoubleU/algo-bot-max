@@ -2376,7 +2376,7 @@ function setAccrualReportPeriod(period) {
   loadAccrualReport();
 }
 
-async function loadAccrualReport() {
+async function loadAccrualReport(strict = false) {
   const dateFrom = qs("#acReportDateFrom")?.value || "";
   const dateTo = qs("#acReportDateTo")?.value || "";
   if (!dateFrom || !dateTo) {
@@ -2396,6 +2396,7 @@ async function loadAccrualReport() {
     if (!response.ok) throw new Error(await parseApiError(response));
     state.accrualReport = await response.json();
   } catch (error) {
+    if (strict === true) throw error;
     showNotice(error.message || "Не удалось загрузить отчет", "danger");
   } finally {
     state.accrualReportLoading = false;

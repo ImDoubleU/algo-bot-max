@@ -89,7 +89,8 @@ async function pizzaRequest(path = "", body = null, method = "POST") {
   return response.json();
 }
 
-async function pizzaLoad() {
+async function pizzaLoad(force = false) {
+  if (force === true) pizzaState.disabled = false;
   if ((!apiContext.maxUserId && !window.pizzaPreview) || pizzaState.loading || pizzaState.disabled) return;
   pizzaState.loading = true;
   const context = pizzaContextKey();
@@ -110,10 +111,15 @@ async function pizzaLoad() {
       renderLedger();
     }
   } catch (error) {
-    if (error.status === 404) pizzaState.disabled = true;
+    if (error.status === 404) {
+      pizzaState.disabled = true;
+      pizzaState.board = null;
+      renderPizza();
+    }
     if (error.status !== 404) {
       pizzaState.error = error.message;
       renderPizza();
+      if (force === true) throw error;
     }
   } finally {
     pizzaState.loading = false;
