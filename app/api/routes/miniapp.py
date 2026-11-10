@@ -1427,6 +1427,30 @@ async def miniapp_import_products(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+@router.get("/products/export")
+async def miniapp_product_export(
+    db: DbSession, identity: MiniAppIdentityDep,
+    max_user_id: Annotated[int, Query(gt=0)], tenant_slug: str | None = None,
+) -> Response:
+    from app.services.product_export import build_product_export_workbook
+
+    resolved_tenant = _authorized_tenant_slug(
+        identity, max_user_id=max_user_id, tenant_slug=tenant_slug,
+    )
+    try:
+        catalog = await list_miniapp_catalog(
+            db, tenant_slug=resolved_tenant, max_user_id=max_user_id, include_inactive=True,
+        )
+        content = await run_in_threadpool(build_product_export_workbook, catalog.products)
+    except MiniAppStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return Response(
+        content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="algo-max-products.xlsx"',
+                 "Cache-Control": "no-store"},
+    )
+
+
 @router.get("/products/import-template")
 async def miniapp_product_import_template() -> Response:
     return Response(

@@ -26,6 +26,9 @@ def test_confirm_account_fulfillment_and_customer_receipt(feedback_browser, widt
     page.locator('#ordersTable [data-open-order="demo-account-order"]').first.click()
     assert page.locator("[data-digital-issue-item]").count() == 0
     assert page.locator("[data-issue-digital-order]").inner_text() == "Подтвердить выполнение"
+    assert page.locator("[data-issue-digital-order]").evaluate(
+        "button => getComputedStyle(button).alignItems",
+    ) == "center"
     page.locator("[data-issue-digital-order]").click()
     assert "Child_2026" in page.locator("#confirmationDialogMessage").inner_text()
     page.locator("#cancelConfirmationButton").click()

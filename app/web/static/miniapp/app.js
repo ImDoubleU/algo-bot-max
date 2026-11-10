@@ -22,6 +22,38 @@ function renderAll() {
   refreshIcons();
 }
 
+async function exportCurrentProducts() {
+  if (state.productExporting || !["superadmin", "admin", "partner_director"].includes(primaryStaffRole())) return;
+  const tenant = apiContext.tenantSlug || "";
+  const userId = Number(apiContext.maxUserId) || (apiContext.demoMode ? 53364725 : 0);
+  if (!userId) return;
+  state.productExporting = true;
+  const updateButton = () => qsa("[data-export-products]").forEach((button) => {
+    button.disabled = state.productExporting;
+    button.querySelector("span").textContent = state.productExporting ? "Выгружаем…" : "Выгрузить товары XLSX";
+  });
+  updateButton();
+  try {
+    const url = new URL("/api/v1/miniapp/products/export", location.origin);
+    url.searchParams.set("max_user_id", String(userId));
+    if (tenant) url.searchParams.set("tenant_slug", tenant);
+    const response = await apiFetch(url.toString());
+    if (!response.ok) throw new Error(await parseApiError(response));
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = `algo-max-products-${tenant || "catalog"}.xlsx`;
+    document.body.append(anchor); anchor.click(); anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+  } catch (error) {
+    showNotice(error.message || "Не удалось выгрузить товары", "danger");
+  } finally {
+    state.productExporting = false;
+    updateButton();
+  }
+}
+
 async function importProductsFromFile() {
   const input = qs("#productImportFile");
   const file = state.productImportFile || input?.files?.[0] || null;
@@ -2729,6 +2761,10 @@ document.addEventListener("click", (event) => {
   }
 
   const codeToCopy = target.dataset.copyCode;
+  if (target.hasAttribute("data-export-products")) {
+    void exportCurrentProducts();
+    return;
+  }
   const recipientToCopy = target.dataset.copyRecipient;
   if (recipientToCopy) {
     copyTextToClipboard(recipientToCopy).then((copied) => showNotice(copied ? "Аккаунт скопирован" : "Не удалось скопировать аккаунт", copied ? "ok" : "danger"));

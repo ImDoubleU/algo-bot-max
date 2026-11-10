@@ -1254,7 +1254,7 @@ function renderAdminPanel() {
         ${
           editorOpen
             ? ""
-            : '<button id="productCreateButton" class="primary-action" type="button">Добавить товар</button>'
+            : `<div class="product-catalog-actions"><button class="secondary-action" type="button" data-export-products ${state.productExporting ? "disabled" : ""}><i data-lucide="file-down"></i><span>${state.productExporting ? "Выгружаем…" : "Выгрузить товары XLSX"}</span></button><button id="productCreateButton" class="primary-action" type="button">Добавить товар</button></div>`
         }
       </div>
       ${editorOpen ? "" : `<div class="admin-filter-toolbar product-catalog-filters">

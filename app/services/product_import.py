@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.enums import ProductStatus, StockMovementType, WarehouseType
+from app.models.enums import ProductFulfillmentType, ProductStatus, StockMovementType, WarehouseType
 from app.models.store import Product, ProductCategory, Warehouse, WarehouseInventory
 from app.models.tenant import Tenant
 from app.services.crm_sync import slugify
@@ -130,6 +130,7 @@ class ProductImportRow:
     photo_thumbnail_url: str | None = None
     photo_master_url: str | None = None
     status: ProductStatus = ProductStatus.ACTIVE
+    warehouse_provided: bool = True
 
 
 def parse_product_rows(filename: str, content: bytes) -> list[ProductImportRow]:
@@ -300,6 +301,7 @@ def _normalize_rows(raw_rows: list[dict[str, Any]]) -> list[ProductImportRow]:
                 description=_text(_cell(raw_row, "description")) or None,
                 photo_url=photo_url,
                 status=status,
+                warehouse_provided=bool(_text(_cell(raw_row, "warehouse_name"))),
             )
         )
     return rows
@@ -568,24 +570,39 @@ async def import_products_for_tenant(
     warehouses: dict[str, Warehouse] = {}
 
     for row in rows:
-        warehouse_key = normalize_warehouse_name(row.warehouse_name)
-        warehouse = warehouses.get(warehouse_key)
-        if warehouse is None:
-            warehouse, created_warehouse = await _get_or_create_warehouse(
-                db,
-                tenant=tenant,
-                row=row,
-            )
-            warehouses[warehouse_key] = warehouse
-            if created_warehouse:
-                result.created_warehouses += 1
-
         product = await _find_import_product(
-            db,
-            tenant=tenant,
-            warehouse=warehouse,
-            row=row,
+            db, tenant=tenant, warehouse=None, row=row,
         )
+        warehouse = None
+        keep_without_inventory = (
+            product is not None
+            and product.fulfillment_type == ProductFulfillmentType.WAREHOUSE
+            and not row.warehouse_provided and row.quantity == 0
+            and not await db.scalar(select(WarehouseInventory.id).where(
+                WarehouseInventory.product_id == product.id,
+                WarehouseInventory.is_active.is_(True),
+            ).limit(1))
+        )
+        if product is not None and product.fulfillment_type != ProductFulfillmentType.WAREHOUSE:
+            if row.quantity:
+                raise ProductImportError(
+                    f"Строка {row.row_number}: у электронного товара остаток должен быть 0. "
+                    "Коды добавляются в карточке товара."
+                )
+        elif not keep_without_inventory:
+            warehouse_key = normalize_warehouse_name(row.warehouse_name)
+            warehouse = warehouses.get(warehouse_key)
+            if warehouse is None:
+                warehouse, created_warehouse = await _get_or_create_warehouse(
+                    db, tenant=tenant, row=row,
+                )
+                warehouses[warehouse_key] = warehouse
+                if created_warehouse:
+                    result.created_warehouses += 1
+            if product is None:
+                product = await _find_import_product(
+                    db, tenant=tenant, warehouse=warehouse, row=row,
+                )
         product_tenant_id = UUID(str(product.tenant_id if product is not None else tenant.id))
         category_key = (product_tenant_id, row.category_slug)
         category = categories.get(category_key)
@@ -647,6 +664,9 @@ async def import_products_for_tenant(
             product.price_astrocoins = row.price_astrocoins
             product.status = row.status
             result.updated_products += 1
+
+        if warehouse is None:
+            continue
 
         inventory = await db.scalar(
             select(WarehouseInventory)
@@ -767,7 +787,7 @@ async def _find_import_product(
     db: AsyncSession,
     *,
     tenant: Tenant,
-    warehouse: Warehouse,
+    warehouse: Warehouse | None,
     row: ProductImportRow,
 ) -> Product | None:
     own_products = list(
@@ -792,6 +812,8 @@ async def _find_import_product(
     own_product = next((product for product in own_products if matches(product)), None)
     if own_product is not None:
         return own_product
+    if warehouse is None:
+        return None
 
     shared_products = (
         (

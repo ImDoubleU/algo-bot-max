@@ -172,6 +172,7 @@ const state = {
   orderRequestKey: "",
   orderRequestSignature: "",
   productSaving: false,
+  productExporting: false,
   deletingProductId: "",
   productEditorOpen: false,
   editingProductId: "",
