@@ -1,8 +1,8 @@
 /* Ball-sort controls and flights. The verified puzzle lives in games-extra.js. */
 (() => {
     'use strict';
-    const colors=['#a878ed','#99d15c','#f0a16c','#ed91ae','#70b9e0','#f0ca54','#a989d8','#edb18a'];
-    const names=['фиолетовый','зелёный','оранжевый','розовый','голубой','жёлтый','сиреневый','персиковый'];
+    const colors=['#a878ed','#99d15c','#f0a16c','#ed91ae','#70b9e0','#f0ca54','#315cc4','#92542c'];
+    const names=['фиолетовый','зелёный','оранжевый','розовый','голубой','жёлтый','синий','коричневый'];
     function mount(stage,send,options) {
         stage.dataset.game='sort';
         stage.innerHTML='<div class="sort-game"><div class="sort-meta"><b></b><span data-sort-progress></span><span data-sort-moves></span></div><div class="sort-tubes" role="group" aria-label="Колбы с шариками"></div><p class="sort-message" role="status"></p><div class="sort-tools"><button data-sort-restart>Заново</button>'+(options.mode==='practice'?'<button data-sort-undo>Отменить ход</button>':'')+'</div><div class="sort-complete"></div><div class="sort-effects" aria-hidden="true"></div></div>';
@@ -49,7 +49,7 @@
                 if(!from||!target)continue;
                 const to=target.getBoundingClientRect(),ghost=document.createElement('i');
                 ghost.className='sort-ball sort-flight';
-                ghost.style.setProperty('--marble',`url('/miniapp/static/worlds/marble-${color}.svg')`);
+                ghost.style.setProperty('--marble',`url('/miniapp/static/worlds/marble-${color}.svg?v=2')`);
                 ghost.style.setProperty('--ball',colors[color]);
                 Object.assign(ghost.style,{left:(from.left-area.left)+'px',top:(from.top-area.top)+'px',
                     width:from.width+'px',height:from.height+'px'});
@@ -151,7 +151,7 @@
                 button.setAttribute('aria-label',`Колба ${i+1}: ${t.length?t.slice().reverse().map(v=>names[v]).join(', '):'пусто'}`);
                 if(signatures[i]!==key) {
                     $('.sort-tubes').children[i].querySelector('.sort-glass').innerHTML=[3,2,1,0].map(j=>
-                        `<i data-slot="${j}" class="${t[j]===undefined?'':'sort-ball'}"${t[j]===undefined?'':` style="--ball:${colors[t[j]]};--marble:url('/miniapp/static/worlds/marble-${t[j]}.svg')"`}></i>`).join('');
+                        `<i data-slot="${j}" class="${t[j]===undefined?'':'sort-ball'}"${t[j]===undefined?'':` style="--ball:${colors[t[j]]};--marble:url('/miniapp/static/worlds/marble-${t[j]}.svg?v=2')"`}></i>`).join('');
                     signatures[i]=key;
                 }
             });
@@ -159,7 +159,8 @@
             sequence=w.cueSeq;
             lastTick=w.tick;lastSeed=w.seed;
             if(!reset&&cue){cancel();fly(cue,old);}
-            $('.sort-meta b').textContent=w.sortCompetition?`Задача ${Math.min(5,w.sortWon?w.score:w.score+1)} из 5`:`Уровень ${w.sortWon?w.score:w.score+1}`;
+            const rounds=w.sortCompetition?5:w.journey?.goal;
+            $('.sort-meta b').textContent=rounds?`Задача ${Math.min(rounds,w.sortWon?w.score:w.score+1)} из ${rounds}`:`Уровень ${w.sortWon?w.score:w.score+1}`;
             $('[data-sort-progress]').textContent='Собрано '+w.tubes.filter(t=>t.length===4&&t.every(v=>v===t[0])).length+' / '+(w.tubes.flat().length/4);
             $('[data-sort-moves]').textContent=`Ходов: ${w.roundMoves}`;
             $('.sort-message').textContent=w.sortMessage;
@@ -169,7 +170,7 @@
             const showWin=w.sortWon&&!w.ended&&!busy&&!cooling();
             if(won!==showWin) {
                 won=showWin;
-                $('.sort-complete').innerHTML=won?`<div><span aria-hidden="true">✓</span><h3>${w.sortCompetition?`Задача ${w.score} из 5 решена`:'Всё по цветам'}</h3><button class="games-main" data-sort-next${options.readOnly?' disabled':''}>${w.sortCompetition?'Следующая задача':'Следующий уровень'} →</button></div>`:'';
+                $('.sort-complete').innerHTML=won?`<div><span aria-hidden="true">✓</span><h3>${rounds?`Задача ${w.score} из ${rounds} решена`:'Всё по цветам'}</h3><button class="games-main" data-sort-next${options.readOnly?' disabled':''}>${rounds?'Следующая задача':'Следующий уровень'} →</button></div>`:'';
                 if(!options.readOnly){
                     drag=null;
                     (won?$('[data-sort-next]'):grid.querySelector('button:not(:disabled)'))?.focus({preventScroll:true});

@@ -139,3 +139,51 @@ def test_five_real_puzzles_finish_in_ui_and_server_accepts_identical_result(arca
     CAPTURES.mkdir(parents=True, exist_ok=True)
     page.locator(".game-dialog").screenshot(path=str(CAPTURES / f"{request.node.name}-result.png"))
     page.locator("[data-back]").click()
+
+
+def test_late_level_distinguishes_blue_and_purple_and_labels_its_puzzle(arcade, request):
+    page, _ = arcade
+    page.set_viewport_size({"width": 390, "height": 700})
+    page.evaluate("""()=>{
+      const W=ArcadeWorld,w=W.create({game:'sort',mode:'journey',seed:17,sortRules:3,
+        clockRules:2,journey:{stage:24,charges:3}});
+      while(w.score<2){
+        for(const a of w.sortSolution.slice()){W.advance(w,60);W.input(w,a);}
+        W.input(w,{type:'next'});
+      }
+      const host=document.createElement('dialog');host.className='game-dialog';
+      host.id='sortPaletteCheck';host.dataset.game='sort';
+      host.innerHTML='<header><h2>Уровень 24</h2></header><div class="game-stage"></div>';
+      document.body.append(host);host.showModal();
+      const abort=new AbortController();let view;
+      view=ArcadeSortView.mount(host.querySelector('.game-stage'),a=>{
+        W.input(w,a);view.update(w);
+      },{signal:abort.signal,device:'keyboard',mode:'journey',paused:()=>false});
+      view.update(w);window.sortPaletteCheck={w,view,abort};
+    }""")
+    assert page.locator("#sortPaletteCheck .sort-meta b").inner_text() == "Задача 3 из 4"
+    colors = page.locator("#sortPaletteCheck .sort-ball").evaluate_all(
+        "nodes=>[...new Set(nodes.map(n=>getComputedStyle(n).getPropertyValue('--ball').trim()))]"
+    )
+    assert len(colors) == 7
+    assert "#315cc4" in colors and "#a878ed" in colors
+    assert page.locator('#sortPaletteCheck [aria-label*="синий"]').count() > 0
+    assert page.locator("#sortPaletteCheck").evaluate("n=>n.scrollWidth<=n.clientWidth")
+    CAPTURES.mkdir(parents=True, exist_ok=True)
+    page.locator("#sortPaletteCheck").screenshot(
+        path=str(CAPTURES / f"{request.node.name}-palette.png")
+    )
+    page.evaluate("""()=>{
+      const {w,view}=sortPaletteCheck;
+      for(const a of w.sortSolution.slice()){ArcadeWorld.advance(w,60);ArcadeWorld.input(w,a);}
+      view.update(w);
+    }""")
+    page.locator("#sortPaletteCheck [data-sort-next]").wait_for()
+    assert (
+        page.locator("#sortPaletteCheck .sort-complete h3").inner_text() == "Задача 3 из 4 решена"
+    )
+    page.locator("#sortPaletteCheck [data-sort-next]").click()
+    assert page.locator("#sortPaletteCheck .sort-meta b").inner_text() == "Задача 4 из 4"
+    page.evaluate(
+        "sortPaletteCheck.abort.abort();document.querySelector('#sortPaletteCheck').remove()"
+    )

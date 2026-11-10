@@ -70,9 +70,10 @@ def test_all_eight_marble_illustrations_decode(arcade):
 
 def test_missing_marble_images_preserve_visible_playable_balls(arcade):
     page, _ = arcade
-    page.route("**/worlds/marble-*.svg", lambda route: route.abort())
+    page.route("**/worlds/marble-*.svg*", lambda route: route.abort())
     page.locator('.game-card[data-game="sort"]').click()
-    page.locator('[data-mode="practice"]').click()
+    with page.expect_request("**/worlds/marble-*.svg*"):
+        page.locator('[data-mode="practice"]').click()
     ball = page.locator(".sort-ball").first
     ball.wait_for()
     assert ball.evaluate("n=>getComputedStyle(n).backgroundColor") != "rgba(0, 0, 0, 0)"
