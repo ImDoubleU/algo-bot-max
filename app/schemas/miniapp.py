@@ -462,6 +462,7 @@ class MiniAppProductRead(BaseModel):
     id: UUID
     sku: str
     name: str
+    created_at: datetime | None = None
     description: str | None = None
     photo_url: str | None = None
     photo_thumbnail_url: str | None = None

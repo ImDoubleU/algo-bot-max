@@ -5709,6 +5709,13 @@ svg.lucide {
   background: var(--brand-purple);
 }
 
+.category-chip.is-active:hover:not(:disabled),
+.category-chip.is-active:focus-visible {
+  color: #fff;
+  background: var(--brand-purple-dark);
+  border-color: var(--brand-purple-dark);
+}
+
 .store-filter-actions {
   display: flex;
   flex: 0 0 auto;
@@ -9794,6 +9801,19 @@ body[data-active-role="teacher"] .dashboard-spotlight {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.product-grid .product-card .product-visual {
+  aspect-ratio: 1;
+}
+
+.product-grid .product-card .product-visual.has-photo {
+  background: #fff;
+}
+
+.product-grid .product-visual img,
+.product-dialog-visual img {
+  object-fit: contain;
 }
 
 .product-title-button {

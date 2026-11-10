@@ -939,6 +939,7 @@ def _product_to_read(
         id=UUID(str(product.id)),
         sku=product.sku,
         name=product.name,
+        created_at=product.created_at,
         description=product.description,
         photo_url=product.photo_url,
         photo_thumbnail_url=product.photo_thumbnail_url or product.photo_url,

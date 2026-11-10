@@ -416,6 +416,7 @@ async function saveProductFromForm() {
       status,
       fulfillmentType,
       recipientField,
+      createdAt: editing?.createdAt || new Date().toISOString(),
       totalCodeCount:
         Number(editing?.totalCodeCount || 0) +
         (newCodes ? newCodes.split(/\r?\n/).filter((code) => code.trim()).length : 0),

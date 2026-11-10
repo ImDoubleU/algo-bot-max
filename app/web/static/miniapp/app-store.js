@@ -453,11 +453,14 @@ function renderProducts() {
       return matchesSearch && matchesCategory && matchesFavorite && matchesStock;
     })
     .sort((left, right) => {
+      if (sort === "newest") {
+        const newestDifference = (Date.parse(right.createdAt) || 0) - (Date.parse(left.createdAt) || 0);
+        return newestDifference || Number(left.catalogIndex || 0) - Number(right.catalogIndex || 0);
+      }
       const stockDifference = Number(productAvailable(right) > 0) - Number(productAvailable(left) > 0);
       if (stockDifference) return stockDifference;
       if (sort === "price-asc") return left.price - right.price;
       if (sort === "price-desc") return right.price - left.price;
-      if (sort === "newest") return Number(left.catalogIndex || 0) - Number(right.catalogIndex || 0);
       return 0;
     });
 
@@ -515,7 +518,7 @@ function renderProducts() {
           : product.fulfillmentType === "digital_manual"
           ? '<span class="product-auto-issue"><i data-lucide="key-round"></i> Электронный товар</span>'
           : "";
-      const catalogPhotoUrl = product.photoThumbnailUrl || product.photoUrl;
+      const catalogPhotoUrl = product.photoUrl || product.photoThumbnailUrl;
       return `
         <article class="product-card" data-product-card="${escapeHtml(product.id)}" tabindex="0" role="button" aria-label="Открыть ${escapeHtml(product.name)}">
           <div class="product-visual ${catalogPhotoUrl ? "has-photo" : ""}">

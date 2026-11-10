@@ -2593,6 +2593,7 @@ function applyCatalog(catalog) {
       status: product.status || "active",
       fulfillmentType: product.fulfillment_type || "warehouse",
       recipientField: product.recipient_field || null,
+      createdAt: product.created_at || null,
       category: normalizeProductCategoryName(product.category_name),
       categorySlug: product.category_slug || "",
       price: product.price_astrocoins,

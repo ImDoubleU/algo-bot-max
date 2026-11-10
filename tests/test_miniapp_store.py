@@ -514,6 +514,7 @@ async def test_order_waits_for_admin_warehouse_and_debits_wallet(db_session) -> 
     )
 
     assert len(catalog.products) == 1
+    assert catalog.products[0].created_at == product.created_at
     # One item cannot be assembled from several warehouses, so 5 + 4 must not
     # be exposed as 9 purchasable units.
     assert catalog.products[0].available_quantity == 5
