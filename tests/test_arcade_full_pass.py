@@ -141,18 +141,18 @@ def test_achievement_hint_checks_quality_and_training_never_promises_a_medal(arc
     }""")
     assert hints["ranked"]["text"] == "Точность 92% · нужно 95%"
     assert hints["training"] == dict(target=120, text="Цель тренировки выполнена")
-    assert hints["finished"]["text"] == "Все награды этой игры получены"
+    assert hints["finished"]["text"] == "Все достижения этой игры открыты"
 
 
 def test_moving_to_another_window_never_freezes_a_timed_competition(arcade):
     page, _ = arcade
     page.locator('.game-card[data-game="kopatych"]').click()
     page.locator('[data-mode="ranked"]').click()
-    page.wait_for_function("document.querySelector('#gameClock')?.textContent==='90 с'")
+    page.wait_for_function("document.querySelector('#gameClock b')?.textContent==='1:30'")
     assert page.locator(".arcade-pause,#gameFinish").count() == 0
     assert page.locator(".game-leaders-button").is_hidden()
     page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
-    page.wait_for_function("document.querySelector('#gameClock')?.textContent==='89 с'")
+    page.wait_for_function("document.querySelector('#gameClock b')?.textContent==='1:29'")
     assert page.locator("[data-resume],.game-pause:not(.arcade-countdown)").count() == 0
 
 

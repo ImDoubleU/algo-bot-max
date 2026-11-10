@@ -88,7 +88,10 @@ def test_late_memory_and_sort_boards_fit_small_phone(arcade):
       ArcadeWorld.create=s=>{
         const w=create(s);
         if(s.game==='memory')w.cards=Array.from({length:24},(_,i)=>i%12);
-        if(s.game==='sort')w.tubes=Array.from({length:10},(_,i)=>i<8?[i,i,i,i]:[]);
+        if(s.game==='sort'){
+          w.tubes=Array.from({length:10},(_,i)=>i<8?[i,i,i,i]:[]);
+          w.sortMessage='Сверху должен быть тот же цвет или свободное место';
+        }
         return w;
       };
     }""")

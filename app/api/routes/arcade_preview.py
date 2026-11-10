@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.services.arcade import GAMES, ArcadeError, ArcadeStore
 from app.services.arcade_benchmarks import BenchmarkStore
+from app.services.arcade_cases import CaseStore
 from app.services.arcade_farm import FarmStore
 from app.services.arcade_hill import HillStore
 
@@ -61,6 +62,7 @@ def make_router(store: ArcadeStore, authenticate: Callable[[Request], Awaitable[
     farm = FarmStore(store)
     garage = HillStore(store)
     benchmarks = BenchmarkStore(store)
+    cases = CaseStore(store)
 
     async def call(method, *args):
         try:
@@ -72,6 +74,16 @@ def make_router(store: ArcadeStore, authenticate: Callable[[Request], Awaitable[
     async def profile(request: Request):
         actor = await authenticate(request)
         return await call(store.profile, actor["player"])
+
+    @router.get("/cases")
+    async def get_cases(request: Request):
+        actor = await authenticate(request)
+        return await call(cases.get, actor["player"])
+
+    @router.post("/cases/actions")
+    async def case_action(request: Request, payload: GarageAction):
+        actor = await authenticate(request)
+        return await call(cases.act, actor["player"], payload.id, payload.action, payload.item)
 
     @router.get("/benchmarks/{test}")
     async def benchmark_stats(request: Request, test: str):

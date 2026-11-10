@@ -14,6 +14,7 @@ def inject_games(source: str) -> str:
         '<link rel="stylesheet" href="/miniapp/static/games.css?v=2" />'
         '<link rel="stylesheet" href="/miniapp/static/games-extra.css?v=1" />'
         '<link rel="stylesheet" href="/miniapp/static/games-farm.css?v=2" />'
+        '<link rel="stylesheet" href="/miniapp/static/games-cases.css?v=2" />'
         '<link rel="stylesheet" href="/miniapp/static/games-journey.css?v=3" />'
         '<link rel="stylesheet" href="/miniapp/static/games-mastery.css?v=4" />'
         '<link rel="stylesheet" href="/miniapp/static/games-menu.css?v=2" />'
@@ -28,7 +29,7 @@ def inject_games(source: str) -> str:
         '<link rel="stylesheet" href="/miniapp/static/games-lessons.css?v=1" />'
         '<link rel="stylesheet" href="/miniapp/static/games-expedition.css?v=2" />'
         '<link rel="stylesheet" href="/miniapp/static/games-benchmarks.css?v=3" />'
-        '<link rel="stylesheet" href="/miniapp/static/games-mobile.css?v=1" />'
+        '<link rel="stylesheet" href="/miniapp/static/games-mobile.css?v=3" />'
         '<link rel="stylesheet" href="/miniapp/static/games-drop-lab.css?v=1" /></head>',
     )
     source = source.replace(
@@ -58,7 +59,7 @@ def inject_games(source: str) -> str:
         '<script src="/miniapp/static/games-words-data.js?v=2"></script>'
         '<script src="/miniapp/static/games-lessons.js?v=1"></script>'
         '<script src="/miniapp/static/games-expedition.js?v=1"></script>'
-        '<script src="/miniapp/static/games-extra.js?v=6"></script>'
+        '<script src="/miniapp/static/games-extra.js?v=7"></script>'
         '<script src="/miniapp/static/games-hill.js?v=3"></script>'
         '<script src="/miniapp/static/games-engine.js?v=7"></script>'
         '<script src="/miniapp/static/games-motion.js?v=1"></script>'
@@ -83,15 +84,16 @@ def inject_games(source: str) -> str:
         '<script src="/miniapp/static/games-extra-view.js?v=4"></script>'
         '<script src="/miniapp/static/games-hill-art.js?v=2"></script>'
         '<script src="/miniapp/static/games-hill-view.js?v=6"></script>'
-        '<script src="/miniapp/static/games-hill-garage.js?v=4"></script>'
+        '<script src="/miniapp/static/games-hill-garage.js?v=5"></script>'
         '<script src="/miniapp/static/games-farm-art.js?v=4"></script>'
         '<script src="/miniapp/static/games-farm.js?v=7"></script>'
+        '<script src="/miniapp/static/games-cases.js?v=2"></script>'
         '<script src="/miniapp/static/games-journey-view.js?v=8"></script>'
         '<script src="/miniapp/static/games-menu.js?v=5"></script>'
         '<script src="/miniapp/static/games-personality.js?v=4"></script>'
-        '<script src="/miniapp/static/games-results.js?v=10"></script>'
-        '<script src="/miniapp/static/games-benchmark-view.js?v=3"></script>'
-        '<script src="/miniapp/static/app-games.js?v=31"></script>',
+        '<script src="/miniapp/static/games-results.js?v=11"></script>'
+        '<script src="/miniapp/static/games-benchmark-view.js?v=4"></script>'
+        '<script src="/miniapp/static/app-games.js?v=33"></script>',
         source,
         count=1,
     )

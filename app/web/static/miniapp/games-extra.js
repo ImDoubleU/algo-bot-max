@@ -299,6 +299,11 @@
 
   function wordRound(w) {
     w.wordPack = (w.wordDictionary>=2?packsV2:packs)[w.packOrder[w.wordRound % w.packOrder.length]];
+    if(w.wordDictionary>=3) {
+      // Versioned curation keeps historical replays unchanged.
+      const excluded=new Set(['пенис','спермин','сперма','спермий','сперматозоид','титька','секс','порнография','порно','эротика','фаллос','клитор','педофил','педофилия','проститутка','проституция','педераст']);
+      w.wordPack={...w.wordPack,answers:w.wordPack.answers.filter(word=>!excluded.has(word))};
+    }
     w.roundWords = [];
     w.wordFeedback = "";
     w.wordHint = "";

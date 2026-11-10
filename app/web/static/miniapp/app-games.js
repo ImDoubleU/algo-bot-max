@@ -292,7 +292,7 @@
 
     function cards() {
         const trophy = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4h8v6a4 4 0 0 1-8 0Z"/><path d="M8 6H4v2a4 4 0 0 0 4 4m8-6h4v2a4 4 0 0 1-4 4m-4 2v5m-4 1h8"/></svg>';
-        return `${filter==='all'?gardenFeature():''}<div class="arcade-library-heading"><h2>Библиотека</h2><div class="games-filters" aria-label="Категории игр">${[["all","Все"],["fun","Аркады"],["skill","Навыки"],["puzzle","Логика"]].map(([id,name])=>`<button data-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${name}</button>`).join("")}</div></div><div class="games-grid">${E.games.slice().sort((a,b)=>Number(!!b.fresh)-Number(!!a.fresh)).filter(g=>filter==="all"||g.kind===filter).map(g=>{
+        return `${filter==='all'?gardenFeature():''}<div class="arcade-library-heading"><h2>Библиотека</h2><div class="games-filters" aria-label="Категории игр">${[["all","Все"],["fun","Аркады"],["skill","Навыки"],["puzzle","Логика"]].map(([id,name])=>`<button data-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${name}</button>`).join("")}</div></div><div class="games-grid">${(filter==='all'||filter==='fun')?(window.ArcadeCases?.library()||''):''}${E.games.slice().sort((a,b)=>Number(!!b.fresh)-Number(!!a.fresh)).filter(g=>filter==="all"||g.kind===filter).map(g=>{
             const q = profile.goals[g.id], journey = profile.journeys[g.id],
                 cleared = journey?.cleared || 0, maximum=journey?.maximum||24,
                 progressText = g.id==='react' ? '5 тестов · реакция и память' : g.persistent ? 'Огород и турнир' : journey ? cleared===maximum ? 'Все уровни пройдены' : cleared ? `${cleared} из ${maximum} пройдено` : maximum===24?'24 уровня':`${maximum} уровней` : `Цель: ${goal(g.id)}`;
@@ -348,6 +348,11 @@
             draw();
         }
         if (b.hasAttribute("data-garden")) openGarden();
+        if (b.hasAttribute('data-cases')) {
+            close();
+            void window.ArcadeCases?.open(api, {player: actor().id, settings: profile.settings});
+            return;
+        }
         if (b.hasAttribute("data-sprint")) {
             mode = 'ranked';
             openGame('kopatych');
@@ -526,7 +531,7 @@
     }
 
     function openGame(id) {
-        if (play || window.KopatychFarm?.isOpen || window.ArcadeBenchmarkView?.isOpen()) return;
+        if (play || window.KopatychFarm?.isOpen || window.ArcadeBenchmarkView?.isOpen() || window.ArcadeCases?.isOpen()) return;
         device = matchMedia('(pointer:coarse)').matches ? 'touch' : 'keyboard';
         const g = E.games.find(g => g.id === id),
             d = document.createElement("dialog");
@@ -1273,6 +1278,9 @@
     function close() {
         const refreshCards = !!play?.recorded;
         window.KopatychFarm?.close();
+        window.ArcadeBenchmarkView?.close();
+        window.ArcadeHillGarage?.close();
+        window.ArcadeCases?.close();
         if (play) {
             cancelAnimationFrame(play.raf);
             play.abort.abort();

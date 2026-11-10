@@ -149,6 +149,7 @@ class BenchmarkStore:
             ).fetchone()[0]
         reference = REFERENCES[test]
         return dict(
+            rules=rules,
             history=history,
             best=best,
             local=dict(

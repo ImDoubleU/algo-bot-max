@@ -401,7 +401,7 @@ class ArcadeStore:
             if game == "sort":
                 setup["sortRules"] = 2
             if game == "words":
-                setup["wordDictionary"] = 2
+                setup["wordDictionary"] = 3
                 from app.services import arcade_words
 
                 setup["wordRoots"] = arcade_words.prepare(db, player)

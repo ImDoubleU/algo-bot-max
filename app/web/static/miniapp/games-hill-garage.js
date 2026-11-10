@@ -23,6 +23,14 @@
     } [c]));
     let current = null;
 
+    function close() {
+        if (!current) return;
+        const g = current;
+        current = null;
+        g.dialog.close();
+        g.dialog.remove();
+    }
+
     const header = () => '<header class="hill-garage-header"><div><span>ХОЛМЫ И МОТОРЫ</span><h2 id="hillGarageTitle">Мой гараж</h2></div><button data-close aria-label="Закрыть гараж">×</button></header>';
 
     function landscape(route) {
@@ -106,11 +114,6 @@
             error: ''
         };
         current = g;
-        const close = () => {
-            dialog.close();
-            dialog.remove();
-            current = null;
-        };
         dialog.addEventListener('cancel', e => {
             e.preventDefault();
             close();
@@ -193,6 +196,7 @@
     }
     window.ArcadeHillGarage = {
         open,
+        close,
         get isOpen() {
             return !!current;
         }

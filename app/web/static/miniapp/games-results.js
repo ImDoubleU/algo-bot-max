@@ -33,7 +33,8 @@
         if (rules.mistakes === 0 && details.mistakes) return {target, text: 'Для медали нужна игра без ошибок'};
         if (rules.reactionMs && (!details.reactionMs || details.reactionMs > rules.reactionMs)) return {target, text: `Для медали реакция до ${rules.reactionMs} мс`};
         if (rules.moves && (!details.moves || details.moves > rules.moves)) return {target, text: `Для медали — не больше ${rules.moves} ходов`};
-        if (rules.timeMs && world.time * 1000 > rules.timeMs) return {target, text: `Для медали — уложись в ${rules.timeMs/1000} с`};
+        const elapsed = window.ArcadeClock ? ArcadeClock.time(world) : world.time;
+        if (rules.timeMs && elapsed * 1000 > rules.timeMs) return {target, text: `Для медали — уложись в ${rules.timeMs/1000} с`};
         return {target, text: practice ? 'Цель тренировки выполнена' : 'Цель выполнена · закончи игру'};
     }
 
