@@ -9,6 +9,7 @@
         "'": '&#39;'
     } [c]));
     const trophy = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4h8v6a4 4 0 0 1-8 0Z"/><path d="M8 6H4v2a4 4 0 0 0 4 4m8-6h4v2a4 4 0 0 1-4 4m-4 2v5m-4 1h8"/></svg>';
+    const sortTime=ms=>ArcadeClock.format(ms/1000)+','+String(Math.floor(ms%1000/10)).padStart(2,'0');
 
     function reward(receipt) {
         if (!receipt?.awards?.length) return '';
@@ -48,6 +49,10 @@
             caption = record ? 'Новый рекорд!' : hill ? 'Заезд завершён' : run.mode === 'practice' ? 'Тренировка завершена' : 'Игра завершена';
         const note = run.mode === 'practice' ? (hill ? 'Свободный заезд не участвует в рейтинге.' : 'Тренировка не участвует в рейтинге.') : result.run.accepted ? 'Результат сохранён в таблице лидеров.' : 'Эта игра завершена без участия в рейтинге.';
         const reference=reaction?`<section class="benchmark-reference"><b>Ориентир Human Benchmark: 284 мс</b><p>${value<284?'Быстрее ориентира на '+(284-value)+' мс':value>284?'Медленнее ориентира на '+(value-284)+' мс':'На уровне ориентира'}. Медиана — 273 мс. Это статистика участников сайта; экран, устройство и условия теста влияют на сравнение.</p><a href="https://humanbenchmark.com/tests/reactiontime" target="_blank" rel="noopener noreferrer">Источник · 06.11.2026</a></section>`:'';
+        if(report.details.sortCompetition===1){
+            const details=report.details,ms=details.sortSolvedTimeMs||0,moves=details.sortSolvedMoves||0;
+            return `${reward(result.rewards)}<div class="sort-race-result"><p>${report.score===5?'Все задачи решены!':'Время вышло'}</p><h3>${report.score}<span>из 5</span></h3><div><span><b>${sortTime(ms)}</b>Время решений</span><span><b>${moves}</b>Ходы</span></div>${result.run.accepted&&rank?`<p>Твоё место — <b>#${rank}</b></p>`:''}</div><div class="arcade-result-actions"><button class="games-main" data-again>Ещё раз</button><button class="game-back" data-back>К играм</button></div><details class="arcade-result-details"><summary>Подробнее</summary>${breakdown(result.rewards)}<p>${note}</p><p>Выше — больше решённых задач. Затем учитываются время решений и ходы.</p><p>Вся попытка: ${sortTime(report.timeMs)} · ${report.details.moves} ходов</p><button data-analysis>Разбор игры</button></details>`;
+        }
         return `${reward(result.rewards)}<div class="arcade-score-result"><p>${caption}</p>${ArcadePersonality.score(run.g.id, value, unit)}${reaction?`<p class="game-reaction-result">Точных реакций: ${report.score}</p>`:''}${result.run.accepted&&rank?`<div class="arcade-result-place">Твоё место — <b>#${rank}</b></div>`:''}</div><div class="arcade-result-actions"><button class="games-main" data-again>Ещё раз</button><button class="game-back" data-back>К играм</button></div>${reference}<details class="arcade-result-details"><summary>Подробнее</summary>${breakdown(result.rewards)}<p>${note}</p><button data-analysis>Разбор игры</button></details>`;
     }
 
@@ -59,6 +64,7 @@
     }
     window.ArcadeResults = {
         trophy,
+        sortTime,
         reward,
         liveGoal,
         normal,

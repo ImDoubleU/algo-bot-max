@@ -1,7 +1,7 @@
 /* Ball-sort controls and flights. The verified puzzle lives in games-extra.js. */
 (() => {
     'use strict';
-    const colors=ArcadeExtras.colors;
+    const colors=['#a878ed','#99d15c','#f0a16c','#ed91ae','#70b9e0','#f0ca54','#a989d8','#edb18a'];
     const names=['фиолетовый','зелёный','оранжевый','розовый','голубой','жёлтый','сиреневый','персиковый'];
     function mount(stage,send,options) {
         stage.dataset.game='sort';
@@ -11,9 +11,13 @@
         let flight=0,lastTick=0,lastSeed=null,settling=Promise.resolve();
         const animations=new Set(),hidden=new Set();
         const on=(node,event,fn)=>node.addEventListener(event,fn,{signal:options.signal});
-        const active=()=>!options.readOnly&&!options.paused()&&!busy;
+        const cooling=()=>world?.sortCompetition&&world.tick<(world.sortReadyAt||0);
+        const available=()=>!options.readOnly&&!options.paused()&&!world?.ended&&!busy&&!cooling();
+        const active=()=>available()&&!world?.sortWon;
         const source=e=>e?.pointerType==='touch'?'touch':options.device;
-        const input=(action,e)=>{if(active())send({...action,source:source(e)});};
+        const input=(action,e)=>{
+            if(action.type==='next'?available()&&world?.sortWon:active())send({...action,source:source(e)});
+        };
         const valid=(from,to)=>from!==to&&world?.tubes[from]?.length&&world.tubes[to]?.length<4
             &&(!world.tubes[to].length||world.tubes[to].at(-1)===world.tubes[from].at(-1));
         const cancel=()=>{
@@ -72,7 +76,12 @@
             if(glass)jobs.push(motion(glass,[{rotate:'0deg'},
                 {rotate:(cue.to>cue.from?'8deg':'-8deg'),offset:.3},{rotate:'0deg'}],
                 {duration:430,easing:'ease-in-out'}));
-            settling=Promise.all(jobs).finally(()=>{if(token===flight){busy=false;grid.removeAttribute('aria-busy');}});
+            settling=Promise.all(jobs).finally(()=>{
+                if(token===flight){
+                    busy=false;grid.removeAttribute('aria-busy');
+                    if(!options.signal?.aborted&&stage.isConnected&&world)update(world);
+                }
+            });
         };
         const tubeInput=(from,to,e)=>{
             if(!active())return;
@@ -150,17 +159,24 @@
             sequence=w.cueSeq;
             lastTick=w.tick;lastSeed=w.seed;
             if(!reset&&cue){cancel();fly(cue,old);}
-            $('.sort-meta b').textContent=`Уровень ${w.sortWon?w.score:w.score+1}`;
+            $('.sort-meta b').textContent=w.sortCompetition?`Задача ${Math.min(5,w.sortWon?w.score:w.score+1)} из 5`:`Уровень ${w.sortWon?w.score:w.score+1}`;
             $('[data-sort-progress]').textContent='Собрано '+w.tubes.filter(t=>t.length===4&&t.every(v=>v===t[0])).length+' / '+(w.tubes.flat().length/4);
             $('[data-sort-moves]').textContent=`Ходов: ${w.roundMoves}`;
             $('.sort-message').textContent=w.sortMessage;
-            const showWin=w.sortWon&&!busy;
+            const locked=!!(w.sortWon||w.ended||options.readOnly||busy||cooling());
+            for(const button of grid.children)button.disabled=locked;
+            grid.toggleAttribute('inert',locked);
+            const showWin=w.sortWon&&!w.ended&&!busy&&!cooling();
             if(won!==showWin) {
                 won=showWin;
-                $('.sort-complete').innerHTML=won?'<div><span>✓</span><h3>Всё по цветам</h3><button class="games-main" data-sort-next>Следующий уровень →</button></div>':'';
+                $('.sort-complete').innerHTML=won?`<div><span aria-hidden="true">✓</span><h3>${w.sortCompetition?`Задача ${w.score} из 5 решена`:'Всё по цветам'}</h3><button class="games-main" data-sort-next${options.readOnly?' disabled':''}>${w.sortCompetition?'Следующая задача':'Следующий уровень'} →</button></div>`:'';
+                if(!options.readOnly){
+                    drag=null;
+                    (won?$('[data-sort-next]'):grid.querySelector('button:not(:disabled)'))?.focus({preventScroll:true});
+                }
             }
-            $('[data-sort-undo]')?.toggleAttribute('disabled',!w.sortUndo.length||w.sortWon||busy);
-            $('[data-sort-restart]').disabled=w.sortWon||busy;
+            $('[data-sort-undo]')?.toggleAttribute('disabled',!w.sortUndo.length||locked);
+            $('[data-sort-restart]').disabled=locked;
         }
         return {update,settled:()=>settling};
     }

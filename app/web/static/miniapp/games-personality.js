@@ -17,7 +17,7 @@
         runner: 'Преграды',
         hill: 'Дистанция, м',
         bubbles: 'Очки',
-        sort: 'Наборы',
+        sort: 'Решено',
         words: 'Слова'
     };
     const stamps = {

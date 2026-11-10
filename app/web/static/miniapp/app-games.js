@@ -423,6 +423,7 @@
         const subtitle = weekly ? `Сезон с ${weekLabel(data.season.start)} · итоги ${weekLabel(data.season.end)}` : 'Результаты за всё время';
         const gameMetric = r => {
             const d = r.details || {};
+            if(game==='sort'&&d.sortCompetition===1)return `${ArcadeResults.sortTime(d.sortSolvedTimeMs)} · ${d.sortSolvedMoves} ходов`;
             if (game === 'typing' && d.accuracy) return `${d.accuracy}% точности`;
             if (game === 'react' && d.reactionMs) return `${d.reactionMs} мс`;
             if (game === 'memory' && d.moves) return `${d.moves} ходов`;
@@ -443,6 +444,7 @@
         }).join('');
         return `<section class="arcade-ranking ${combined?'games-overall':'ranking-single-game'}" aria-label="${combined?'Общий рейтинг':esc(title(game))}">
           <header class="ranking-heading"><div><h3>${combined?'Общий рейтинг':esc(title(game))}</h3><p>${subtitle}</p></div>${periodControls}</header>
+          ${game==='sort'?'<p class="sort-ranking-rule">5 задач · 10 минут. При равном числе решений выше тот, кто решил быстрее, затем — за меньше ходов.</p>':''}
           ${speed.has(game)?`<div class="games-leader-period ranking-device" aria-label="Управление">${[['keyboard','Клавиатура / мышь'],['touch','Касания']].map(([id,name])=>`<button data-board-device="${id}" aria-pressed="${id===device}">${name}</button>`).join('')}</div>`:''}
           ${money()&&combined&&weekly?`<section class="ranking-prizes" aria-label="Призы сезона"><div class="ranking-prize-intro"><h4>Призы сезона</h4></div><div class="ranking-prize-strip">${data.prizes.map((amount,i)=>`<div class="ranking-prize"><span>${i+1} место</span><strong>${amount} <small>AC</small></strong></div>`).join('')}</div></section><div class="ranking-qualification ${missing?'':'is-qualified'}"><b>${qualification}</b><progress max="${minimum}" value="${Math.min(minimum,mine?.games||0)}" aria-label="Цели в ${Math.min(minimum,mine?.games||0)} из ${minimum} игр"></progress></div>`:''}
           <div class="ranking-list-heading"><span aria-label="Место">№</span><span>Игрок</span>${combined?'<span class="ranking-games-column">Игры</span>':''}<span>${combined?'Очки':'Результат'}</span></div>
@@ -630,7 +632,7 @@
         $('.game-menu-back', d).hidden = screen === 'menu';
         const host = $('.game-stage', d);
         host.innerHTML = g.id==='react'&&screen==='menu'?(window.ArcadeGallery?.cover('react','arcade-benchmark-cover',true)||'')+ArcadeBenchmarkView.hub():screen === 'levels' ? ArcadeMenu.levels(g.id, profile.journeys[g.id], run.selectedJourney) :
-            screen === 'arenas' ? ArcadeMenu.arenas(run.arena || 'classic') : ArcadeMenu.home(g);
+            screen === 'arenas' ? ArcadeMenu.arenas(run.arena || 'classic') : screen==='sort-race'?ArcadeMenu.sortRace():ArcadeMenu.home(g);
         host.scrollTop = 0;
         if(g.id==='drop'&&screen==='menu'&&!window.ArcadeGallery)ArcadeDropLabView.menu(host);
         host.onclick = e => {
@@ -654,10 +656,14 @@
                 void tutorial(run);
             } else if (button.dataset.mode) {
                 mode = button.dataset.mode;
-                if (g.id === 'drop' && mode === 'practice') {
+                if(g.id==='sort'&&mode==='ranked'){
+                    run.menuScreen='sort-race';intro(run);
+                } else if (g.id === 'drop' && mode === 'practice') {
                     run.menuScreen = 'arenas';
                     intro(run);
                 } else void begin(run);
+            } else if(button.hasAttribute('data-sort-race-start')){
+                mode='ranked';void begin(run);
             } else if (button.dataset.journeyPlay) {
                 void begin(run, +button.dataset.journeyPlay);
             } else if (button.dataset.journeyStage) {
@@ -1067,6 +1073,12 @@
             $('.arcade-live-goal progress', d).value = Math.min(j.goal, w.score);
             $('.arcade-live-goal span', d).textContent = ArcadeJourneyView.labels(j) + (j.moves ? ' · осталось ' + Math.max(0, Math.ceil(j.moves - j.movesUsed)) + ' ходов' : '');
             ArcadeJourneyView.tools(run);
+            return;
+        }
+        if(w.sortCompetition){
+            $('.arcade-live-goal progress',d).max=5;
+            $('.arcade-live-goal progress',d).value=w.score;
+            $('.arcade-live-goal span',d).textContent=`Решено ${w.score} из 5 задач`;
             return;
         }
         const q = profile.goals[g.id],

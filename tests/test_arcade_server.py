@@ -432,6 +432,8 @@ def test_all_games_start_without_pause_finish_naturally_and_fit(arcade, width):
         if game == "react":
             page.locator("[data-benchmark-react]").click()
         page.locator('[data-mode="ranked"]').click()
+        if game == "sort":
+            page.locator('[data-sort-race-start]').click()
         page.wait_for_function("document.querySelector('#gameClock')?.textContent.length>0")
         assert page.locator(".arcade-pause,#gameFinish").count() == 0
         assert page.locator(".game-leaders-button").is_hidden()
@@ -808,8 +810,8 @@ def test_every_sort_scramble_is_reversible_and_more_colors_are_added(store):
         "sort",
         """
       for(let level=0;level<3;level++){
-        for(const a of w.sortSolution.slice()){send(a);W.advance(w,4);}
-        if(level<2){send({type:'next'});W.advance(w,4);}
+        for(const a of w.sortSolution.slice()){W.advance(w,54);send(a);}
+        if(level<2){W.advance(w,54);send({type:'next'});}
       }
     """,
     )

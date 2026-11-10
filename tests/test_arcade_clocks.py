@@ -17,7 +17,7 @@ def test_explicit_intermission_freezes_attempt_time_and_server_replays_it(store,
           const send=a=>{const e={...a,t:w.tick,source:'keyboard'};events.push(e);W.input(w,e);};
           W.advance(w,12);
           if(w.id==='sort')for(const move of w.sortSolution.slice()){
-            W.advance(w,6);send(move);
+            W.advance(w,54);send(move);
           }
           if(w.id==='memory'){
             const groups=new Map();w.cards.forEach((v,i)=>{if(!groups.has(v))groups.set(v,[]);

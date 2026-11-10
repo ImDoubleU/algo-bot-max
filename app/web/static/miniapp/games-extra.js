@@ -250,29 +250,54 @@
       []
     ]);
     w.sortSolution = [];
-    let previous = null;
-    for (let n = 0; n < 35 + count * 18; n++) {
-      const candidates = [];
-      w.tubes.forEach((from, i) => {
-        if (!from.length || from.length > 1 && from.at(-2) !== from.at(-1)) return;
-        w.tubes.forEach((to, j) => {
-          if (i !== j && to.length < 4 && !(previous && previous.i === j && previous.j === i)) candidates.push({
-            i,
-            j
+    if(w.sortRules>=3){
+      // Reverse complete, legal grouped pours. Every puzzle starts with two empty tubes.
+      for(let turn=0;turn<count*4;turn++){
+        const run=t=>{let n=0;for(let i=t.length-1;i>=0&&t[i]===t.at(-1);i--)n++;return n;},
+          choices=H.shuffled(w,w.tubes.slice(0,count).map((_,i)=>i).filter(i=>run(w.tubes[i])>=2));
+        choices.sort((a,b)=>Number(new Set(w.tubes[a]).size>1)-Number(new Set(w.tubes[b]).size>1));
+        const triple=[];
+        for(const i of choices)if(!triple.some(j=>w.tubes[j].at(-1)===w.tubes[i].at(-1))){
+          triple.push(i);if(triple.length===3)break;
+        }
+        if(triple.length<3)break;
+        const [a,b,c]=triple,k=Math.min(...triple.map(i=>run(w.tubes[i])))-1;
+        for(const [from,to] of [[a,count],[b,a],[c,b],[count,c]]){
+          w.tubes[to].push(...w.tubes[from].splice(-k));
+          w.sortSolution.unshift({type:'pour',from:to,to:from});
+        }
+      }
+    } else {
+      let previous = null;
+      for (let n = 0; n < 35 + count * 18; n++) {
+        const candidates = [];
+        w.tubes.forEach((from, i) => {
+          if (!from.length || from.length > 1 && from.at(-2) !== from.at(-1)) return;
+          w.tubes.forEach((to, j) => {
+            if (i !== j && to.length < 4 && !(previous && previous.i === j && previous.j === i)) candidates.push({
+              i,
+              j
+            });
           });
         });
-      });
-      if (!candidates.length) break;
-      const move = H.pick(w, candidates),
-        color = w.tubes[move.i].pop();
-      w.tubes[move.j].push(color);
-      w.sortSolution.unshift({
-        type: "pour",
-        from: move.j,
-        to: move.i,
-        single: true
-      });
-      previous = move;
+        if (!candidates.length) break;
+        const move = H.pick(w, candidates),
+          color = w.tubes[move.i].pop();
+        w.tubes[move.j].push(color);
+        w.sortSolution.unshift({
+          type: "pour",
+          from: move.j,
+          to: move.i,
+          single: true
+        });
+        previous = move;
+      }
+    }
+    if(w.sortRules>=3&&sortSolved(w)&&attempt<8){sortRound(w,H,attempt+1);return;}
+    if(w.sortRules>=3&&sortSolved(w)){
+      for(const [from,to] of [[0,count],[1,0],[2,1],[count,2]]){
+        w.tubes[to].push(w.tubes[from].pop());w.sortSolution.unshift({type:'pour',from:to,to:from});
+      }
     }
     if (sortSolved(w)) {
       const c = w.tubes[0].pop();
@@ -466,6 +491,7 @@
     }
     if (w.id === "sort") {
       w.details.moves = 0;
+      if(w.sortCompetition){Object.assign(w.details,{sortCompetition:1,sortRounds:5,sortSolvedTimeMs:0,sortSolvedMoves:0,sortSplits:[]});}
       sortRound(w, H);
     }
     if (w.id === "words") {
@@ -644,6 +670,8 @@
       return true;
     }
     if (w.id === "sort") {
+      if(w.sortRules>=3&&w.sortWon&&a.type!=='next')return false;
+      if(w.sortCompetition&&w.tick<(w.sortReadyAt||0))return false;
       if (a.type === "undo" && w.mode === "practice" && w.sortUndo.length && !w.sortWon) {
         w.tubes = w.sortUndo.pop();
         w.selectedTube = -1;
@@ -733,15 +761,17 @@
       w.sortMessage = "Сверху должен быть тот же цвет или свободное место";
       return false;
     }
-    // One ball per tap makes every scramble exactly reversible and exposes an undo in practice only.
+    // Keep legacy single-ball replays valid; new puzzles always use grouped pours.
     w.sortUndo.push(w.tubes.map(t => t.slice()));
     if (w.sortUndo.length > 40) w.sortUndo.shift();
     const color=from.at(-1),fromSize=from.length,toSize=to.length;
     let moved=0;
     do{to.push(from.pop());moved++;}
-    while(w.sortRules>=2&&!a.single&&from.length&&from.at(-1)===color&&to.length<4);
+    while(w.sortRules>=2&&(w.sortRules>=3||!a.single)&&from.length&&from.at(-1)===color&&to.length<4);
     w.roundMoves++;
     w.details.moves++;
+    if(w.sortRules>=3)w.selectedTube=-1;
+    if(w.sortCompetition)w.sortReadyAt=w.tick+54;
     w.sortMessage = "";
     H.emit(w, "pour", {
       from: a.from,
@@ -751,7 +781,14 @@
     if (sortSolved(w)) {
       w.score++;
       w.sortWon = true;
+      if(w.sortRules>=3)w.selectedTube=-1;
+      if(w.sortCompetition){
+        w.details.sortSolvedTimeMs=Math.round(ArcadeClock.time(w)*1000);
+        w.details.sortSolvedMoves=w.details.moves;
+        w.details.sortSplits.push({solved:w.score,timeMs:w.details.sortSolvedTimeMs,moves:w.details.sortSolvedMoves});
+      }
       H.emit(w, "sortWin");
+      if(w.sortCompetition&&w.score>=5)H.end(w,'Все пять задач решены');
     }
     return true;
   }

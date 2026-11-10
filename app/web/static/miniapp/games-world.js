@@ -158,6 +158,7 @@
         if(setup.clockRules>=2)Object.assign(w,{clockRules:2,activeTicks:0});
         if(['typing','debug'].includes(w.id))w.lessonVersion=setup.lessonVersion||1;
         if (w.id === 'sort') w.sortRules = setup.sortRules || 1;
+        if(w.id==='sort'&&setup.sortCompetition===1&&w.mode==='ranked')w.sortCompetition=1;
         if (w.id === 'words') {
             w.wordDictionary = setup.wordDictionary || 1;
             if(setup.wordRoots)w.wordRoots=setup.wordRoots;

@@ -37,7 +37,7 @@ GAMES = {
     "blocks": (300, [2000, 4000, 7000]),
     "hill": (500, [1500, 3000, 6000]),
     "bubbles": (200, [1500, 3000, 5000]),
-    "sort": (3, [10, 15, 20]),
+    "sort": (3, [4, 5, 5]),
     "words": (10, [24, 32, 40]),
 }
 POINTS = [100, 80, 65, 55, 45, 35, 25, 20, 15, 10]
@@ -288,6 +288,13 @@ class ArcadeStore:
         return self._quality(game, details, tier)
 
     def _quality(self, game, details, tier):
+        if game == "sort" and details.get("sortCompetition") != 1:
+            return False
+        if game == "sort":
+            details = next(
+                (s for s in details.get("sortSplits", []) if s["solved"] == GAMES[game][1][tier]),
+                {},
+            )
         rules = self._medal_requirements(game, tier)
         return (
             ("accuracy" not in rules or details.get("accuracy", 0) >= rules["accuracy"])
@@ -312,6 +319,8 @@ class ArcadeStore:
             return {"moves": [0, 80, 60][tier]}
         if game == "words" and tier == 2:
             return {"timeMs": 150000}
+        if game == "sort":
+            return {"timeMs": [180000, 300000, 180000][tier], "moves": [80, 120, 90][tier]}
         return {}
 
     def _medal_condition(self, game, tier):
@@ -325,6 +334,9 @@ class ArcadeStore:
             return f"не больше {[0, 80, 60][tier]} ходов"
         if game == "words" and tier == 2:
             return "за 150 с"
+        if game == "sort":
+            rules = self._medal_requirements(game, tier)
+            return f"до {rules['timeMs'] // 1000} с и не больше {rules['moves']} ходов"
         return "за одну соревновательную партию"
 
     def session(self, player, game, mode, device, stage=None, arena=None):
@@ -365,7 +377,9 @@ class ArcadeStore:
             if count >= 30:
                 raise ArcadeError("Слишком много новых попыток. Подожди минуту.")
             secret = db.execute("SELECT value FROM arcade_meta WHERE key='secret'").fetchone()[0]
-            controls = "pedals" if game == "hill" else device
+            controls = (
+                "pedals" if game == "hill" else "sort-series-v1" if game == "sort" else device
+            )
             challenge = f"v3:{season_key(self.clock())}:{game}:{controls}".encode()
             seed = int.from_bytes(
                 hmac.new(secret.encode(), challenge, hashlib.sha256).digest()[:4], "big"
@@ -398,8 +412,9 @@ class ArcadeStore:
                 setup["arena"] = arena or "classic"
             if game == "sort" and mode == "ranked":
                 setup["roundSeconds"] = 600
+                setup["sortCompetition"] = 1
             if game == "sort":
-                setup["sortRules"] = 2
+                setup["sortRules"] = 3
             if game == "words":
                 setup["wordDictionary"] = 3
                 from app.services import arcade_words
@@ -691,12 +706,16 @@ class ArcadeStore:
             # Preserve old replays and earned awards, but don't mix different physics in a board.
             if game == "drop" and details.get("physics") != "lab6":
                 continue
+            if game == "sort" and details.get("sortCompetition") != 1:
+                continue
             key = (
                 -row["rank_score"],
                 -details.get("accuracy", 0) if game == "typing" else 0,
                 details.get("reactionMs", 10000) if game == "react" else 0,
                 details.get("moves", 100000) if game == "memory" else 0,
                 report["timeMs"] if game in ("debug", "memory") else 0,
+                details.get("sortSolvedTimeMs", 600000) if game == "sort" else 0,
+                details.get("sortSolvedMoves", 100000) if game == "sort" else 0,
             )
             item = {
                 "player": row["player"],

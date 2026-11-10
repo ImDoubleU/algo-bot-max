@@ -210,13 +210,16 @@ def test_grouped_ball_flight_stays_in_the_board_and_rapid_click_does_not_double_
         page.locator("#sortCheck .sort-flight").first.evaluate("n=>getComputedStyle(n).position")
         == "absolute"
     )
-    page.locator('#sortCheck [data-tube="3"]').click()
+    # Send the rapid physical click now; an ordinary Playwright click would wait
+    # for the newly disabled button to become enabled after the flight.
+    page.locator('#sortCheck [data-tube="3"]').click(force=True)
     assert page.evaluate("sortCheck.events.length") == 2
     assert page.evaluate("sortCheck.w.tubes[1].length") == 4
     page.wait_for_function(
         "!document.querySelector('#sortCheck .sort-tubes').hasAttribute('aria-busy')"
     )
     assert page.locator("#sortCheck .sort-flight").count() == 0
+    assert page.locator("#sortCheck .sort-tubes button:disabled").count() == 0
     assert page.locator("#sortCheck").evaluate("n=>n.scrollWidth<=n.clientWidth")
     page.evaluate("sortCheck.abort.abort();document.querySelector('#sortCheck').remove()")
 

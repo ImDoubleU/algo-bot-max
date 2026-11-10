@@ -41,7 +41,11 @@
         return `<section class="arcade-arena-screen"><h3>Тренировка</h3><div class="arcade-arena-grid" role="group" aria-label="Выбор арены">${arenas.map(a => `<button data-arena="${a.id}" aria-pressed="${a.id===selected}"><svg viewBox="0 0 100 76" aria-hidden="true"><path d="M5 5V71H95V5"/>${a.lines.map(([ax,ay,bx,by])=>`<path d="M${(ax-12)/336*90+5} ${(ay-79)/337*66+5}L${(bx-12)/336*90+5} ${(by-79)/337*66+5}"/>`).join('')}${a.pins.map(([x,y,r])=>`<circle cx="${(x-12)/336*90+5}" cy="${(y-79)/337*66+5}" r="${r/336*90}"/>`).join('')}</svg><b>${esc(a.name)}</b></button>`).join('')}</div><button class="arcade-menu-start" data-practice-start>Играть</button></section>`;
     }
 
+    function sortRace(){
+        return `<section class="sort-race-intro"><h3>5 задач</h3><p>10 минут игры<br>Между задачами таймер стоит</p><div class="sort-race-route" aria-label="От трёх до семи цветов">${[3,4,5,6,7].map((n,i)=>`<span><b>${i+1}</b><i>${n} ${n<5?'цвета':'цветов'}</i></span>`).join('')}</div><p>Больше решений → быстрее → меньше ходов</p><button class="games-main" data-sort-race-start>Начать соревнование</button></section>`;
+    }
     window.ArcadeMenu = {
+        sortRace,
         home,
         levels,
         arenas
