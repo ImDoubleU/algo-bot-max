@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -17,6 +17,7 @@ from app.models.account import (
     StaffInvitation,
     StaffNotificationPreference,
     StaffRoleAssignment,
+    StaffVenueScope,
     StaffWarehousePreference,
 )
 from app.models.audit import AuditLog
@@ -1054,6 +1055,7 @@ def _order_to_read(
         order_number=order.order_number,
         student_id=UUID(str(order.student_id)),
         student_name=student.display_name,
+        group_name=student.group_name,
         status=order.status,
         total_astrocoins=order.total_astrocoins,
         teacher_name=order.teacher_name,
@@ -2798,8 +2800,9 @@ async def upsert_miniapp_product(
         category_slug=payload.category_slug,
     )
 
-    if payload.recipient_field and payload.fulfillment_type == ProductFulfillmentType.WAREHOUSE:
-        raise MiniAppStoreError("Данные игрового аккаунта доступны только электронным товарам")
+    if (payload.recipient_field
+            and payload.fulfillment_type != ProductFulfillmentType.DIGITAL_MANUAL):
+        raise MiniAppStoreError("Для товара с данными получателя выберите ручное выполнение")
     product_created = False
     if product is None:
         product = Product(
@@ -3560,6 +3563,19 @@ async def get_miniapp_session(
         unrestricted_student_ids=unrestricted_order_student_ids,
         issued_code_student_ids=(set(linked_students_by_id) if staff_roles else None),
     )
+    for order in orders:
+        order.tenant_slug = tenant.slug
+        order.school_name = _tenant_to_read(tenant).city_name
+        order.management_visible = order.student_id in unrestricted_order_student_ids
+    if effective_staff_roles.intersection({StaffRole.SUPERADMIN, StaffRole.PARTNER_DIRECTOR}):
+        managed_orders = await _managed_orders_across_tenants(
+            db, account_id=account.id,
+            is_superadmin=StaffRole.SUPERADMIN in effective_staff_roles,
+            issued_code_student_ids=set(linked_students_by_id),
+        )
+        merged_orders = {order.id: order for order in orders}
+        merged_orders.update({order.id: order for order in managed_orders})
+        orders = sorted(merged_orders.values(), key=lambda order: order.created_at, reverse=True)
     for order in orders:
         order.teacher_visible = order.id in (visible_order_ids or set())
     ledger = await _ledger_for_students(
@@ -5656,7 +5672,7 @@ async def issue_miniapp_digital_order(
     )
     if staff_role not in STORE_ADMIN_ROLES:
         raise MiniAppStoreError(
-            "Отправить код может только администратор или директор", status_code=403,
+            "Выполнить электронный заказ может только администратор или директор", status_code=403,
         )
     if not order.items or any(
         item.product.fulfillment_type != ProductFulfillmentType.DIGITAL_MANUAL
@@ -5666,21 +5682,30 @@ async def issue_miniapp_digital_order(
     requested = {item.order_item_id: [code.strip() for code in item.codes]
                  for item in payload.items}
     if len(requested) != len(payload.items) or set(requested) != {item.id for item in order.items}:
-        raise MiniAppStoreError("Укажите коды для всех позиций заказа без повторов")
+        raise MiniAppStoreError("Подтвердите все позиции заказа без повторов")
+    account_items = [item for item in order.items if item.recipient_field]
+    for item in account_items:
+        try:
+            validate_recipient(item.recipient_field, item.recipient_value)
+        except ValueError as exc:
+            raise MiniAppStoreError(f"Проверьте данные получателя в заказе: {exc}") from exc
+        if requested[item.id]:
+            raise MiniAppStoreError("Для товара с данными получателя отправка кода не требуется")
     all_codes = [code for codes in requested.values() for code in codes]
     if any(not code or len(code) > 500 for code in all_codes):
         raise MiniAppStoreError("Каждый код должен содержать от 1 до 500 символов")
     if len(set(all_codes)) != len(all_codes):
         raise MiniAppStoreError("Один код указан несколько раз")
-    if any(len(requested[item.id]) != item.quantity for item in order.items):
+    if any(len(requested[item.id]) != item.quantity for item in order.items
+           if not item.recipient_field):
         raise MiniAppStoreError("Количество кодов должно совпадать с количеством товаров")
     if order.status == OrderStatus.ISSUED_TO_STUDENT:
         if all(set(requested[item.id]) == {code.code for code in item.digital_codes}
                for item in order.items):
             return MiniAppOrderActionRead(order=_order_to_read(order, student))
-        raise MiniAppStoreError("Коды по этому заказу уже выданы", status_code=409)
+        raise MiniAppStoreError("Этот электронный заказ уже выполнен", status_code=409)
     if order.status not in {OrderStatus.CREATED, OrderStatus.PROBLEM}:
-        raise MiniAppStoreError("Нельзя отправить код по закрытому заказу", status_code=409)
+        raise MiniAppStoreError("Нельзя выполнить действие по закрытому заказу", status_code=409)
     if await db.scalar(select(ProductCode.id).where(
         ProductCode.tenant_id == tenant.id, ProductCode.code.in_(all_codes),
     ).limit(1)):
@@ -5698,16 +5723,23 @@ async def issue_miniapp_digital_order(
             ))
     previous_status = order.status
     order.status = OrderStatus.ISSUED_TO_STUDENT
+    completion_comment = (
+        "Электронный заказ выполнен: пополнение по указанным данным и выдача кодов"
+        if account_items and all_codes else
+        "Электронный заказ выполнен по указанным данным"
+        if account_items else "Электронный товар: код отправлен ученику"
+    )
     db.add(OrderStatusHistory(
         tenant_id=tenant.id, order_id=order.id, actor_account_id=account.id,
         from_status=previous_status, to_status=order.status,
-        comment=payload.comment or "Электронный товар: код отправлен ученику",
+        comment=payload.comment or completion_comment,
     ))
     db.add(AuditLog(
         tenant_id=tenant.id, actor_account_id=account.id,
         action="miniapp_order.digital_issued", entity_type="order", entity_id=str(order.id),
         payload={"order_number": order.order_number, "student_id": str(student.id),
-                 "code_count": len(all_codes), "actor_role": staff_role.value},
+                 "code_count": len(all_codes), "actor_role": staff_role.value,
+                 "account_item_count": len(account_items)},
     ))
     try:
         await db.commit()
@@ -5720,8 +5752,8 @@ async def issue_miniapp_digital_order(
     )
     await schedule_staff_order_notification(
         db, tenant=tenant, order=order, student=student, event_key="orders.issued",
-        title="Электронный товар выдан", actor_name=account.display_name,
-        message="Код отправлен ученику и доступен в карточке заказа.",
+        title="Электронный заказ выполнен", actor_name=account.display_name,
+        message=completion_comment,
     )
     _sync_order_to_sheets(tenant_slug=tenant.slug, order=order, student=student,
                          account=account, comment=payload.comment)
@@ -8217,6 +8249,61 @@ async def _staff_assignments_for_session(
         )
         for assignment, account in rows
     ]
+
+
+async def _managed_orders_across_tenants(
+    db: AsyncSession, *, account_id: UUID, is_superadmin: bool,
+    issued_code_student_ids: set[UUID],
+) -> list[MiniAppOrderRead]:
+    """Orders only: keep the student roster, wallets and other sections tenant-scoped."""
+    if is_superadmin:
+        schools = list(await db.scalars(select(Tenant).options(
+            selectinload(Tenant.city), selectinload(Tenant.partner),
+        )))
+        conditions = [Order.tenant_id.in_([school.id for school in schools])]
+    else:
+        assignments = list(await db.scalars(select(StaffRoleAssignment).where(
+            StaffRoleAssignment.account_id == account_id,
+            StaffRoleAssignment.role == StaffRole.PARTNER_DIRECTOR,
+            StaffRoleAssignment.status == AssignmentStatus.ACTIVE,
+        )))
+        if not assignments:
+            return []
+        scopes: dict[UUID, set[UUID]] = {}
+        for assignment_id, venue_id in (await db.execute(select(
+            StaffVenueScope.assignment_id, StaffVenueScope.venue_id,
+        ).where(StaffVenueScope.assignment_id.in_([item.id for item in assignments])))).all():
+            scopes.setdefault(assignment_id, set()).add(venue_id)
+        schools = list(await db.scalars(select(Tenant).where(
+            Tenant.id.in_([item.tenant_id for item in assignments]),
+        ).options(selectinload(Tenant.city), selectinload(Tenant.partner))))
+        conditions = []
+        for assignment in assignments:
+            condition = Order.tenant_id == assignment.tenant_id
+            if scopes.get(assignment.id):
+                condition = condition & Student.venue_id.in_(scopes[assignment.id])
+            conditions.append(condition)
+    if not conditions:
+        return []
+    schools_by_id = {school.id: school for school in schools}
+    rows = (await db.execute(select(Order, Student).join(
+        Student, Student.id == Order.student_id,
+    ).where(or_(*conditions), Student.tenant_id == Order.tenant_id).options(
+        selectinload(Order.items).selectinload(OrderItem.product),
+        selectinload(Order.items).selectinload(OrderItem.digital_codes),
+        selectinload(Order.items).selectinload(OrderItem.warehouse),
+        selectinload(Order.items).selectinload(OrderItem.reserved_warehouse),
+        selectinload(Order.status_history),
+    ).order_by(Order.created_at.desc(), Order.id))).all()
+    result = []
+    for order, student in rows:
+        item = _order_to_read(order, student,
+                              include_issued_codes=student.id in issued_code_student_ids)
+        item.management_visible = True
+        item.tenant_slug = schools_by_id[order.tenant_id].slug
+        item.school_name = _tenant_to_read(schools_by_id[order.tenant_id]).city_name
+        result.append(item)
+    return result
 
 
 async def _orders_for_students(

@@ -2271,6 +2271,9 @@ function applySession(session) {
     createdAt: order.created_at || "",
     teacherName: order.teacher_name || "",
     teacherVisible: Boolean(order.teacher_visible),
+    managementVisible: Boolean(order.management_visible),
+    tenantSlug: order.tenant_slug || "",
+    schoolName: order.school_name || "",
     venueName: order.venue_name || "",
   }));
 
@@ -2280,7 +2283,7 @@ function applySession(session) {
     const items = normalizeOrderItems(sourceOrder);
     const statusHistory = normalizeOrderStatusHistory(sourceOrder);
     const context = {
-      groupName: orderStudent?.group || "Группа не указана",
+      groupName: sourceOrder.group_name || orderStudent?.group || "Группа не указана",
       venueName: sourceOrder.venue_name || orderStudent?.venue || "",
       teacherName: sourceOrder.teacher_name || orderStudent?.teacher || "",
     };

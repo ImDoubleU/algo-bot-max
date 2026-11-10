@@ -310,7 +310,7 @@ async function saveProductFromForm() {
   const fulfillmentType = selectedFulfillment === "digital_manual" && qs("#productInstantDelivery")?.checked
     ? "digital_code" : selectedFulfillment;
   const newCodes = fulfillmentType === "digital_code" ? qs("#productNewCodes")?.value.trim() || "" : "";
-  const recipientField = fulfillmentType === "warehouse" ? null : qs("#productRecipientField")?.value || null;
+  const recipientField = fulfillmentType !== "digital_manual" ? null : qs("#productRecipientField")?.value || null;
   const description = qs("#productDescription")?.value.trim() || "";
   const photoFile = state.productPhotoFile;
   const editing = products.find((product) => product.id === state.editingProductId);
@@ -936,6 +936,8 @@ function orderWarehouseOptions(item) {
 function renderOrderDialog(order) {
   const needsWarehouseAssignment = canAssignOrderWarehouses(order);
   const isDigitalOrder = orderIsDigital(order);
+  const hasAccountItems = orderHasAccountItems(order);
+  const codeItems = (order.items || []).filter((item) => !item.recipientField);
   const items = Array.isArray(order.items) && order.items.length > 0
     ? order.items
         .map(
@@ -1011,6 +1013,7 @@ function renderOrderDialog(order) {
                   </div>
                   ${warehouseControl}
                   ${item.recipientValue ? `<div class="order-recipient"><span>${escapeHtml(recipientFieldLabel(item.recipientField))}</span><strong>${escapeHtml(item.recipientValue)}</strong><button type="button" class="subtle-action" data-copy-recipient="${escapeHtml(item.recipientValue)}" aria-label="Скопировать аккаунт"><i data-lucide="copy"></i></button></div>` : ""}
+                  ${item.recipientField && order.rawStatus === "issued_to_student" ? '<div class="account-order-completed"><i data-lucide="circle-check"></i><strong>Заказ выполнен</strong></div>' : ""}
                   ${isDigitalItem ? "" : issuedCodes}
                 </div>
                 ${isDigitalItem ? "" : `<strong class="order-detail-price">${Number(item.totalPrice || 0)} AC</strong>`}
@@ -1054,7 +1057,7 @@ function renderOrderDialog(order) {
     : `
         <div class="order-history-row">
           <span class="order-history-marker"><i data-lucide="circle-dot"></i></span>
-          <div><strong>${escapeHtml(orderStatusLabel(order.rawStatus))}</strong><span>Текущий статус</span></div>
+          <div><strong>${escapeHtml(orderDisplayStatus(order))}</strong><span>Текущий статус</span></div>
         </div>
       `;
 
@@ -1063,19 +1066,20 @@ function renderOrderDialog(order) {
     <div class="order-dialog-summary ${isDigitalOrder ? "is-digital" : ""}">
       <div>
         <span class="status-badge ${escapeHtml(orderStatusTone(order.rawStatus))}">${escapeHtml(orderDisplayStatus(order))}</span>
-        ${canViewStudentProfiles()
+        ${canViewStudentProfiles() && !orderIsFromOtherTenant(order)
           ? `<button class="student-name-link student-name-link-large" type="button" data-open-student-profile="${escapeHtml(order.studentId)}">${escapeHtml(order.student)}</button>`
           : `<h3>${escapeHtml(order.student)}</h3>`}
         <div class="student-meta">
           ${
             isDigitalOrder
-              ? order.rawStatus === "issued_to_student" ? (order.items?.some((item) => item.issuedCodes?.length) ? "Код доступен ниже" : "Код выдан ученику") : ["created", "problem"].includes(order.rawStatus) ? "Ожидается отправка кода сотрудником" : "Электронный товар"
+              ? electronicOrderHint(order)
               : ["teacher", "admin"].includes(state.role)
               ? orderHasAssignedWarehouses(order)
                 ? "Склад назначен"
                 : "Ожидает назначения склада"
               : "Заказ зарезервирован"
           }
+          ${order.schoolName ? ` · ${escapeHtml(order.schoolName)}` : ""}
           ${order.createdAt ? ` · ${escapeHtml(formatOrderDate(order.createdAt))}` : ""}
         </div>
       </div>
@@ -1086,10 +1090,10 @@ function renderOrderDialog(order) {
       ${items}
     </section>
     ${canIssueDigitalOrder(order) ? `<section class="order-detail-section digital-order-issue">
-      <h3>Отправка кодов ученику</h3>
-      ${order.items.map((item) => `<label><span>${escapeHtml(item.productName)} · кодов: ${item.quantity}</span>
+      <h3>${hasAccountItems ? "Выполнение заказа" : "Отправка кодов ученику"}</h3>
+      ${codeItems.map((item) => `<label><span>${escapeHtml(item.productName)} · кодов: ${item.quantity}</span>
         <textarea data-digital-issue-item="${escapeHtml(item.id)}" rows="3" placeholder="Каждый код с новой строки" autocomplete="off" spellcheck="false"></textarea></label>`).join("")}
-      <button class="primary-action" type="button" data-issue-digital-order="${escapeHtml(order.backendId || order.id)}"><i data-lucide="send"></i>Отправить коды ученику</button>
+      <button class="primary-action" type="button" data-issue-digital-order="${escapeHtml(order.backendId || order.id)}"><i data-lucide="${hasAccountItems ? "circle-check" : "send"}"></i>${hasAccountItems ? "Подтвердить выполнение" : "Отправить коды ученику"}</button>
     </section>` : ""}
     <section class="order-detail-section">
       <h3>История статусов</h3>
@@ -1109,9 +1113,16 @@ function renderOrderDialog(order) {
   refreshIcons();
 }
 
-function openOrderDetails(orderId) {
-  const order = orders.find((item) => item.id === orderId || item.backendId === orderId);
+async function openOrderDetails(orderId) {
+  let order = orders.find((item) => item.id === orderId || item.backendId === orderId);
   if (!order) return;
+  if (orderIsFromOtherTenant(order) && state.availableTenants?.some((tenant) => tenant.tenant_slug === order.tenantSlug)) {
+    const targetTenant = order.tenantSlug;
+    await switchTenant(targetTenant);
+    if (apiContext.tenantSlug !== targetTenant) return;
+    order = orders.find((item) => item.backendId === orderId || item.id === orderId);
+    if (!order) return;
+  }
   setView("orders");
   const dialog = qs("#orderDialog");
   dialog.dataset.orderId = order.backendId || order.id;
@@ -1573,21 +1584,25 @@ async function issueDigitalOrder(orderId) {
   if (state.digitalOrderSaving) return;
   const order = orders.find((item) => item.backendId === orderId || item.id === orderId);
   if (!order || !canIssueDigitalOrder(order)) return;
+  const hasAccountItems = orderHasAccountItems(order);
   const items = order.items.map((item) => ({
     order_item_id: item.id,
-    codes: (qs(`[data-digital-issue-item="${CSS.escape(item.id)}"]`)?.value || "")
+    codes: item.recipientField ? [] : (qs(`[data-digital-issue-item="${CSS.escape(item.id)}"]`)?.value || "")
       .split(/\r?\n/).map((code) => code.trim()).filter(Boolean),
   }));
   const values = items.flatMap((item) => item.codes);
-  if (items.some((item, index) => item.codes.length !== order.items[index].quantity) ||
+  if (items.some((item, index) => !order.items[index].recipientField && item.codes.length !== order.items[index].quantity) ||
       values.some((code) => code.length > 500) || new Set(values).size !== values.length) {
     showNotice("Укажите по одному уникальному коду на каждый товар, не длиннее 500 символов", "danger");
     return;
   }
   const confirmed = await requestConfirmation({
-    title: `Отправить коды по заказу №${order.id}?`,
-    message: "Коды станут доступны ученику и родителю. После отправки заменить их нельзя.",
-    confirmLabel: "Отправить коды", cancelLabel: "Проверить коды",
+    title: hasAccountItems ? `Заказ №${order.id} выполнен?` : `Отправить коды по заказу №${order.id}?`,
+    message: hasAccountItems
+      ? "Подтвердите, что заказ фактически выполнен по указанным данным:\n" + order.items.filter((item) => item.recipientField).map((item) => `${item.productName}: ${item.recipientValue}`).join("\n") + (values.length ? "\nКоды остальных товаров будут отправлены покупателю." : "")
+      : "Коды станут доступны ученику и родителю. После отправки заменить их нельзя.",
+    confirmLabel: hasAccountItems ? "Подтвердить выполнение" : "Отправить коды",
+    cancelLabel: "Вернуться",
   });
   if (!confirmed) return;
   state.digitalOrderSaving = true;
@@ -1598,7 +1613,7 @@ async function issueDigitalOrder(orderId) {
       order.items.forEach((item, index) => { item.issuedCodes = items[index].codes; });
       order.statusHistory = order.statusHistory || [];
       order.statusHistory.push({ fromStatus: order.rawStatus, toStatus: "issued_to_student",
-        comment: "Код отправлен ученику", createdAt: new Date().toISOString() });
+        comment: hasAccountItems ? "Электронный заказ выполнен по указанным данным" : "Код отправлен ученику", createdAt: new Date().toISOString() });
       order.rawStatus = "issued_to_student";
       order.status = orderStatusLabel(order.rawStatus);
       order.tone = orderStatusTone(order.rawStatus);
@@ -1614,9 +1629,9 @@ async function issueDigitalOrder(orderId) {
     renderAll();
     const refreshed = orders.find((item) => item.backendId === orderId || item.id === orderId);
     if (refreshed) renderOrderDialog(refreshed);
-    showNotice("Коды отправлены и доступны в карточке заказа");
+    showNotice(hasAccountItems ? "Выполнение заказа подтверждено" : "Коды отправлены и доступны в карточке заказа");
   } catch (error) {
-    showNotice(error.message || "Не удалось отправить коды", "danger");
+    showNotice(error.message || "Не удалось выполнить электронный заказ", "danger");
   } finally {
     state.digitalOrderSaving = false;
     if (button?.isConnected) button.disabled = false;
@@ -2536,7 +2551,9 @@ async function placeOrder() {
       isDigitalOrder
         ? `Покупка готова. Откройте заказ №${result.order.order_number}, чтобы посмотреть и скопировать код.`
         : result.items.every((item) => item.fulfillment_type === "digital_manual")
-        ? `Заказ №${result.order.order_number} оформлен. Ожидается отправка кода сотрудником.`
+        ? result.items.some((item) => item.recipient_field)
+          ? `Заказ №${result.order.order_number} оформлен. Ожидается выполнение сотрудником.`
+          : `Заказ №${result.order.order_number} оформлен. Ожидается отправка кода сотрудником.`
         : `Заказ №${result.order.order_number} оформлен и зарезервирован`,
     );
     renderAll();
@@ -3709,7 +3726,7 @@ document.addEventListener("change", (event) => {
     const instantOption = qs("[data-digital-instant-option]");
     if (instantOption) instantOption.hidden = !isDigital;
     const recipientOption = qs("#productRecipientField")?.closest("label");
-    if (recipientOption) recipientOption.hidden = !isDigital;
+    if (recipientOption) recipientOption.hidden = !isDigital || qs("#productInstantDelivery")?.checked;
     if (codeEditor) codeEditor.hidden = !isDigital || !qs("#productInstantDelivery")?.checked;
     if (inventoryEditor) inventoryEditor.hidden = isDigital;
   }

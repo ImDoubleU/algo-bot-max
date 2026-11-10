@@ -625,6 +625,10 @@ class MiniAppOrderRead(BaseModel):
     student_id: UUID
     student_name: str
     teacher_visible: bool = False
+    management_visible: bool = False
+    tenant_slug: str | None = None
+    school_name: str | None = None
+    group_name: str | None = None
     status: OrderStatus
     total_astrocoins: int
     teacher_name: str | None = None
@@ -663,7 +667,7 @@ class MiniAppOrderActionCreate(BaseModel):
 
 class MiniAppDigitalOrderItemIssue(BaseModel):
     order_item_id: UUID
-    codes: list[str] = Field(min_length=1, max_length=20)
+    codes: list[str] = Field(default_factory=list, max_length=20)
 
 
 class MiniAppDigitalOrderIssue(MiniAppOrderActionCreate):

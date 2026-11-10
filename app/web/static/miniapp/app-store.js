@@ -823,6 +823,7 @@ function renderCheckoutSummary() {
       </div>
     </div>
     <div class="checkout-items">${items}</div>
+    ${cartProducts.some((product) => product.recipientField) ? `<p class="checkout-recipient-warning">Проверьте логин или номер телефона. Школа не несёт ответственности за ошибки в указанных вами данных. После перевода средств на ошибочный аккаунт или номер вернуть деньги и астрокоины не получится.</p>` : ""}
     <div class="checkout-total">
       <span>К списанию</span>
       <strong>${total} AC</strong>
@@ -1033,7 +1034,7 @@ function renderOrderViewSwitcher() {
       students.find((student) => student.id === order.studentId)?.teacher === students[0]?.teacher)).length;
   const staffStudentIds = new Set(students.filter((student) => student.staffOrderVisible).map((student) => student.id));
   const managerCount = apiContext.demoMode ? orders.length
-    : orders.filter((order) => staffStudentIds.has(order.studentId)).length;
+    : orders.filter((order) => order.managementVisible || staffStudentIds.has(order.studentId)).length;
   container.innerHTML = [
     ["management", "Управление", "sliders-horizontal", managerCount],
     ["teacher", "Мои ученики", "graduation-cap", ownCount],
@@ -1060,14 +1061,33 @@ function orderIsDigital(order) {
 }
 
 function canIssueDigitalOrder(order) {
-  return !isTeacherOrderView() && ["superadmin", "partner_director", "admin"].includes(primaryStaffRole()) &&
+  return !orderIsFromOtherTenant(order) && !isTeacherOrderView() && ["superadmin", "partner_director", "admin"].includes(primaryStaffRole()) &&
     ["created", "problem"].includes(order.rawStatus) &&
     order.items?.length > 0 &&
     order.items.every((item) => item.fulfillmentType === "digital_manual");
 }
 
+function orderHasAccountItems(order) {
+  return orderIsDigital(order) && order.items.some((item) => Boolean(item.recipientField));
+}
+
+function electronicOrderHint(order) {
+  if (order.rawStatus === "issued_to_student") {
+    if (order.items?.some((item) => item.issuedCodes?.length)) return "Код доступен ниже";
+    return orderHasAccountItems(order) ? "Выполнен по указанным данным" : "Код выдан ученику";
+  }
+  if (["created", "problem"].includes(order.rawStatus)) {
+    return orderHasAccountItems(order) ? "Ожидается выполнение сотрудником" : "Ожидается отправка кода сотрудником";
+  }
+  return "Электронный товар";
+}
+
 function orderDisplayStatus(order) {
   if (orderIsDigital(order)) {
+    if (orderHasAccountItems(order)) {
+      if (order.rawStatus === "issued_to_student") return "Заказ выполнен";
+      if (["created", "problem"].includes(order.rawStatus)) return "Ожидает выполнения";
+    }
     if (order.rawStatus === "issued_to_student") return "Код выдан";
     if (["created", "problem"].includes(order.rawStatus)) return "Ожидает кода";
   }
@@ -1083,6 +1103,7 @@ function orderIsFullyPicked(order) {
 
 function canAssignOrderWarehouses(order) {
   return (
+    !orderIsFromOtherTenant(order) &&
     !isTeacherOrderView() &&
     state.role === "admin" &&
     ["created", "reserved", "problem"].includes(order.rawStatus) &&
@@ -1209,17 +1230,22 @@ function ordersForCurrentRole() {
     const staffStudentIds = new Set(
       students.filter((student) => student.staffOrderVisible).map((student) => student.id),
     );
-    return orders.filter((order) => staffStudentIds.has(order.studentId));
+    return orders.filter((order) => order.managementVisible || staffStudentIds.has(order.studentId));
   }
   if (state.role === "admin") return orders;
   const roleStudentIds = new Set(studentsForCurrentRole().map((student) => student.id));
   return orders.filter((order) => roleStudentIds.has(order.studentId));
 }
 
+function orderIsFromOtherTenant(order) {
+  return Boolean(order.tenantSlug && apiContext.tenantSlug && order.tenantSlug !== apiContext.tenantSlug);
+}
+
 function orderActionDescriptors(order) {
+  if (orderIsFromOtherTenant(order)) return [{action: "open", label: "Открыть заказ", icon: "eye"}];
   const descriptors = [];
   if (canIssueDigitalOrder(order)) {
-    descriptors.push({ action: "open", label: "Отправить код", icon: "key-round" });
+    descriptors.push({ action: "open", label: orderHasAccountItems(order) ? "Выполнить заказ" : "Отправить код", icon: orderHasAccountItems(order) ? "circle-check" : "key-round" });
   } else if (canAssignOrderWarehouses(order)) {
     descriptors.push({ action: "open", label: "Назначить склад", icon: "warehouse" });
   } else if (canMarkOrderDelivered(order)) {
@@ -1448,7 +1474,7 @@ function fulfillmentSnapshotSignature() {
 
 function fulfillmentSnapshotSourceOrders() {
   return ordersForCurrentRole().filter(
-    (order) => !orderIsDigital(order) && Array.isArray(order.items) && order.items.length > 0,
+    (order) => !orderIsFromOtherTenant(order) && !orderIsDigital(order) && Array.isArray(order.items) && order.items.length > 0,
   );
 }
 
@@ -2078,11 +2104,12 @@ function renderOrders() {
               <strong class="order-number">Заказ №${escapeHtml(order.id)}</strong>
               <span class="status-badge ${orderStatusTone(order.rawStatus)}">${escapeHtml(displayStatus)}</span>
             </div>
-            ${canViewStudentProfiles()
+            ${canViewStudentProfiles() && !orderIsFromOtherTenant(order)
               ? `<button class="student-name-link order-card-student" type="button" data-open-student-profile="${escapeHtml(order.studentId)}">${escapeHtml(order.student)}</button>`
               : `<strong class="order-card-student">${escapeHtml(order.student)}</strong>`}
             <div class="order-card-items">${escapeHtml(isTeacherOrderView() ? fulfillmentOrderProductsLabel(order) : order.item)}</div>
             <div class="order-card-meta">
+              ${order.schoolName ? `<span>${escapeHtml(order.schoolName)}</span>` : ""}
               ${
                 !isTeacherOrderView() && ["teacher", "admin"].includes(state.role)
                   ? `<span>${

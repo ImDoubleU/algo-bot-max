@@ -69,7 +69,12 @@ def _order_message(
     issued_codes: list[str] | None = None,
 ) -> str:
     is_digital_delivery = order.status == OrderStatus.ISSUED_TO_STUDENT and bool(issued_codes)
+    is_account_delivery = order.status == OrderStatus.ISSUED_TO_STUDENT and any(
+        item.recipient_field for item in order.__dict__.get("items", [])
+    )
     title = (
+        f"Заказ №{order.order_number} выполнен"
+        if is_account_delivery else
         f"Заказ №{order.order_number}: цифровой товар готов"
         if is_digital_delivery
         else f"Заказ №{order.order_number}: {_order_status_text(order.status)}"
@@ -90,6 +95,8 @@ def _order_message(
             "Код находится в приложении. Откройте раздел «Заказы», выберите "
             "«Получены» и нажмите на заказ."
         )
+    elif is_account_delivery:
+        message = "Заказ выполнен по указанным вами данным. Подробности — в карточке заказа."
     facts = [
         ("Ученик", student.display_name),
         ("Сумма", f"{order.total_astrocoins} AC"),

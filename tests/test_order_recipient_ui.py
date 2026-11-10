@@ -27,6 +27,10 @@ def test_checkout_collects_only_configured_recipient(feedback_browser, width):
         input = page.locator("[data-checkout-recipient]")
         assert input.count() == 1
         assert page.locator("#checkoutDialog .checkout-guidance").count() == 0
+        assert page.locator(".checkout-recipient-warning").is_visible()
+        assert "Школа не несёт ответственности" in page.locator(
+            ".checkout-recipient-warning",
+        ).inner_text()
         assert input.get_attribute("type") == ("tel" if field == "phone" else None)
         before = page.evaluate("orders.length")
         page.locator("#confirmOrderButton").click()

@@ -881,11 +881,6 @@ async def test_order_recipient_required_snapshotted_and_idempotent(
 async def test_manual_digital_rejects_wrong_codes_without_issuing(db_session, codes):
     student, product, created = await manual_digital_order(db_session)
     director = await digital_issuer(db_session, student)
-    if not codes:
-        from pydantic import ValidationError
-        with pytest.raises(ValidationError):
-            MiniAppDigitalOrderItemIssue(order_item_id=created.items[0].id, codes=codes)
-        return
     with pytest.raises(MiniAppStoreError):
         await miniapp_service.issue_miniapp_digital_order(
             db_session, order_id=created.order.id,
