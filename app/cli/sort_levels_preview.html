@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Лаборатория цвета · Algo MAX</title>
+<style>
+html,body{margin:0;min-height:100%;background:#dfe8e5;font-family:'Segoe UI',sans-serif}
+body{box-sizing:border-box;padding:8px;display:flex;justify-content:center}
+#sortLab{position:relative;inset:auto;transform:none;margin:0;width:min(100%,760px);height:calc(100dvh - 16px);max-height:none;display:flex;flex-direction:column;border:1px solid #a9bec4;border-radius:16px;overflow:hidden;background:#102936;color:#e7f0e9}
+#sortLab>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;min-height:46px;flex-shrink:0;border-bottom:1px solid #44616c}
+#sortLab label{font:700 19px/1.2 'Segoe UI',sans-serif}
+#sortLab select{max-width:145px;min-height:44px;margin-left:6px;border:1px solid #718e99;border-radius:9px;background:#fffef3;color:#294d5e;font-size:19px;padding:6px}
+#sortLab a{font-size:18px;color:#edf0d7;text-underline-offset:4px}
+#sortLab>.game-stage{position:relative;flex:1;min-height:0;overflow:auto;display:block}
+#sortLab .game-result{box-sizing:border-box;min-height:100%}
+#sortLab .preview-loading{font-size:24px;padding:30px}
+</style>
+<article class="game-dialog is-sort-route" data-game="sort" id="sortLab">
+  <header><label>Уровень <select id="level" aria-label="Выбрать уровень"></select></label><a href="/miniapp?demo=1&demo_role=student&view=games">В игры</a></header>
+  <div class="game-stage"><p class="preview-loading">Открываем лабораторию…</p></div>
+</article>
+<script>
+(async()=>{
+  const manifest=await fetch('/miniapp/static/arcade-assets.json',{cache:'no-store'}).then(r=>r.json()),
+    styles=new Set(['games.css','games-extra.css','games-menu.css','games-journey.css','games-personality.css','games-play.css','games-feedback.css','games-mobile.css','games-sort.css','games-worlds.css']),
+    scripts=new Set(['games-words-data.js','games-lessons.js','games-sort-levels.js','games-expedition.js',
+      'games-extra.js','games-hill.js','games-engine.js','games-journey.js','games-drop.js',
+      'games-drop-stable.js','games-drop-soft.js','games-drop-lab.js','games-clock.js','games-world.js',
+      'games-benchmarks.js','games-motion.js','games-sort-view.js','games-journey-view.js','games-results.js']);
+  const filename=url=>url.split('/').at(-1).split('?')[0];
+  await Promise.all(manifest.styles.filter(url=>styles.has(filename(url))).map(url=>new Promise((resolve,reject)=>{
+    const link=document.createElement('link');link.rel='stylesheet';link.href=url;
+    link.onload=resolve;link.onerror=reject;document.head.append(link);
+  })));
+  for(const url of manifest.scripts.filter(url=>scripts.has(filename(url))))await new Promise((resolve,reject)=>{
+    const script=document.createElement('script');script.src=url;script.onload=resolve;script.onerror=reject;
+    document.head.append(script);
+  });
+  const root=document.querySelector('#sortLab'),stage=root.querySelector('.game-stage'),
+    select=document.querySelector('#level'),W=ArcadeWorld;
+  select.innerHTML=Array.from({length:48},(_,i)=>`<option value="${i+1}">${i+1} · ${ArcadeSortLevels.mission(i+1).title}</option>`).join('');
+  let world,view,abort,raf,last,finished=false;
+  const observe=new ResizeObserver(()=>root.style.setProperty('--arcade-stage-height',stage.clientHeight+'px'));
+  observe.observe(stage);
+  async function finish(){
+    if(finished)return;finished=true;cancelAnimationFrame(raf);
+    await view.settled();abort.abort();
+    root.classList.add('is-finished');
+    const report=W.report(world);
+    stage.innerHTML='<div class="game-result journey-result">'+ArcadeResults.journey({g:{id:'sort'}},report,null)+'</div>';
+    stage.querySelector('[data-journey-next]').onclick=()=>start(report.journey.success?Math.min(48,report.journey.stage+1):report.journey.stage);
+    stage.querySelector('[data-journey-map]')?.addEventListener('click',()=>select.focus());
+    stage.scrollTop=0;
+  }
+  function update(){view.update(world);if(world.ended)void finish();}
+  function frame(now){
+    if(finished)return;
+    const ticks=Math.max(0,Math.min(30,Math.floor((now-last)*.06)));
+    if(ticks){W.advance(world,ticks);last+=ticks/0.06;}
+    update();if(!finished)raf=requestAnimationFrame(frame);
+  }
+  function start(number){
+    abort?.abort();cancelAnimationFrame(raf);finished=false;select.value=number;
+    history.replaceState(null,'','?level='+number);root.classList.remove('is-finished');
+    world=W.create({game:'sort',seed:(number*2654435761)>>>0,mode:'journey',device:'keyboard',
+      clockRules:2,sortRules:4,journey:{stage:number,charges:3}});
+    abort=new AbortController();
+    view=ArcadeSortView.mount(stage,a=>{if(!finished){W.input(world,a);update();}},
+      {mode:'journey',device:'keyboard',signal:abort.signal,paused:()=>finished,quality:()=> 'high'});
+    update();stage.scrollTop=0;last=performance.now();raf=requestAnimationFrame(frame);
+  }
+  select.onchange=()=>start(Number(select.value));
+  document.addEventListener('visibilitychange',()=>{last=performance.now();});
+  const requested=Number(new URLSearchParams(location.search).get('level'));
+  start(Number.isInteger(requested)&&requested>=1&&requested<=48?requested:1);
+})().catch(()=>{document.querySelector('.game-stage').innerHTML='<p class="preview-loading">Не удалось открыть уровни. Обновите страницу.</p>';});
+</script>
+</html>

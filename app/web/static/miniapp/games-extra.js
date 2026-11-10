@@ -234,6 +234,9 @@
   }
 
   function sortMoves(w) {
+    if(w.sortRules>=4)return w.tubes.flatMap((_,i)=>w.tubes.map((_,j)=>({
+      i,j,ok:ArcadeSortLevels.canPour(w,i,j)
+    }))).filter(m=>m.ok);
     return w.tubes.flatMap((from, i) => w.tubes.map((to, j) => ({
       i,
       j,
@@ -242,6 +245,7 @@
   }
 
   function sortRound(w, H, attempt=0) {
+    if(w.sortRules>=4&&w.journey){ArcadeSortLevels.round(w,H);return;}
     const count = Math.min(7, 3 + w.score + (w.journey ? Math.floor(w.journey.chapter/2)+(w.journey.variant===2?1:0) : 0));
     w.tubes = Array.from({
       length: count
@@ -682,6 +686,7 @@
         w.sortUndo = [];
         w.selectedTube = -1;
         w.roundMoves = 0;
+        if(w.sortRules>=4)ArcadeSortLevels.resetSeen(w);
         return true;
       }
       if (a.type === "next" && w.sortWon) {
@@ -757,7 +762,11 @@
     if (w.sortWon || !Number.isInteger(a.from) || !Number.isInteger(a.to) || a.from === a.to || a.from < 0 || a.to < 0 || a.from >= w.tubes.length || a.to >= w.tubes.length) return false;
     const from = w.tubes[a.from],
       to = w.tubes[a.to];
-    if (!from.length || to.length >= 4 || to.length && to.at(-1) !== from.at(-1)) {
+    const capacity=w.sortRules>=4?ArcadeSortLevels.capacity(w,a.to):4;
+    if(w.sortRules>=4&&(ArcadeSortLevels.sealed(w,a.from)||ArcadeSortLevels.sealed(w,a.to))){
+      w.sortMessage='Собери цвет, чтобы открыть замок';return false;
+    }
+    if (!from.length || to.length >= capacity || to.length && to.at(-1) !== from.at(-1)) {
       w.sortMessage = "Сверху должен быть тот же цвет или свободное место";
       return false;
     }
@@ -767,7 +776,8 @@
     const color=from.at(-1),fromSize=from.length,toSize=to.length;
     let moved=0;
     do{to.push(from.pop());moved++;}
-    while(w.sortRules>=2&&(w.sortRules>=3||!a.single)&&from.length&&from.at(-1)===color&&to.length<4);
+    while(w.sortRules>=2&&(w.sortRules>=3||!a.single)&&from.length&&from.at(-1)===color&&to.length<capacity);
+    if(w.sortRules>=4)ArcadeSortLevels.afterPour(w,a.from,a.to,moved);
     w.roundMoves++;
     w.details.moves++;
     if(w.sortRules>=3)w.selectedTube=-1;

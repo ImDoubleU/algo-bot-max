@@ -18,6 +18,7 @@ def sources() -> str:
         for name in (
             "games-words-data.js",
             "games-lessons.js",
+            "games-sort-levels.js",
             "games-expedition.js",
             "games-extra.js",
             "games-hill.js",

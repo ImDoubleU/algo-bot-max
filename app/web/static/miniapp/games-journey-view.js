@@ -15,6 +15,7 @@
   }
 
   function labels(m) {
+    if(m.game==='sort'&&m.routeVersion===2)return m.goal+' '+countWord(m.goal,['задача','задачи','задач'])+' · '+(m.boss&&m.goal>1&&m.colors<7?m.colors+'–'+(m.colors+1)+' цветов':m.colors+' '+countWord(m.colors,['цвет','цвета','цветов']));
     if(m.game==='hill') return 'Проедь '+m.goal+' м';
     if(m.game==='evolve') return m.goal+' очков · спаси '+Math.ceil(m.stage/4)+' '+countWord(Math.ceil(m.stage/4),['зверя','зверей','зверей']);
     if (m.game === '2048') return 'Собери плитку ' + m.goal + (m.corner ? ' в левом верхнем углу' : '');
@@ -40,6 +41,8 @@
   function starGoals(m) {
     const g = m.game,
       n = m.goal;
+    if(g==='sort'&&m.routeVersion===2)return [labels(m),
+      'До '+m.silverMoves+' ходов','До '+m.goldMoves+' ходов без запасной колбы'];
     const extra = {
       orbit: ['Посадок по центру: ' + Math.ceil(n * .5), 'Посадок по центру: ' + Math.ceil(n * .8)],
       tower: ['Укладок по центру: ' + Math.ceil(n / 4), 'Укладок по центру: ' + Math.ceil(n / 2)],
@@ -71,8 +74,8 @@
     host.querySelector('b').textContent = j.power;
     host.querySelector('small').textContent = j.notes || (j.powerUntil > w.time ? 'Действует ещё ' + Math.ceil(j.powerUntil - w.time) + ' с' : j.action);
     const b = host.querySelector('button');
-    b.textContent = j.swapSelecting ? 'Отменить обмен' : j.used >= j.charges ? 'Использовано' : 'Применить · ' + (j.charges - j.used);
-    const blocked = w.id === 'blocks' && !J.rotatable(w) || w.id === 'bugs' && !w.targets.some(t => !t.good) || w.id === 'tower' && j.magnet || w.id === 'orbit' && j.correction || w.id === 'memory' && j.revealUntil > w.time || w.id === 'debug' && (w.answered || j.hintAt === w.index) || w.id === 'bubbles' && w.projectile || w.id === 'sort' && w.sortWon || w.id === 'words' && w.wordHint || ['typing', 'react', 'runner'].includes(w.id) && j.powerUntil > w.time;
+    b.textContent = w.id==='sort'&&w.sortRules>=4&&w.sortPowerUsed?'Колба добавлена':j.swapSelecting ? 'Отменить обмен' : j.used >= j.charges ? 'Использовано' : 'Применить · ' + (j.charges - j.used);
+    const blocked = w.id === 'blocks' && !J.rotatable(w) || w.id === 'bugs' && !w.targets.some(t => !t.good) || w.id === 'tower' && j.magnet || w.id === 'orbit' && j.correction || w.id === 'memory' && j.revealUntil > w.time || w.id === 'debug' && (w.answered || j.hintAt === w.index) || w.id === 'bubbles' && w.projectile || w.id === 'sort' && (w.sortWon||(w.sortRules>=4&&w.sortPowerUsed)) || w.id === 'words' && w.wordHint || ['typing', 'react', 'runner'].includes(w.id) && j.powerUntil > w.time;
     b.disabled = j.used >= j.charges || run.phase !== 'playing' || !!blocked;
     run.dialog.dataset.journeyPower = j.powerUntil > w.time || j.correction || j.magnet ? 'on' : 'off';
   }

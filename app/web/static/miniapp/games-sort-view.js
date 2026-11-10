@@ -5,7 +5,7 @@
     const names=['фиолетовый','зелёный','оранжевый','розовый','голубой','жёлтый','синий','коричневый'];
     function mount(stage,send,options) {
         stage.dataset.game='sort';
-        stage.innerHTML='<div class="sort-game"><div class="sort-meta"><b></b><span data-sort-progress></span><span data-sort-moves></span></div><div class="sort-tubes" role="group" aria-label="Колбы с шариками"></div><p class="sort-message" role="status"></p><div class="sort-tools"><button data-sort-restart>Заново</button>'+(options.mode==='practice'?'<button data-sort-undo>Отменить ход</button>':'')+'</div><div class="sort-complete"></div><div class="sort-effects" aria-hidden="true"></div></div>';
+        stage.innerHTML='<div class="sort-game"><div class="sort-meta"><b></b><span data-sort-progress></span><span data-sort-moves></span><span data-sort-route-clock hidden></span></div><div class="sort-rule" hidden><span></span><b></b></div><div class="sort-tubes" role="group" aria-label="Колбы с шариками"></div><p class="sort-message" role="status"></p><div class="sort-tools"><button data-sort-restart>Заново</button><button data-sort-help hidden title="Дополнительная колба. Для трёх звёзд пройди без помощи.">Ещё колба</button>'+(options.mode==='practice'?'<button data-sort-undo>Отменить ход</button>':'')+'</div><div class="sort-complete"></div><div class="sort-effects" aria-hidden="true"></div></div>';
         const $=s=>stage.querySelector(s), grid=$('.sort-tubes'),effects=$('.sort-effects');
         let world=null,signatures=[],sequence=0,won=false,busy=false,drag=null,ignoreClickUntil=0;
         let flight=0,lastTick=0,lastSeed=null,settling=Promise.resolve();
@@ -18,8 +18,7 @@
         const input=(action,e)=>{
             if(action.type==='next'?available()&&world?.sortWon:active())send({...action,source:source(e)});
         };
-        const valid=(from,to)=>from!==to&&world?.tubes[from]?.length&&world.tubes[to]?.length<4
-            &&(!world.tubes[to].length||world.tubes[to].at(-1)===world.tubes[from].at(-1));
+        const valid=(from,to)=>world&&ArcadeSortLevels.canPour(world,from,to);
         const cancel=()=>{
             flight++;
             for(const a of animations)a.cancel();animations.clear();
@@ -94,6 +93,7 @@
                 input({type:'tube',i:+b.dataset.tube},e);
             }
             if(b.hasAttribute('data-sort-restart'))input({type:'restart'},e);
+            if(b.hasAttribute('data-sort-help'))input({type:'power'},e);
             if(b.hasAttribute('data-sort-undo'))input({type:'undo'},e);
             if(b.hasAttribute('data-sort-next'))input({type:'next'},e);
         });
@@ -138,20 +138,29 @@
                 cancel();signatures=[];
                 grid.style.setProperty('--tube-columns',w.tubes.length<=5?w.tubes.length:Math.ceil(w.tubes.length/2));
                 grid.style.setProperty('--tube-rows',w.tubes.length<=5?1:2);
-                grid.innerHTML=w.tubes.map((_,i)=>`<button data-tube="${i}" class="sort-tube"><span class="sort-glass"></span><small>${i+1}</small></button>`).join('');
+                grid.innerHTML=w.tubes.map((_,i)=>`<button data-tube="${i}" class="sort-tube"><span class="sort-glass"></span><span class="sort-lock" hidden aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v11H5Z"/></svg></span><small>${i+1}</small></button>`).join('');
             }
             w.tubes.forEach((t,i)=>{
-                const button=grid.children[i],key=t.join(),selected=w.selectedTube===i,
+                const button=grid.children[i],capacity=ArcadeSortLevels.capacity(w,i),
+                    seen=w.sortSeen?.[i],key=t.join()+':'+(seen?.join('')||'')+':'+capacity,
+                    selected=w.selectedTube===i,sealed=ArcadeSortLevels.sealed(w,i),
                     complete=t.length===4&&t.every(v=>v===t[0]);
+                button.dataset.capacity=capacity;
+                button.style.setProperty('--tube-capacity',capacity);
+                button.classList.toggle('is-sealed',sealed);
+                button.querySelector('.sort-lock').hidden=!sealed;
                 button.classList.toggle('is-selected',selected);
                 button.classList.toggle('is-complete',complete);
                 button.classList.toggle('can-receive',w.selectedTube>=0&&!!valid(w.selectedTube,i));
                 button.classList.toggle('is-muted',w.selectedTube>=0&&!selected&&!valid(w.selectedTube,i));
                 button.setAttribute('aria-pressed',String(selected));
-                button.setAttribute('aria-label',`Колба ${i+1}: ${t.length?t.slice().reverse().map(v=>names[v]).join(', '):'пусто'}`);
+                const description=t.map((v,j)=>seen&&!seen[j]?'скрытый шарик':names[v]).reverse();
+                button.setAttribute('aria-label',`Колба ${i+1}${sealed?', под замком':''}${capacity<4?`, вместимость ${capacity}`:''}: ${t.length?description.join(', '):'пусто'}`);
                 if(signatures[i]!==key) {
-                    $('.sort-tubes').children[i].querySelector('.sort-glass').innerHTML=[3,2,1,0].map(j=>
-                        `<i data-slot="${j}" class="${t[j]===undefined?'':'sort-ball'}"${t[j]===undefined?'':` style="--ball:${colors[t[j]]};--marble:url('/miniapp/static/worlds/marble-${t[j]}.svg?v=2')"`}></i>`).join('');
+                    button.querySelector('.sort-glass').innerHTML=Array.from({length:capacity},(_,n)=>capacity-1-n).map(j=>{
+                        const unknown=t[j]!==undefined&&seen&&!seen[j];
+                        return `<i data-slot="${j}" class="${t[j]===undefined?'':unknown?'sort-unknown':'sort-ball'}"${t[j]===undefined||unknown?'':` style="--ball:${colors[t[j]]};--marble:url('/miniapp/static/worlds/marble-${t[j]}.svg?v=2')"`}>${unknown?'?':''}</i>`;
+                    }).join('');
                     signatures[i]=key;
                 }
             });
@@ -160,12 +169,30 @@
             lastTick=w.tick;lastSeed=w.seed;
             if(!reset&&cue){cancel();fly(cue,old);}
             const rounds=w.sortCompetition?5:w.journey?.goal;
+            const advanced=w.journey?.routeVersion===2;
+            $('.sort-game').classList.toggle('has-rules',advanced);
+            stage.closest('.game-dialog')?.classList.toggle('is-sort-route',advanced);
+            if(advanced){
+                const heading=stage.closest('.game-dialog')?.querySelector('header h2');
+                if(heading)heading.textContent=`Колбы · уровень ${w.journey.stage}`;
+            }
+            $('[data-sort-route-clock]').hidden=!advanced;
+            $('[data-sort-help]').hidden=!advanced;
+            $('.sort-rule').hidden=!advanced;
+            if(advanced){
+                const remaining=Math.max(0,w.sortSealTarget-w.tubes.filter(t=>t.length===4&&t.every(c=>c===t[0])).length);
+                $('.sort-rule span').textContent=w.journey.sealed&&!w.sortSealUnlocked?
+                    `Замок: собери ещё ${remaining} ${remaining===1?'цвет':'цвета'}`:w.journey.rule;
+                $('.sort-rule b').textContent=`Ходы ${w.journey.movesUsed}/${w.journey.moves} · ★★★ ≤ ${w.journey.sortGold}`;
+                const clock=ArcadeClock.view(w);
+                $('[data-sort-route-clock]').textContent=(clock.paused?'Ⅱ ':'')+ArcadeClock.format(Math.ceil(clock.value));
+            }
             $('.sort-meta b').textContent=rounds?`Задача ${Math.min(rounds,w.sortWon?w.score:w.score+1)} из ${rounds}`:`Уровень ${w.sortWon?w.score:w.score+1}`;
             $('[data-sort-progress]').textContent='Собрано '+w.tubes.filter(t=>t.length===4&&t.every(v=>v===t[0])).length+' / '+(w.tubes.flat().length/4);
             $('[data-sort-moves]').textContent=`Ходов: ${w.roundMoves}`;
             $('.sort-message').textContent=w.sortMessage;
             const locked=!!(w.sortWon||w.ended||options.readOnly||busy||cooling());
-            for(const button of grid.children)button.disabled=locked;
+            for(const [i,button] of [...grid.children].entries())button.disabled=locked||ArcadeSortLevels.sealed(w,i);
             grid.toggleAttribute('inert',locked);
             const showWin=w.sortWon&&!w.ended&&!busy&&!cooling();
             if(won!==showWin) {
@@ -178,6 +205,8 @@
             }
             $('[data-sort-undo]')?.toggleAttribute('disabled',!w.sortUndo.length||locked);
             $('[data-sort-restart]').disabled=locked;
+            $('[data-sort-help]').disabled=locked||w.sortPowerUsed||w.journey?.used>=w.journey?.charges;
+            $('[data-sort-help]').textContent=w.sortPowerUsed?'Колба добавлена':'Ещё колба';
         }
         return {update,settled:()=>settling};
     }

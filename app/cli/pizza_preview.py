@@ -298,6 +298,16 @@ static = ROOT / "app/web/static/miniapp"
 preview.mount("/miniapp/static", StaticFiles(directory=static), name="static")
 
 
+@preview.get("/preview/sort-levels")
+async def sort_levels_preview():
+    if not arcade_store:
+        raise HTTPException(404)
+    return Response(
+        Path(__file__).with_name("sort_levels_preview.html").read_text(encoding="utf-8"),
+        media_type="text/html",
+    )
+
+
 @preview.middleware("http")
 async def local_requests(request: Request, call_next):
     if request.headers.get("host", "").split(":")[0] not in ("127.0.0.1", "localhost"):

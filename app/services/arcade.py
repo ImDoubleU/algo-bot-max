@@ -414,7 +414,7 @@ class ArcadeStore:
                 setup["roundSeconds"] = 600
                 setup["sortCompetition"] = 1
             if game == "sort":
-                setup["sortRules"] = 3
+                setup["sortRules"] = 4 if mode == "journey" else 3
             if game == "words":
                 setup["wordDictionary"] = 3
                 from app.services import arcade_words

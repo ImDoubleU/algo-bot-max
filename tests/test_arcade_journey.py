@@ -39,7 +39,7 @@ def finish(store, session, trace, player="p1"):
 @pytest.mark.parametrize("game", list(arcade_journey.catalogue()))
 def test_all_adventures_have_twenty_four_stages_and_never_progress_by_waiting(game):
     stages = arcade_journey.catalogue()[game]["stages"]
-    maximum = 97 if game in {"typing", "debug"} else 25
+    maximum = 97 if game in {"typing", "debug"} else 49 if game == "sort" else 25
     assert [m["stage"] for m in stages] == list(range(1, maximum))
     assert len({m["title"] for m in stages}) == (8 if game in {"typing", "debug"} else 6)
     for stage in (1, 12, 24):

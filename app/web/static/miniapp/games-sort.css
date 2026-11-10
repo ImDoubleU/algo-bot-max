@@ -62,3 +62,55 @@
  .sort-race-route b{width:36px;height:36px;font-size:22px}
  .game-dialog[data-game=sort] .sort-race-intro .games-main{min-height:52px;padding:12px}
 }
+.game-dialog[data-game=sort] .sort-game.has-rules .sort-tubes{align-items:end;padding-inline:4px;box-sizing:border-box}
+.game-dialog[data-game=sort] .sort-game.has-rules .sort-meta>[data-sort-progress]{display:none}
+.game-dialog[data-game=sort] .sort-game.has-rules .sort-tube .sort-glass{height:calc((var(--tube-height,164px) - 26px)*var(--tube-capacity,4)/4 + 26px)}
+.game-dialog[data-game=sort] .sort-rule{display:grid;gap:6px;padding:12px 14px;background:#dfecee;border:1px solid #b6cdd3;border-radius:12px;color:#315667;font:600 18px/1.3 'Segoe UI',sans-serif}
+.game-dialog[data-game=sort] .sort-rule b{color:#7a582b;font-size:17px;font-weight:650}
+.game-dialog[data-game=sort] .sort-unknown{display:grid;place-items:center;border-radius:50%;background:radial-gradient(circle at 30% 25%,#688997,#244455);color:#fff;font:800 23px/1 'Segoe UI',sans-serif;box-shadow:inset -2px -3px #183b4e55}
+.game-dialog[data-game=sort] .sort-lock{position:absolute;left:50%;top:42%;translate:-50% -50%;width:38px;height:38px;display:grid;place-items:center;border-radius:10px;background:#ead7ae;color:#745026;border:2px solid #ac8b4c;box-shadow:0 3px 8px #34556a30}
+.game-dialog[data-game=sort] .sort-lock svg{width:27px;height:27px}
+.game-dialog[data-game=sort] .sort-tube.is-sealed{cursor:default;opacity:1}
+.game-dialog[data-game=sort] .sort-tube.is-sealed .sort-glass{filter:saturate(.3);background:#c9d5da66}
+.game-dialog[data-game=sort] .sort-next-feature{display:flex;gap:14px;align-items:center;margin-top:18px;padding-top:18px;border-top:1px solid #d1d9d5;color:#426576}
+.game-dialog[data-game=sort] .sort-next-feature>span{display:grid;place-items:center;flex:0 0 42px;height:42px;background:#e0ece8;border-radius:12px;font:750 28px/1 'Segoe UI',sans-serif}
+.game-dialog[data-game=sort] .sort-next-feature svg{width:29px;height:29px}
+.game-dialog[data-game=sort] .sort-next-feature b{font-size:20px}
+.game-dialog[data-game=sort] .sort-next-feature p{font-size:18px;margin:4px 0 0}
+.game-dialog[data-game=sort] .arcade-level-grid .journey-stop.is-challenge{position:relative;border-color:#c1a15e;background:#fff5db}
+.game-dialog[data-game=sort] .arcade-level-grid .journey-stop.is-challenge:after{content:'★';position:absolute;top:3px;right:6px;color:#a57d2e;font-size:18px}
+.game-dialog[data-game=sort] .arcade-level-grid .journey-stop.is-selected{background:#2e6571;border-color:#2e6571;color:#fff}
+@media(max-width:640px),(max-height:650px){
+ .game-dialog[data-game=sort] .sort-rule{font-size:18px;padding:9px 10px;gap:4px}
+ .game-dialog[data-game=sort] .sort-rule b{font-size:17px}
+ .game-dialog[data-game=sort] .sort-unknown{font-size:19px}
+ .game-dialog[data-game=sort] .sort-lock{width:32px;height:32px}
+ .game-dialog[data-game=sort] .sort-lock svg{width:23px;height:23px}
+}
+/* The route needs one set of controls. Reserve real space for every row. */
+.game-dialog.is-sort-route:not(.is-browsing):not(.is-finished)>.game-hud,
+.game-dialog.is-sort-route:not(.is-browsing):not(.is-finished)>.arcade-live-goal,
+.game-dialog.is-sort-route:not(.is-browsing):not(.is-finished)>.journey-tools,
+.game-dialog.is-sort-route:not(.is-browsing):not(.is-finished)>footer{display:none!important}
+.game-dialog[data-game=sort] .sort-game.has-rules{display:flex;flex-direction:column;min-height:100%;padding:12px}
+.game-dialog[data-game=sort] .sort-game.has-rules .sort-meta{flex-shrink:0;gap:8px;margin-bottom:10px}
+.game-dialog[data-game=sort] .sort-game.has-rules .sort-meta>[data-sort-moves]{display:none}
+.game-dialog[data-game=sort] .sort-game.has-rules [data-sort-route-clock]{font-size:21px;font-weight:750;font-variant-numeric:tabular-nums;color:#284d62}
+.game-dialog[data-game=sort] .sort-game.has-rules .sort-rule{flex-shrink:0;font-size:18px}
+.game-dialog[data-game=sort] .sort-game.has-rules .sort-rule b{font-size:18px}
+.game-dialog[data-game=sort] .sort-game.has-rules .sort-tubes{flex:1 0 auto;min-height:auto;padding:12px 4px 8px;row-gap:8px}
+.game-dialog[data-game=sort] .sort-game.has-rules .sort-tube{gap:6px}
+.game-dialog[data-game=sort] .sort-game.has-rules .sort-glass{--tube-height:clamp(90px,calc((var(--arcade-stage-height,480px) - 280px)/var(--tube-rows,1)),190px)}
+.game-dialog[data-game=sort] .sort-game.has-rules .sort-message:empty{display:none}
+.game-dialog[data-game=sort] .sort-game.has-rules .sort-tools{flex-shrink:0;margin:8px 0 0}
+.game-dialog[data-game=sort] .sort-game.has-rules .sort-tools button{font-size:18px;min-height:44px;padding:9px 14px}
+.game-dialog[data-game=sort] .sort-game.has-rules .sort-tools button[data-sort-help]{background:#2e6571;border-color:#2e6571;color:#fff}
+.game-dialog[data-game=sort] .arcade-current-level p{font-size:19px}
+@media(min-width:600px) and (max-height:500px){
+ .game-dialog[data-game=sort] .sort-game.has-rules{display:grid;grid-template-columns:minmax(0,1fr) 235px;grid-template-rows:auto 1fr auto;gap:10px 18px}
+ .game-dialog[data-game=sort] .sort-game.has-rules .sort-meta{grid-column:1/3;margin:0}
+ .game-dialog[data-game=sort] .sort-game.has-rules .sort-tubes{grid-column:1;grid-row:2/4;align-self:center;padding-block:10px}
+ .game-dialog[data-game=sort] .sort-game.has-rules .sort-rule{grid-column:2;grid-row:2;align-self:start}
+ .game-dialog[data-game=sort] .sort-game.has-rules .sort-tools{grid-column:2;grid-row:3;align-self:start;margin:0}
+ .game-dialog[data-game=sort] .sort-game.has-rules .sort-glass{--tube-height:clamp(76px,calc((var(--arcade-stage-height,300px) - 100px)/var(--tube-rows,1) - 28px),140px)}
+}

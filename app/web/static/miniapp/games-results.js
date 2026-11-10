@@ -58,9 +58,10 @@
 
     function journey(run, report, receipt) {
         const j = report.journey, total=ArcadeJourney.stageCount(run.g.id);
+        const mission=ArcadeJourney.mission(run.g.id,j.stage,run.g.id!=='sort'||j.routeVersion===2);
         const hill = run.g.id === 'hill',
             back = hill ? 'К экспедиции' : 'К уровням';
-        return `${reward(receipt)}<div class="arcade-level-result"><p>${hill?'Заезд':'Уровень'} ${j.stage}</p><div class="journey-result-stars" aria-label="${j.stars} из 3 звёзд">${'★'.repeat(j.stars)}${'☆'.repeat(3-j.stars)}</div><h3>${j.success?(hill?'Заезд пройден!':'Уровень пройден!'):'Попробуем ещё?'}</h3><p>${report.score} / ${j.goal}${hill?' м':''}</p></div><div class="arcade-result-actions"><button class="games-main" data-journey-next>${!j.success?'Ещё раз':j.stage<total?(hill?'Следующий заезд':'Следующий уровень'):back}</button>${j.stage<total||!j.success?`<button class="game-back" data-journey-map>${back}</button>`:''}</div><details class="arcade-result-details"><summary>Звёзды и награды</summary>${breakdown(receipt)}<ul class="journey-result-goals">${ArcadeJourneyView.starGoals(ArcadeJourney.mission(run.g.id,j.stage)).map((goal,i)=>`<li class="${j.stars>i?'is-done':''}"><span>${j.stars>i?'✓':'○'}</span>${esc(goal)}</li>`).join('')}</ul></details>`;
+        return `${reward(receipt)}<div class="arcade-level-result"><p>${hill?'Заезд':'Уровень'} ${j.stage}</p><div class="journey-result-stars" aria-label="${j.stars} из 3 звёзд">${'★'.repeat(j.stars)}${'☆'.repeat(3-j.stars)}</div><h3>${j.success?(hill?'Заезд пройден!':'Уровень пройден!'):'Попробуем ещё?'}</h3><p>${report.score} / ${j.goal}${hill?' м':''}</p></div><div class="arcade-result-actions"><button class="games-main" data-journey-next>${!j.success?'Ещё раз':j.stage<total?(hill?'Следующий заезд':'Следующий уровень'):back}</button>${j.stage<total||!j.success?`<button class="game-back" data-journey-map>${back}</button>`:''}</div><details class="arcade-result-details"><summary>Звёзды и награды</summary>${breakdown(receipt)}<ul class="journey-result-goals">${ArcadeJourneyView.starGoals({...mission,...j}).map((goal,i)=>`<li class="${j.stars>i?'is-done':''}"><span>${j.stars>i?'✓':'○'}</span>${esc(goal)}</li>`).join('')}</ul></details>`;
     }
     window.ArcadeResults = {
         trophy,

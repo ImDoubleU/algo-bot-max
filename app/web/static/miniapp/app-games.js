@@ -623,6 +623,7 @@
         } = run, screen = run.menuScreen || 'menu';
         d.classList.add('is-browsing');
         d.classList.remove('is-learning', 'is-finished');
+        if(g.id==='sort'){$('header h2',d).textContent=g.name;d.classList.remove('is-sort-route');}
         $('.game-hud', d).hidden = true;
         $('.arcade-live-goal', d).hidden = true;
         $('.journey-tools', d).hidden = true;
@@ -1120,6 +1121,7 @@
         }
         run.viewAbort?.abort();
         run.dialog.classList.add('is-finished');
+        if(run.g.id==='sort')$('header h2',run.dialog).textContent=run.g.name;
         $('.game-leaders-button', run.dialog).hidden = false;
         $('.game-hud', run.dialog).hidden = true;
         $('.arcade-live-goal', run.dialog).hidden = true;

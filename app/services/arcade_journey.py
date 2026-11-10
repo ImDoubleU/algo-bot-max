@@ -26,9 +26,14 @@ def progress(db, player):
         records = [r for r in rows if r["game"] == game]
         cleared = {r["stage"] for r in records}
         maximum = len(catalogue()[game]["stages"])
-        chapter_size = 12 if game in ("typing", "debug") else 4
+        chapter_size = 12 if game in ("typing", "debug") else 8 if game == "sort" else 4
         legacy = {
-            r["stage"] for r in records if json.loads(r["details"]).get("lessonVersion", 1) < 2
+            r["stage"]
+            for r in records
+            if json.loads(r["details"]).get(
+                "routeVersion" if game == "sort" else "lessonVersion", 1
+            )
+            < 2
         }
         unlocked = 1
         while unlocked in cleared and unlocked < maximum:

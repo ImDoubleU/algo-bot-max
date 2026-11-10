@@ -186,9 +186,10 @@
   specs.typing={...specs.typing,chapters:ArcadeLessons.typingTopics,
     goals:[25,40,60,80,100,120,150,180]};
   specs.debug={...specs.debug,chapters:ArcadeLessons.topics,goals:[2,3,4,4,5,6,7,8]};
-  const stageCount=game=>['typing','debug'].includes(game)?96:24;
-  const chapterSize=game=>['typing','debug'].includes(game)?12:4;
+  const stageCount=game=>['typing','debug'].includes(game)?96:game==='sort'?48:24;
+  const chapterSize=game=>['typing','debug'].includes(game)?12:game==='sort'?8:4;
   function mission(game, stage, modern=true) {
+    if(game==='sort'&&modern)return ArcadeSortLevels.mission(stage);
     const extended=modern&&['typing','debug'].includes(game),
       s=!modern&&legacyLessons[game]?legacyLessons[game]:specs[game];
     if (!s || !Number.isInteger(stage) || stage < 1 || stage > (extended?96:24)) throw Error('Unknown adventure');
@@ -240,7 +241,7 @@
   }
 
   function config(setup) {
-    const m = mission(setup.game, setup.journey?.stage,
+    const m = mission(setup.game, setup.journey?.stage,setup.game==='sort'?setup.sortRules>=4:
       !['typing','debug'].includes(setup.game)||setup.lessonVersion>=2);
     return {
       ...m,
@@ -440,9 +441,10 @@
       [w.currentBubble, w.nextBubble] = [w.nextBubble, w.currentBubble];
     }
     if (w.id === 'sort') {
-      if (w.sortWon) return false;
+      if (w.sortWon||(w.sortRules>=4&&w.sortPowerUsed)) return false;
       w.tubes.push([]);
       w.sortStart.push([]);
+      if(w.sortRules>=4){w.sortCaps.push(4);w.sortSeals.push(false);w.sortSeen.push([]);w.sortPowerUsed=true;}
     }
     if (w.id === 'words') {
       if (w.wordHint) return false;
@@ -556,7 +558,9 @@
     if (w.id === 'runner') return [w.jumps <= j.goal + 2, w.jumps <= j.goal];
     if (w.id === 'hill') return [w.hill.fuel>=20,w.hill.fuel>=40&&j.used===0];
     if (w.id === 'bubbles') return [j.movesUsed <= Math.ceil(j.goal / 18) + 10, j.movesUsed <= Math.ceil(j.goal / 30) + 5];
-    if (w.id === 'sort') return [j.movesUsed <= j.goal * 110, j.movesUsed <= j.goal * 65];
+    if (w.id === 'sort') return j.routeVersion===2?
+      [j.movesUsed<=j.sortSilver,j.movesUsed<=j.sortGold&&j.used===0]:
+      [j.movesUsed <= j.goal * 110, j.movesUsed <= j.goal * 65];
     if (w.id === 'words') return [j.mistakes <= 2, j.mistakes === 0 && w.allWords.filter(a => a.length >= 5).length >= Math.ceil(j.goal / 3)];
     return [j.mistakes <= 2, j.mistakes === 0 && ArcadeClock.time(w) <= j.seconds * .75];
   }
@@ -585,6 +589,7 @@
       moves: j.movesUsed,
       mistakes: j.mistakes,
       ...(w.lessonVersion>=2?{lessonVersion:w.lessonVersion}:{}),
+      ...(j.routeVersion===2?{routeVersion:2,silverMoves:j.sortSilver,goldMoves:j.sortGold,moveLimit:j.moves}:{}),
       seconds: j.seconds
     } : null;
   }

@@ -13,7 +13,12 @@
         practice: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
         learning: '<path d="M3 5q5-2 9 1 4-3 9-1v14q-5-2-9 1-4-3-9-1Zm9 1v14"/>',
         garden: '<path d="M12 22V11m0 6C4 17 2 12 3 7c6-1 10 2 9 10Zm0-5c-1-7 3-11 10-10 1 6-3 11-10 10Z"/>',
-        levels: '<path d="M4 20v-5h5v-5h5V5h6M4 20h16V5"/>'
+        levels: '<path d="M4 20v-5h5v-5h5V5h6M4 20h16V5"/>',
+        'sort-small':'<path d="M3 3h7M4 3v15a2.5 2.5 0 0 0 5 0V3m5 7h7m-6 0v8a2.5 2.5 0 0 0 5 0v-8M5 14h3m8 0h3"/>',
+        'sort-sealed':'<path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v11H5Zm7 5v2"/>',
+        'sort-hidden':'<circle cx="12" cy="12" r="9"/><path d="M9 8a3 3 0 1 1 4 3c-1 .5-1 1-1 2m0 4h.01"/>',
+        'sort-precision':'<path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4"/>',
+        'sort-final':'<path d="m12 3 2.7 5.5 6 .9-4.3 4.2 1 6-5.4-2.8L6.6 20l1-6L3.3 9.4l6-.9Z"/>'
     };
     const icon = id => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[id]}</svg>`;
 
@@ -30,9 +35,10 @@
         const stage = selected || saved.unlocked,
             mission = ArcadeJourney.mission(game, stage), total=ArcadeJourney.stageCount(game);
         const record = saved.records.find(r => r.stage === stage);
-        return `<section class="arcade-game-levels journey-hub" data-journey-game="${game}" aria-label="Уровни"><div class="arcade-levels-heading"><h3>Уровни</h3><span>${saved.cleared} / ${total}</span></div><div class="arcade-current-level"><div><h4>Уровень ${stage}</h4>${record?`<span class="arcade-level-stars" aria-label="${record.stars} из 3 звёзд">${'★'.repeat(record.stars)}${'☆'.repeat(3-record.stars)}</span>`:''}</div><p>${esc(ArcadeJourneyView.labels(mission))}</p><button class="arcade-menu-start" data-journey-play="${stage}">Играть</button></div><div class="arcade-level-grid" role="group" aria-label="Выбор уровня">${Array.from({length:total}, (_, i) => {
+        const sort=game==='sort';
+        return `<section class="arcade-game-levels journey-hub" data-journey-game="${game}" aria-label="Уровни"><div class="arcade-levels-heading"><h3>Уровни</h3><span>${saved.cleared} / ${total}</span></div><div class="arcade-current-level"><div><h4>Уровень ${stage}</h4>${record?`<span class="arcade-level-stars" aria-label="${record.stars} из 3 звёзд">${'★'.repeat(record.stars)}${'☆'.repeat(3-record.stars)}</span>`:''}</div><p>${esc(ArcadeJourneyView.labels(mission))}${sort?`<br><strong>${esc(mission.rule)}</strong>`:''}</p><button class="arcade-menu-start" data-journey-play="${stage}">Играть</button>${sort&&mission.next?`<div class="sort-next-feature"><span aria-hidden="true">${icon('sort-'+mission.next.kind)}</span><div><b>${esc(mission.next.name)}</b><p>${saved.unlocked<mission.next.stage?'Откроется на уровне':'С уровня'} ${mission.next.stage}</p></div></div>`:''}</div><div class="arcade-level-grid" role="group" aria-label="Выбор уровня">${Array.from({length:total}, (_, i) => {
             const n = i + 1, r = saved.records.find(r => r.stage === n), locked = n > saved.unlocked;
-            return `${i%ArcadeJourney.chapterSize(game)===0?`<h4 class="arcade-level-topic">${esc(ArcadeJourney.mission(game,n).title)}</h4>`:''}<button data-journey-stage="${n}" class="journey-stop ${n===stage?'is-selected':''} ${r?'is-complete':''}" aria-label="Уровень ${n}${locked?', закрыт':r?', звёзд: '+r.stars:''}" aria-pressed="${n===stage}" ${locked?'disabled':''}><b>${n}</b><span aria-hidden="true">${locked?'<svg viewBox="0 0 24 24"><path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v11H5Z"/></svg>':r?'★'.repeat(r.stars)+'☆'.repeat(3-r.stars):'•'}</span></button>`;
+            return `${i%ArcadeJourney.chapterSize(game)===0?`<h4 class="arcade-level-topic">${esc(ArcadeJourney.mission(game,n).title)}</h4>`:''}<button data-journey-stage="${n}" class="journey-stop ${n===stage?'is-selected':''} ${r?'is-complete':''} ${sort&&ArcadeJourney.mission(game,n).boss?'is-challenge':''}" aria-label="Уровень ${n}${locked?', закрыт':r?', звёзд: '+r.stars:''}" aria-pressed="${n===stage}" ${locked?'disabled':''}><b>${n}</b><span aria-hidden="true">${locked?'<svg viewBox="0 0 24 24"><path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v11H5Z"/></svg>':r?'★'.repeat(r.stars)+'☆'.repeat(3-r.stars):'•'}</span></button>`;
         }).join('')}</div></section>`;
     }
 
