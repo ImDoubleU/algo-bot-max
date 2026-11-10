@@ -70,6 +70,7 @@ class Product(TimestampMixin, Base):
         default=False,
         nullable=False,
     )
+    recipient_field: Mapped[str | None] = mapped_column(String(32))
 
     category = relationship("ProductCategory", back_populates="products")
     inventory_items = relationship("WarehouseInventory", back_populates="product")
@@ -245,6 +246,8 @@ class OrderItem(TimestampMixin, Base):
     total_price_astrocoins: Mapped[int] = mapped_column(Integer, nullable=False)
     is_picked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     picked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    recipient_field: Mapped[str | None] = mapped_column(String(32))
+    recipient_value: Mapped[str | None] = mapped_column(String(100))
 
     order = relationship("Order", back_populates="items")
     product = relationship("Product", back_populates="order_items")

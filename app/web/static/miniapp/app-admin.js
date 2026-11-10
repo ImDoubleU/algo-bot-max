@@ -1352,6 +1352,12 @@ function renderAdminPanel() {
             <label class="product-field-wide" data-digital-instant-option ${["digital_manual", "digital_code"].includes(editing?.fulfillmentType) ? "" : "hidden"}>
               <span><input id="productInstantDelivery" type="checkbox" ${editing?.fulfillmentType === "digital_code" ? "checked" : ""} /> Мгновенная выдача</span>
             </label>
+            <label class="product-field-wide" ${["digital_manual", "digital_code"].includes(editing?.fulfillmentType) ? "" : "hidden"}>
+              <span>Данные при покупке</span>
+              <select id="productRecipientField">
+                ${[["", "Не запрашивать"], ["steam_login", "Логин Steam"], ["roblox_username", "Username Roblox"], ["phone", "Номер телефона"]].map(([value, label]) => `<option value="${value}" ${(editing?.recipientField || "") === value ? "selected" : ""}>${label}</option>`).join("")}
+              </select>
+            </label>
             <label class="product-field-wide">
               <span>Название</span>
               <input id="productName" value="${escapeHtml(editing?.name || "")}" placeholder="Название товара" />

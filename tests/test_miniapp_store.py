@@ -833,6 +833,49 @@ async def test_manual_product_can_be_created_without_codes_or_warehouses(db_sess
     assert product.total_code_count == 0
 
 
+@pytest.mark.parametrize("field,value,expected", [
+    ("steam_login", " player_one ", "player_one"),
+    ("roblox_username", "Child_2026", "Child_2026"),
+    ("phone", "+7 (999) 123-45-67", "+79991234567"),
+])
+async def test_order_recipient_required_snapshotted_and_idempotent(
+    db_session, field, value, expected,
+):
+    student = await seed_linked_student(db_session)
+    product = Product(tenant_id=student.tenant_id, sku="RECIPIENT", name="Электронный товар",
+                      price_astrocoins=200, fulfillment_type=ProductFulfillmentType.DIGITAL_MANUAL,
+                      recipient_field=field)
+    db_session.add(product)
+    await db_session.commit()
+    args = dict(max_user_id=53364725, tenant_slug="nizhniy-novgorod-partner-a",
+                student_id=student.id, request_key="recipient-order-001")
+    async def purchase(value):
+        return await create_miniapp_order(db_session, payload=MiniAppOrderCreate(**args, items=[
+            MiniAppOrderItemCreate(product_id=product.id, quantity=1, recipient_value=value),
+        ]), default_tenant_slug=args["tenant_slug"])
+    for bad in [None, "", "https://example.org/person", "some account"]:
+        with pytest.raises(MiniAppStoreError):
+            await purchase(bad)
+        assert await db_session.scalar(select(Order.id)) is None
+        wallet = await db_session.scalar(select(Wallet).where(Wallet.student_id == student.id))
+        assert wallet.balance == 1000
+    created = await purchase(value)
+    assert created.balance_after == 800
+    assert created.items[0].recipient_field == field
+    assert created.items[0].recipient_value == expected
+    # Later product edits cannot rewrite existing orders or break a safe retry.
+    product.recipient_field = None
+    await db_session.commit()
+    repeated = await purchase(value)
+    assert repeated.order.id == created.order.id
+    assert repeated.items[0].recipient_field == field
+    assert repeated.items[0].recipient_value == expected
+    assert repeated.balance_after == 800
+    with pytest.raises(MiniAppStoreError) as error:
+        await purchase("79998887766" if field == "phone" else "other_account")
+    assert error.value.status_code == 409
+
+
 @pytest.mark.parametrize("codes", [[], [""], ["A", "B"], ["A" * 501]])
 async def test_manual_digital_rejects_wrong_codes_without_issuing(db_session, codes):
     student, product, created = await manual_digital_order(db_session)

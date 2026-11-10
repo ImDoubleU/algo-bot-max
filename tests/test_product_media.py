@@ -28,18 +28,20 @@ def _image_bytes(format_name: str, *, size: tuple[int, int] = (900, 600)) -> byt
     return output.getvalue()
 
 
+@pytest.mark.parametrize("host", ["disk.yandex.ru", "disk.360.yandex.ru"])
 async def test_yandex_public_link_is_resolved_and_saved(
     tmp_path,
     monkeypatch,
+    host,
 ) -> None:
-    source_url = "https://disk.yandex.ru/i/R2zYXllwq-cyIw"
+    source_url = f"https://{host}/i/R2zYXllwq-cyIw"
     download_url = "https://downloader.disk.yandex.ru/disk/public-photo"
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         if request.url.host == "cloud-api.yandex.net":
-            assert request.url.params["public_key"] == source_url
+            assert request.url.params["public_key"] == "https://disk.yandex.ru/i/R2zYXllwq-cyIw"
             return httpx.Response(200, json={"href": download_url})
         assert str(request.url) == download_url
         return httpx.Response(200, content=_image_bytes("JPEG"))

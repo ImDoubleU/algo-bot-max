@@ -310,6 +310,7 @@ async function saveProductFromForm() {
   const fulfillmentType = selectedFulfillment === "digital_manual" && qs("#productInstantDelivery")?.checked
     ? "digital_code" : selectedFulfillment;
   const newCodes = fulfillmentType === "digital_code" ? qs("#productNewCodes")?.value.trim() || "" : "";
+  const recipientField = fulfillmentType === "warehouse" ? null : qs("#productRecipientField")?.value || null;
   const description = qs("#productDescription")?.value.trim() || "";
   const photoFile = state.productPhotoFile;
   const editing = products.find((product) => product.id === state.editingProductId);
@@ -362,6 +363,7 @@ async function saveProductFromForm() {
     price_astrocoins: price,
     status,
     fulfillment_type: fulfillmentType,
+    recipient_field: recipientField,
     new_codes: newCodes,
     description: description || undefined,
     inventories,
@@ -413,6 +415,7 @@ async function saveProductFromForm() {
       price,
       status,
       fulfillmentType,
+      recipientField,
       totalCodeCount:
         Number(editing?.totalCodeCount || 0) +
         (newCodes ? newCodes.split(/\r?\n/).filter((code) => code.trim()).length : 0),
@@ -457,6 +460,7 @@ async function saveProductFromForm() {
     formData.set("price_astrocoins", String(payload.price_astrocoins));
     formData.set("status", payload.status);
     formData.set("fulfillment_type", payload.fulfillment_type);
+    formData.set("recipient_field", payload.recipient_field || "");
     formData.set("inventories", JSON.stringify(payload.inventories));
     if (payload.new_codes) formData.set("new_codes", payload.new_codes);
     if (payload.description) formData.set("description", payload.description);
@@ -846,7 +850,7 @@ function addProductDialogItemToCart() {
   showNotice(`${product.name}: добавлено в корзину`);
 }
 
-function createDemoOrder() {
+function createDemoOrder(recipients = new Map()) {
   const student = selectedStudent();
   const total = cartTotal();
   if (!student || state.cart.size === 0) return;
@@ -870,6 +874,8 @@ function createDemoOrder() {
         warehouseId: "",
         warehouseName: "",
         fulfillmentType: product.fulfillmentType || "warehouse",
+        recipientField: product.recipientField || null,
+        recipientValue: recipients.get(product.id) || "",
         isPicked: false,
       };
     })
@@ -1003,6 +1009,7 @@ function renderOrderDialog(order) {
                     ${isDigitalItem ? `<strong class="order-detail-price">${Number(item.totalPrice || 0)} AC</strong>` : ""}
                   </div>
                   ${warehouseControl}
+                  ${item.recipientValue ? `<div class="order-recipient"><span>${escapeHtml(recipientFieldLabel(item.recipientField))}</span><strong>${escapeHtml(item.recipientValue)}</strong><button type="button" class="subtle-action" data-copy-recipient="${escapeHtml(item.recipientValue)}" aria-label="Скопировать аккаунт"><i data-lucide="copy"></i></button></div>` : ""}
                   ${isDigitalItem ? "" : issuedCodes}
                 </div>
                 ${isDigitalItem ? "" : `<strong class="order-detail-price">${Number(item.totalPrice || 0)} AC</strong>`}
@@ -2463,18 +2470,22 @@ async function accrueStudents(targets, amount, reason, groupLabel = "", customRe
 async function placeOrder() {
   if (!canUseStoreCart() || state.cart.size === 0 || state.orderSaving) return;
 
+  const recipients = readCheckoutRecipients();
+  if (!recipients) return;
+
   const student = selectedStudent();
   const canUseBackend =
     apiContext.maxUserId && student && !student.id.startsWith("demo-") && state.catalogLoaded;
   if (!canUseBackend) {
     closeCheckoutDialog();
-    createDemoOrder();
+    createDemoOrder(recipients);
     return;
   }
 
   const orderItems = Array.from(state.cart.values()).map((item) => ({
     product_id: item.productId,
     quantity: item.quantity,
+    recipient_value: recipients.get(item.productId) || null,
   }));
   const requestSignature = JSON.stringify({
     studentId: student.id,
@@ -2529,7 +2540,6 @@ async function placeOrder() {
     );
     renderAll();
   } catch (error) {
-    closeCheckoutDialog();
     showNotice(error.message || "Не удалось оформить заказ", "danger");
     renderCart();
   } finally {
@@ -2701,6 +2711,11 @@ document.addEventListener("click", (event) => {
   }
 
   const codeToCopy = target.dataset.copyCode;
+  const recipientToCopy = target.dataset.copyRecipient;
+  if (recipientToCopy) {
+    copyTextToClipboard(recipientToCopy).then((copied) => showNotice(copied ? "Аккаунт скопирован" : "Не удалось скопировать аккаунт", copied ? "ok" : "danger"));
+    return;
+  }
   if (codeToCopy) {
     copyTextToClipboard(codeToCopy)
       .then((copied) => showNotice(copied ? "Код скопирован" : "Не удалось скопировать код", copied ? "ok" : "danger"));
@@ -3511,6 +3526,10 @@ document.addEventListener("click", (event) => {
   }
 });
 
+qs("#checkoutDialog").addEventListener("input", (event) => {
+  if (event.target.matches("[data-checkout-recipient]")) event.target.setCustomValidity("");
+});
+
 qs("#checkoutDialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) closeCheckoutDialog();
 });
@@ -3688,6 +3707,8 @@ document.addEventListener("change", (event) => {
     const isDigital = qs("#productFulfillmentType")?.value === "digital_manual";
     const instantOption = qs("[data-digital-instant-option]");
     if (instantOption) instantOption.hidden = !isDigital;
+    const recipientOption = qs("#productRecipientField")?.closest("label");
+    if (recipientOption) recipientOption.hidden = !isDigital;
     if (codeEditor) codeEditor.hidden = !isDigital || !qs("#productInstantDelivery")?.checked;
     if (inventoryEditor) inventoryEditor.hidden = isDigital;
   }

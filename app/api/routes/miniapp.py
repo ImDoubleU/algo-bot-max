@@ -1517,6 +1517,7 @@ async def miniapp_save_product(
         Form(),
     ] = ProductFulfillmentType.WAREHOUSE,
     new_codes: Annotated[str | None, Form(max_length=250000)] = None,
+    recipient_field: Annotated[str | None, Form(max_length=32)] = None,
     inventories: Annotated[str | None, Form(max_length=250000)] = None,
     photo: Annotated[UploadFile | None, File()] = None,
 ) -> MiniAppProductRead:
@@ -1662,6 +1663,7 @@ async def miniapp_save_product(
             photo_crop_height=stored_crop.height if stored_crop else None,
             status=status_value,
             fulfillment_type=fulfillment_type,
+            recipient_field=recipient_field or None,
             new_codes=(new_codes or "").splitlines(),
             inventories=json.loads(inventories) if inventories is not None else None,
         )

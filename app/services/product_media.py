@@ -33,6 +33,7 @@ MAX_REMOTE_METADATA_BYTES = 256 * 1024
 REMOTE_IMAGE_TIMEOUT_SECONDS = 20.0
 YANDEX_PUBLIC_DOWNLOAD_API = "https://cloud-api.yandex.net/v1/disk/public/resources/download"
 YANDEX_PUBLIC_HOSTS = {
+    "disk.360.yandex.ru",
     "disk.yandex.com",
     "disk.yandex.kz",
     "disk.yandex.ru",
@@ -438,6 +439,10 @@ async def _resolve_remote_image_url(
     source_url: str,
 ) -> tuple[str, str | None]:
     if _is_yandex_public_link(source_url):
+        # The 360 share page is an alias; the public API expects the Disk host.
+        parsed = urlsplit(source_url)
+        if parsed.hostname.casefold() == "disk.360.yandex.ru":
+            source_url = parsed._replace(netloc="disk.yandex.ru").geturl()
         api_url = f"{YANDEX_PUBLIC_DOWNLOAD_API}?{urlencode({'public_key': source_url})}"
         try:
             content, _ = await _fetch_remote_bytes(

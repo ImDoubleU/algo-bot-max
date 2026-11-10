@@ -51,6 +51,9 @@ def test_electronic_tab_pending_code_and_editor_modes(feedback_browser, width):
     assert not page.locator("#productInstantDelivery").is_checked()
     assert page.locator(".product-code-editor").is_hidden()
     assert page.locator(".product-inventory-editor").is_hidden()
+    assert page.locator("#productRecipientField").is_visible()
+    page.locator("#productRecipientField").select_option("phone")
+    assert page.locator("#productRecipientField").input_value() == "phone"
     page.locator("#productInstantDelivery").check()
     assert page.locator("#productNewCodes").is_visible()
     page.locator("#productInstantDelivery").uncheck()

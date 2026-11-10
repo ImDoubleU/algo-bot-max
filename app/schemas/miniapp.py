@@ -475,6 +475,7 @@ class MiniAppProductRead(BaseModel):
     price_astrocoins: int
     status: ProductStatus = ProductStatus.ACTIVE
     fulfillment_type: ProductFulfillmentType = ProductFulfillmentType.WAREHOUSE
+    recipient_field: Literal["steam_login", "roblox_username", "phone"] | None = None
     available_quantity: int
     total_code_count: int = 0
     issued_code_count: int = 0
@@ -556,6 +557,7 @@ class MiniAppProductUpsert(BaseModel):
     photo_crop_height: float | None = Field(default=None, gt=0, le=1)
     status: ProductStatus = ProductStatus.ACTIVE
     fulfillment_type: ProductFulfillmentType = ProductFulfillmentType.WAREHOUSE
+    recipient_field: Literal["steam_login", "roblox_username", "phone"] | None = None
     new_codes: list[str] = Field(default_factory=list, max_length=500)
     inventories: list[MiniAppProductInventoryWrite] | None = Field(
         default=None,
@@ -567,6 +569,7 @@ class MiniAppOrderItemCreate(BaseModel):
     product_id: UUID
     warehouse_id: UUID | None = None
     quantity: int = Field(gt=0, le=20)
+    recipient_value: str | None = Field(default=None, max_length=100)
 
 
 class MiniAppCartItemWrite(BaseModel):
@@ -603,6 +606,8 @@ class MiniAppOrderItemRead(BaseModel):
     suggested_warehouse_name: str | None = None
     fulfillment_type: ProductFulfillmentType = ProductFulfillmentType.WAREHOUSE
     issued_codes: list[str] = Field(default_factory=list)
+    recipient_field: str | None = None
+    recipient_value: str | None = None
     is_picked: bool = False
 
 

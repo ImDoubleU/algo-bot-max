@@ -753,6 +753,24 @@ function renderCart() {
   refreshIcons();
 }
 
+function recipientFieldLabel(field) {
+  return { steam_login: "Логин Steam", roblox_username: "Username Roblox", phone: "Номер телефона" }[field] || "Аккаунт";
+}
+
+function readCheckoutRecipients() {
+  const values = new Map();
+  for (const input of qsa("[data-checkout-recipient]")) {
+    input.value = input.value.trim();
+    input.setCustomValidity("");
+    if (input.type === "tel" && !/^\+?[0-9]{10,15}$/.test(input.value.replace(/[ ()-]/g, ""))) {
+      input.setCustomValidity("Проверьте номер телефона: нужно от 10 до 15 цифр");
+    }
+    if (!input.reportValidity()) return null;
+    values.set(input.dataset.checkoutRecipient, input.type === "tel" ? input.value.replace(/[ ()-]/g, "") : input.value);
+  }
+  return values;
+}
+
 function renderCheckoutSummary() {
   const student = selectedStudent();
   const total = cartTotal();
@@ -768,17 +786,19 @@ function renderCheckoutSummary() {
   const isDigitalCheckout =
     cartProducts.length > 0 &&
     cartProducts.every((product) => product.fulfillmentType === "digital_code");
-  const isManualDigitalCheckout = cartProducts.length > 0 &&
-    cartProducts.every((product) => product.fulfillmentType === "digital_manual");
   const items = Array.from(state.cart.values())
     .map((item) => {
       const product = productById(item.productId);
       if (!product) return "";
       return `
         <div class="checkout-item">
-          <div>
+          <div class="checkout-item-copy">
             <strong>${escapeHtml(product.name)}</strong>
             <div class="student-meta">${item.quantity} шт.</div>
+            ${product.recipientField ? `<label class="checkout-recipient">
+              <span>${recipientFieldLabel(product.recipientField)}</span>
+              <input data-checkout-recipient="${escapeHtml(product.id)}" required ${product.recipientField === "phone" ? 'type="tel" minlength="10" maxlength="32"' : 'minlength="3" maxlength="64" pattern="[A-Za-z0-9_]{3,64}"'} autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="${product.recipientField === "phone" ? "+7 999 123-45-67" : product.recipientField === "steam_login" ? "Логин для входа в Steam" : "Имя аккаунта, не отображаемое имя"}" />
+            </label>` : ""}
           </div>
           <span class="checkout-item-total">${product.price * item.quantity} AC</span>
         </div>
@@ -800,19 +820,6 @@ function renderCheckoutSummary() {
       </div>
     </div>
     <div class="checkout-items">${items}</div>
-    <div class="checkout-guidance ${isDigitalCheckout ? "is-digital" : ""}">
-      <i data-lucide="${isDigitalCheckout ? "key-round" : "package-check"}"></i>
-      <div>
-        <strong>${isDigitalCheckout ? "Где найти код после покупки" : "Что будет после оформления"}</strong>
-        <span>${
-          isDigitalCheckout
-            ? "Откройте «Заказы» → «Получены» и нажмите на заказ. Код и кнопка копирования будут внутри."
-            : isManualDigitalCheckout
-            ? "Сотрудник купит код после оформления заказа. Когда код будет готов, он появится в карточке заказа. Астрокоины списываются сейчас."
-            : "Заказ появится в разделе «Зарезервированы». Затем сотрудник выберет склад и начнет комплектацию."
-        }</span>
-      </div>
-    </div>
     <div class="checkout-total">
       <span>К списанию</span>
       <strong>${total} AC</strong>
@@ -841,7 +848,7 @@ function openCheckoutDialog() {
   const dialog = qs("#checkoutDialog");
   dialog.hidden = false;
   document.body.classList.add("dialog-open");
-  qs("#confirmOrderButton").focus();
+  (qs("[data-checkout-recipient]") || qs("#confirmOrderButton")).focus();
 }
 
 function closeCheckoutDialog() {

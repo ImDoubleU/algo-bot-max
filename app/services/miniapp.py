@@ -197,6 +197,7 @@ from app.services.product_import import (
     parse_product_rows,
 )
 from app.services.product_media import remove_product_image, remove_product_image_url
+from app.services.product_recipient import recipient_matches, validate_recipient
 from app.services.staff import (
     active_staff_roles_for_tenant,
     configured_superadmin_max_user_id,
@@ -951,6 +952,7 @@ def _product_to_read(
         price_astrocoins=product.price_astrocoins,
         status=product.status,
         fulfillment_type=product.fulfillment_type,
+        recipient_field=product.recipient_field,
         available_quantity=available_total,
         total_code_count=len(product_codes),
         issued_code_count=sum(code.status == ProductCodeStatus.ISSUED for code in product_codes),
@@ -1028,6 +1030,8 @@ def _order_to_read(
                     else []
                 ),
                 is_picked=item.is_picked,
+                recipient_field=item.recipient_field,
+                recipient_value=item.recipient_value,
             )
             for item in order.__dict__.get("items", [])
         ]
@@ -2793,6 +2797,8 @@ async def upsert_miniapp_product(
         category_slug=payload.category_slug,
     )
 
+    if payload.recipient_field and payload.fulfillment_type == ProductFulfillmentType.WAREHOUSE:
+        raise MiniAppStoreError("Данные игрового аккаунта доступны только электронным товарам")
     product_created = False
     if product is None:
         product = Product(
@@ -2811,6 +2817,7 @@ async def upsert_miniapp_product(
             price_astrocoins=payload.price_astrocoins,
             status=payload.status,
             fulfillment_type=payload.fulfillment_type,
+            recipient_field=payload.recipient_field,
         )
         db.add(product)
         await db.flush()
@@ -2858,6 +2865,10 @@ async def upsert_miniapp_product(
         product.price_astrocoins = payload.price_astrocoins
         product.status = payload.status
         product.fulfillment_type = payload.fulfillment_type
+        if "recipient_field" in payload.model_fields_set:
+            product.recipient_field = payload.recipient_field
+        if payload.fulfillment_type == ProductFulfillmentType.WAREHOUSE:
+            product.recipient_field = None
 
     normalized_codes = list(
         dict.fromkeys(code.strip() for code in payload.new_codes if code.strip())
@@ -4425,6 +4436,12 @@ async def create_miniapp_order(
     )
 
     quantities = _merge_order_items(payload)
+    recipient_values: dict[UUID, str | None] = {}
+    for item in payload.items:
+        value = (item.recipient_value or "").strip() or None
+        if item.product_id in recipient_values and recipient_values[item.product_id] != value:
+            raise MiniAppStoreError("Один товар нельзя оформить на разные аккаунты в одном заказе")
+        recipient_values[item.product_id] = value
     request_key = payload.request_key.strip() if payload.request_key else None
     if request_key:
         existing_row = (
@@ -4457,6 +4474,14 @@ async def create_miniapp_order(
                 existing_order.student_id != student.id
                 or existing_order.comment != payload.comment
                 or existing_quantities != quantities
+                or any(
+                    not recipient_matches(
+                        item.recipient_field,
+                        item.recipient_value,
+                        recipient_values.get(UUID(str(item.product_id))),
+                    )
+                    for item in existing_order.items
+                )
             ):
                 raise MiniAppStoreError(
                     "Этот ключ запроса уже использован для другого заказа",
@@ -4534,6 +4559,14 @@ async def create_miniapp_order(
         )
     is_digital_order = fulfillment_types == {ProductFulfillmentType.DIGITAL_CODE}
     is_manual_digital = fulfillment_types == {ProductFulfillmentType.DIGITAL_MANUAL}
+
+    for product in products:
+        try:
+            recipient_values[product.id] = validate_recipient(
+                product.recipient_field, recipient_values.get(product.id),
+            )
+        except ValueError as exc:
+            raise MiniAppStoreError(f"{product.name}: {exc}") from exc
 
     total_astrocoins = sum(
         products_by_id[product_id].price_astrocoins * quantity
@@ -4692,6 +4725,8 @@ async def create_miniapp_order(
             ),
             unit_price_astrocoins=product.price_astrocoins,
             total_price_astrocoins=total_price,
+            recipient_field=product.recipient_field,
+            recipient_value=recipient_values.get(product.id),
         )
         db.add(order_item)
         await db.flush()
@@ -4741,6 +4776,8 @@ async def create_miniapp_order(
                 ),
                 fulfillment_type=product.fulfillment_type,
                 issued_codes=[code.code for code in selected_codes],
+                recipient_field=order_item.recipient_field,
+                recipient_value=order_item.recipient_value,
                 is_picked=False,
             )
         )

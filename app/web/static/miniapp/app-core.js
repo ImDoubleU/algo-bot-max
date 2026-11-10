@@ -2096,6 +2096,8 @@ function normalizeOrderItems(order) {
     suggestedWarehouseName: item.suggested_warehouse_name || "",
     fulfillmentType: item.fulfillment_type || "warehouse",
     issuedCodes: Array.isArray(item.issued_codes) ? item.issued_codes : [],
+    recipientField: item.recipient_field || null,
+    recipientValue: item.recipient_value || "",
     isPicked: Boolean(item.is_picked),
   }));
 }
@@ -2590,6 +2592,7 @@ function applyCatalog(catalog) {
           : null,
       status: product.status || "active",
       fulfillmentType: product.fulfillment_type || "warehouse",
+      recipientField: product.recipient_field || null,
       category: normalizeProductCategoryName(product.category_name),
       categorySlug: product.category_slug || "",
       price: product.price_astrocoins,
