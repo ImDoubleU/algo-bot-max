@@ -20,7 +20,10 @@
     const {x,y,r,level}=b,[color,shade]=palette[level],
       points=b.nodes||ArcadeDropLab.rest.map(p=>({x:x+p.x*r,y:y+p.y*r}));
     c.save();
-    outline(c,points);c.fillStyle=color;c.fill();
+    const surface=c.createRadialGradient(x-r*.35,y-r*.42,r*.05,x+r*.1,y+r*.15,r*1.25);
+    surface.addColorStop(0,'#fff5d9');surface.addColorStop(.24,color);
+    surface.addColorStop(.75,color);surface.addColorStop(1,shade);
+    outline(c,points);c.fillStyle=surface;c.fill();
     c.strokeStyle=shade;c.lineWidth=Math.max(1.3,r*.045);c.stroke();
     if(ghost){c.restore();return;}
     c.save();outline(c,points);c.clip();
@@ -149,10 +152,10 @@
       flight=flight.filter(p=>clock-p.t<.5);bursts=bursts.filter(b=>clock-b.t<.85);
       c.fillStyle='#132b38';c.fillRect(0,0,360,72);
       c.strokeStyle='#74999140';c.lineWidth=1;c.beginPath();c.moveTo(20,71);c.lineTo(340,71);c.stroke();
-      label(c,'Дальше',260,18,12,'#a7bfb5');
+      label(c,'Дальше',253,18,16,'#c7dacf');
       creature(c,{level:w.queue[1],x:279,y:41,r:15},clock);
       creature(c,{level:w.queue[2],x:319,y:41,r:12},clock);
-      label(c,'Сейчас',20,18,12,'#a7bfb5');
+      label(c,'Сейчас',20,18,16,'#c7dacf');
       c.globalAlpha=w.cool>0?.38:1;creature(c,{x:48,y:44,r:Math.min(23,r),level},clock,0);c.globalAlpha=1;
       if(w.balls.length===0)label(c,'Веди · прицелься · отпусти',180,230,17,'#c3d3bc','center');
       if(w.cool>0){c.fillStyle='#d7e9c8';c.fillRect(36,68,24*(1-w.cool/.55),2);}

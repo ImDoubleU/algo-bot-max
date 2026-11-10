@@ -48,7 +48,7 @@
       lastCue = 0,
       update = () => {};
     if (id === 'kopatych') {
-      stage.innerHTML = `<div class="kopatych-game"><div class="garden-cloud cloud-one"></div><div class="garden-cloud cloud-two"></div><div class="garden-summary"><div><small>В корзинке</small><strong data-bank>0</strong></div><div><small>Серия</small><strong data-combo>×1</strong></div><div><small>В секунду</small><strong data-auto>0</strong></div></div><div class="garden-sun" aria-hidden="true">✦</div><p class="garden-gold" role="status"></p><button class="kopatych-tap" aria-label="Собрать морковку">${bear()}</button><div class="garden-bed" aria-hidden="true">${Array.from({length:7},()=>carrot()).join('')}</div><div class="garden-upgrades">${[['Лопата','+2 за нажатие'],['Грядка','Растёт сама'],['Теплица','Ускоряет грядки']].map(([t,d],i)=>`<button data-buy="${i}"><span class="garden-tool">${['↗','≋','⌂'][i]}</span><b>${t}</b><small>${d}</small><strong></strong></button>`).join('')}</div></div>`;
+      stage.innerHTML = `<div class="kopatych-game"><div class="garden-cloud cloud-one"></div><div class="garden-cloud cloud-two"></div><div class="garden-summary"><div><small>В корзинке</small><strong data-bank>0</strong></div><div><small>Серия</small><strong data-combo>×1</strong></div><div><small>В секунду</small><strong data-auto>0</strong></div></div><div class="garden-sun" aria-hidden="true">✦</div><p class="garden-gold" role="status"></p><button class="kopatych-tap" aria-label="Собрать морковку">${window.KopatychArt?.character(false,1)||bear()}</button><div class="garden-bed" aria-hidden="true">${Array.from({length:7},()=>carrot()).join('')}</div><div class="garden-upgrades">${[['Лопата','+2 за нажатие'],['Грядка','Растёт сама'],['Теплица','Ускоряет грядки']].map(([t,d],i)=>`<button data-buy="${i}"><span class="garden-tool">${window.KopatychArt?.item(['shovel','bed','greenhouse'][i])||['↗','≋','⌂'][i]}</span><b>${t}</b><small>${d}</small><strong></strong></button>`).join('')}</div></div>`;
       const tap = $('.kopatych-tap', stage),
         pop = $('.kopatych-game', stage);
       on(tap, 'pointerdown', e => {
@@ -338,6 +338,7 @@
         }
       });
       const ball = (x, y, color, r = 17, alpha = 1) => {
+        if(window.ArcadeWorldArt){ArcadeWorldArt.ball(c,x,y,color,r,alpha);return;}
         c.save();
         c.globalAlpha = alpha;
         c.fillStyle = colors[color % colors.length];
@@ -360,6 +361,7 @@
         c.setTransform(2, 0, 0, 2, 0, 0);
         c.fillStyle = id === 'runner' ? '#18162d' : '#19182d';
         c.fillRect(0, 0, 360, 430);
+        window.ArcadeWorldArt?.backdrop(c,id,w,360,430,options.theme);
         if (id === 'runner') {
           c.strokeStyle = '#a99ad015';
           c.lineWidth = 1;
@@ -500,13 +502,14 @@
           c.roundRect(-11, -31, 22, 37, 7);
           c.fill();
           c.restore();
+          window.ArcadeWorldArt?.cannon(c,angle);
           if (w.projectile) ball(w.projectile.x, w.projectile.y, w.currentBubble);
           else ball(180, 402, w.currentBubble);
-          ball(322, 402, w.nextBubble, 12);
+          ball(322, 402, w.nextBubble, 17);
           c.fillStyle = '#9b8cae';
-          c.font = '600 13px system-ui';
+          c.font = '700 22px system-ui';
           c.textAlign = 'center';
-          c.fillText('ДАЛЬШЕ', 322, 377);
+          c.fillText('↗', 322, 377);
           for (let i = 0; i < 5; i++) {
             c.fillStyle = i < w.bubbleMisses ? '#e3ab9d' : '#42344f';
             c.beginPath();

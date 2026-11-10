@@ -1046,6 +1046,9 @@
             g = run.g;
         $("#gameScore", d).textContent = w.score;
         $("#gameLevel", d).textContent = `Сложность ${w.level}`;
+        $('#gameLevel',d).dataset.stageLevel=w.journey?.stage||w.level;
+        $('#gameLevel',d).setAttribute('role','img');
+        $('#gameLevel',d).setAttribute('aria-label',(w.journey?'Уровень ':'Сложность ')+(w.journey?.stage||w.level));
         if (run.phase !== "ready") {
             const clock=ArcadeClock.view(w),node=$('#gameClock',d),
                 value=ArcadeClock.format(clock.kind==='countdown'?Math.ceil(clock.value):clock.value),

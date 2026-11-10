@@ -200,6 +200,12 @@ def test_grouped_ball_flight_stays_in_the_board_and_rapid_click_does_not_double_
     page.locator('#sortCheck [data-tube="0"]').click()
     page.locator('#sortCheck [data-tube="1"]').click()
     assert page.locator("#sortCheck .sort-flight").count() == 2
+    flight = page.locator("#sortCheck .sort-flight").first
+    landing = page.locator('#sortCheck [data-tube="1"] .sort-ball').last
+    assert flight.evaluate("n=>n.style.getPropertyValue('--marble')") == landing.evaluate(
+        "n=>n.style.getPropertyValue('--marble')"
+    )
+    assert flight.locator("small,svg").count() == 0
     assert (
         page.locator("#sortCheck .sort-flight").first.evaluate("n=>getComputedStyle(n).position")
         == "absolute"

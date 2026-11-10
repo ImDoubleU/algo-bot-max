@@ -56,7 +56,7 @@
         return `<div class="game-score-prop prop-${game}" style="--score-size:${size}px"><svg viewBox="0 0 240 220" aria-hidden="true">${stamps[game]}</svg><h3>${Number(value)}<span>${safeUnit}</span></h3></div>`;
     }
 
-    function backdrop(c, id, w) {
+    function backdrop(c, id, w, options={}) {
         if (id === 'bugs') {
             c.save();
             c.strokeStyle = '#9fc5ad12';
@@ -86,6 +86,7 @@
                 c.fillStyle='#e6e8bd';
                 for(let y=420-h;y<400;y+=15)for(let n=0;n<3;n++)c.fillRect(x+7+n*10,y,4,6);
             }
+            window.ArcadeWorldArt?.backdrop(c,id,w,360,430,options.theme);
             const stroke=(points,color,width=2)=>{
                 c.strokeStyle=color;c.lineWidth=width;c.lineJoin='round';c.lineCap='round';
                 c.beginPath();points.forEach(([x,y],i)=>i?c.lineTo(x,y):c.moveTo(x,y));c.stroke();
@@ -117,6 +118,7 @@
             stroke([[bx,hook+8],[w.left+w.width*.22,by],[w.left+w.width*.78,by],[bx,hook+8]],'#63776b',1.2);
             c.restore();
         }
+        if(id==='orbit'||id==='bugs')window.ArcadeWorldArt?.backdrop(c,id,w,360,430,options.theme);
     }
 
     function decorate(run) {

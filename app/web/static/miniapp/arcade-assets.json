@@ -20,7 +20,8 @@
     "/miniapp/static/games-benchmarks.css?v=3",
     "/miniapp/static/games-mobile.css?v=3",
     "/miniapp/static/games-drop-lab.css?v=1",
-    "/miniapp/static/games-gallery.css?v=2"
+    "/miniapp/static/games-gallery.css?v=2",
+    "/miniapp/static/games-worlds.css?v=3"
   ],
   "scripts": [
     "/miniapp/static/games-words-data.js?v=2",
@@ -39,18 +40,19 @@
     "/miniapp/static/games-clock.js?v=1",
     "/miniapp/static/games-world.js?v=12",
     "/miniapp/static/games-benchmarks.js?v=3",
-    "/miniapp/static/games-sprites.js?v=3",
+    "/miniapp/static/games-world-art.js?v=3",
+    "/miniapp/static/games-sprites.js?v=5",
     "/miniapp/static/games-drop-art.js?v=3",
     "/miniapp/static/games-feedback.js?v=2",
     "/miniapp/static/games-expedition-view.js?v=3",
     "/miniapp/static/games-debug-view.js?v=1",
     "/miniapp/static/games-viewport.js?v=1",
-    "/miniapp/static/games-drop-lab-view.js?v=1",
-    "/miniapp/static/games-view.js?v=13",
-    "/miniapp/static/games-sort-view.js?v=2",
-    "/miniapp/static/games-extra-view.js?v=4",
-    "/miniapp/static/games-hill-art.js?v=2",
-    "/miniapp/static/games-hill-view.js?v=6",
+    "/miniapp/static/games-drop-lab-view.js?v=2",
+    "/miniapp/static/games-view.js?v=15",
+    "/miniapp/static/games-sort-view.js?v=3",
+    "/miniapp/static/games-extra-view.js?v=6",
+    "/miniapp/static/games-hill-art.js?v=4",
+    "/miniapp/static/games-hill-view.js?v=7",
     "/miniapp/static/games-hill-garage.js?v=5",
     "/miniapp/static/games-farm-art.js?v=4",
     "/miniapp/static/games-farm.js?v=7",
@@ -58,9 +60,9 @@
     "/miniapp/static/games-journey-view.js?v=8",
     "/miniapp/static/games-gallery.js?v=2",
     "/miniapp/static/games-menu.js?v=6",
-    "/miniapp/static/games-personality.js?v=4",
+    "/miniapp/static/games-personality.js?v=6",
     "/miniapp/static/games-results.js?v=11",
     "/miniapp/static/games-benchmark-view.js?v=4",
-    "/miniapp/static/app-games.js?v=35"
+    "/miniapp/static/app-games.js?v=37"
   ]
 }

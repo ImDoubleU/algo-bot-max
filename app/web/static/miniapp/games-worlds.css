@@ -1,0 +1,214 @@
+/* Inside each game: legible instruments and materials specific to its world. */
+.game-dialog[data-game]:not(.is-browsing):not(.is-finished) .game-stage{background-color:#132b38}
+.game-dialog[data-game] .arcade-canvas-frame{padding:0;border:2px solid #6b929b;border-radius:16px;box-shadow:0 6px 18px #0a1e2d30;background:#102a37}
+.game-dialog[data-game] .arcade-canvas-frame>canvas{border-radius:12px}
+.game-dialog[data-game] .frame-bugs:after,.game-dialog[data-game] .frame-bubbles:before,.game-dialog[data-game] .frame-bubbles:after{display:none}
+.game-dialog[data-game]:not(.is-browsing) .game-stage:has(.arcade-canvas-frame){padding:8px;background:#122c3a}
+.game-dialog[data-game]:not(.is-browsing):not(.is-finished) .game-hud{background:#183545;color:#c9e0e0;border:0;border-bottom:1px solid #45626b;font-style:normal}
+.game-dialog[data-game]:not(.is-browsing):not(.is-finished) .game-hud>span:first-child{padding:0;border:0;border-radius:0;background:none;text-transform:none;letter-spacing:0}
+.game-dialog[data-game]:not(.is-browsing):not(.is-finished) .game-hud b,.game-dialog[data-game]:not(.is-browsing):not(.is-finished) #gameClock{color:#f8f5df}
+.game-dialog[data-game]:not(.is-browsing):not(.is-finished) .arcade-live-goal{background:#183545;border-color:#45626b;color:#c9e0e0;font-size:16px}
+.game-dialog[data-game]:not(.is-browsing):not(.is-finished) #gameLevel{font-size:0;padding:6px 9px;background:#294c59;color:#e5edda;border:1px solid #58767b;border-radius:9px}
+.game-dialog[data-game]:not(.is-browsing):not(.is-finished) #gameLevel:after{content:'↗ ' attr(data-stage-level);font:750 19px/1.1 'Segoe UI',sans-serif}
+.game-dialog[data-game]:not(.is-browsing):not(.is-finished) .game-clock-caption{font-size:16px}
+.game-dialog[data-game] .game-stage .arcade-subtle{font-size:17px;min-height:44px}
+
+/* A walnut tray with thick ceramic tiles. */
+.game-dialog[data-game="2048"]:not(.is-browsing):not(.is-finished) .game-stage{background:#e7cfae url('/miniapp/static/worlds/wood.svg') center/256px}
+.game-dialog[data-game="2048"] .number-game{color:#59432f}
+.game-dialog[data-game="2048"] .number-points{font-size:19px;color:#705336}
+.game-dialog[data-game="2048"] .number-points b{font-size:28px;color:#513b2b}
+.game-dialog[data-game="2048"] .number-grid{background:linear-gradient(145deg,#78573e,#b1855c);border-color:#7d5d42;box-shadow:inset 0 2px 4px #301f1860,0 7px 0 #674c37,0 13px 20px #58402b30}
+.game-dialog[data-game="2048"] .number-cell:not(.n0){border-top:2px solid #fff4d7b0;box-shadow:inset 0 -4px #6c4a2c26,0 3px 3px #3c2d2a22;background-image:linear-gradient(145deg,#ffffff50,transparent 55%,#77542f13);font-weight:800}
+.game-dialog[data-game="2048"] .number-cell.n0{background:#5f493545;box-shadow:inset 0 2px 4px #332a2c30}
+.game-dialog[data-game="2048"] .number-controls button{border-radius:12px;background:linear-gradient(#fff9e9,#e8cda4);border:1px solid #b59168;border-bottom:4px solid #a98258;color:#55422f;font-weight:800}
+
+/* A physical blue puzzle, with recessed empty slots and bevelled pieces. */
+.game-dialog[data-game=blocks] .blocks-game{background:radial-gradient(ellipse at 50% 15%,#dceaf0,#a8c3d1);color:#284759}
+.game-dialog[data-game=blocks] .blocks-meta{font-size:18px;color:#284759}
+.game-dialog[data-game=blocks] .blocks-meta b{color:#405a40}
+.game-dialog[data-game=blocks] .blocks-board{border-color:#54788e;border-radius:15px;background:#7094a7;box-shadow:inset 0 2px 6px #304d6577,0 6px #3c5f77,0 12px 16px #25476425}
+.game-dialog[data-game=blocks] .blocks-board .block-cell:not(.is-filled):not(.is-preview):not(.is-invalid){background:#375f7977;border:1px solid #c0d9e52e;box-shadow:inset 0 2px 3px #24436044}
+.game-dialog[data-game=blocks] .blocks-board .block-cell.is-filled{background:linear-gradient(145deg,#ffffff55,transparent 65%),var(--cell);box-shadow:inset 0 2px #ffffffe0,inset 0 -4px #324c6c40,0 1px 2px #243b4b40;border:1px solid #36587533;border-radius:5px}
+.game-dialog[data-game=blocks] .blocks-hand{background:#90afbf;border:1px solid #bed0d7;box-shadow:inset 0 3px 5px #43607622}
+.game-dialog[data-game=blocks] .blocks-hand button{background:#f1f5ed;border:1px solid #809eae;box-shadow:0 3px #7694a5}
+.game-dialog[data-game=blocks] .blocks-instruction{color:#39576a;font-size:16px}
+
+/* Cards on green felt; card backs are an illustration, not a text glyph. */
+.game-dialog[data-game=memory]:not(.is-browsing):not(.is-finished) .game-stage{background:#254e47 url('/miniapp/static/worlds/felt.svg')}
+.game-dialog[data-game=memory] .memory-game{color:#d6e8d3}
+.game-dialog[data-game=memory] .memory-top{font-size:19px;color:#e5ecd3}
+.game-dialog[data-game=memory] .memory-grid{background:#1b3e37;border:5px solid #8d9c75;border-radius:15px;box-shadow:0 5px #142e2a,0 11px 20px #071f2433}
+.game-dialog[data-game=memory] .memory-grid button{background:#264f4b url('/miniapp/static/worlds/card-back.svg') center/100% 100%;font-size:0;color:transparent;border:1px solid #b7c8a7;border-radius:9px;box-shadow:0 3px 0 #102d2d;transition:background-color .18s,scale .18s}
+.game-dialog[data-game=memory] .memory-grid button.flipped{background:#fff6de;border:1px solid #e6cf9e;transform:none;box-shadow:inset 0 0 0 3px #fffff080,0 3px #a39068}
+.game-dialog[data-game=memory] .memory-grid button.matched{background:#d3e9bd;border:1px solid #9fcd87;opacity:1;transform:none;box-shadow:inset 0 0 0 3px #f2f8d080,0 3px #6d996c}
+.game-dialog[data-game=memory] .memory-grid button canvas{width:90%;height:90%;object-fit:contain}
+
+/* A rescue sanctuary with clear illuminated habitat cells. */
+.game-dialog[data-game=evolve]:not(.is-browsing):not(.is-finished) .game-stage{background:#203f3d url('/miniapp/static/worlds/expedition.webp') center/cover}
+.game-dialog[data-game=evolve] .evolve-expedition{background:#12352de0;color:#ecf2d8}
+.game-dialog[data-game=evolve] .expedition-heading{font-size:20px;color:#edf2d8}
+.game-dialog[data-game=evolve] .expedition-heading>span{color:#bcd9ba;font-size:17px}
+.game-dialog[data-game=evolve] .expedition-orders{gap:9px}
+.game-dialog[data-game=evolve] .expedition-order{background:linear-gradient(#385f51,#24483f);border:1px solid #6b9c83;color:#f0f2da;border-radius:14px}
+.game-dialog[data-game=evolve] .expedition-order b{font-size:17px}
+.game-dialog[data-game=evolve] .expedition-order em{display:none}
+.game-dialog[data-game=evolve] .expedition-order.is-ready{background:linear-gradient(#d9e6ae,#aac786);border-color:#e9eec4;color:#243e30;box-shadow:0 0 0 2px #b4d18f66}
+.game-dialog[data-game=evolve] .expedition-order.is-ready em{display:block;font-size:17px;color:#284f30;font-weight:800}
+.game-dialog[data-game=evolve] .evolve-expedition .evolve-grid{background:#102f2b;border-color:#4c7967;border-radius:19px;box-shadow:inset 0 2px 4px #071e2666,0 4px #0c2626}
+.game-dialog[data-game=evolve] .evolve-grid button{background:radial-gradient(ellipse at 45% 30%,#f4f3d9,#aac8ad);border:1px solid #9dbda3;border-radius:17px;box-shadow:inset 0 2px #fffff8b0,inset 0 -4px #537c5a30,0 2px #071e2655}
+.game-dialog[data-game=evolve] .evolve-grid button.selected{outline:3px solid #f1d886;outline-offset:0;background:#e8edbf;transform:translateY(-2px)}
+.game-dialog[data-game=evolve] .evolve-grid button small{display:none}
+.game-dialog[data-game=evolve] .expedition-selection{color:#daead1;font-size:18px;line-height:1.35}
+.game-dialog[data-game=evolve] .expedition-powers button{background:#294d40;border:1px solid #678c70;color:#e5efd4;border-radius:10px}
+.game-dialog[data-game=evolve] .expedition-powers b{font-size:16px}
+.game-dialog[data-game=evolve] .expedition-powers span{font-size:16px;color:#c4dbae}
+.game-dialog[data-game=evolve] .expedition-atlas{font-size:16px;color:#c9ddbd}
+.game-dialog[data-game=evolve] .evolve-time span{color:#e6efd7;font-size:18px}
+
+/* A glass puzzle: depth comes from real rims, reflections and individual marble art. */
+.game-dialog[data-game=sort]:not(.is-browsing):not(.is-finished) .game-stage{background:radial-gradient(ellipse at 15% 0%,#fffffb,#e9f0f2 55%,#c8d8df)}
+.game-dialog[data-game=sort] .sort-game{background:none}
+.game-dialog[data-game=sort] .sort-tubes{border:0;box-shadow:none}
+.game-dialog[data-game=sort] .sort-tubes:before{content:"";position:absolute;left:5%;right:5%;bottom:24px;height:13px;border-radius:50%;background:#476d8320;filter:blur(5px);pointer-events:none}
+.game-dialog[data-game=sort] .sort-tube{position:relative;z-index:1}
+.game-dialog[data-game=sort] .sort-glass{border:1.5px solid #80a8ba;border-top:0;background:linear-gradient(90deg,#eafaff70,#ffffff07 22%,#c6dee309 65%,#fff8 93%,#8eb3bd44);box-shadow:inset 3px 0 3px #ffffffdc,inset -2px 0 3px #7aadc344,4px 7px 8px #3d698622;border-radius:0 0 23px 23px}
+.game-dialog[data-game=sort] .sort-glass:before{height:7px;top:-3px;left:-3px;right:-3px;border:1.5px solid #6e9caf;border-radius:50%;background:radial-gradient(ellipse,#a5c6cf55 30%,#ffffffe0 70%,#a2c1cc);box-shadow:0 -1px 0 #fff}
+.game-dialog[data-game=sort] .sort-glass:after{content:"";position:absolute;inset:5px 3px 9px;pointer-events:none;border-left:2px solid #ffffff70;border-radius:0 0 19px 19px}
+.game-dialog[data-game=sort] .sort-ball,.sort-effects .sort-ball{background-color:var(--ball);background-image:var(--marble),radial-gradient(circle at 30% 25%,#fff9,var(--ball) 55%,#26456133);background-position:center;background-size:100% 100%;background-repeat:no-repeat;border:0;box-shadow:none;filter:drop-shadow(0 1px 1px #28415c30);box-sizing:border-box}
+.game-dialog[data-game=sort] .sort-tube>small{font-size:16px;background:#ffffffd9;color:#46647b;border:1px solid #bbcdd7;border-radius:7px}
+.game-dialog[data-game=sort] .sort-meta b{color:#284d62;font-size:20px}
+.game-dialog[data-game=sort] .sort-meta span{font-size:16px;color:#48697a}
+.game-dialog[data-game=sort] .sort-message{font-size:17px;color:#34576d}
+.game-dialog[data-game=sort] .sort-tube.is-complete .sort-glass{background:linear-gradient(90deg,#f6ffef80,#edffd312,#fffff988);border-color:#82ad95}
+.game-dialog[data-game=sort] .sort-tube.is-selected .sort-glass{border-color:#d3a55b;box-shadow:inset 3px 0 #fff,0 0 0 2px #e8c47c70,4px 7px 8px #3d698622}
+
+/* A comfortable writing desk; the caret stays in the actual passage. */
+.game-dialog[data-game=typing]:not(.is-browsing):not(.is-finished) .game-stage{background:#e7cfae url('/miniapp/static/worlds/wood.svg') center/256px}
+.game-dialog[data-game=typing] .typing-game{background:radial-gradient(ellipse at top,#fff3d477,transparent 70%)}
+.game-dialog[data-game=typing] .typing-stats{color:#554732;font-size:18px;font-weight:700}
+.game-dialog[data-game=typing] .typing-surface{border:1px solid #b8a782;border-top:7px solid #809b86;border-radius:9px;background:#fffdf1;box-shadow:0 4px #c5af85,0 9px 16px #5f4c3020}
+.game-dialog[data-game=typing] .typing-surface:focus-within{border-color:#6d8f72;box-shadow:0 4px #a0b48b,0 8px 16px #5f4c3020}
+.game-dialog[data-game=typing] .typing-surface .typing-passage{font-size:24px;line-height:1.85;color:#5c6157;padding:20px}
+.game-dialog[data-game=typing] .typing-passage .correct{background:#e1eed6;color:#285f40}
+.game-dialog[data-game=typing] .typing-passage .cursor{background:#f4d48e;border-left-color:#8d622a;color:#183b2a}
+.game-dialog[data-game=typing] .typing-game>small{font-size:17px;color:#574e39}
+
+/* A detective's editor, with high contrast and large selectable code. */
+.game-dialog[data-game=debug]:not(.is-browsing):not(.is-finished) .game-stage{background:#152f40}
+.game-dialog[data-game=debug] .debug-game{color:#edf3eb}
+.game-dialog[data-game=debug] .debug-progress{font-size:18px;color:#c5dce3}
+.game-dialog[data-game=debug] .debug-progress span{font-size:16px;color:#d8e8e9;background:#294956}
+.game-dialog[data-game=debug] .debug-game h3{color:#f2f4e8;font-size:23px}
+.game-dialog[data-game=debug] .editor-tab{background:#304e5f;border-color:#56717c}
+.game-dialog[data-game=debug] .editor-tab b{font-size:16px;color:#d1e1de}
+.game-dialog[data-game=debug] .debug-code{background:#0c202f;border-color:#56717c;box-shadow:0 5px 14px #06172340}
+.game-dialog[data-game=debug] .debug-code button>span{font-size:16px;color:#96b5be}
+.game-dialog[data-game=debug] .debug-code code{font-size:18px;line-height:1.65}
+.game-dialog[data-game=debug] .debug-instruction{font-size:19px;color:#d6e7db}
+.game-dialog[data-game=debug] .debug-options button{background:#234252;color:#edf4ec;border-color:#587985;border-left-color:#d3b378}
+.game-dialog[data-game=debug] .debug-options code{font-size:18px}
+.game-dialog[data-game=debug] .debug-fix-form label{font-size:19px;color:#e1eee5}
+.game-dialog[data-game=debug] .debug-fix-form textarea{background:#102a38;color:#f1f4ea;border-color:#71989d;font-size:18px}
+.game-dialog[data-game=debug] .debug-feedback{background:#244b45;border-color:#6c9c82;color:#edf4e1}
+.game-dialog[data-game=debug] .debug-feedback b,.game-dialog[data-game=debug] .debug-feedback p,.game-dialog[data-game=debug] .debug-feedback>span{color:#e2edce}
+
+/* Letter blocks on a warm, open notebook. */
+.game-dialog[data-game=words]:not(.is-browsing):not(.is-finished) .game-stage{background:#e7cfae url('/miniapp/static/worlds/wood.svg') center/256px}
+.game-dialog[data-game=words] .words-game{background:#fff9e9;border:1px solid #c7b08a;border-radius:12px;box-shadow:0 4px #c4a77c,0 8px 18px #5f432a20;color:#58442f}
+.game-dialog[data-game=words] .words-round{font-size:18px;color:#5b5137}
+.game-dialog[data-game=words] .words-source button{background:linear-gradient(140deg,#fff3d0,#e5c992);border:1px solid #b89660;border-bottom:5px solid #ad8952;color:#543d28;font-size:26px;font-weight:800;box-shadow:inset 0 2px #fffbe9,0 3px 4px #8d6c3020}
+.game-dialog[data-game=words] .words-source button.is-used{opacity:.35;translate:0 3px}
+.game-dialog[data-game=words] .words-form input{background:#fffef7;border:2px solid #b9a480;border-radius:9px;font-size:21px;color:#443a2b}
+.game-dialog[data-game=words] .words-found{background:repeating-linear-gradient(transparent 0 37px,#d8d0b7 37px 38px)}
+.game-dialog[data-game=words] .words-found span{font-family:'Segoe UI',sans-serif;font-size:22px;color:#435d39;background:#e6efd7;border:1px solid #b7c79d;border-radius:6px}
+.game-dialog[data-game=words] .words-message{color:#5d4e32;font-size:18px}
+.game-dialog[data-game=words] .words-rule{display:none}
+
+/* Reaction is a real-looking signal instrument, with no decorative fine print. */
+.game-dialog[data-game=react]:not(.is-browsing):not(.is-finished) .game-stage{background:#203d40}
+.game-dialog[data-game=react] .reaction-pad{background:linear-gradient(145deg,#f5f0db,#cdcdb4);border:2px solid #6c8b7d;border-bottom:7px solid #658072;color:#385048;border-radius:25px;box-shadow:inset 0 2px #fffff2,0 7px 16px #10272b44}
+.game-dialog[data-game=react] .reaction-pad b{font-size:30px;color:inherit}
+.game-dialog[data-game=react] .reaction-pad small{font-size:18px;color:inherit}
+.game-dialog[data-game=react] .reaction-lights{background:linear-gradient(#28473e,#142c28);border:2px solid #839785;box-shadow:inset 0 4px 6px #071d26a0,0 3px #b6c1a6}
+.game-dialog[data-game=react] .reaction-lights i{background:radial-gradient(circle at 35% 25%,#557365,#1f3930 80%);box-shadow:inset 0 3px 5px #102e24}
+.game-dialog[data-game=react] .reaction-pad.go{background:linear-gradient(#e2efb9,#bad39b);color:#315333}
+.game-dialog[data-game=react] .reaction-pad.decoy{background:linear-gradient(#dbe8f3,#a7c8dd);color:#315371}
+.game-dialog[data-game=react] .reaction-attempts span{font-size:16px;color:#e2ecdb;background:#355c50;border-color:#678b76}
+
+/* The competition uses the same gardener and tactile tools as the persistent garden. */
+.game-dialog[data-game=kopatych] .kopatych-game{background:radial-gradient(ellipse at 50% 5%,#fff4cf80,transparent 65%),linear-gradient(#a5c596,#dce0b6 67%,#b8a175 68%);color:#3f593d}
+.game-dialog[data-game=kopatych] .garden-summary>div{background:#fff4d9;border-color:#a5ac7c;border-bottom:4px solid #88945e;border-radius:12px}
+.game-dialog[data-game=kopatych] .garden-summary small{font-size:16px;color:#53613d}
+.game-dialog[data-game=kopatych] .garden-summary strong{font-size:25px;color:#365b35}
+.game-dialog[data-game=kopatych] .garden-upgrades button{background:linear-gradient(#fff6d9,#e9d29f);border-color:#a98b50;border-radius:12px;box-shadow:inset 0 2px #ffffe5,0 2px #927744}
+.game-dialog[data-game=kopatych] .garden-upgrades b{font-size:17px;color:#58492f}
+.game-dialog[data-game=kopatych] .garden-upgrades strong{font-size:16px;color:#385633}
+.game-dialog[data-game=kopatych] .garden-upgrades small{display:none}
+.game-dialog[data-game=kopatych] .garden-tool{display:block;height:38px;width:42px;margin:0 auto}
+.game-dialog[data-game=kopatych] .garden-tool svg{width:100%;height:100%;display:block}
+.game-dialog[data-game=kopatych] .garden-gold{font-size:18px}
+
+/* Tests use the same instrument language; the puzzle remains the focus. */
+.benchmark-dialog{background:#18333c;color:#e9f0de;border-color:#6c8b89}
+.benchmark-dialog header{background:#112a36;border-color:#48656a}
+.benchmark-dialog header h2{color:#edf2e4}
+.benchmark-dialog .benchmark-play{color:#e7f0da}
+.benchmark-dialog .benchmark-instruction{color:#e7f0da;font-size:20px}
+.benchmark-dialog .benchmark-meta{color:#d0e5d1;font-size:19px}
+.benchmark-dialog .benchmark-number{color:#f3dfad;font-weight:800}
+.benchmark-dialog .benchmark-word{background:#234c47;border-color:#6e9b81;color:#f0eed5}
+.benchmark-dialog .benchmark-sequence button{background:linear-gradient(#376251,#264b41);border-color:#709378;box-shadow:inset 0 1px #b8d7ac50,0 3px #112f2e}
+.benchmark-dialog .benchmark-sequence button.is-lit{background:linear-gradient(#fff4be,#d7dc93);border-color:#f2e7b2;box-shadow:0 0 15px #dfed9d55}
+.benchmark-dialog .benchmark-shape,.benchmark-dialog .benchmark-shape-options button{background:#f1f1d9;border-color:#90ac89;box-shadow:0 3px #456955}
+.benchmark-dialog .benchmark-shape svg,.benchmark-dialog .benchmark-shape-options svg{fill:#3b725d}
+.benchmark-dialog .benchmark-number-form label{font-size:20px;color:#e7f0da}
+.benchmark-dialog .benchmark-result>p,.benchmark-dialog .benchmark-result>strong{color:#e7f0da}
+
+@media(max-width:700px),(max-height:650px){
+ .game-dialog[data-game] .arcade-canvas-frame{border-width:1px;border-radius:10px}
+ .game-dialog[data-game]:not(.is-browsing) .game-stage:has(.arcade-canvas-frame){padding:4px}
+ .game-dialog[data-game="2048"] .number-grid{border-width:5px}
+ .game-dialog[data-game=blocks] .blocks-meta{font-size:16px}
+ .game-dialog[data-game=blocks] .blocks-instruction{display:none}
+ .game-dialog[data-game=memory] .memory-top{font-size:17px}
+ .game-dialog[data-game=sort] .sort-tube{padding-top:2px}
+ .game-dialog[data-game=sort] .sort-tubes{row-gap:12px}
+ .game-dialog[data-game=sort] .sort-game{min-height:100%;display:flex;flex-direction:column}
+ .game-dialog[data-game=sort] .sort-tubes{flex:1;align-content:center;min-height:0}
+ .game-dialog[data-game=sort] .sort-tubes:before{display:none}
+ .game-dialog[data-game=sort] .sort-glass{--tube-height:clamp(96px,calc((var(--arcade-stage-height,420px) - 200px)/var(--tube-rows,1)),224px);width:min(62px,100%);height:var(--tube-height)}
+ .game-dialog[data-game=sort] .sort-glass>i{width:min(44px,calc((100vw - 120px)/var(--tube-columns,5)),calc((var(--tube-height) - 26px)/4));height:min(44px,calc((100vw - 120px)/var(--tube-columns,5)),calc((var(--tube-height) - 26px)/4));min-height:0}
+ .game-dialog[data-game=sort] .sort-tools{margin-top:auto}
+ .game-dialog[data-game=evolve] .expedition-heading{font-size:17px}
+ .game-dialog[data-game=evolve] .expedition-heading>span{font-size:16px}
+ .game-dialog[data-game=evolve] .expedition-order b{font-size:16px}
+ .game-dialog[data-game=evolve] .expedition-order.is-ready em{font-size:16px}
+ .game-dialog[data-game=evolve] .expedition-selection{font-size:16px;margin:6px 0}
+ .game-dialog[data-game=evolve] .expedition-atlas{font-size:16px}
+ .game-dialog[data-game=typing] .typing-surface .typing-passage{padding:14px;font-size:22px;line-height:1.7}
+ .game-dialog[data-game=typing] .typing-stats{font-size:17px}
+ .game-dialog[data-game=typing] .typing-game>small{display:none}
+ .game-dialog[data-game=debug] .debug-game h3{font-size:21px}
+ .game-dialog[data-game=words] .words-source button{font-size:23px}
+ .game-dialog[data-game=words] .words-round{font-size:16px;flex-wrap:wrap}
+ .game-dialog[data-game=kopatych] .garden-summary small{font-size:16px}
+ .game-dialog[data-game=kopatych] .garden-summary strong{font-size:23px}
+ .game-dialog[data-game=kopatych] .garden-upgrades b,.game-dialog[data-game=kopatych] .garden-upgrades strong{font-size:16px}
+ .game-dialog[data-game=kopatych] .garden-tool{height:27px;width:32px}
+ .game-dialog[data-game=react] .reaction-pad b{font-size:28px}
+}
+@media(prefers-reduced-motion:reduce){.game-dialog[data-game] .memory-grid button{transition:none}}
+@media(max-width:700px) and (min-height:700px) and (orientation:portrait){
+ .game-dialog[data-game=hill]:not(.is-browsing):not(.is-finished) .game-stage{display:flex;flex-direction:column;overflow:hidden}
+ .game-dialog[data-game=hill] .hill-drive{display:flex;flex-direction:column;flex:1;min-height:0}
+ .game-dialog[data-game=hill] .hill-canvas{flex:1;min-height:160px;height:0;aspect-ratio:auto}
+ .game-dialog[data-game=hill] .hill-instruments,.game-dialog[data-game=hill] .hill-pedals{flex:0 0 auto}
+ .game-dialog:is([data-game=orbit],[data-game=bugs],[data-game=bubbles],[data-game=tower],[data-game=drop]):not(.is-browsing):not(.is-finished){height:auto;inset:50% auto auto 50%;transform:translate(-50%,-50%)}
+ .game-dialog:is([data-game=orbit],[data-game=bugs],[data-game=bubbles],[data-game=tower],[data-game=drop]):not(.is-browsing):not(.is-finished) .game-stage{flex:0 1 auto;max-height:calc(var(--arcade-height,100dvh) - 180px)}
+}
+@media(min-width:701px) and (min-height:651px){
+ .game-dialog[data-game=sort] .sort-tube{max-width:76px}
+ .game-dialog[data-game=sort] .sort-glass{--tube-height:clamp(150px,calc((var(--arcade-stage-height,520px) - 160px)/var(--tube-rows,1)),210px);width:62px;height:var(--tube-height);padding:10px 7px}
+ .game-dialog[data-game=sort] .sort-glass>i{width:clamp(28px,calc((var(--tube-height) - 35px)/4),42px);height:clamp(28px,calc((var(--tube-height) - 35px)/4),42px);min-height:0}
+}

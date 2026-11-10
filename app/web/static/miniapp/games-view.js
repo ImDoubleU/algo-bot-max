@@ -40,6 +40,7 @@
     }
 
     function mount(game, stage, send, options) {
+        window.ArcadeWorldArt?.prepare(game);
         if(game==='drop'&&options.dropPhysics>=6)return ArcadeDropLabView.mount(stage,send,options);
         if (game==='hill') return ArcadeHillView.mount(stage,send,options);
         if(game==='evolve'&&options.expedition)return ArcadeExpeditionView.mount(stage,send,options);
@@ -107,7 +108,7 @@
             });
             paint = (w, dt = 0) => {
                 background(c, options.theme);
-                window.ArcadePersonality?.backdrop(c, game, w);
+                window.ArcadePersonality?.backdrop(c, game, w, options);
                 const raw = E.difficulty(game, game === "2048" ? Math.max(...w.board) : w.score),
                     config = w.journey ? ArcadeJourney.difficulty(w, raw) : raw;
                 for (const cue of w.cues.filter(q => q.n > lastCue)) {
@@ -125,7 +126,8 @@
                         ease = t * t * (3 - 2 * t);
                     c.save();
                     c.translate((180 - target.x) * ease, (281 - target.y) * ease);
-                    c.strokeStyle = "#c6ed9044";
+                    S.draw(c, "planet", 180, 281, 95, {...options,phase:w.time});
+                    c.strokeStyle = "#b9ed94";
                     c.lineWidth = 14;
                     c.beginPath();
                     c.arc(180, 281, 69, a - config.orbitWindow, a + config.orbitWindow);
@@ -135,27 +137,23 @@
                     c.beginPath();
                     c.arc(180, 281, 69, 0, Math.PI * 2);
                     c.stroke();
-                    S.draw(c, "planet", 180, 281, 95, {
-                        ...options,
-                        phase: w.time
-                    });
-                    circle(c, target.x, target.y, 28 + 15 * ease, "#bfe691");
-                    circle(c, target.x - 7, target.y - 7, 8, "#def4b5");
+                    S.draw(c,"planet",target.x,target.y,54+18*ease,{...options,phase:w.time});
                     const x = w.flight ? w.from.x + (target.x - w.from.x) * ease : 180 + Math.cos(w.angle) * 69,
                         y = w.flight ? w.from.y + (target.y + 69 - w.from.y) * ease - Math.sin(t * Math.PI) * 65 : 281 + Math.sin(w.angle) * 69;
-                    S.draw(c, "cat", x, y, 38, {
+                    S.draw(c, "cat", x, y, 54, {
                         ...options,
                         quality: options.quality(),
                         angle: w.flight ? Math.sin(t * Math.PI) * .65 : Math.sin(w.time * 3) * .06
                     });
                     c.restore();
-                    text(c, w.flight ? "Есть контакт!" : "Поймай зелёную дугу", 180, 35, 15, "#c5ef96");
+                    text(c, w.flight ? "Есть контакт!" : "Поймай зелёную дугу", 180, 35, 24, "#d7f2b5");
                 }
                 if (game === "bugs") {
                     for (const t of w.targets) {
                         const age = t.total - t.left;
-                        c.strokeStyle = t.good ? "#b8e6aa" : "#c5aff2";
-                        c.lineWidth = 2;
+                        c.fillStyle='#051f2577';c.beginPath();c.ellipse(t.x,t.y+14,23,11,0,0,Math.PI*2);c.fill();
+                        c.strokeStyle = t.good ? "#8ae7df" : "#f2c676";
+                        c.lineWidth = 3;
                         c.beginPath();
                         c.arc(t.x, t.y, 29, -Math.PI / 2, -Math.PI / 2 + t.left / t.total * 2 * Math.PI);
                         c.stroke();
@@ -166,7 +164,11 @@
                             angle: Math.sin(w.time * 5 + t.phase) * .13
                         });
                     }
-                    text(c, `Жизни: ${Math.max(0,w.lives)}`, 180, 30, 14);
+                    for(let i=0;i<Math.max(0,w.lives);i++){
+                        const x=146+i*24;c.fillStyle='#f0b69a';c.beginPath();
+                        c.moveTo(x+9,30);c.bezierCurveTo(x-8,20,x+1,9,x+9,17);
+                        c.bezierCurveTo(x+17,9,x+26,20,x+9,30);c.fill();
+                    }
                 }
                 if (game === "tower") {
                     const visible = w.blocks.slice(-11);
@@ -187,10 +189,12 @@
                         }
                         c.fillStyle='#e9ecd0';
                         for(const x of [b.left+4,b.left+b.width-5])c.fillRect(x,399-i*25+bounce,2,2);
+                        window.ArcadeWorldArt?.floor(c,b.left,390-i*25+bounce,b.width,21,material);
                     });
                     c.fillStyle = "#c9ed81";
                     c.fillRect(w.left, 390 - visible.length * 25, w.width, 21);
                     c.fillStyle='#f0ffd1';c.fillRect(w.left,390-visible.length*25,w.width,3);
+                    window.ArcadeWorldArt?.floor(c,w.left,390-visible.length*25,w.width,21,'#9bc08b',true);
                     for (const p of w.debris) {
                         c.save();
                         c.globalAlpha = Math.min(1, (1.8 - p.age) * 2);

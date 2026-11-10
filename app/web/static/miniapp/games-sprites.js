@@ -55,6 +55,7 @@
     }
 
     function draw(c, type, x, y, size = 40, options = {}) {
+        if(window.ArcadeWorldArt?.drawActor(c,type,x,y,size,options))return;
         const palette = palettes[options.skin] || palettes.base,
             phase = options.phase || 0;
         c.save();
@@ -362,7 +363,14 @@
         c.className = "sprite-canvas";
         c.setAttribute("aria-hidden", "true");
         if (!c.parentNode) button.prepend(c);
-        draw(c.getContext("2d"), type, 50, 50, options.spriteSize || 70, options);
+        const paint=()=>{
+            const context=c.getContext("2d");context.clearRect(0,0,100,100);
+            draw(context, type, 50, 50, options.spriteSize || 70, {...options,spriteCanvas:true});
+        };
+        paint();
+        window.ArcadeWorldArt?.ready(type).then(()=>{
+            if(c.isConnected&&!options.signal?.aborted)paint();
+        });
     }
     window.ArcadeSprites = {
         draw,

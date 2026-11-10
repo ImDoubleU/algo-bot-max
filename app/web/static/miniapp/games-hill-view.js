@@ -118,7 +118,7 @@
                 canvas.height = Math.round(height * dpr);
             }
             c.setTransform(dpr, 0, 0, dpr, 0, 0);
-            const scale = Math.min(width < 500 ? 25 : 33, Math.max(12, height / 5)),
+            const scale = Math.min(width < 500 ? 25 : 33, Math.max(12, height / 5))*(width<500?1.25:1.5),
                 camera = h.x - width * .34 / scale,
                 base = Math.max(H.terrain(w, h.x), h.y - 4),
                 x = wx => (wx - camera) * scale,
@@ -136,7 +136,8 @@
                 c.fillStyle = '#eee8cf';
                 for (let i = 0; i < 32; i++) c.fillRect((i * 79 + 17) % width, (i * 41 + 5) % (height * .6), 2, 2);
             }
-            for (let layer = 0; layer < 2; layer++) {
+            const illustrated=window.ArcadeWorldArt?.hillBackdrop(c,h.route,width,height,camera);
+            for (let layer = 0; !illustrated&&layer < 2; layer++) {
                 c.fillStyle = layer ? route.mountain : route.mountain + '77';
                 c.beginPath();
                 c.moveTo(0, height);
@@ -145,13 +146,30 @@
                 c.closePath();
                 c.fill();
             }
+            if(!illustrated)window.ArcadeWorldArt?.landscape(c,h.route,width,height,camera);
             c.beginPath();
             c.moveTo(-8, height + 8);
             for (let px = -8; px <= width + 8; px += 6) c.lineTo(px, y(H.terrain(w, camera + px / scale)));
             c.lineTo(width + 8, height + 8);
             c.closePath();
-            c.fillStyle = route.soil;
+            const soil=c.createLinearGradient(0,height*.55,0,height);
+            soil.addColorStop(0,route.soil);soil.addColorStop(1,h.route==='moon'?'#454957':h.route==='snow'?'#60798b':'#71543e');
+            c.fillStyle = soil;
             c.fill();
+            c.save();c.clip();
+            c.strokeStyle=h.route==='moon'?'#c8cdd322':'#ffe8b72e';c.lineWidth=2;
+            for(let row=0;row<5;row++){
+                c.beginPath();for(let px=-8;px<=width+8;px+=8){
+                    const py=y(H.terrain(w,camera+px/scale))+22+row*24+Math.sin(px*.025+row)*4;
+                    px===-8?c.moveTo(px,py):c.lineTo(px,py);
+                }c.stroke();
+            }
+            c.fillStyle='#edddae3b';
+            for(let i=0;i<60;i++){
+                const px=((i*43-camera*scale)%(width+80)+(width+80))%(width+80)-40,
+                    py=y(H.terrain(w,camera+px/scale))+13+(i*17)%120;
+                c.beginPath();c.ellipse(px,py,2+(i%3),1.5,(i%4)*.4,0,Math.PI*2);c.fill();
+            }c.restore();
             c.beginPath();
             for (let px = -8; px <= width + 8; px += 6) {
                 const py = y(H.terrain(w, camera + px / scale));
@@ -161,6 +179,7 @@
             c.lineWidth = 8;
             c.lineJoin = 'round';
             c.stroke();
+            c.strokeStyle='#e4ecc355';c.lineWidth=2;c.stroke();
             // Trackside signs and supplies share coordinates with the simulation.
             for (let i = Math.max(1, Math.floor(camera / 18)); i < Math.ceil((camera + width / scale) / 18) + 1; i++) {
                 if (h.collected[i]) continue;
@@ -209,6 +228,9 @@
                 c.font = 'bold 11px system-ui';
                 c.fillText(n * 100 + ' м', px, py - 30);
             }
+            const distance=Math.max(0,h.y-H.terrain(w,h.x));
+            c.fillStyle=`rgba(25,43,36,${Math.max(.04,.24-distance*.035)})`;c.beginPath();
+            c.ellipse(x(h.x),y(H.terrain(w,h.x))-1,scale*1.45,scale*.13,0,0,Math.PI*2);c.fill();
             // Suspension sits behind the shell; tires stay visible in front of the body.
             ArcadeHillArt.drawSuspension(c, h, x, y, scale);
             c.save();

@@ -39,7 +39,8 @@ def finish(store, session, trace, player="p1"):
 @pytest.mark.parametrize("game", list(arcade_journey.catalogue()))
 def test_all_adventures_have_twenty_four_stages_and_never_progress_by_waiting(game):
     stages = arcade_journey.catalogue()[game]["stages"]
-    assert [m["stage"] for m in stages] == list(range(1, (97 if game in {"typing", "debug"} else 25)))
+    maximum = 97 if game in {"typing", "debug"} else 25
+    assert [m["stage"] for m in stages] == list(range(1, maximum))
     assert len({m["title"] for m in stages}) == (8 if game in {"typing", "debug"} else 6)
     for stage in (1, 12, 24):
         report = arcade_runtime.verify(
@@ -132,7 +133,8 @@ def test_every_game_has_a_playable_route_on_mobile_and_desktop(arcade, width):
             continue
         hub = page.locator(".journey-hub")
         assert hub.is_visible()
-        assert page.locator(".journey-stop").count() == len(arcade_journey.catalogue()[game]["stages"])
+        expected = len(arcade_journey.catalogue()[game]["stages"])
+        assert page.locator(".journey-stop").count() == expected
         assert page.locator(".journey-stop:not(:disabled)").count() == 1
         assert hub.evaluate("(n)=>n.scrollWidth<=n.clientWidth"), game
         assert page.locator("#gameDialog").evaluate("(n)=>n.scrollWidth<=n.clientWidth"), game
@@ -175,7 +177,8 @@ def test_adventure_starts_real_game_and_saves_result_across_reentry(arcade):
     page.locator("[data-journey-map]").click()
     assert page.locator('[data-journey-play="2"]').is_visible()
     page.locator(".game-close").click()
-    assert "1 из 96 пройдено" in page.locator('.game-card[data-game="debug"]').inner_text()
+    assert store.profile("p1")["journeys"]["debug"]["cleared"] == 1
+    assert page.locator('.game-card[data-game="debug"]').inner_text() == "Детектив кода"
     page.locator('.game-card[data-game="debug"]').click()
     page.locator("[data-menu-levels]").click()
     assert page.locator('[data-journey-play="2"]').is_visible()

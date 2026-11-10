@@ -45,7 +45,7 @@
                 if(!from||!target)continue;
                 const to=target.getBoundingClientRect(),ghost=document.createElement('i');
                 ghost.className='sort-ball sort-flight';
-                ghost.innerHTML='<small>'+(color+1)+'</small>';
+                ghost.style.setProperty('--marble',`url('/miniapp/static/worlds/marble-${color}.svg')`);
                 ghost.style.setProperty('--ball',colors[color]);
                 Object.assign(ghost.style,{left:(from.left-area.left)+'px',top:(from.top-area.top)+'px',
                     width:from.width+'px',height:from.height+'px'});
@@ -142,8 +142,7 @@
                 button.setAttribute('aria-label',`Колба ${i+1}: ${t.length?t.slice().reverse().map(v=>names[v]).join(', '):'пусто'}`);
                 if(signatures[i]!==key) {
                     $('.sort-tubes').children[i].querySelector('.sort-glass').innerHTML=[3,2,1,0].map(j=>
-                        `<i data-slot="${j}" class="${t[j]===undefined?'':'sort-ball'}"${t[j]===undefined?'':` style="--ball:${colors[t[j]]}"`}>
-                        ${t[j]===undefined?'':`<small>${t[j]+1}</small>`}</i>`).join('');
+                        `<i data-slot="${j}" class="${t[j]===undefined?'':'sort-ball'}"${t[j]===undefined?'':` style="--ball:${colors[t[j]]};--marble:url('/miniapp/static/worlds/marble-${t[j]}.svg')"`}></i>`).join('');
                     signatures[i]=key;
                 }
             });

@@ -199,6 +199,7 @@
 
     // Side profiles use the original chassis coordinates and never alter wheel physics.
     function drawBody(ctx, h) {
+        if(window.ArcadeWorldArt?.vehicle(ctx,h))return;
         const color=paintFor(h.car,h.paint), m=models[h.car] || models.scout;
         const path=(shape,fill,stroke=ink,width=.055)=> {
             ctx.beginPath();
@@ -314,7 +315,10 @@
                 ctx.beginPath();ctx.moveTo(Math.cos(a)*r*.84,Math.sin(a)*r*.84);
                 ctx.lineTo(Math.cos(a+.09)*r*.96,Math.sin(a+.09)*r*.96);ctx.stroke();
             }
-            ctx.fillStyle=h.car==='rover'?'#e2d8b3':'#b7c6c1';ctx.beginPath();ctx.arc(0,0,r*.60,0,Math.PI*2);ctx.fill();
+            const rim=ctx.createRadialGradient(-r*.2,-r*.22,0,0,0,r*.67);
+            rim.addColorStop(0,h.car==='rover'?'#fff1c3':'#edf1e7');
+            rim.addColorStop(.45,h.car==='rover'?'#c3b178':'#acbeb8');rim.addColorStop(1,'#405a5c');
+            ctx.fillStyle=rim;ctx.beginPath();ctx.arc(0,0,r*.60,0,Math.PI*2);ctx.fill();
             ctx.strokeStyle='#4b6265';ctx.lineWidth=r*.15;
             for(let n=0;n<5;n++) {
                 const a=n*Math.PI*2/5;
