@@ -259,7 +259,7 @@
 
     function gardenFeature() {
         const bear = window.KopatychArt?.character(false, 1) || art('kopatych');
-        return `<section class="arcade-garden-feature" aria-label="Копатыч"><div class="arcade-feature-copy"><p>Твой огород</p><h2>Копатыч</h2><div class="arcade-feature-actions"><button data-garden>Мой огород</button><button data-sprint>Соревнование</button></div></div><div class="arcade-feature-art" aria-hidden="true">${bear}</div></section>`;
+        return `<section class="arcade-garden-feature" aria-label="Копатыч"><div class="arcade-feature-copy"><p>Твой огород</p><h2>Копатыч</h2><div class="arcade-feature-actions"><button data-garden>Мой огород</button><button data-sprint>Соревнование</button></div></div><div class="arcade-feature-art" aria-hidden="true">${bear}</div>${window.ArcadeGallery?.cover('kopatych','arcade-feature-cover')||''}</section>`;
     }
 
     function openGarden() {
@@ -293,10 +293,7 @@
     function cards() {
         const trophy = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4h8v6a4 4 0 0 1-8 0Z"/><path d="M8 6H4v2a4 4 0 0 0 4 4m8-6h4v2a4 4 0 0 1-4 4m-4 2v5m-4 1h8"/></svg>';
         return `${filter==='all'?gardenFeature():''}<div class="arcade-library-heading"><h2>Библиотека</h2><div class="games-filters" aria-label="Категории игр">${[["all","Все"],["fun","Аркады"],["skill","Навыки"],["puzzle","Логика"]].map(([id,name])=>`<button data-filter="${id}" aria-pressed="${filter===id}" class="${filter===id?"active":""}">${name}</button>`).join("")}</div></div><div class="games-grid">${(filter==='all'||filter==='fun')?(window.ArcadeCases?.library()||''):''}${E.games.slice().sort((a,b)=>Number(!!b.fresh)-Number(!!a.fresh)).filter(g=>filter==="all"||g.kind===filter).map(g=>{
-            const q = profile.goals[g.id], journey = profile.journeys[g.id],
-                cleared = journey?.cleared || 0, maximum=journey?.maximum||24,
-                progressText = g.id==='react' ? '5 тестов · реакция и память' : g.persistent ? 'Огород и турнир' : journey ? cleared===maximum ? 'Все уровни пройдены' : cleared ? `${cleared} из ${maximum} пройдено` : maximum===24?'24 уровня':`${maximum} уровней` : `Цель: ${goal(g.id)}`;
-            return `<div class="game-card-shell"><button class="game-card ${g.color}" data-game="${g.id}"><span class="game-card-art">${art(g.id)}</span><span class="game-card-body"><h3>${g.name}</h3><span class="game-card-bottom"><span>${progressText}</span>${money()&&(!q.claimed||!q.credited)?`<span class="game-reward">${q.claimed?'Начисляется':`+${q.reward} AC`}</span>`:''}</span>${journey&&cleared?`<progress class="game-card-progress" aria-label="Пройденные уровни: ${cleared} из ${maximum}" value="${cleared}" max="${maximum}"></progress>`:''}</span></button><button class="game-card-leader" data-leader="${g.id}" aria-label="Лидеры: ${g.name}" title="Лидеры">${trophy}</button></div>`;
+            return `<div class="game-card-shell" style="--cover-accent:${window.ArcadeGallery?.palettes[g.id]||'#b4dec7'}"><button class="game-card ${g.color}" data-game="${g.id}"><span class="game-card-art">${window.ArcadeGallery?.cover(g.id)||art(g.id)}</span><span class="game-card-body"><h3>${g.name}</h3></span></button><button class="game-card-leader" data-leader="${g.id}" aria-label="Лидеры: ${g.name}" title="Лидеры">${trophy}</button></div>`;
         }).join("")}</div>`;
     }
 
@@ -632,10 +629,10 @@
         $('.game-leaders-button', d).hidden = true;
         $('.game-menu-back', d).hidden = screen === 'menu';
         const host = $('.game-stage', d);
-        host.innerHTML = g.id==='react'&&screen==='menu'?ArcadeBenchmarkView.hub():screen === 'levels' ? ArcadeMenu.levels(g.id, profile.journeys[g.id], run.selectedJourney) :
+        host.innerHTML = g.id==='react'&&screen==='menu'?(window.ArcadeGallery?.cover('react','arcade-benchmark-cover',true)||'')+ArcadeBenchmarkView.hub():screen === 'levels' ? ArcadeMenu.levels(g.id, profile.journeys[g.id], run.selectedJourney) :
             screen === 'arenas' ? ArcadeMenu.arenas(run.arena || 'classic') : ArcadeMenu.home(g);
         host.scrollTop = 0;
-        if(g.id==='drop'&&screen==='menu')ArcadeDropLabView.menu(host);
+        if(g.id==='drop'&&screen==='menu'&&!window.ArcadeGallery)ArcadeDropLabView.menu(host);
         host.onclick = e => {
             const button = e.target.closest('button');
             if (!button || button.disabled) return;

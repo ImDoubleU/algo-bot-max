@@ -15,7 +15,7 @@
     return `<span class="case-loot rarity-${i.rarity} ${extra}" data-case-loot="${i.id}"><img src="${art(i.id)}" alt="" loading="lazy"><b>${esc(i.name)}</b><span>${esc(rarity(s,i.rarity).name)}</span></span>`;
   }
   function library() {
-    return `<button class="case-library-card" data-cases><img src="/miniapp/static/cases/hangar.webp" alt="Космический кейс и робот на орбитальной станции" loading="lazy"><span><span>НОВАЯ КОЛЛЕКЦИЯ</span><h3>Орбитальные кейсы</h3><span>Открывай · собирай · создавай</span></span><b aria-hidden="true">↗</b></button>`;
+    return `<button class="case-library-card" data-cases><img src="/miniapp/static/cases/hangar.webp" alt="" loading="lazy"><span><h3>Орбитальные кейсы</h3></span><b aria-hidden="true">↗</b></button>`;
   }
   async function open(api, options) {
     if (current) return;
@@ -40,7 +40,7 @@
       <p class="case-message" role="status" hidden></p>
       ${s.tab==='collection'?`<div class="case-collection-heading"><h3>Твоя коллекция</h3><span>${count} из ${s.data.total}</span></div>${favorite?`<div class="case-showcase"><img src="${art(favorite.id)}" alt=""><span><span>НА ВИТРИНЕ</span><b>${esc(favorite.name)}</b></span></div>`:''}<div class="case-inventory">${s.data.items.map(i=>`<article class="case-inventory-item ${i.count?'is-owned':'is-missing'} rarity-${i.rarity}"><div class="case-inventory-art"><img src="${art(i.id)}" alt="${esc(i.name)}" loading="lazy">${i.count?`<span>×${i.count}</span>`:''}</div><h4>${esc(i.name)}</h4><p>${esc(rarity(s,i.rarity).name)}</p>${i.count?`<button data-case-favorite="${i.id}" ${s.data.favorite===i.id?'disabled':''}>${s.data.favorite===i.id?'На витрине':'На витрину'}</button>`:`<button data-case-craft="${i.id}" ${s.data.fragments<i.craft?'disabled':''}>Создать · ${i.craft} деталей</button>`}</article>`).join('')}</div>`:
       `<div class="case-choices">${s.data.cases.map(x=>`<button data-case-select="${x.id}" aria-pressed="${x.id===c.id}" ${x.unlocked?'':'disabled'} style="--case-color:${x.color}"><span class="case-crate" aria-hidden="true">${crateSvg()}</span><span><b>${esc(x.name)}</b><span>${x.unlocked?esc(x.subtitle):'Собери '+x.unlock+' разных предметов'}</span></span></button>`).join('')}</div>
-      <section class="case-opening" aria-label="Открытие кейса"><div class="case-opening-heading"><h3>${esc(c.name)}</h3><span>Легендарный — не позднее чем через <b>${s.data.guaranteed_in}</b> ${openings(s.data.guaranteed_in)}</span></div><div class="case-roll-window"><div class="case-roll-marker" aria-hidden="true"></div><div class="case-reel">${s.data.items.slice(0,7).map(i=>card(s,i)).join('')}</div></div><div class="case-result" aria-live="polite" hidden></div><div class="case-open-actions"><button class="case-primary" data-case-open>Открыть бесплатно</button><button class="case-skip" data-case-skip hidden>Показать результат</button><button class="case-retry" data-case-retry hidden>Повторить запрос</button></div><details class="case-odds"><summary>Что внутри и как это работает</summary><div>${s.data.rarities.map((r,n)=>`<span class="rarity-${r.id}"><b>${esc(r.name)}</b><strong>${c.weights[n]}%</strong></span>`).join('')}</div><p>Вероятности относятся к редкости. Внутри неё сначала выпадают ещё не собранные предметы. Не позднее каждого 20-го открытия без легендарного гарантирован легендарный предмет. Повторные находки дают детали: ${s.data.rarities.map(r=>r.fragments).join(' / ')} по порядку редкостей. Из деталей можно создать конкретный предмет в коллекции.</p><p>Кейсы не расходуют и не выдают астрокоины. Случайные находки не учитываются в рейтинге.</p></details></section>`}`;
+      <section class="case-opening" aria-label="Открытие кейса"><div class="case-opening-heading"><h3>${esc(c.name)}</h3><span>Легендарный — не позднее чем через <b>${s.data.guaranteed_in}</b> ${openings(s.data.guaranteed_in)}</span></div><div class="case-roll-window"><div class="case-roll-marker" aria-hidden="true"></div><div class="case-reel">${s.data.items.slice(0,7).map(i=>card(s,i)).join('')}</div><div class="case-result" aria-live="polite" hidden></div></div><div class="case-open-actions"><button class="case-primary" data-case-open>Открыть бесплатно</button><button class="case-skip" data-case-skip hidden>Показать результат</button><button class="case-retry" data-case-retry hidden>Повторить запрос</button></div><details class="case-odds"><summary>Что внутри и как это работает</summary><div>${s.data.rarities.map((r,n)=>`<span class="rarity-${r.id}"><b>${esc(r.name)}</b><strong>${c.weights[n]}%</strong></span>`).join('')}</div><p>Вероятности относятся к редкости. Внутри неё сначала выпадают ещё не собранные предметы. Не позднее каждого 20-го открытия без легендарного гарантирован легендарный предмет. Повторные находки дают детали: ${s.data.rarities.map(r=>r.fragments).join(' / ')} по порядку редкостей. Из деталей можно создать конкретный предмет в коллекции.</p><p>Кейсы не расходуют и не выдают астрокоины. Случайные находки не учитываются в рейтинге.</p></details></section>`}`;
     if(s.tab==='collection'&&s.data.history.length) {
       s.d.querySelector('main').insertAdjacentHTML('beforeend',`<details class="case-history"><summary>Последние находки</summary><ol>${s.data.history.map(r=>{
         const i=item(s,r.item);return `<li><img src="${art(i.id)}" alt="" loading="lazy"><span><b>${esc(i.name)}</b><span>${r.action==='craft'?'Создан из деталей':r.new?'Новый предмет':'Повтор · +'+r.fragments+' деталей'}</span></span><time>${new Date(r.created*1000).toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</time></li>`;
@@ -96,6 +96,7 @@
   async function roll(s,result) {
     const viewport=s.d.querySelector('.case-roll-window'), reel=viewport.querySelector('.case-reel'), won=item(s,result.item), selected=s.data.cases.find(c=>c.id===result.case);
     s.d.querySelector('.case-result').hidden=true;
+    viewport.classList.remove('is-revealed');
     const items=Array.from({length:39},()=>{
       let n=Math.random()*100,tier=s.data.rarities[0].id;
       for(let j=0;j<selected.weights.length;j++){n-=selected.weights[j];if(n<0){tier=s.data.rarities[j].id;break;}}
@@ -113,7 +114,7 @@
       let done=false;
       s.finishRoll=()=>{if(done)return;done=true;clearTimeout(s.timer);s.finishRoll=null;resolve();};
       s.timer=setTimeout(s.finishRoll,reduced?0:3800);
-      requestAnimationFrame(()=>requestAnimationFrame(()=>{if(current!==s)return;
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{if(current!==s||done)return;
         reel.style.transition=reduced?'none':'transform 3.5s cubic-bezier(.12,.69,.14,1)';
         reel.style.transform=`translateX(${viewport.clientWidth/2-destination}px)`;
       }));
@@ -124,8 +125,8 @@
     finalViewport.querySelector('.case-reel').replaceWith(reel);
     reel.style.transition='none';
     reel.style.transform=`translateX(${finalViewport.clientWidth/2-target.offsetLeft-target.offsetWidth/2}px)`;
-    const box=s.d.querySelector('.case-result');box.hidden=false;
-    box.innerHTML=`${card(s,won)}<div><span>${result.new?'НОВАЯ НАХОДКА':'ПОВТОРНАЯ НАХОДКА'}</span><h4>${esc(won.name)}</h4><p>${result.new?'Уже в твоей коллекции.':'+'+result.fragments+' деталей для создания предметов.'}</p><button data-case-tab="collection">Посмотреть коллекцию →</button></div>`;
+    const box=s.d.querySelector('.case-result');box.hidden=false;finalViewport.classList.add('is-revealed');
+    box.innerHTML=`${card(s,won)}<div><span>${result.new?'НОВАЯ НАХОДКА':'ПОВТОРНАЯ НАХОДКА'}</span><h4>${esc(won.name)}</h4><p>${result.new?'Уже в твоей коллекции.':'+'+result.fragments+' деталей для создания предметов.'}</p><button data-case-tab="collection">Коллекция →</button></div>`;
     s.d.querySelector('.case-opening-heading span').textContent=`Коллекция: ${s.data.collected} из ${s.data.total}`;
     if(s.options.settings?.vibration&&navigator.vibrate)navigator.vibrate(12);
   }

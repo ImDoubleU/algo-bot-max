@@ -21,7 +21,7 @@ def test_case_open_and_collection_survive_reopen_without_ac(arcade, width):
     winner = CaseStore(store).get("p1")["history"][0]["item"]
     pointed = page.locator(".case-roll-window").evaluate("""viewport=>{
       const center=viewport.getBoundingClientRect().left+viewport.clientWidth/2;
-      return [...viewport.querySelectorAll('[data-case-loot]')].sort((a,b)=>{
+      return [...viewport.querySelectorAll('.case-reel [data-case-loot]')].sort((a,b)=>{
         const distance=n=>Math.abs(n.getBoundingClientRect().left+n.offsetWidth/2-center);
         return distance(a)-distance(b);
       })[0].dataset.caseLoot;
@@ -79,3 +79,37 @@ def test_cases_and_other_auxiliary_windows_close_when_leaving_games(arcade):
     page.locator(".hill-garage-dialog").wait_for()
     page.evaluate("algoGames.close()")
     assert page.locator(".hill-garage-dialog").count() == 0
+
+
+@pytest.mark.parametrize("width", [320, 390, 1440])
+@pytest.mark.parametrize("reduced", [False, True])
+def test_find_replaces_reel_without_moving_open_button_on_repeated_draws(arcade, width, reduced):
+    page, store = arcade
+    page.set_viewport_size(dict(width=width, height=850))
+    page.emulate_media(reduced_motion="reduce" if reduced else "no-preference")
+    page.locator("[data-cases]").click()
+    button = page.locator("[data-case-open]")
+    button.scroll_into_view_if_needed()
+    measure = """n=>{
+      const section=n.closest('.case-opening'), r=n.getBoundingClientRect(),
+        parent=section.getBoundingClientRect();
+      return {x:r.x-parent.x,y:r.y-parent.y,width:r.width,height:r.height,
+        section:section.clientHeight,reel:section.querySelector('.case-roll-window').clientHeight};
+    }"""
+    before = button.evaluate(measure)
+    for draw in range(2):
+        if draw:
+            page.wait_for_function("!document.querySelector('[data-case-open]').disabled")
+        button.click()
+        if not reduced:
+            page.locator("[data-case-skip]").wait_for()
+            visibility = page.locator(".case-reel").evaluate("n=>getComputedStyle(n).visibility")
+            assert visibility == "visible"
+            assert button.evaluate(measure) == before
+            page.locator("[data-case-skip]").click()
+        page.locator(".case-roll-window.is-revealed > .case-result:not([hidden])").wait_for()
+        assert button.evaluate(measure) == before
+        assert page.locator(".case-reel").evaluate("n=>getComputedStyle(n).visibility") == "hidden"
+        assert page.locator(".case-result").evaluate("n=>n.scrollHeight<=n.clientHeight")
+    assert CaseStore(store).get("p1")["opens"] == 2
+    page.locator("[data-case-close]").click()

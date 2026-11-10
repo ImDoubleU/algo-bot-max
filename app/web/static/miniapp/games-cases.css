@@ -98,3 +98,24 @@
 .cases-dialog .rarity-common{--rarity:#9fb7c9}.cases-dialog .rarity-rare{--rarity:#58b6ec}.cases-dialog .rarity-epic{--rarity:#bd8afa}.cases-dialog .rarity-legendary{--rarity:#f8bd5b}
 .case-history{margin-top:25px;border-top:1px solid #344754;padding-top:20px;font-size:16px;color:#cadce2}.case-history summary{min-height:44px;cursor:pointer}.case-history ol{padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:12px}.case-history li{display:flex;align-items:center;gap:12px;padding:12px;background:#172b3a;border-radius:10px;min-width:0}.case-history img{width:48px;height:48px}.case-history li>span{display:grid;gap:5px;flex:1;min-width:0}.case-history b{font-size:15px}.case-history li>span>span,.case-history time{font-size:13px;color:#aebfca}.case-history time{max-width:90px;text-align:right}
 @media(max-width:700px){.case-history ol{grid-template-columns:1fr}.case-history li{gap:8px}.case-history img{width:38px;height:38px}.case-history time{max-width:60px}}
+
+.case-opening-heading{min-height:50px;align-items:center}
+.case-roll-window.is-revealed .case-reel,.case-roll-window.is-revealed .case-roll-marker{visibility:hidden}
+.case-roll-window.is-revealed:after{display:none}
+.case-roll-window>.case-result{position:absolute;inset:0;margin:0;border:0;border-radius:0;padding:16px 24px;grid-template-columns:160px minmax(0,1fr);gap:24px;background:radial-gradient(ellipse at 20% 50%,#345360,#172c3c 72%);z-index:3}
+.case-result .case-loot{border:0;background:none;padding:0;gap:5px;align-self:center}
+.case-result .case-loot img{width:128px;height:128px}
+.case-result .case-loot>b{display:none}
+.case-result h4{margin:6px 0;font-size:26px;line-height:1.15}
+.case-result p{margin:7px 0 10px;font-size:16px;line-height:1.35}
+.case-open-actions{display:grid;grid-template-columns:1fr;grid-template-rows:58px 44px;place-items:center;gap:12px}
+.case-open-actions .case-primary{grid-row:1;width:min(100%,330px);height:58px}
+.case-open-actions .case-skip,.case-open-actions .case-retry{grid-row:2;grid-column:1}
+@media(max-width:700px){
+ .case-opening-heading{min-height:0}.case-opening-heading>span{min-height:42px}
+ .case-roll-window>.case-result{grid-template-columns:92px minmax(0,1fr);gap:12px;padding:13px 14px;text-align:left;justify-items:stretch}
+ .case-result .case-loot{width:92px}.case-result .case-loot img{width:92px;height:92px}
+ .case-result h4{font-size:20px;overflow-wrap:anywhere}.case-result p{font-size:14px}
+ .case-result>div>span{font-size:10px;letter-spacing:.04em}.case-result button{font-size:14px;padding:9px 12px}
+ .case-open-actions .case-primary{width:100%}
+}

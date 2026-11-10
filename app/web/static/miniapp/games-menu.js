@@ -18,7 +18,7 @@
     const icon = id => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[id]}</svg>`;
 
     function home(game) {
-        return `<section class="arcade-game-menu" aria-label="Режим игры"><div class="arcade-menu-art" aria-hidden="true">${AlgoGameArt.render(game.id)}</div><div class="arcade-menu-actions">${[
+        return `<section class="arcade-game-menu" aria-label="Режим игры"><div class="arcade-menu-art" aria-hidden="true">${window.ArcadeGallery?.cover(game.id,'',true)||AlgoGameArt.render(game.id)}</div><div class="arcade-menu-actions">${[
             ['ranked', 'Соревнование', 'data-mode="ranked"'],
             ['practice', 'Тренировка', 'data-mode="practice"'],
             ['learning', 'Обучение', 'data-menu-learning'],

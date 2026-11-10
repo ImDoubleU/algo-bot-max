@@ -3,7 +3,7 @@
     "/miniapp/static/games.css?v=2",
     "/miniapp/static/games-extra.css?v=1",
     "/miniapp/static/games-farm.css?v=2",
-    "/miniapp/static/games-cases.css?v=2",
+    "/miniapp/static/games-cases.css?v=3",
     "/miniapp/static/games-journey.css?v=3",
     "/miniapp/static/games-mastery.css?v=4",
     "/miniapp/static/games-menu.css?v=2",
@@ -19,7 +19,8 @@
     "/miniapp/static/games-expedition.css?v=2",
     "/miniapp/static/games-benchmarks.css?v=3",
     "/miniapp/static/games-mobile.css?v=3",
-    "/miniapp/static/games-drop-lab.css?v=1"
+    "/miniapp/static/games-drop-lab.css?v=1",
+    "/miniapp/static/games-gallery.css?v=2"
   ],
   "scripts": [
     "/miniapp/static/games-words-data.js?v=2",
@@ -53,12 +54,13 @@
     "/miniapp/static/games-hill-garage.js?v=5",
     "/miniapp/static/games-farm-art.js?v=4",
     "/miniapp/static/games-farm.js?v=7",
-    "/miniapp/static/games-cases.js?v=2",
+    "/miniapp/static/games-cases.js?v=4",
     "/miniapp/static/games-journey-view.js?v=8",
-    "/miniapp/static/games-menu.js?v=5",
+    "/miniapp/static/games-gallery.js?v=2",
+    "/miniapp/static/games-menu.js?v=6",
     "/miniapp/static/games-personality.js?v=4",
     "/miniapp/static/games-results.js?v=11",
     "/miniapp/static/games-benchmark-view.js?v=4",
-    "/miniapp/static/app-games.js?v=33"
+    "/miniapp/static/app-games.js?v=35"
   ]
 }
