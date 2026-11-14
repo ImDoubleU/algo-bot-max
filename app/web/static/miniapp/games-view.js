@@ -14,10 +14,16 @@
     const colors = ["#b6a0ec", "#c5e998", "#efb38e", "#eca3b4", "#9fc9e9", "#ecdc93", "#c498e6", "#efbf88"];
 
     function text(c, t, x, y, size = 17, color = "#d7c8e6") {
+        c.save();
         c.fillStyle = color;
         c.font = `700 ${size}px system-ui`;
         c.textAlign = "center";
+        c.strokeStyle = "#102638d9";
+        c.lineWidth = Math.max(2, size * .13);
+        c.lineJoin = "round";
+        c.strokeText(t, x, y);
         c.fillText(t, x, y);
+        c.restore();
     }
 
     function circle(c, x, y, r, color) {
@@ -550,7 +556,7 @@
                     grid.style.setProperty('--memory-rows',Math.ceil(w.cards.length/columns));
                     grid.innerHTML = w.cards.map((v, i) => `<button data-card="${i}" class="${w.matched.includes(i)?"matched":(w.opened.includes(i)||peek)?"flipped":""}" ${w.matched.includes(i)?"disabled":""} aria-label="Карточка ${i+1}">${w.matched.includes(i)||w.opened.includes(i)||peek?"":"✦"}</button>`).join("");
                     [...grid.children].forEach((b, i) => {
-                        if (w.matched.includes(i) || w.opened.includes(i) || peek) S.buttonCanvas(b, S.memory[w.cards[i]], options);
+                        if (w.matched.includes(i) || w.opened.includes(i) || peek) S.buttonCanvas(b, S.memory[w.cards[i]], {...options, spriteSize:94, spriteResolution:2});
                     });
                 }
                 $(".memory-top span", stage).textContent = `${w.cards.length/2} пар`;

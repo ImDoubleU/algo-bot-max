@@ -103,3 +103,44 @@ def test_floating_counters_do_not_cover_the_puzzle_or_inputs(arcade, game):
         page.locator("#arcadeWordInput").fill("кот")
         assert page.locator("#arcadeWordInput").input_value() == "кот"
     page.locator(".game-close").click()
+
+
+def test_memory_pictures_fill_the_cards_and_decode_at_double_resolution(arcade):
+    page, _ = arcade
+    page.evaluate("Promise.all(ArcadeSprites.memory.map(id=>ArcadeWorldArt.ready(id)))")
+    page.locator('.game-card[data-game="memory"]').click()
+    page.locator('[data-mode="practice"]').click()
+    page.wait_for_selector(".arcade-countdown", state="detached")
+    page.locator('[data-card="0"]').click()
+    result = page.locator('[data-card="0"] canvas').evaluate("""canvas=>{
+      const box=canvas.getBoundingClientRect(),card=canvas.parentElement.getBoundingClientRect();
+      return {width:canvas.width,height:canvas.height,ratio:box.width/card.width,
+        visible:canvas.getContext('2d').getImageData(0,0,200,200).data.some((v,i)=>i%4===3&&v>0)};
+    }""")
+    assert result["width"] == result["height"] == 200
+    assert result["ratio"] >= .9 and result["visible"]
+    page.locator(".game-close").click()
+
+
+def test_repainting_changes_body_panels_but_keeps_windows_and_alpha(arcade):
+    page, _ = arcade
+    result = page.evaluate("""async()=>{
+      const image=new Image();image.src='/miniapp/static/worlds/car-scout.webp';
+      await image.decode();
+      const original=document.createElement('canvas');
+      original.width=image.width;original.height=image.height;
+      const ctx=original.getContext('2d');ctx.drawImage(image,0,0);
+      const parent=document.createElement('div');
+      parent.innerHTML=ArcadeWorldArt.vehicleMarkup('scout','#d16b63');
+      document.body.append(parent);ArcadeWorldArt.paintVehiclePreviews(parent);
+      while(parent.firstChild.dataset.paintReady!=='true')await new Promise(r=>setTimeout(r,10));
+      const painted=ArcadeWorldArt.vehicleSource('scout','#d16b63').getContext('2d');
+      const pixel=(context,x,y)=>[...context.getImageData(x,y,1,1).data];
+      const data={original:pixel(ctx,450,250),body:pixel(painted,450,250),
+        windowBefore:pixel(ctx,420,155),windowAfter:pixel(painted,420,155),alpha:pixel(painted,0,0)[3]};
+      parent.remove();return data;
+    }""")
+    assert result["body"] != result["original"]
+    assert result["body"][0] > result["body"][1]
+    assert result["windowBefore"] == result["windowAfter"]
+    assert result["alpha"] == 0

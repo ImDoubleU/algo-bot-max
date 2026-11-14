@@ -4,7 +4,7 @@
     const H = ArcadeHill;
 
     function carSvg(id = 'scout', color) {
-        return ArcadeHillArt.svg(id, color);
+        return window.ArcadeWorldArt?.vehicleMarkup(id, color) || ArcadeHillArt.svg(id, color);
     }
 
     function mount(stage, send, options) {

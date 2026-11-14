@@ -24,7 +24,9 @@ def test_all_four_vehicle_cards_have_large_finite_art_and_no_overflow(arcade, wi
     ]
     for card in cards.all():
         art = card.locator("svg")
+        page.wait_for_function("[...document.querySelectorAll('.hill-rendered-car')].every(n=>n.dataset.paintReady==='true')")
         assert art.bounding_box()["width"] >= 190
+        assert art.locator("image").get_attribute("href").startswith("data:image/")
         assert "NaN" not in art.inner_html()
         assert card.evaluate("n=>n.scrollWidth<=n.clientWidth")
         assert card.locator("button").bounding_box()["height"] >= 44
@@ -55,7 +57,10 @@ def test_paint_and_car_selection_update_both_hero_and_catalogue_without_changing
         "?.getAttribute('aria-pressed')==='true'"
     )
     for selector in (".hill-garage-car>svg", '.hill-car-list [data-car-model="scout"] svg'):
-        assert page.locator(selector).locator('[fill="#66a99c"]').count() > 0
+        page.locator(selector + '[data-paint-ready="true"]').wait_for()
+        assert page.locator(selector).get_attribute("data-hill-paint") == "#66a99c"
+        href = page.locator(selector).locator("image").get_attribute("href")
+        assert href.startswith("data:image/")
     assert page.locator(".hill-car-stats").inner_text() == stats
     page.locator('[data-action="select"][data-item="buggy"]').click()
     page.locator('.hill-car-list [data-car-model="buggy"].is-selected').wait_for()

@@ -10,7 +10,7 @@ def inject_pilot(source: str, max_ids: list[int]) -> str:
     source = source.replace(
         '<script src="/miniapp/static/app-shell.js',
         f'<script type="application/json" id="arcadePilotConfig">{config}</script>'
-        '<script src="/miniapp/static/app-arcade-pilot.js?v=3"></script>'
+        '<script src="/miniapp/static/app-arcade-pilot.js?v=4"></script>'
         '<script src="/miniapp/static/app-shell.js',
         1,
     )

@@ -40,7 +40,7 @@
   async function load() {
     const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
     let r;
-    try{r=await fetch('/miniapp/static/arcade-assets.json?v=pilot-3',{signal:controller.signal});}
+    try{r=await fetch('/miniapp/static/arcade-assets.json?v=interiors-20261114',{signal:controller.signal});}
     finally{clearTimeout(timeout);}
     if(!r.ok)throw Error('Не удалось загрузить игры. Попробуй ещё раз.');
     const assets=await r.json();

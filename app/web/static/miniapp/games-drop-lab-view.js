@@ -59,7 +59,9 @@
     c.restore();c.restore();
   }
   function label(c,text,x,y,size,color,align='left'){
-    c.font=`600 ${size}px "Segoe UI",sans-serif`;c.fillStyle=color;c.textAlign=align;c.fillText(text,x,y);
+    c.save();c.font=`600 ${size}px "Segoe UI",sans-serif`;c.fillStyle=color;c.textAlign=align;
+    c.strokeStyle='#11243bd9';c.lineWidth=Math.max(2,size*.12);c.lineJoin='round';
+    c.strokeText(text,x,y);c.fillText(text,x,y);c.restore();
   }
   function mount(stage,send,options){
     stage.dataset.game='drop';stage.dataset.dropEdition='6';

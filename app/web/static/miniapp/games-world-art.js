@@ -138,24 +138,74 @@
     c.restore();
   }
   const paintedVehicles=new Map();
+  const vehiclePreviews=new Map();
+  function hsv(r,g,b) {
+    r/=255;g/=255;b/=255;
+    const hi=Math.max(r,g,b),lo=Math.min(r,g,b),d=hi-lo;
+    const hue=!d?0:hi===r?((g-b)/d+6)%6:hi===g?(b-r)/d+2:(r-g)/d+4;
+    return [hue*60,hi?d/hi:0,hi];
+  }
+  function rgb(h,s,v) {
+    const i=Math.floor(h/60)%6,f=h/60-Math.floor(h/60),p=v*(1-s),q=v*(1-f*s),t=v*(1-(1-f)*s);
+    return [[v,t,p],[q,v,p],[p,v,t],[p,q,v],[t,p,v],[v,p,q]][i].map(n=>Math.round(n*255));
+  }
+  function vehicleSource(id,paint) {
+    if(!vehicles[id])return null;
+    const image=resource('car-'+id+'.webp').image;
+    if(!image.complete||!image.naturalWidth)return null;
+    const color=/^#[a-f\d]{6}$/i.test(paint||'')?paint.toLowerCase():window.ArcadeHill.getCar(id).color;
+    const key=id+':'+color;
+    if(paintedVehicles.has(key))return paintedVehicles.get(key);
+    const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(image,0,0);
+    const data=ctx.getImageData(0,0,canvas.width,canvas.height),pixels=data.data;
+    const target=hsv(...color.slice(1).match(/../g).map(n=>parseInt(n,16)));
+    for(let i=0;i<pixels.length;i+=4) {
+      if(pixels[i+3]<8)continue;
+      const [h,s,v]=hsv(pixels[i],pixels[i+1],pixels[i+2]),y=Math.floor(i/4/canvas.width);
+      // Only the body panels are painted: retain windows, tyres, lights and metal trim.
+      const body=id==='scout'?y>90&&h>=26&&h<=62&&s>.35&&v>.2
+        :id==='buggy'?y>145&&h>=110&&h<=185&&s>.12&&v>.2
+        :id==='truck'?(h<=30||h>=345)&&s>.45&&v>.2
+        :y>65&&y<335&&s<.26&&v>.6;
+      if(!body)continue;
+      const out=rgb(target[0],Math.min(.95,target[1]*(.68+s*.4)),Math.min(1,v*(.72+target[2]*.3)));
+      pixels[i]=out[0];pixels[i+1]=out[1];pixels[i+2]=out[2];
+    }
+    ctx.putImageData(data,0,0);
+    if(paintedVehicles.size>=12){const oldest=paintedVehicles.keys().next().value;paintedVehicles.delete(oldest);vehiclePreviews.delete(oldest);}
+    paintedVehicles.set(key,canvas);return canvas;
+  }
+  function vehicleMarkup(id,paint) {
+    if(!vehicles[id])return '';
+    const color=/^#[a-f\d]{6}$/i.test(paint||'')?paint.toLowerCase():window.ArcadeHill.getCar(id).color;
+    return `<svg class="hill-rendered-car" viewBox="0 0 768 480" data-hill-model="${id}" data-hill-paint="${color}" data-paint-ready="false" role="img" aria-label="${window.ArcadeHill.getCar(id).name}"><image data-vehicle-image width="768" height="480" href="${root}car-${id}.webp" preserveAspectRatio="xMidYMid meet"/></svg>`;
+  }
+  function paintVehiclePreviews(parent) {
+    for(const node of parent.querySelectorAll('.hill-rendered-car')) {
+      const id=node.dataset.hillModel,paint=node.dataset.hillPaint,key=id+':'+paint;
+      void resource('car-'+id+'.webp').ready.then(loaded=>{
+        if(!node.isConnected)return;
+        if(!loaded){
+          const holder=document.createElement('div');holder.innerHTML=window.ArcadeHillArt.svg(id,paint);
+          node.setAttribute('viewBox',holder.firstChild.getAttribute('viewBox'));
+          node.innerHTML=holder.firstChild.innerHTML;node.dataset.paintReady='fallback';return;
+        }
+        if(!vehiclePreviews.has(key)) {
+          const body=vehicleSource(id,paint),meta=vehicles[id],canvas=document.createElement('canvas');
+          canvas.width=768;canvas.height=480;const ctx=canvas.getContext('2d'),scale=(meta.right-meta.left)/2.44;
+          ctx.fillStyle='#19342d18';ctx.beginPath();ctx.ellipse(384,meta.axleY+scale*.46+8,290,12,0,0,Math.PI*2);ctx.fill();
+          ctx.drawImage(body,0,0);
+          window.ArcadeHillArt.drawWheels(ctx,{car:id,x:0,wheels:[{x:meta.left,y:meta.axleY},{x:meta.right,y:meta.axleY}]},x=>x,y=>y,scale);
+          vehiclePreviews.set(key,canvas.toDataURL('image/webp',.92));
+        }
+        node.querySelector('image').setAttribute('href',vehiclePreviews.get(key));node.dataset.paintReady='true';
+      });
+    }
+  }
   function vehicle(c,h){
     const meta=vehicles[h.car];if(!meta)return false;
-    const image=resource('car-'+h.car+'.webp').image;
-    if(!image.complete||!image.naturalWidth)return false;
-    let source=image;
-    const original=window.ArcadeHill?.getCar(h.car).color;
-    if(/^#[a-f\d]{6}$/i.test(h.paint||'')&&h.paint.toLowerCase()!==original?.toLowerCase()){
-      const key=h.car+':'+h.paint;
-      if(!paintedVehicles.has(key)){
-        const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
-        const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);ctx.globalCompositeOperation='color';
-        ctx.fillStyle=h.paint;ctx.fillRect(0,0,canvas.width,canvas.height);
-        ctx.globalCompositeOperation='destination-in';ctx.drawImage(image,0,0);
-        if(paintedVehicles.size>=12)paintedVehicles.delete(paintedVehicles.keys().next().value);
-        paintedVehicles.set(key,canvas);
-      }
-      source=paintedVehicles.get(key);
-    }
+    const source=vehicleSource(h.car,h.paint);if(!source)return false;
     const [sx,sy,right,bottom]=meta.crop,scale=2.44/(meta.right-meta.left),
       gravity=window.ArcadeHill.getRoute(h.route).gravity,
       axle=-.18-.68+gravity/(2*window.ArcadeHill.getCar(h.car).suspension),
@@ -172,5 +222,5 @@
       offset=(Math.sin(camera*.001)*.5+.5)*(w-width);
     c.drawImage(image,-offset,height-h,w,h);return true;
   }
-  window.ArcadeWorldArt={prepare,ready,drawActor,backdrop,ball,floor,cannon,landscape,vehicle,hillBackdrop,actors};
+  window.ArcadeWorldArt={prepare,ready,drawActor,backdrop,ball,floor,cannon,landscape,vehicle,vehicleSource,vehicleMarkup,paintVehiclePreviews,hillBackdrop,actors};
 })();

@@ -358,13 +358,14 @@
 
     function buttonCanvas(button, type, options = {}) {
         const c = button.querySelector("canvas") || document.createElement("canvas");
-        c.width = 100;
-        c.height = 100;
+        const resolution = options.spriteResolution || 1;
+        c.width = 100 * resolution;
+        c.height = 100 * resolution;
         c.className = "sprite-canvas";
         c.setAttribute("aria-hidden", "true");
         if (!c.parentNode) button.prepend(c);
         const paint=()=>{
-            const context=c.getContext("2d");context.clearRect(0,0,100,100);
+            const context=c.getContext("2d");context.setTransform(resolution,0,0,resolution,0,0);context.clearRect(0,0,100,100);
             draw(context, type, 50, 50, options.spriteSize || 70, {...options,spriteCanvas:true});
         };
         paint();

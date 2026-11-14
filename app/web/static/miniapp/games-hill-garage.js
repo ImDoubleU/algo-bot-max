@@ -78,6 +78,7 @@
         const s = g.snapshot,
             ready = s.tasks.filter(t => t.ready && !t.claimed);
         g.dialog.innerHTML = `${header()}<div class="hill-garage-wallet"><div><span>Уровень водителя</span><b>${s.level}</b></div><div><span>Монеты гаража</span><b title="${fmt(s.balance)} монет">${shortNumber(s.balance)}</b></div><div><span>${s.next_xp?'До уровня '+(s.level+1):'Всего пройдено'}</span><b>${s.next_xp?fmt(s.next_xp-s.xp)+' XP':shortNumber(s.distance)+' м'}</b></div></div><nav class="hill-garage-tabs" aria-label="Гараж">${[['routes','Трассы'],['cars','Машины'],['upgrades','Улучшения'],['tasks','Задания'],['missions','Экспедиция']].map(([id,label])=>`<button data-garage-tab="${id}" aria-pressed="${g.tab===id}">${label}${id==='tasks'&&ready.length?` <i>${ready.length}</i>`:''}</button>`).join('')}</nav><p class="hill-garage-error" role="status" ${g.error?'':'hidden'}>${esc(g.error)}</p>${ready.length?`<div class="hill-claim-line"><span>Готово заданий: ${ready.length}</span><button class="hill-primary" data-action="claim_all">Забрать всё · ${fmt(ready.reduce((n,t)=>n+t.reward,0))} монет</button></div>`:''}<main class="hill-garage-content">${g.tab==='routes'?routes(s,g):g.tab==='cars'?cars(s):g.tab==='upgrades'?upgrades(s):g.tab==='tasks'?tasks(s,g):missions(g)}</main>`;
+        window.ArcadeWorldArt?.paintVehiclePreviews(g.dialog);
         g.dialog.scrollTop = scroll;
     }
     async function load(g) {
