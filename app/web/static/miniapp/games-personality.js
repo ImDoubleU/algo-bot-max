@@ -150,8 +150,9 @@
             if (id === 'evolve') stage.dataset.growth = Math.min(3, Math.floor(w.merges / 4));
         };
     }
+    const baseDecorate = decorate;
     window.ArcadePersonality = {
-        decorate,
+        decorate: (run) => { baseDecorate(run); window.ArcadeInteriors?.decorate(run); },
         score,
         backdrop
     };

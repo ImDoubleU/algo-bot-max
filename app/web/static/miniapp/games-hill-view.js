@@ -9,7 +9,8 @@
 
     function mount(stage, send, options) {
         stage.dataset.game = 'hill';
-        stage.innerHTML = `<div class="hill-drive"><div class="hill-instruments"><div><span>Скорость</span><b data-hill-speed>0 <small>км/ч</small></b></div><div class="hill-fuel"><span>Топливо <b data-hill-fuel>100</b></span><progress max="100" value="100" aria-label="Топливо"></progress></div><div><span>Монеты</span><b data-hill-coins>0</b></div></div><canvas class="hill-canvas" aria-label="Трасса. Вправо — газ, влево — тормоз." tabindex="0"></canvas><div class="hill-pedals"><button data-pedal="brake" aria-label="Тормоз"><span>↓</span>Тормоз <kbd>← / A</kbd></button><span class="hill-route-label"></span><button data-pedal="gas" aria-label="Газ"><span>↑</span>Газ <kbd>→ / D</kbd></button></div></div>`;
+        const pedalArt = (gas) => `<svg viewBox="0 0 76 100" aria-hidden="true"><defs><linearGradient id="pedal-${gas ? 'gas' : 'brake'}" x2="1" y2="1"><stop stop-color="#ffffff4d"/><stop offset="1" stop-color="#ffffff0a"/></linearGradient></defs><rect x="10" y="5" width="56" height="84" rx="15" fill="url(#pedal-${gas ? 'gas' : 'brake'})" stroke="#ffffffa1" stroke-width="2"/><path d="M22 21h32M22 30h32M22 39h32M22 48h32" stroke="#ffffffe0" stroke-width="3" stroke-linecap="round"/>${gas ? '<path d="m27 70 11-11 11 11m-22 9 11-11 11 11" fill="none" stroke="#fff8d7" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>' : '<path d="M27 63h22v13H27z" fill="none" stroke="#fff8d7" stroke-width="3" rx="3"/>'}</svg>`;
+        stage.innerHTML = `<div class="hill-drive"><div class="hill-playfield"><canvas class="hill-canvas" aria-label="Трасса. Левая область — тормоз, правая — газ." tabindex="0"></canvas><div class="hill-trip" aria-label="Дистанция"><b data-hill-distance>0</b><span>м</span></div><div class="hill-instruments"><div class="hill-speed"><span>Скорость</span><b data-hill-speed>0 <small>км/ч</small></b></div><div class="hill-fuel"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V4a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v17M3 21h13M6 6h6v5H6zm9 6h2a1 1 0 0 1 1 1v4a2 2 0 0 0 4 0V8l-3-3m1 2v4h2"/></svg><b data-hill-fuel>100</b></span><progress max="100" value="100" aria-label="Топливо"></progress></div><div class="hill-money"><span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m12 6 2 4 4 .5-3 3 .8 4.5L12 16l-3.8 2 .8-4.5-3-3 4-.5Z"/></svg></span><b data-hill-coins>0</b></div></div><div class="hill-pedals"><button data-pedal="brake" aria-label="Тормоз — левая область" title="Тормоз: ← или A">${pedalArt(false)}</button><span class="hill-route-label"></span><button data-pedal="gas" aria-label="Газ — правая область" title="Газ: → или D">${pedalArt(true)}</button></div></div></div>`;
         stage.querySelector('.hill-route-label').setAttribute('data-hill-route', '');
         if (options.readOnly) {
             stage.querySelector('.hill-drive').classList.add('is-replay');
@@ -36,6 +37,8 @@
                 signal
             });
         };
+        on(stage, 'contextmenu', e => e.preventDefault());
+        on(stage, 'selectstart', e => e.preventDefault());
         const control = (pedal, key, down) => {
             const set = pressed[pedal],
                 was = !!set.size;
@@ -258,6 +261,7 @@
             }
             stage.querySelector('[data-hill-speed]').innerHTML = options.readOnly ? w.score + ' <small>м</small>' : Math.round(Math.abs(h.vx) * 3.6) + ' <small>км/ч</small>';
             stage.querySelector('[data-hill-coins]').textContent = h.coins;
+            stage.querySelector('[data-hill-distance]').textContent = w.score;
             stage.querySelector('[data-hill-fuel]').textContent = Math.ceil(h.fuel);
             const fuel = stage.querySelector('progress');
             fuel.max = h.stats.tank;

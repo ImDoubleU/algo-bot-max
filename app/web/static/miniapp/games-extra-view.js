@@ -16,7 +16,8 @@
   const shapeSvg = (p, color = "#b8a1ed", scale = 25) => {
     const width = Math.max(...p.map(v => v[0])) + 1,
       height = Math.max(...p.map(v => v[1])) + 1;
-    return `<svg viewBox="0 0 ${width*scale} ${height*scale}" aria-hidden="true">${p.map(([x,y])=>`<rect x="${x*scale+1}" y="${y*scale+1}" width="${scale-2}" height="${scale-2}" rx="4" fill="${color}"/><path d="M${x*scale+5} ${y*scale+5}h${scale-10}" stroke="#ffffff55" stroke-width="2" stroke-linecap="round"/>`).join('')}</svg>`;
+    const gradient = 'toy-' + color.replace(/[^a-z0-9]/gi, '');
+    return `<svg viewBox="0 0 ${width*scale} ${height*scale+3}" aria-hidden="true"><defs><linearGradient id="${gradient}" x2=".8" y2="1"><stop stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#243c65" stop-opacity=".18"/></linearGradient></defs>${p.map(([x,y])=>`<rect x="${x*scale+1}" y="${y*scale+4}" width="${scale-2}" height="${scale-2}" rx="5" fill="#425676" opacity=".5"/><rect x="${x*scale+1}" y="${y*scale+1}" width="${scale-2}" height="${scale-2}" rx="5" fill="${color}"/><rect x="${x*scale+1}" y="${y*scale+1}" width="${scale-2}" height="${scale-2}" rx="5" fill="url(#${gradient})"/><path d="M${x*scale+5} ${y*scale+5}h${scale-10}" stroke="#ffffffaa" stroke-width="2" stroke-linecap="round"/>`).join('')}</svg>`;
   };
 
   function art(id) {

@@ -49,7 +49,10 @@ def test_tall_phone_keeps_fields_compact_and_driving_fills_the_available_space(a
         page.wait_for_timeout(100)
         gap = page.locator(".game-stage").evaluate("""n=>{
           const child=n.querySelector('.hill-drive,.arcade-canvas-frame');
-          return n.clientHeight-child.getBoundingClientRect().height;
+          const css=getComputedStyle(n);
+          // Floating instruments now live inside the illustrated stage's safe area.
+          return n.clientHeight-child.getBoundingClientRect().height
+            -parseFloat(css.paddingTop)-parseFloat(css.paddingBottom);
         }""")
         assert 0 <= gap <= 12, (game, gap)
         box = page.locator("#gameDialog").bounding_box()

@@ -102,13 +102,18 @@
       world=w;clock+=Math.min(.05,dt||0);
       aim=reduced()?target:aim+(target-aim)*(1-Math.exp(-Math.max(dt||0,.016)*20));
       c.fillStyle='#132b38';c.fillRect(0,0,360,430);
+      window.ArcadeWorldArt?.backdrop(c,'orbit',w,360,430,'space');
+      c.fillStyle='#121c3559';c.fillRect(12,78,336,338);
       for(let i=0;i<26;i++){
         const x=24+(i*79)%312,y=94+(i*97)%306;
         c.fillStyle=i%3?'#9fc7cb19':'#d9e8db30';c.fillRect(x,y,i%3?1:2,i%3?1:2);
       }
       // Capsule floor and rails use the same coordinates as the collision skin.
-      c.fillStyle='#0c202b';c.fillRect(12,410,336,20);
-      c.strokeStyle='#6d999c';c.lineWidth=2;c.beginPath();c.moveTo(12,78);c.lineTo(12,416);c.lineTo(348,416);c.lineTo(348,78);c.stroke();
+      const glass=c.createLinearGradient(12,0,348,0);
+      glass.addColorStop(0,'#bbf0e9');glass.addColorStop(.12,'#56879f');
+      glass.addColorStop(.86,'#a9d9ef');glass.addColorStop(1,'#d5fff0');
+      c.fillStyle='#101f3ba1';c.fillRect(12,410,336,20);
+      c.strokeStyle=glass;c.lineWidth=4;c.beginPath();c.moveTo(12,78);c.lineTo(12,416);c.lineTo(348,416);c.lineTo(348,78);c.stroke();
       const line=w.journey?ArcadeJourney.difficulty(w,AlgoGameEngine.difficulty('drop',w.score)).dangerLine:
         AlgoGameEngine.difficulty('drop',w.score).dangerLine;
       c.strokeStyle=w.danger?'#f1947b':'#799a974d';c.lineWidth=w.danger?2:1;c.setLineDash([3,6]);
@@ -150,7 +155,8 @@
         c.arc(p.x+p.vx*t,p.y+p.vy*t,2*(1-t/.5),0,Math.PI*2);c.fill();
       }c.globalAlpha=1;
       flight=flight.filter(p=>clock-p.t<.5);bursts=bursts.filter(b=>clock-b.t<.85);
-      c.fillStyle='#132b38';c.fillRect(0,0,360,72);
+      c.fillStyle='#142339ad';c.beginPath();
+      c.roundRect(10,2,105,66,12);c.roundRect(244,2,106,66,12);c.fill();
       c.strokeStyle='#74999140';c.lineWidth=1;c.beginPath();c.moveTo(20,71);c.lineTo(340,71);c.stroke();
       label(c,'Дальше',253,18,16,'#c7dacf');
       creature(c,{level:w.queue[1],x:279,y:41,r:15},clock);
