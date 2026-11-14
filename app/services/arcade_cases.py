@@ -1,9 +1,11 @@
-"""Free cosmetic case simulator. Own ledger; never reads or spends school currency."""
+"""Cosmetic cases paid in isolated play tokens, never school currency."""
 
 import json
 import secrets
+from datetime import datetime
 
-from app.services.arcade import ArcadeError
+from app.services.arcade import MOSCOW, ArcadeError
+from app.services.arcade_case_catalog import COLLECTIONS, QUALITIES, cases, catalogue
 
 RARITIES = [
     dict(id="common", name="Обычный", color="#7d9bb8", fragments=1, craft=8),
@@ -11,7 +13,7 @@ RARITIES = [
     dict(id="epic", name="Эпический", color="#bd8afa", fragments=8, craft=45),
     dict(id="legendary", name="Легендарный", color="#f8bd5b", fragments=18, craft=90),
 ]
-ITEMS = [
+BASE_ITEMS = [
     ("radio", "Полевое радио", "common"),
     ("boots", "Лунные ботинки", "common"),
     ("thermos", "Термос пилота", "common"),
@@ -33,33 +35,12 @@ ITEMS = [
     ("portal", "Карманный портал", "legendary"),
     ("dragon", "Звёздный дракон", "legendary"),
 ]
-CASES = [
-    dict(
-        id="scout",
-        name="Первая экспедиция",
-        subtitle="Снаряжение исследователя",
-        unlock=0,
-        weights=[60, 27, 10, 3],
-        color="#df9655",
-    ),
-    dict(
-        id="neon",
-        name="Неоновый сектор",
-        subtitle="Находки с дальней станции",
-        unlock=6,
-        weights=[40, 35, 20, 5],
-        color="#67c9c1",
-    ),
-    dict(
-        id="relic",
-        name="За горизонтом",
-        subtitle="Артефакты глубокого космоса",
-        unlock=12,
-        weights=[25, 35, 30, 10],
-        color="#b49ae8",
-    ),
-]
 PITY = 20
+ITEMS = catalogue(BASE_ITEMS)
+CASES = cases()
+START_TOKENS = 300
+PLAY_TOKENS = 30
+DAILY_TOKEN_LIMIT = 240
 
 
 class CaseStore:
@@ -78,6 +59,9 @@ class CaseStore:
                 PRIMARY KEY(player,id));
               CREATE INDEX IF NOT EXISTS arcade_cases_recent
                 ON arcade_case_receipts(player,created);
+              CREATE TABLE IF NOT EXISTS arcade_case_tokens(
+                player TEXT NOT NULL REFERENCES arcade_players(id), source TEXT NOT NULL,
+                amount INTEGER NOT NULL, created REAL NOT NULL, PRIMARY KEY(player,source));
             """)
 
     def _load(self, db, player):
@@ -85,7 +69,7 @@ class CaseStore:
         row = db.execute(
             "SELECT state FROM arcade_case_profiles WHERE player=?", (player,)
         ).fetchone()
-        return (
+        state = (
             json.loads(row[0])
             if row
             else dict(
@@ -95,6 +79,64 @@ class CaseStore:
                 favorite=None,
                 last_open=None,
             )
+        )
+        # Lazy additive migration: inventory, receipts and favourite IDs are retained.
+        state.setdefault("tokens", START_TOKENS)
+        state.setdefault("tokens_since", self.arcade.clock())
+        if "token_cursor" not in state:
+            state["token_cursor"] = db.execute(
+                "SELECT COALESCE(MAX(rowid),0) FROM arcade_runs WHERE player=?",
+                (player,),
+            ).fetchone()[0]
+        self._earn(db, player, state)
+        self._save(db, player, state)
+        return state
+
+    def _earn(self, db, player, state):
+        from app.services.arcade import GAMES
+
+        rows = db.execute(
+            "SELECT rowid,id,game,score,report,created,accepted FROM arcade_runs "
+            "WHERE player=? AND rowid>? ORDER BY rowid",
+            (player, state["token_cursor"]),
+        ).fetchall()
+        for run in rows:
+            state["token_cursor"] = run["rowid"]
+            if (
+                not run["accepted"]
+                or run["game"] not in GAMES
+                or run["score"] < GAMES[run["game"]][0]
+            ):
+                continue
+            report = json.loads(run["report"])
+            if report.get("timeMs", 0) < 15000 or not self.arcade._qualifies(
+                {**report, "game": run["game"]}
+            ):
+                continue
+
+            day = datetime.fromtimestamp(run["created"], MOSCOW).date().isoformat()
+            source = f"play:{day}:{run['game']}"
+            earned = db.execute(
+                "SELECT COALESCE(SUM(amount),0) FROM arcade_case_tokens "
+                "WHERE player=? AND source LIKE ?",
+                (player, f"play:{day}:%"),
+            ).fetchone()[0]
+            if earned >= DAILY_TOKEN_LIMIT:
+                continue
+            amount = min(PLAY_TOKENS, DAILY_TOKEN_LIMIT - earned)
+            cursor = db.execute(
+                "INSERT OR IGNORE INTO arcade_case_tokens VALUES(?,?,?,?)",
+                (player, source, amount, run["created"]),
+            )
+            if cursor.rowcount:
+                state["tokens"] += amount
+
+    @staticmethod
+    def _save(db, player, state):
+        db.execute(
+            "INSERT INTO arcade_case_profiles VALUES(?,?) ON CONFLICT(player) "
+            "DO UPDATE SET state=excluded.state",
+            (player, json.dumps(state)),
         )
 
     def _snapshot(self, db, player, state):
@@ -122,16 +164,18 @@ class CaseStore:
             if state["last_open"] is not None
             else 0,
             rarities=RARITIES,
+            qualities=QUALITIES,
+            collections=[dict(id=c[0], name=c[1]) for c in COLLECTIONS],
+            token_reward=PLAY_TOKENS,
+            token_daily_limit=DAILY_TOKEN_LIMIT,
             cases=[{**c, "unlocked": len(owned) >= c["unlock"]} for c in CASES],
             items=[
                 dict(
-                    id=key,
-                    name=name,
-                    rarity=rarity,
-                    count=owned.get(key, 0),
-                    craft=rarities[rarity]["craft"],
+                    **i,
+                    count=owned.get(i["id"], 0),
+                    craft=rarities[i["rarity"]]["craft"],
                 )
-                for key, name, rarity in ITEMS
+                for i in ITEMS
             ],
             history=[json.loads(r[0]) for r in recent],
         )
@@ -140,6 +184,11 @@ class CaseStore:
         with self.arcade.db() as db:
             state = self._load(db, player)
             return self._snapshot(db, player, state)
+
+    def wallet(self, player):
+        with self.arcade.db() as db:
+            state = self._load(db, player)
+            return dict(tokens=state["tokens"], fragments=state["fragments"])
 
     def act(self, player, token, action, item):
         if not isinstance(token, str) or not 12 <= len(token) <= 80:
@@ -172,13 +221,18 @@ class CaseStore:
                     "SELECT item,count FROM arcade_case_inventory WHERE player=?", (player,)
                 )
             }
-            result = dict(action=action, created=now, rules=1)
+            result = dict(action=action, created=now, rules=2)
             if action == "open":
                 case = next((c for c in CASES if c["id"] == item), None)
                 if not case or len(owned) < case["unlock"]:
                     raise ArcadeError("Сначала собери больше разных предметов.")
                 if state["last_open"] is not None and now - state["last_open"] < 2:
                     raise ArcadeError("Дождись завершения открытия.")
+                if state["tokens"] < case["price"]:
+                    raise ArcadeError(
+                        "Не хватает жетонов. Выполни цель в соревновании: "
+                        "+30 жетонов за игру в день."
+                    )
                 guaranteed = state["since_legendary"] >= PITY - 1
                 rarity = "legendary"
                 if not guaranteed:
@@ -188,9 +242,13 @@ class CaseStore:
                         if draw < 0:
                             rarity = tier["id"]
                             break
-                pool = [i for i in ITEMS if i[2] == rarity]
+                pool = [
+                    i
+                    for i in ITEMS
+                    if i["rarity"] == rarity and i["collection"] == case["collection"]
+                ]
                 # Prefer uncollected items within the rolled rarity. No artificial near misses.
-                pool = [i for i in pool if i[0] not in owned] or pool
+                pool = [i for i in pool if i["id"] not in owned] or pool
                 selected = pool[secrets.randbelow(len(pool))]
                 state["since_legendary"] = (
                     0 if rarity == "legendary" else state["since_legendary"] + 1
@@ -199,29 +257,32 @@ class CaseStore:
                 state["last_open"] = now
                 extra = (
                     next(r["fragments"] for r in RARITIES if r["id"] == rarity)
-                    if selected[0] in owned
+                    if selected["id"] in owned
                     else 0
                 )
                 state["fragments"] += extra
+                state["tokens"] -= case["price"]
                 result.update(
-                    item=selected[0],
+                    item=selected["id"],
                     rarity=rarity,
-                    new=selected[0] not in owned,
+                    quality=selected["quality"],
+                    new=selected["id"] not in owned,
                     fragments=extra,
                     guaranteed=guaranteed,
                     case=item,
+                    tokens=-case["price"],
                 )
-                self._grant(db, player, selected[0], now)
+                self._grant(db, player, selected["id"], now)
             elif action == "craft":
-                selected = next((i for i in ITEMS if i[0] == item), None)
+                selected = next((i for i in ITEMS if i["id"] == item), None)
                 if not selected or item in owned:
                     raise ArcadeError("Этот предмет уже есть в коллекции или недоступен.")
-                cost = next(r["craft"] for r in RARITIES if r["id"] == selected[2])
+                cost = next(r["craft"] for r in RARITIES if r["id"] == selected["rarity"])
                 if state["fragments"] < cost:
                     raise ArcadeError("Пока не хватает деталей. Их дают за повторные предметы.")
                 state["fragments"] -= cost
                 self._grant(db, player, item, now)
-                result.update(item=item, rarity=selected[2], new=True, fragments=-cost)
+                result.update(item=item, rarity=selected["rarity"], new=True, fragments=-cost)
             elif action == "favorite":
                 if item not in owned:
                     raise ArcadeError("Сначала открой этот предмет.")

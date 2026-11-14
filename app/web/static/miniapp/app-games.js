@@ -694,7 +694,7 @@
             signal: run.viewAbort.signal,
             device: run.world.device,
             mode: run.world.mode,
-            expedition: !!run.world.expedition,
+            expedition: run.world.frontier&&run.g.id==='evolve'?3:!!run.world.expedition,
             dropPhysics: run.world.dropPhysics,
             skin: run.world.journey ? ['base', 'mint', 'sun', 'nebula', 'mint', 'nebula'][run.world.journey.chapter % 6] : profile.settings.skin,
             theme: run.world.journey ? ['space', 'forest', 'sunset', 'nebula', 'forest', 'nebula'][run.world.journey.chapter % 6] : profile.settings.theme === 'space' ? ({
@@ -727,7 +727,7 @@
             sortRules: 2,
             wordDictionary: 2,
             lessonVersion: 2,
-            evolveRules: 2,
+            evolveRules: 3,
             clockRules: 2,
             ...(run.g.id === 'drop' ? {
                 dropPhysics: 6,
@@ -785,10 +785,11 @@
             w.queue[0] = 0;
         }
         if (window.ArcadeExtras?.has(w.id)) ArcadeExtras.tutorial(w);
+        if(w.frontier)ArcadeFrontiers.tutorial(w);
         mount(run);
         const instruction = {
             orbit: "Нажми пробел или на поле — кот прыгнет",
-            evolve: "Выбери две одинаковые фигурки",
+            evolve: "Нажимай на соседние клетки. Найди зверя и вернись на базу внизу слева",
             bugs: "Нажми на фиолетового бага",
             tower: "Нажми — блок встанет на башню",
             typing: "Напечатай слово «кот»",
@@ -796,22 +797,27 @@
             "2048": "Сдвинь плитки влево",
             drop: "Урони фигурку по центру",
             memory: "Найди одинаковую пару",
-            react: "Нажми на зелёный"
+            react: "Нажми на зелёный",
+            ocean:'Забери зверя и вернись на деревянный причал',
+            slap:'Подойди к сопернику и ударь в его сторону',
+            plane:'Распредели детали и нажми «В полёт»',
+            menagerie:'Собери плоды и выбери первую способность'
         } [w.id] || run.g.tutorial;
         $('.arcade-learning-tip', run.dialog).hidden = false;
         $('.arcade-learning-tip', run.dialog).textContent = instruction;
         const frame = () => {
             if (play !== run || run.phase !== "tutorial") return;
-            if (run.tutorialActed && ["orbit", "drop", "bubbles", "hill"].includes(w.id)) W.advance(w, 1);
+            if (run.tutorialActed && (["orbit", "drop", "bubbles", "hill"].includes(w.id)||w.frontier)) W.advance(w, 1);
             run.view.update(w, 1 / 60);
             if (w.id === 'hill' && !run.hillLesson && w.score >= 15) {
                 run.hillLesson = 1;
                 $('.arcade-learning-tip', run.dialog).textContent = 'Отпусти газ и удерживай тормоз до остановки. В воздухе он опускает нос машины.';
             }
-            if (w.id === 'evolve' && w.merges > 0) {
+            if (w.id === 'evolve' && !w.frontier && w.merges > 0) {
                 $('.arcade-learning-tip', run.dialog).textContent = 'Выбери росток на поле, затем нажми «Спасти» на станции';
             }
-            if (w.id === 'evolve' ? w.merges > 0 && w.expedition.rescued > 0 : w.id === 'hill' ? run.hillLesson === 1 && w.hill.brake && Math.abs(w.hill.vx) < 2 : window.ArcadeExtras?.tutorialDone(w) ?? (w.score >= (w.id === "typing" ? 3 : 1))) {
+            if(w.id==='plane'&&w.frontier?.launched)$('.arcade-learning-tip',run.dialog).textContent='Вверх — поднять нос. Удерживай ускорение, чтобы лететь дальше';
+            if (w.frontier?ArcadeFrontiers.tutorialDone(w):w.id === 'evolve' ? w.merges > 0 && w.expedition.rescued > 0 : w.id === 'hill' ? run.hillLesson === 1 && w.hill.brake && Math.abs(w.hill.vx) < 2 : window.ArcadeExtras?.tutorialDone(w) ?? (w.score >= (w.id === "typing" ? 3 : 1))) {
                 run.phase = "intro";
                 const cover = document.createElement("div");
                 cover.className = "game-result";
@@ -1255,7 +1261,7 @@
             mode: "practice",
             device,
             readOnly: true,
-            expedition: !!frames[0]?.expedition,
+            expedition: frames[0]?.frontier&&game==='evolve'?3:!!frames[0]?.expedition,
             dropPhysics: frames[0]?.dropPhysics,
             paused: () => true,
             theme: profile.settings.theme,

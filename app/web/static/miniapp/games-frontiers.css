@@ -1,0 +1,34 @@
+.frontier-stage {padding:0!important;overflow:hidden!important;position:relative;background:#153d45!important;display:grid!important;place-items:center}
+.frontier-field {position:relative;width:100%;height:100%;min-height:0;max-height:100%;aspect-ratio:360/430;overflow:hidden;container-type:size}
+.frontier-field>canvas {width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:fill;display:block;outline:none;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.frontier-controls {position:absolute;inset:0;pointer-events:none;touch-action:none}
+.frontier-controls[hidden],.frontier-overlay[hidden] {display:none!important}
+.frontier-stick {position:absolute;left:14px;bottom:14px;width:112px;height:112px;border-radius:50%;background:#0a263d65;border:2px solid #e0f3df7a;pointer-events:auto;touch-action:none}
+.frontier-stick:after {content:'';position:absolute;width:44px;height:44px;border-radius:50%;left:32px;top:32px;background:#e8f0dca1;border:2px solid #fcf6dd;box-sizing:border-box;transform:translate(var(--stick-x,0),var(--stick-y,0))}
+.frontier-stick:not(.is-held):after{transform:none}
+.frontier-action {position:absolute;right:18px;bottom:28px;width:78px;height:78px;border:2px solid #f9efc5;border-radius:50%;background:#dfb05aea;box-shadow:0 5px 0 #754f3c,0 10px 20px #051c3244;color:#253e45;display:grid;place-items:center;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.frontier-action svg{width:38px;height:38px;pointer-events:none}
+.frontier-action:active{transform:translateY(3px);box-shadow:0 2px 0 #754f3c}
+.frontier-action:disabled{filter:saturate(.3);opacity:.7}
+.frontier-support{position:absolute;right:18px;top:135px;width:50px;height:50px;border:2px solid #a8d2c0;border-radius:15px;background:#244c4ef0;color:#ecf2d5;pointer-events:auto;display:grid;place-items:center;cursor:pointer;touch-action:manipulation}
+.frontier-support svg{width:29px;height:29px}.frontier-support b{position:absolute;bottom:-7px;right:-5px;background:#d4e5b7;color:#244b43;border-radius:50%;width:24px;height:24px;font:800 17px/24px 'Segoe UI',sans-serif}
+.frontier-support[hidden]{display:none!important}.frontier-support:disabled{opacity:.4}
+.frontier-stage[data-game=evolve] .frontier-support{top:auto;right:auto;left:18px;bottom:20px}
+.frontier-overlay{position:absolute;inset:0;display:grid;align-items:center;justify-items:center;background:#102d3f8c;overflow:auto;padding:20px;z-index:3;box-sizing:border-box;backdrop-filter:blur(5px)}
+.frontier-workbench,.frontier-mutation{width:min(100%,400px);box-sizing:border-box;background:#f7f0d9;color:#263b42;border:2px solid #d5b97e;padding:22px;border-radius:20px;box-shadow:0 15px 50px #10293770;font:18px/1.35 'Segoe UI',sans-serif}
+.frontier-overlay h3{font:800 28px/1.15 'Segoe UI',sans-serif;color:#263b42;margin:0 0 10px}
+.frontier-overlay p{font-size:18px;color:#53675f;margin:0 0 16px}
+.frontier-build-row{display:grid;grid-template-columns:1fr 44px 32px 44px;align-items:center;gap:7px;margin:10px 0}
+.frontier-build-row button{width:44px;height:44px;border:1px solid #9baf9d;background:#e0e7ce;border-radius:9px;color:#263d41;font-size:27px;cursor:pointer}
+.frontier-build-row button:disabled{opacity:.4}
+.frontier-build-row strong{text-align:center;font-size:24px}
+.frontier-build-stats{display:flex;gap:12px;flex-wrap:wrap;margin:20px 0;font-size:17px}
+.frontier-build-stats span{display:grid;gap:4px;flex:1}.frontier-build-stats b{font-size:25px;color:#536d43}
+.frontier-primary{width:100%;padding:15px;border:0;border-radius:10px;background:#315f51;color:#fff5d4;font:750 22px 'Segoe UI',sans-serif;cursor:pointer}
+.frontier-mutation button{display:flex;flex-direction:column;gap:6px;width:100%;text-align:left;background:#e3e8cf;border:1px solid #9db49d;border-radius:12px;padding:14px 16px;margin-top:10px;cursor:pointer;color:#263e41;font-size:18px}
+.frontier-mutation button b{font-size:22px}.frontier-mutation button span{font-size:18px;color:#536c55}
+.game-dialog[data-game=ocean],.game-dialog[data-game=slap],.game-dialog[data-game=plane],.game-dialog[data-game=menagerie]{--interior-ink:#173442;--interior-text:#fff4d7;--interior-accent:#edd08d}
+.game-dialog:has(.frontier-stage) .journey-tools{display:none!important}
+@media(max-width:380px){.frontier-overlay{padding:12px}.frontier-workbench,.frontier-mutation{padding:17px}.frontier-overlay h3{font-size:25px}.frontier-build-row{grid-template-columns:1fr 40px 28px 40px;gap:4px}.frontier-build-row button{width:40px;height:42px}.frontier-stick{width:96px;height:96px}.frontier-stick:after{left:24px;top:24px}.frontier-action{width:70px;height:70px;right:12px;bottom:20px}}
+@media(max-height:500px) and (orientation:landscape){.frontier-overlay{padding:10px}.frontier-workbench{max-width:600px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:14px}.frontier-workbench h3,.frontier-workbench>p,.frontier-primary{grid-column:1/-1}.frontier-workbench>p{margin:0}.frontier-build-row{grid-template-columns:1fr 32px 24px 32px;margin:0;font-size:15px}.frontier-build-row button{width:32px;height:32px}.frontier-build-stats{display:none}.frontier-mutation{max-width:600px;padding:14px}.frontier-mutation button{display:inline-flex;width:31%;vertical-align:top;margin-right:2%;padding:10px}.frontier-mutation button b{font-size:18px}.frontier-mutation button span{font-size:16px}}
+@media(prefers-reduced-motion:reduce){.frontier-action{transition:none}}

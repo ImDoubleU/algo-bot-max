@@ -42,6 +42,10 @@ def test_retries_and_parallel_duplicate_requests_roll_once_after_restart(store):
 def test_pity_prevents_long_dry_streaks_and_new_items_precede_duplicates(store, monkeypatch):
     monkeypatch.setattr("app.services.arcade_cases.secrets.randbelow", lambda n: 0)
     cases = CaseStore(store)
+    with store.db() as db:
+        state = cases._load(db, "p1")
+        state["tokens"] = 10000
+        cases._save(db, "p1", state)
     seen = []
     for n in range(PITY):
         result = cases.act("p1", f"opening-{n:012}", "open", "scout")
@@ -58,6 +62,10 @@ def test_pity_prevents_long_dry_streaks_and_new_items_precede_duplicates(store, 
 def test_crafting_is_specific_spends_only_fragments_and_is_exactly_once(store, monkeypatch):
     monkeypatch.setattr("app.services.arcade_cases.secrets.randbelow", lambda n: 0)
     cases = CaseStore(store)
+    with store.db() as db:
+        state = cases._load(db, "p1")
+        state["tokens"] = 10000
+        cases._save(db, "p1", state)
     for n in range(30):
         cases.act("p1", f"earn-details-{n:012}", "open", "scout")
         store.clock.advance(2)

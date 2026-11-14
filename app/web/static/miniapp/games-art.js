@@ -6,6 +6,7 @@
     `<g fill="#302a4e"><ellipse cx="${x-10}" cy="${y}" rx="3.3" ry="4.3"/><ellipse cx="${x+10}" cy="${y}" rx="3.3" ry="4.3"/></g><path d="M${x-5} ${y+12}q5 5 10 0" fill="none" stroke="#302a4e" stroke-width="2.8" stroke-linecap="round"/>`;
 
   function render(id) {
+    if(window.ArcadeFrontiers?.has(id))return `<svg viewBox="0 0 256 176" aria-hidden="true"><image href="/miniapp/static/frontiers/${id}.svg" width="256" height="176" preserveAspectRatio="xMidYMid slice"/></svg>`;
     if(id==='drop'&&window.ArcadeDropLabView)return ArcadeDropLabView.badge();
     if (id==='hill') return ArcadeHillView.carSvg();
     if (window.ArcadeExtraArt?.has(id)) return window.ArcadeExtraArt.render(id);

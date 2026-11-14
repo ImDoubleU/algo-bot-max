@@ -73,6 +73,7 @@ def make_router(store: ArcadeStore, authenticate: Callable[[Request], Awaitable[
     @router.get("/profile")
     async def profile(request: Request):
         actor = await authenticate(request)
+        await call(cases.wallet, actor["player"])
         return await call(store.profile, actor["player"])
 
     @router.get("/cases")

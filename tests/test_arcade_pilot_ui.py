@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from app.services.arcade import GAMES
 from tests.test_arcade_server import arcade as arcade
 from tests.test_arcade_server import browser as browser
 
@@ -55,7 +56,7 @@ def test_private_loader_can_retry_after_one_script_fails(arcade):
     page.locator("#gamesRoot>button").click()
     page.locator(".game-card").first.wait_for()
     assert len(attempts) == 2
-    assert page.locator(".game-card").count() == 16
+    assert page.locator(".game-card").count() == len(GAMES)
 
 
 @pytest.mark.parametrize("width", [320, 390, 844, 1440])
@@ -67,7 +68,7 @@ def test_private_loader_and_eight_spatial_options_fit_and_timer_does_not_replace
     page.set_viewport_size(dict(width=width, height=height))
     pilot_page(page)
     page.locator(".game-card").first.wait_for()
-    assert page.locator(".game-card").count() == 16
+    assert page.locator(".game-card").count() == len(GAMES)
     assert page.locator("#gamesPlayer").count() == 0
     assert page.locator(".arcade-pilot-note").is_visible()
     page.locator('.game-card[data-game="react"]').click()

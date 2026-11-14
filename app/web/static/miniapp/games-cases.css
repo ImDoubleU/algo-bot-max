@@ -13,6 +13,18 @@
 .cases-dialog [hidden]{display:none!important}
 .cases-dialog button{font:600 16px/1.3 "Segoe UI",sans-serif;min-height:44px;cursor:pointer}
 .cases-dialog button:disabled{cursor:default;opacity:.55}
+.case-wallet{display:grid;gap:5px;padding:14px 0;white-space:nowrap}.case-wallet>strong{font-size:25px;color:#f4d18b}.case-wallet>strong>span{font-size:17px}
+.case-token-guide{margin:0 0 20px;color:#b8d6d7;font-size:18px}.case-token-guide summary{cursor:pointer;min-height:44px;display:flex;align-items:center}.case-token-guide p{font-size:18px;line-height:1.55;max-width:760px}
+.cases-dialog .case-choices{display:grid;grid-auto-flow:column;grid-auto-columns:240px;grid-template-columns:none;overflow-x:auto;gap:12px;padding-bottom:12px;scroll-snap-type:x proximity}
+.case-choices>button{scroll-snap-align:start;min-height:110px}.case-choices>button>b{font-size:20px}
+.case-filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:18px 0 24px}.case-filters label{display:grid;gap:8px;font-size:17px;color:#bfd7da}.case-filters .case-search{grid-column:1/-1}
+.case-filters input,.case-filters select{width:100%;min-height:48px;min-width:0;border:1px solid #577580;background:#1e3544;color:#f4f7e9;border-radius:9px;padding:10px 12px;font:18px 'Segoe UI',sans-serif}
+.case-pages{display:flex;justify-content:center;align-items:center;gap:20px;margin:24px 0;font-size:20px}.case-pages button{width:50px;height:48px;background:#274650;border:1px solid #6c9194;border-radius:10px;color:#eaf8e6;font-size:25px}
+.case-contents{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:24px}.case-contents .case-loot{width:auto;min-width:0;height:auto;border-radius:12px;padding:8px}.case-contents .case-loot img{width:100%;max-height:120px}.case-contents .case-loot b{font-size:17px}.case-contents .case-loot>span{font-size:16px}
+.case-loot>img{filter:hue-rotate(var(--loot-hue,0deg))}.case-loot[data-quality=polished]{background-image:linear-gradient(135deg,#baf9ff20,transparent 60%)}.case-loot[data-quality=engraved]{background-image:repeating-linear-gradient(45deg,transparent 0 18px,#e4d2f310 19px 20px)}.case-loot[data-quality=holographic]{background-image:linear-gradient(135deg,#86f3d932,#d99be322,#7ba6ed22)}.case-loot[data-quality=collector]{box-shadow:inset 0 0 0 2px #e9c87966;background-image:radial-gradient(ellipse at top,#f8d27933,transparent 70%)}
+.case-inventory-art>.case-loot{display:block;width:100%;height:100%;min-width:0;padding:8px;border:0;background-color:transparent}.case-inventory-art>.case-loot>b,.case-inventory-art>.case-loot>span{display:none}.case-inventory-art>.case-loot>img{width:100%;height:100%;object-fit:contain}
+.case-empty{font-size:20px;color:#c3d8dc}.case-showcase>.case-loot{width:100px;height:110px;min-width:0}.case-showcase>.case-loot>b,.case-showcase>.case-loot>span{display:none}
+@media(max-width:640px){.case-filters{grid-template-columns:1fr 1fr;gap:12px}.case-wallet>strong{font-size:23px}.cases-dialog .case-toolbar{flex-wrap:wrap;gap:0;padding-bottom:12px}.case-wallet{display:flex;flex-wrap:wrap;align-items:center;gap:20px;width:100%;padding:0}.case-contents{grid-template-columns:1fr 1fr}.case-contents .case-loot>span{font-size:16px}.case-hero>div{max-width:70%}.case-hero span{font-size:16px;letter-spacing:0}.cases-dialog .case-choices{grid-auto-columns:220px}.cases-dialog .case-inventory-item h4{font-size:18px}.cases-dialog .case-inventory-item p{font-size:17px}.case-inventory-item button{font-size:17px}}
 .cases-dialog button:focus-visible,.case-library-card:focus-visible{outline:3px solid #8de6d2;outline-offset:-4px}
 .cases-dialog>header{position:sticky;top:0;z-index:4;background:#101f2e;border-bottom:1px solid #344653;display:flex;align-items:center;justify-content:space-between;padding:17px 28px;gap:16px}
 .cases-dialog>header>div{display:flex;align-items:center;gap:22px}
@@ -118,4 +130,25 @@
  .case-result h4{font-size:20px;overflow-wrap:anywhere}.case-result p{font-size:14px}
  .case-result>div>span{font-size:10px;letter-spacing:.04em}.case-result button{font-size:14px;padding:9px 12px}
  .case-open-actions .case-primary{width:100%}
+}
+/* Catalogue expansion: keep navigation and wallet on separate mobile rows. */
+#casesDialog .case-filters select{appearance:none;-webkit-appearance:none;color-scheme:dark;background-color:#1e3544!important;color:#f2f6e8!important;padding-right:34px;background-image:linear-gradient(45deg,transparent 50%,#d7e7df 50%),linear-gradient(135deg,#d7e7df 50%,transparent 50%);background-position:calc(100% - 19px) 21px,calc(100% - 13px) 21px;background-size:6px 6px;background-repeat:no-repeat}
+#casesDialog .case-filters option{background:#1e3544;color:#f2f6e8}
+.cases-dialog .case-roll-window{height:246px}.cases-dialog .case-reel{height:214px}
+.case-opening-heading>span{height:78px;min-height:78px;display:flex;align-items:center}
+.case-filters{scroll-margin-top:110px}.case-inventory-art>.case-loot{position:relative;top:auto;right:auto}
+.case-toolbar nav button{font-size:19px}.case-toolbar nav b{font-size:17px}
+.case-loot b{font-size:17px}.case-loot>span:last-child{font-size:16px;line-height:1.25}
+.case-choices button>span:last-child>span,.case-opening-heading>span,.case-odds,.case-odds>div>span{font-size:17px}
+.case-result>div>span{font-size:16px;letter-spacing:0}.case-result p,.case-result button{font-size:17px}
+.case-inventory-item h4{font-size:18px}.case-inventory-item p,.case-inventory-item button{font-size:17px}
+.case-hero span{font-size:16px;letter-spacing:.04em}
+@media(max-width:700px){
+ .cases-dialog .case-toolbar{display:flex;flex-direction:column;align-items:stretch;gap:0}
+ .cases-dialog .case-toolbar nav{width:100%;flex:0 0 auto;justify-content:space-between}
+ .cases-dialog .case-wallet{width:100%;display:flex;align-items:center;justify-content:space-between;flex:0 0 auto;padding:6px 0 12px}
+ .case-wallet .case-parts{font-size:17px}.case-wallet>strong{font-size:24px}
+ .case-result .case-loot>span{display:none}.case-result h4{font-size:20px}.case-result p,.case-result button{font-size:17px}
+ .case-hero>div{max-width:75%}.case-hero span{font-size:16px;letter-spacing:0}
+ .case-choices button>span:last-child>span{font-size:17px}
 }

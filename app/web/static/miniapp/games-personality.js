@@ -18,7 +18,7 @@
         hill: 'Дистанция, м',
         bubbles: 'Очки',
         sort: 'Решено',
-        words: 'Слова'
+        words: 'Слова', ocean:'Спасено',slap:'Очки',plane:'Дистанция, м',menagerie:'Очки'
     };
     const stamps = {
         orbit: '<circle cx="120" cy="110" r="94" fill="var(--play-wash)"/><circle cx="120" cy="110" r="83" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4 5"/><ellipse cx="120" cy="110" rx="111" ry="27" fill="none" stroke="currentColor" opacity=".25" transform="rotate(-20 120 110)"/>',
@@ -53,7 +53,7 @@
             '"': '&quot;',
             "'": '&#39;'
         } [c]));
-        return `<div class="game-score-prop prop-${game}" style="--score-size:${size}px"><svg viewBox="0 0 240 220" aria-hidden="true">${stamps[game]}</svg><h3>${Number(value)}<span>${safeUnit}</span></h3></div>`;
+        return `<div class="game-score-prop prop-${game}" style="--score-size:${size}px"><svg viewBox="0 0 240 220" aria-hidden="true">${stamps[game]||'<path d="m120 22 27 55 61 9-44 43 10 61-54-29-54 29 10-61-44-43 61-9Z" fill="#e7c67d"/>'}</svg><h3>${Number(value)}<span>${safeUnit}</span></h3></div>`;
     }
 
     function backdrop(c, id, w, options={}) {

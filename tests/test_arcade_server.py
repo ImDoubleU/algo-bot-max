@@ -89,6 +89,10 @@ def test_shared_world_replays_exactly_independent_of_frame_batches(game):
         "bubbles": "send({type:'shoot',x:180,y:50})",
         "sort": "send(w.sortSolution[0])",
         "words": "send({type:'word',value:w.wordPack.answers[0]})",
+        "ocean": "send({type:'steer',x:.5,y:-1})",
+        "slap": "send({type:'ability'})",
+        "plane": "send({type:'launch'});send({type:'flight',tilt:0,boost:true})",
+        "menagerie": "send({type:'steer',x:.5,y:-1})",
     }
     result = trace(setup, "W.advance(w,10);" + actions[game] + ";W.advance(w,120)")
     assert arcade_runtime.verify(setup, result["events"], result["ticks"]) == result["report"]
@@ -208,7 +212,13 @@ def verified(store, player, game, score, device="keyboard", detail=None):
         "rankScore": score,
         "level": 3,
         "timeMs": 60000,
-        "details": {"accuracy": 100, "reactionMs": 300, "mistakes": 0, **(detail or {})},
+        "details": {
+            "accuracy": 100,
+            "reactionMs": 300,
+            "mistakes": 0,
+            **({"frontierRules": 1} if game == "evolve" else {}),
+            **(detail or {}),
+        },
     }
     with store.db() as db:
         db.execute(
@@ -433,7 +443,7 @@ def test_all_games_start_without_pause_finish_naturally_and_fit(arcade, width):
             page.locator("[data-benchmark-react]").click()
         page.locator('[data-mode="ranked"]').click()
         if game == "sort":
-            page.locator('[data-sort-race-start]').click()
+            page.locator("[data-sort-race-start]").click()
         page.wait_for_function("document.querySelector('#gameClock')?.textContent.length>0")
         assert page.locator(".arcade-pause,#gameFinish").count() == 0
         assert page.locator(".game-leaders-button").is_hidden()
@@ -508,10 +518,33 @@ def test_first_time_tutorial_requires_a_successful_action(arcade, game):
         box = canvas.bounding_box()
         page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] * 220 / 430)
     elif game == "evolve":
-        page.locator('[data-cell="0"]').click()
-        page.locator('[data-cell="1"]').click()
-        page.locator('[data-cell="1"]').click()
-        page.locator('[data-rescue="0"]').click()
+        canvas = page.locator(".frontier-field canvas")
+        box = canvas.bounding_box()
+        canvas.click(position=dict(x=box["width"] * 50 / 360, y=box["height"] * 305 / 430))
+        page.wait_for_timeout(200)
+        canvas.click(position=dict(x=box["width"] * 50 / 360, y=box["height"] * 345 / 430))
+    elif game == "ocean":
+        page.keyboard.down("ArrowUp")
+        page.wait_for_timeout(750)
+        page.keyboard.up("ArrowUp")
+        page.keyboard.down("ArrowDown")
+        page.wait_for_timeout(1100)
+        page.keyboard.up("ArrowDown")
+    elif game == "slap":
+        page.keyboard.down("ArrowUp")
+        page.wait_for_timeout(700)
+        page.keyboard.up("ArrowUp")
+        page.keyboard.press("Space")
+    elif game == "plane":
+        page.locator("[data-launch]").click()
+        page.keyboard.down("Space")
+        page.locator("[data-learning-play]").wait_for()
+        page.keyboard.up("Space")
+    elif game == "menagerie":
+        page.keyboard.down("ArrowUp")
+        page.locator("[data-trait=speed]").wait_for()
+        page.keyboard.up("ArrowUp")
+        page.locator("[data-trait=speed]").click()
     elif game == "typing":
         page.locator(".typing-input").press_sequentially("кот")
     elif game == "debug":

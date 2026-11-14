@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640"><defs><linearGradient id="bg" x2="0" y2="1"><stop stop-color="#163e3f"/><stop offset="1" stop-color="#91ba7a"/></linearGradient><filter id="shadow" x="-50%" y="-50%" width="200%" height="220%"><feDropShadow dx="0" dy="15" stdDeviation="12" flood-color="#153f4d" flood-opacity=".27"/></filter></defs><path fill="url(#bg)" d="M0 0h960v640H0z"/><ellipse cx="0" cy="580" rx="100" ry="170" fill="#326957"/><ellipse cx="120" cy="520" rx="100" ry="170" fill="#487e59"/><ellipse cx="240" cy="460" rx="100" ry="170" fill="#679762"/><ellipse cx="360" cy="580" rx="100" ry="170" fill="#326957"/><ellipse cx="480" cy="520" rx="100" ry="170" fill="#487e59"/><ellipse cx="600" cy="460" rx="100" ry="170" fill="#679762"/><ellipse cx="720" cy="580" rx="100" ry="170" fill="#326957"/><ellipse cx="840" cy="520" rx="100" ry="170" fill="#487e59"/><ellipse cx="960" cy="460" rx="100" ry="170" fill="#679762"/><g transform="translate(250 395) scale(0.58)" filter="url(#shadow)">
+    <ellipse cy="110" rx="110" ry="21" fill="#0c344d" opacity=".25"/>
+    <path d="M-62-48Q-112-130-78-134L-28-81M62-48Q112-130 78-134L28-81" fill="#efd190" stroke="#365b57" stroke-width="9"/>
+    <rect x="-103" y="-88" width="206" height="195" rx="75" fill="#efd190" stroke="#365b57" stroke-width="7"/>
+    <path d="M-79-45Q-52-90-20-77" fill="none" stroke="#fff" stroke-width="12" opacity=".32" stroke-linecap="round"/>
+    <ellipse cx="-35" cy="-5" rx="27" ry="35" fill="#fff4d5"/><ellipse cx="35" cy="-5" rx="27" ry="35" fill="#fff4d5"/>
+    <ellipse cx="-30" cy="0" rx="10" ry="15" fill="#244752"/><ellipse cx="40" cy="0" rx="10" ry="15" fill="#244752"/>
+    <circle cx="-33" cy="-8" r="4" fill="white"/><circle cx="37" cy="-8" r="4" fill="white"/>
+    <path d="M-20 49Q0 72 24 47" fill="none" stroke="#365b57" stroke-width="8" stroke-linecap="round"/>
+    <ellipse cx="-72" cy="36" rx="17" ry="9" fill="#edb6a0"/><ellipse cx="72" cy="36" rx="17" ry="9" fill="#edb6a0"/>
+    </g><g transform="translate(510 305) scale(1.04)" filter="url(#shadow)">
+    <ellipse cy="110" rx="110" ry="21" fill="#0c344d" opacity=".25"/>
+    <path d="M-62-48Q-112-130-78-134L-28-81M62-48Q112-130 78-134L28-81" fill="#acd592" stroke="#365b57" stroke-width="9"/>
+    <rect x="-103" y="-88" width="206" height="195" rx="75" fill="#acd592" stroke="#365b57" stroke-width="7"/>
+    <path d="M-79-45Q-52-90-20-77" fill="none" stroke="#fff" stroke-width="12" opacity=".32" stroke-linecap="round"/>
+    <ellipse cx="-35" cy="-5" rx="27" ry="35" fill="#fff4d5"/><ellipse cx="35" cy="-5" rx="27" ry="35" fill="#fff4d5"/>
+    <ellipse cx="-30" cy="0" rx="10" ry="15" fill="#244752"/><ellipse cx="40" cy="0" rx="10" ry="15" fill="#244752"/>
+    <circle cx="-33" cy="-8" r="4" fill="white"/><circle cx="37" cy="-8" r="4" fill="white"/>
+    <path d="M-20 49Q0 72 24 47" fill="none" stroke="#365b57" stroke-width="8" stroke-linecap="round"/>
+    <ellipse cx="-72" cy="36" rx="17" ry="9" fill="#edb6a0"/><ellipse cx="72" cy="36" rx="17" ry="9" fill="#edb6a0"/>
+    </g><g transform="translate(800 200) scale(1.25)" filter="url(#shadow)">
+    <ellipse cy="110" rx="110" ry="21" fill="#0c344d" opacity=".25"/>
+    <path d="M-62-48Q-112-130-78-134L-28-81M62-48Q112-130 78-134L28-81" fill="#a6bcdf" stroke="#365b57" stroke-width="9"/>
+    <rect x="-103" y="-88" width="206" height="195" rx="75" fill="#a6bcdf" stroke="#365b57" stroke-width="7"/>
+    <path d="M-79-45Q-52-90-20-77" fill="none" stroke="#fff" stroke-width="12" opacity=".32" stroke-linecap="round"/>
+    <ellipse cx="-35" cy="-5" rx="27" ry="35" fill="#fff4d5"/><ellipse cx="35" cy="-5" rx="27" ry="35" fill="#fff4d5"/>
+    <ellipse cx="-30" cy="0" rx="10" ry="15" fill="#244752"/><ellipse cx="40" cy="0" rx="10" ry="15" fill="#244752"/>
+    <circle cx="-33" cy="-8" r="4" fill="white"/><circle cx="37" cy="-8" r="4" fill="white"/>
+    <path d="M-20 49Q0 72 24 47" fill="none" stroke="#365b57" stroke-width="8" stroke-linecap="round"/>
+    <ellipse cx="-72" cy="36" rx="17" ry="9" fill="#edb6a0"/><ellipse cx="72" cy="36" rx="17" ry="9" fill="#edb6a0"/>
+    <path d="m-30-92 8-46 24 25 24-25 10 46" fill="#f3cd75" stroke="#9d7948" stroke-width="6"/></g><path d="m300 380 65-30m-8-12 13 10-7 16M607 240l59-29m-9-11 14 10-7 17" stroke="#fff2ad" stroke-width="13" fill="none" stroke-linecap="round"/></svg>

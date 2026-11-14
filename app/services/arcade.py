@@ -39,6 +39,10 @@ GAMES = {
     "bubbles": (200, [1500, 3000, 5000]),
     "sort": (3, [4, 5, 5]),
     "words": (10, [24, 32, 40]),
+    "ocean": (120, [360, 600, 900]),
+    "slap": (150, [450, 750, 1200]),
+    "plane": (600, [4000, 9000, 15000]),
+    "menagerie": (1200, [4000, 8000, 16000]),
 }
 POINTS = [100, 80, 65, 55, 45, 35, 25, 20, 15, 10]
 PRIZES = [100, 75, 50]
@@ -423,7 +427,15 @@ class ArcadeStore:
             if game in ("typing", "debug"):
                 setup["lessonVersion"] = 2
             if game == "evolve":
-                setup["evolveRules"] = 2
+                setup["evolveRules"] = 3
+            if game == "plane":
+                latest = db.execute(
+                    "SELECT report FROM arcade_runs WHERE player=? AND game='plane' "
+                    "AND json_extract(report,'$.details.blueprint') IS NOT NULL "
+                    "ORDER BY created DESC,rowid DESC LIMIT 1", (player,),
+                ).fetchone()
+                if latest:
+                    setup["planeBuild"] = json.loads(latest[0]).get("details", {}).get("blueprint")
             if journey:
                 setup["journey"] = journey
                 seed = int.from_bytes(
@@ -707,6 +719,8 @@ class ArcadeStore:
             if game == "drop" and details.get("physics") != "lab6":
                 continue
             if game == "sort" and details.get("sortCompetition") != 1:
+                continue
+            if game == "evolve" and details.get("frontierRules") != 1:
                 continue
             key = (
                 -row["rank_score"],

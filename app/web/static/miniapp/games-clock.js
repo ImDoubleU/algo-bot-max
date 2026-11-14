@@ -3,7 +3,7 @@
   'use strict';
   const limits={typing:60,kopatych:90,words:180};
   function intermission(w) {
-    return w.id==='sort'&&!!w.sortWon||w.id==='memory'&&!!w.between||
+    return window.ArcadeFrontiers?.frozen(w)||w.id==='sort'&&!!w.sortWon||w.id==='memory'&&!!w.between||
       w.id==='debug'&&!!w.answered||w.id==='react'&&w.signal==='feedback';
   }
   function time(w) {return w.clockRules>=2?(w.activeTicks||0)/60:w.time;}
@@ -13,6 +13,8 @@
   function view(w) {
     const elapsed=time(w),paused=w.clockRules>=2&&intermission(w);
     let limit=w.journey?.seconds||w.roundSeconds||limits[w.id]||
+      (window.ArcadeFrontiers?.has(w.id)?180:0)||
+      (w.id==='evolve'&&w.frontier?240:0)||
       (w.id==='evolve'&&w.expedition?180:0),value;
     let kind=limit?'countdown':'elapsed',label=limit?'Осталось':'Прошло';
     if(w.id==='memory'&&!w.journey){kind='countdown';label='На уровень';value=w.left;}

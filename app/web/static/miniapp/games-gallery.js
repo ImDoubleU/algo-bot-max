@@ -8,6 +8,7 @@
     hill:'#d6c580',bubbles:'#9bd3df',sort:'#b2d7b9',words:'#e4c591'
   };
   function cover(id, className = '', eager = false) {
+    if(window.ArcadeFrontiers?.has(id))return `<img class="arcade-cover ${className}" src="/miniapp/static/frontiers/${id}.svg" width="960" height="640" alt="" loading="${eager?'eager':'lazy'}">`;
     if (!Object.hasOwn(palettes,id)) return '';
     const sizes=eager||className==='arcade-feature-cover'?'(max-width:960px) 100vw, 960px':'(max-width:700px) 100vw, (max-width:1100px) 45vw, 360px';
     return `<img class="arcade-cover ${className}" src="/miniapp/static/covers/${id}-480.webp" srcset="/miniapp/static/covers/${id}-480.webp 480w, /miniapp/static/covers/${id}-960.webp 960w" sizes="${sizes}" width="960" height="640" alt="" loading="${eager?'eager':'lazy'}" decoding="async">`;

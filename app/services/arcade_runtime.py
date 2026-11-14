@@ -20,6 +20,7 @@ def sources() -> str:
             "games-lessons.js",
             "games-sort-levels.js",
             "games-expedition.js",
+            "games-frontiers.js",
             "games-extra.js",
             "games-hill.js",
             "games-engine.js",

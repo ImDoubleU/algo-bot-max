@@ -13,11 +13,11 @@
     },
     evolve: {
       name: 'Атлас космозверей',
-      chapters: ['Первая клетка', 'Тёплый океан', 'Папоротниковый лес', 'Ледяные пещеры', 'Летающие острова', 'Новый вид'],
+      chapters: ['Лесной сигнал', 'Мшистый берег', 'Туманная долина', 'Ледяной предел', 'Парящие острова', 'Дальний сектор'],
       goals: [24, 64, 128, 256, 512, 1024],
-      power: 'Катализатор',
-      action: 'Поднять уровень одного младшего зверя',
-      rules: ['Объединяй одинаковых', 'Охота за редким видом', 'Короткий поиск пары', 'Цепочка открытий'],
+      power: 'Запас воздуха',
+      action: 'Восстановить воздух для вылазки',
+      rules: ['Найди зверя и вернись на базу', 'Исследуй неизвестные клетки', 'Береги запас воздуха', 'Спаси большую команду'],
       reward: 'Страницы атласа'
     },
     bugs: {
@@ -183,6 +183,8 @@
   }
 
   const legacyLessons={typing:specs.typing,debug:specs.debug};
+  Object.assign(specs,window.ArcadeFrontiers?.specs()||{});
+  for(const id of window.ArcadeFrontiers?.games.map(g=>g.id)||[])limit[id]=180;
   specs.typing={...specs.typing,chapters:ArcadeLessons.typingTopics,
     goals:[25,40,60,80,100,120,150,180]};
   specs.debug={...specs.debug,chapters:ArcadeLessons.topics,goals:[2,3,4,4,5,6,7,8]};
@@ -368,6 +370,15 @@
   function power(w, H) {
     const j = w.journey;
     if (!j || w.ended || (j.used >= j.charges && !j.swapSelecting)) return false;
+    if(w.frontier){
+      const f=w.frontier;
+      if(w.id==='plane')f.fuel=Math.min(100,f.fuel+35);
+      else if(w.id==='evolve')f.oxygen=f.maxOxygen;
+      else if(w.id==='ocean')f.air=Math.min(100,f.air+35);
+      else if(w.id==='menagerie')f.health=Math.min(5,f.health+1);
+      else f.invincible=3;
+      j.used++;j.inputs++;H.emit(w,'power');return true;
+    }
     if (w.id === 'orbit') {
       if (j.correction) return false;
       j.correction = true;
@@ -552,6 +563,7 @@
     if (w.id === 'react') return [w.misses <= 1, w.misses === 0 && (w.details.reactionMs || 999) <= 350];
     if (w.id === 'memory') return [w.moves <= w.score * 3, w.moves <= w.score * 2];
     if (w.id === '2048') return [j.movesUsed <= j.moves * .9, j.movesUsed <= j.moves * .7];
+    if (w.id === 'evolve'&&w.frontier) return [w.frontier.oxygen>=8,w.frontier.saved>=Math.ceil(j.goal/24)&&j.used===0];
     if (w.id === 'evolve') return [w.merges <= Math.ceil(j.goal / 4), Math.max(...w.cells,...(w.expedition?.discovered||[])) >= j.species];
     if (w.id === 'drop') return [j.movesUsed <= Math.ceil(j.goal / 8) + 10, j.movesUsed <= Math.ceil(j.goal / 12) + 8];
     if (w.id === 'blocks') return [w.lines >= Math.ceil(j.goal / 200), (j.bestCombo || 0) >= 2];

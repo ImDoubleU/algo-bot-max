@@ -18,6 +18,10 @@
     bubbles: ['#0a3748', '#83e6df', '#e6ffff', 'aquarium'],
     sort: ['#2a5355', '#8ed4c1', '#f0fffa', 'laboratory'],
     words: ['#62452d', '#f1d18e', '#fff6e7', 'desk'],
+    ocean:['#143e57','#f5d385','#f3f8e1','ocean'],
+    slap:['#353457','#f5d385','#fff5dd','arena'],
+    plane:['#324a53','#f5d385','#fff5dd','flight'],
+    menagerie:['#234e3c','#e4df8d','#f4f9dd','wild'],
   };
 
   function decorate(run) {
@@ -30,7 +34,7 @@
       '2048': 'playroom-v2.webp', drop: 'orbit.webp', memory: 'felt.svg',
       react: 'expedition.webp', kopatych: 'expedition.webp', blocks: 'playroom-v2.webp',
       hill: 'meadow.webp', bubbles: 'bubbles.webp', sort: 'laboratory-v2.webp', words: 'playroom-v2.webp' };
-    dialog.style.setProperty('--interior-scene', `url('/miniapp/static/worlds/${scenes[id]}')`);
+    dialog.style.setProperty('--interior-scene', `url('/miniapp/static/${scenes[id]?'worlds/'+scenes[id]:'frontiers/'+id+'.svg'}')`);
     dialog.dataset.interior = theme[3];
     for (const [key, value] of [['--interior-ink', theme[0]], ['--interior-accent', theme[1]],
         ['--interior-text', theme[2]], ['--interior-cover', `url('/miniapp/static/covers/${id}-960.webp')`]]) {

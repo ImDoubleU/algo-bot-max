@@ -259,7 +259,8 @@
         if (window.ArcadeExtras?.has(w.id)) ArcadeExtras.create(w, helpers());
         if (w.id === 'hill') ArcadeHill.create(w, setup);
         if (w.journey) ArcadeJourney.create(w, helpers());
-        if(w.id==='evolve'&&setup.evolveRules>=2)ArcadeExpedition.create(w);
+        if(w.id==='evolve'&&setup.evolveRules===2)ArcadeExpedition.create(w);
+        if(window.ArcadeFrontiers?.has(w.id)||w.id==='evolve'&&setup.evolveRules>=3)ArcadeFrontiers.create(w,setup,helpers());
         return w;
     }
 
@@ -596,7 +597,7 @@
                 }
             } else w.angle += DT * c.orbitSpeed * (c.level >= 5 && Math.floor(w.score / 5) % 2 ? -1 : 1);
         }
-        if (w.id === "evolve") {
+        if (w.id === "evolve" && !w.frontier) {
             w.left -= DT;
             if (w.left <= 0) end(w, "Время на поиск пары вышло");
         }
@@ -684,6 +685,7 @@
         if (window.ArcadeExtras?.has(w.id)) ArcadeExtras.step(w, helpers());
         if (w.id === 'hill') ArcadeHill.step(w, helpers());
         if(w.expedition)ArcadeExpedition.step(w,helpers());
+        if(w.frontier)ArcadeFrontiers.step(w,helpers());
         w.rankScore = w.id === "2048" ? w.points || 0 : w.score;
         if (w.journey) ArcadeJourney.step(w, helpers());
         if (w.roundSeconds && ArcadeClock.time(w) >= w.roundSeconds) end(w, "Время соревнования вышло");
@@ -715,6 +717,7 @@
         if (w.ended) return false;
         if (w.id === 'hill') return ArcadeHill.input(w,a);
         const c = progress(w);
+        if(w.frontier)return ArcadeFrontiers.input(w,a,helpers());
         if(w.expedition)return ArcadeExpedition.input(w,a,helpers());
         if (window.ArcadeExtras?.has(w.id)) return ArcadeExtras.input(w, a, helpers());
         if (a.type === "undo") {

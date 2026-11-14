@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.services.arcade import GAMES
 from tests.test_arcade_pilot_ui import pilot_page
 from tests.test_arcade_server import arcade as arcade
 
@@ -25,7 +26,7 @@ def test_pilot_loads_on_webkit_when_iframe_storage_is_unavailable(arcade, blocke
         });""")
     pilot_page(page)
     page.locator(".game-card").first.wait_for()
-    assert page.locator(".game-card").count() == 16
+    assert page.locator(".game-card").count() == len(GAMES)
     page.locator('.game-card[data-game="sort"]').click()
     page.locator('[data-mode="practice"]').click()
     page.locator(".sort-tubes").wait_for()

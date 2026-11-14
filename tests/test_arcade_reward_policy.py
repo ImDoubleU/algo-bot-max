@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.services.arcade import ArcadeError
+from app.services.arcade import GAMES, ArcadeError
 from tests.test_arcade_pilot_ui import pilot_page
 from tests.test_arcade_server import arcade as arcade
 from tests.test_arcade_server import browser as browser
@@ -62,7 +62,7 @@ def test_staff_ui_has_no_money_chips_claim_buttons_or_season_prizes(arcade):
     assert page.locator('.game-reward,[data-tab="rewards"]').count() == 0
     assert "AC" not in page.locator("#gamesRoot").inner_text()
     page.locator('[data-tab="achievements"]').click()
-    assert page.locator(".game-achievement").count() == 48
+    assert page.locator(".game-achievement").count() == len(GAMES) * 3
     assert page.locator("[data-claim]").count() == 0
     assert "AC" not in page.locator("#gamesRoot").inner_text()
     page.locator('.games-tabs [data-tab="leaders"]').click()
